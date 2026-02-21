@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useFileStore } from '../../stores/file-store';
+import { CodeEditor } from '../editor/CodeEditor';
 
 interface ContextPanelProps {
   onSave?: (path: string, content: string) => void;
@@ -82,11 +83,10 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
             </ReactMarkdown>
           </div>
         ) : (
-          <textarea
+          <CodeEditor
             value={openFile.content}
-            onChange={(e) => updateContent(e.target.value)}
-            className="w-full h-full bg-transparent p-4 text-sm text-gray-200 font-mono resize-none focus:outline-none"
-            spellCheck={false}
+            language={openFile.language}
+            onChange={updateContent}
           />
         )}
       </div>

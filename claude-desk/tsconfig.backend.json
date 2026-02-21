@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "composite": true,
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -10,5 +11,7 @@
     "rootDir": "backend",
     "declaration": true
   },
-  "include": ["backend"]
+  "include": [
+    "backend"
+  ]
 }

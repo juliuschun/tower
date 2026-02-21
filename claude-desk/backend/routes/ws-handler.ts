@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import { executeQuery, abortSession, getClaudeSessionId } from '../services/claude-sdk.js';
-import { getFileTree, readFile, writeFile } from '../services/file-system.js';
+import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken } from '../services/auth.js';
 import { config } from '../config.js';
 
@@ -15,16 +15,30 @@ interface WsClient {
 
 const clients = new Map<string, WsClient>();
 
+function broadcast(data: any) {
+  const payload = JSON.stringify(data);
+  for (const client of clients.values()) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
 export function setupWebSocket(server: Server) {
   const wss = new WebSocketServer({
     server,
     path: '/ws',
-    verifyClient: (info) => {
+    verifyClient: (info: { req: import('http').IncomingMessage }) => {
       if (!config.authEnabled) return true;
       const url = new URL(info.req.url || '', 'ws://localhost');
       const token = url.searchParams.get('token');
       return !!verifyWsToken(token);
     },
+  });
+
+  // Setup chokidar file watcher → broadcast changes
+  setupFileWatcher(config.workspaceRoot, (event: FileChangeEvent, filePath: string) => {
+    broadcast({ type: 'file_changed', event, path: filePath });
   });
 
   wss.on('connection', (ws, req) => {

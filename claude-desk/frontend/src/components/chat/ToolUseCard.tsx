@@ -79,11 +79,11 @@ export function ToolUseCard({ name, input, result, onFileClick, compact }: ToolU
       {/* Header — always visible */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors"
+        className={`w-full flex items-center gap-3 hover:bg-white/[0.03] transition-colors ${compact ? 'px-3 py-2' : 'px-4 py-3'}`}
       >
         {/* Icon */}
-        <div className={`w-7 h-7 rounded-lg ${meta.bg} border ${meta.border} flex items-center justify-center shrink-0`}>
-          <svg className={`w-4 h-4 ${meta.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className={`${compact ? 'w-5 h-5 rounded-md' : 'w-7 h-7 rounded-lg'} ${meta.bg} border ${meta.border} flex items-center justify-center shrink-0`}>
+          <svg className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} ${meta.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             {meta.icon}
           </svg>
         </div>
@@ -107,7 +107,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact }: ToolU
               </span>
             )}
           </div>
-          <div className="text-[12px] text-gray-500 truncate mt-0.5">{summary}</div>
+          {!compact && <div className="text-[12px] text-gray-500 truncate mt-0.5">{summary}</div>}
         </div>
 
         {/* Expand chevron */}

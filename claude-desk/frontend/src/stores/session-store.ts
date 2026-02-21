@@ -17,6 +17,8 @@ interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   sidebarOpen: boolean;
+  sidebarTab: 'sessions' | 'files';
+  searchQuery: string;
 
   setSessions: (sessions: SessionMeta[]) => void;
   setActiveSessionId: (id: string | null) => void;
@@ -24,12 +26,16 @@ interface SessionState {
   removeSession: (id: string) => void;
   updateSessionMeta: (id: string, updates: Partial<SessionMeta>) => void;
   setSidebarOpen: (open: boolean) => void;
+  setSidebarTab: (tab: 'sessions' | 'files') => void;
+  setSearchQuery: (query: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
   activeSessionId: null,
   sidebarOpen: true,
+  sidebarTab: 'sessions',
+  searchQuery: '',
 
   setSessions: (sessions) => set({ sessions }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
@@ -40,4 +46,6 @@ export const useSessionStore = create<SessionState>((set) => ({
       sessions: s.sessions.map((ss) => (ss.id === id ? { ...ss, ...updates } : ss)),
     })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setSidebarTab: (tab) => set({ sidebarTab: tab }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
 }));

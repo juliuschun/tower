@@ -9,6 +9,7 @@ export interface FileEntry {
   extension?: string;
   children?: FileEntry[];
   isExpanded?: boolean;
+  isLoading?: boolean;
 }
 
 export interface OpenFile {
@@ -32,9 +33,12 @@ interface FileState {
   setContextPanelOpen: (open: boolean) => void;
   setContextPanelTab: (tab: 'preview' | 'editor' | 'python') => void;
   toggleDirectory: (path: string) => void;
+  setDirectoryChildren: (dirPath: string, children: FileEntry[]) => void;
+  setDirectoryLoading: (dirPath: string, loading: boolean) => void;
+  handleFileChange: (event: string, filePath: string) => void;
 }
 
-export const useFileStore = create<FileState>((set) => ({
+export const useFileStore = create<FileState>((set, get) => ({
   tree: [],
   currentPath: '',
   openFile: null,
@@ -48,10 +52,36 @@ export const useFileStore = create<FileState>((set) => ({
     set((s) => s.openFile ? { openFile: { ...s.openFile, content, modified: true } } : {}),
   setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
   setContextPanelTab: (tab) => set({ contextPanelTab: tab }),
+
   toggleDirectory: (dirPath) =>
     set((s) => ({
       tree: toggleDir(s.tree, dirPath),
     })),
+
+  setDirectoryChildren: (dirPath, children) =>
+    set((s) => ({
+      tree: setChildren(s.tree, dirPath, children),
+    })),
+
+  setDirectoryLoading: (dirPath, loading) =>
+    set((s) => ({
+      tree: setLoading(s.tree, dirPath, loading),
+    })),
+
+  handleFileChange: (event, filePath) => {
+    const state = get();
+    // Find parent directory of the changed file
+    const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+
+    // If the change is in a currently expanded directory, we need a refresh
+    // The tree will be refreshed via requestFileTree from the hook
+    // For now, mark the tree as needing refresh by triggering a re-render
+    if (event === 'unlink' || event === 'unlinkDir') {
+      // Remove from tree
+      set({ tree: removeFromTree(state.tree, filePath) });
+    }
+    // For 'add', 'addDir', 'change' — the parent will be re-fetched
+  },
 }));
 
 function toggleDir(entries: FileEntry[], dirPath: string): FileEntry[] {
@@ -64,4 +94,39 @@ function toggleDir(entries: FileEntry[], dirPath: string): FileEntry[] {
     }
     return e;
   });
+}
+
+function setChildren(entries: FileEntry[], dirPath: string, children: FileEntry[]): FileEntry[] {
+  return entries.map((e) => {
+    if (e.path === dirPath) {
+      return { ...e, children, isExpanded: true, isLoading: false };
+    }
+    if (e.children) {
+      return { ...e, children: setChildren(e.children, dirPath, children) };
+    }
+    return e;
+  });
+}
+
+function setLoading(entries: FileEntry[], dirPath: string, loading: boolean): FileEntry[] {
+  return entries.map((e) => {
+    if (e.path === dirPath) {
+      return { ...e, isLoading: loading };
+    }
+    if (e.children) {
+      return { ...e, children: setLoading(e.children, dirPath, loading) };
+    }
+    return e;
+  });
+}
+
+function removeFromTree(entries: FileEntry[], filePath: string): FileEntry[] {
+  return entries
+    .filter((e) => e.path !== filePath)
+    .map((e) => {
+      if (e.children) {
+        return { ...e, children: removeFromTree(e.children, filePath) };
+      }
+      return e;
+    });
 }

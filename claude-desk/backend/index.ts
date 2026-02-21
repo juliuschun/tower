@@ -7,6 +7,7 @@ import { config } from './config.js';
 import apiRouter from './routes/api.js';
 import { setupWebSocket } from './routes/ws-handler.js';
 import { closeDb } from './db/schema.js';
+import { stopFileWatcher } from './services/file-system.js';
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
 delete process.env.CLAUDECODE;
@@ -45,12 +46,14 @@ server.listen(config.port, config.host, () => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
+  stopFileWatcher();
   closeDb();
   server.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
+  stopFileWatcher();
   closeDb();
   server.close();
   process.exit(0);

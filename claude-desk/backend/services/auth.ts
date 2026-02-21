@@ -19,7 +19,7 @@ export function verifyPassword(password: string, hash: string): boolean {
 }
 
 export function generateToken(payload: JwtPayload): string {
-  return jwt.sign(payload, config.jwtSecret, { expiresIn: config.tokenExpiry });
+  return jwt.sign(payload, config.jwtSecret, { expiresIn: config.tokenExpiry as any });
 }
 
 export function verifyToken(token: string): JwtPayload | null {

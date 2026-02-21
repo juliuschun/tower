@@ -8,12 +8,60 @@ interface FileTreeProps {
   depth?: number;
 }
 
-const fileIcons: Record<string, string> = {
-  ts: '🟦', tsx: '🟦', js: '🟨', jsx: '🟨',
-  py: '🐍', md: '📝', json: '📋', yaml: '⚙️', yml: '⚙️',
-  html: '🌐', css: '🎨', sh: '⚡', sql: '🗄️',
-  txt: '📄', csv: '📊', log: '📋',
+// SVG icon components
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg className={`w-3 h-3 text-gray-500 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
+      fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function FolderIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg className="w-4 h-4 text-yellow-400/80" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v1H2V6z" />
+      <path fillRule="evenodd" d="M2 9h16l-1.5 6H3.5L2 9z" clipRule="evenodd" />
+    </svg>
+  ) : (
+    <svg className="w-4 h-4 text-yellow-400/60" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+    </svg>
+  );
+}
+
+const fileIconColors: Record<string, string> = {
+  ts: 'text-blue-400', tsx: 'text-blue-400',
+  js: 'text-yellow-300', jsx: 'text-yellow-300',
+  py: 'text-green-400',
+  md: 'text-gray-400',
+  json: 'text-yellow-500',
+  yaml: 'text-orange-400', yml: 'text-orange-400',
+  html: 'text-orange-300',
+  css: 'text-blue-300',
+  sh: 'text-green-300',
+  sql: 'text-purple-300',
 };
+
+function FileIcon({ extension }: { extension?: string }) {
+  const colorClass = fileIconColors[extension || ''] || 'text-gray-500';
+  return (
+    <svg className={`w-4 h-4 ${colorClass}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
+function LoadingSpinner() {
+  return (
+    <svg className="w-3 h-3 text-primary-400 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
 
 export function FileTree({ entries, onFileClick, onDirectoryClick, depth = 0 }: FileTreeProps) {
   return (
@@ -32,16 +80,13 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, depth = 0 }: 
           >
             {entry.isDirectory ? (
               <>
-                <svg className={`w-3 h-3 text-gray-500 transition-transform ${entry.isExpanded ? 'rotate-90' : ''}`}
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                <span>{entry.isExpanded ? '📂' : '📁'}</span>
+                {entry.isLoading ? <LoadingSpinner /> : <ChevronIcon expanded={!!entry.isExpanded} />}
+                <FolderIcon open={!!entry.isExpanded} />
               </>
             ) : (
               <>
                 <span className="w-3" />
-                <span>{fileIcons[entry.extension || ''] || '📄'}</span>
+                <FileIcon extension={entry.extension} />
               </>
             )}
             <span className="truncate">{entry.name}</span>

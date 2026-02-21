@@ -11,12 +11,23 @@ import { useFileStore } from './stores/file-store';
 
 const API_BASE = '/api';
 
+function findEntry(entries: import('./stores/file-store').FileEntry[], path: string): import('./stores/file-store').FileEntry | null {
+  for (const e of entries) {
+    if (e.path === path) return e;
+    if (e.children) {
+      const found = findEntry(e.children, path);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [authStatus, setAuthStatus] = useState<{ authEnabled: boolean; hasUsers: boolean } | null>(null);
   const [authError, setAuthError] = useState('');
 
-  const { sendMessage, abort, requestFile, saveFile, connected } = useClaudeChat();
+  const { sendMessage, abort, requestFile, requestFileTree, saveFile, connected } = useClaudeChat();
 
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const setSidebarOpen = useSessionStore((s) => s.setSidebarOpen);
@@ -114,6 +125,46 @@ function App() {
     requestFile(path);
   }, [requestFile]);
 
+  const handleDirectoryClick = useCallback((dirPath: string) => {
+    const fileStore = useFileStore.getState();
+    const entry = findEntry(fileStore.tree, dirPath);
+    if (entry && entry.isExpanded) {
+      // Collapse
+      fileStore.toggleDirectory(dirPath);
+    } else {
+      // Expand: set loading, fetch children, then set them
+      fileStore.setDirectoryLoading(dirPath, true);
+      fileStore.toggleDirectory(dirPath);
+      requestFileTree(dirPath);
+    }
+  }, [requestFileTree]);
+
+  const handleRenameSession = useCallback(async (id: string, name: string) => {
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`${API_BASE}/sessions/${id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ name }),
+      });
+      useSessionStore.getState().updateSessionMeta(id, { name });
+    } catch { }
+  }, [token]);
+
+  const handleToggleFavorite = useCallback(async (id: string, favorite: boolean) => {
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`${API_BASE}/sessions/${id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ favorite }),
+      });
+      useSessionStore.getState().updateSessionMeta(id, { favorite });
+    } catch { }
+  }, [token]);
+
   const handleSaveFile = useCallback((path: string, content: string) => {
     saveFile(path, content);
   }, [saveFile]);
@@ -151,6 +202,11 @@ function App() {
             onNewSession={handleNewSession}
             onSelectSession={handleSelectSession}
             onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
+            onToggleFavorite={handleToggleFavorite}
+            onFileClick={handleFileClick}
+            onDirectoryClick={handleDirectoryClick}
+            onRequestFileTree={() => requestFileTree()}
           />
         )}
 

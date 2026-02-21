@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { watch, type FSWatcher } from 'chokidar';
 import { config } from '../config.js';
 
 export interface FileEntry {
@@ -87,4 +88,50 @@ export function writeFile(filePath: string, content: string): void {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+// ───── File Watcher (chokidar) ─────
+
+let watcher: FSWatcher | null = null;
+
+export type FileChangeEvent = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+export type FileChangeCallback = (event: FileChangeEvent, filePath: string) => void;
+
+export function setupFileWatcher(rootPath: string, onChange: FileChangeCallback): void {
+  if (watcher) return;
+
+  watcher = watch(rootPath, {
+    ignored: [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/__pycache__/**',
+      '**/.venv/**',
+      '**/dist/**',
+      '**/data/**',
+    ],
+    depth: 3,
+    ignoreInitial: true,
+    persistent: true,
+  });
+
+  const events: FileChangeEvent[] = ['add', 'change', 'unlink', 'addDir', 'unlinkDir'];
+  for (const event of events) {
+    watcher.on(event, (filePath: string) => {
+      onChange(event, filePath);
+    });
+  }
+
+  watcher.on('error', (err: unknown) => {
+    console.error('[FileWatcher] error:', err instanceof Error ? err.message : err);
+  });
+
+  console.log(`[FileWatcher] watching ${rootPath}`);
+}
+
+export function stopFileWatcher(): void {
+  if (watcher) {
+    watcher.close();
+    watcher = null;
+    console.log('[FileWatcher] stopped');
+  }
 }

@@ -13,7 +13,7 @@ export function useClaudeChat() {
     setSystemInfo, setCost, sessionId, claudeSessionId
   } = useChatStore();
 
-  const { setTree } = useFileStore();
+  const { setTree, setDirectoryChildren, handleFileChange } = useFileStore();
 
   const handleMessage = useCallback((data: any) => {
     switch (data.type) {
@@ -121,9 +121,20 @@ export function useClaudeChat() {
         }
         break;
 
-      case 'file_tree':
+      case 'file_tree': {
+        // If this is a subdirectory response, set as children; otherwise set root tree
+        const currentTree = useFileStore.getState().tree;
+        if (currentTree.length > 0 && data.path) {
+          // Check if this path corresponds to an existing directory in the tree
+          const isSubdir = currentTree.some((e: any) => data.path !== e.path);
+          if (isSubdir) {
+            setDirectoryChildren(data.path, data.entries);
+            break;
+          }
+        }
         setTree(data.entries);
         break;
+      }
 
       case 'file_content':
         useFileStore.getState().setOpenFile({
@@ -132,6 +143,10 @@ export function useClaudeChat() {
           language: data.language,
           modified: false,
         });
+        break;
+
+      case 'file_changed':
+        handleFileChange(data.event, data.path);
         break;
 
       case 'error':
@@ -145,7 +160,7 @@ export function useClaudeChat() {
         });
         break;
     }
-  }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree]);
+  }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree, setDirectoryChildren, handleFileChange]);
 
   const { send, connected } = useWebSocket(wsUrl, handleMessage);
 
