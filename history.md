@@ -137,3 +137,52 @@
 ### 총 규모
 - 새 파일 2개, 수정 9개 + App.tsx
 - 빌드 성공, 서버 32354 포트 가동
+
+## 2026-02-22: Phase 3 — 메시지 영속화, 핀보드, 설정 패널, UI 폴리시
+
+### 메시지 영속화
+- **새 파일** `backend/services/message-store.ts` — saveMessage, getMessages, updateMessageContent, deleteMessages
+- **수정** `backend/db/schema.ts` — `messages` + `pins` 테이블 추가 (CREATE TABLE IF NOT EXISTS)
+- **수정** `backend/routes/ws-handler.ts` — 유저/어시스턴트 메시지 실시간 DB 저장, 스트리밍 중 updateMessageContent
+- **수정** `backend/routes/api.ts` — `GET /sessions/:id/messages` 엔드포인트
+- **수정** `frontend/src/App.tsx` — 세션 전환 시 DB에서 메시지 복원 (fetch → setMessages)
+- 설계 결정: SDK jsonl 파싱 대신 DB 저장 방식 채택. SDK가 `resume: sessionId`로 대화 연속성 관리하므로, DB는 순수 UI 표시용
+
+### 핀보드
+- **새 파일** `backend/services/pin-manager.ts` — 핀 CRUD (getPins, createPin, updatePin, deletePin, reorderPins)
+- **새 파일** `frontend/src/components/pinboard/PinList.tsx` — 핀 목록 UI
+- **새 파일** `frontend/src/stores/pin-store.ts` — zustand 핀 스토어
+- **수정** `backend/routes/api.ts` — 핀 REST API (GET/POST/PATCH/DELETE/reorder) + `/files/serve` (iframe용)
+- **수정** `frontend/src/components/layout/Sidebar.tsx` — 핀 탭 추가 (세션/파일/핀 3탭)
+
+### 설정 패널
+- **새 파일** `frontend/src/components/settings/SettingsPanel.tsx`
+- **새 파일** `frontend/src/stores/settings-store.ts` — zustand 설정 스토어
+- **수정** `backend/routes/api.ts` — `GET /config` 엔드포인트
+
+### UI 폴리시
+- **새 파일** `frontend/src/components/common/ErrorBoundary.tsx` — React 에러 경계
+- **새 파일** `frontend/src/utils/toast.ts` — 토스트 유틸리티
+- **수정** `frontend/src/components/files/FileTree.tsx` — 핀 아이콘, 개선
+- **수정** `frontend/src/hooks/useWebSocket.ts` — 안정성 개선
+- **수정** `frontend/src/stores/chat-store.ts` — setMessages 추가
+
+## 2026-02-22: Phase 3.5 — ToolUseCard 칩 레이아웃 + DB 마이그레이션
+
+### ToolUseCard 가로 칩 레이아웃
+- **수정** `frontend/src/components/chat/ToolUseCard.tsx`
+  - `ToolChip` 컴포넌트 추가: 도구별 색상 아이콘, 요약 텍스트, 상태 표시(pulse/체크), active 시 화살표
+  - `defaultExpanded` prop 추가: 칩에서 펼칠 때 바로 내용 표시
+- **수정** `frontend/src/components/chat/MessageBubble.tsx`
+  - `ToolChipGroup` 인라인 컴포넌트: 가로 칩 나열 + 클릭 시 아래 상세 카드 펼침/접힘
+  - 단일/복수 tool_use 모두 칩 레이아웃으로 통일 (기존 세로 스택 제거)
+
+### DB 마이그레이션
+- 문제: `initSchema()`의 `CREATE TABLE IF NOT EXISTS`가 기존 DB에 반영 안 됨
+  - 원인: 서버가 DB 싱글턴 캐시를 이미 들고 있었고, DB 파일에 테이블이 없는 채로 유지
+  - 해결: 직접 SQL 실행으로 `messages` + `pins` 테이블 생성 후 서버 재시작
+- 교훈: `try {} catch {}` 으로 에러 무시하면 테이블 부재를 알 수 없음
+
+### 총 규모
+- 수정 2개 (ToolUseCard, MessageBubble) + DB 직접 마이그레이션
+- 26 files changed, 984 insertions(+), 124 deletions(-) (Phase 3 포함)

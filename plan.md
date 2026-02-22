@@ -339,28 +339,49 @@ CREATE TABLE IF NOT EXISTS pins (
 - `file_changed` WebSocket으로 핀된 파일 변경 자동 감지
 - `isPathSafe()` 재사용하여 워크스페이스 밖 접근 차단
 
-### Phase 3: Python 실행 + Skills + 안정성 기반 (진행 예정)
-1. python-runner.ts (node-pty, venv 관리, 실행 시간/메모리 상한)
-2. PythonScratchpad + PythonOutput 컴포넌트
-3. command-loader.ts (skills 스캔)
-4. SlashCommandPicker 컴포넌트
-5. 세션 히스토리 목록 + 검색
-6. WebSocket 자동 재연결 (exponential backoff)
-7. SDK 프로세스 hang 감지 + abort + 유저 알림
-8. 동시 세션 상한 (`MAX_CONCURRENT_SESSIONS`) + 큐잉 UI
-9. 역할별 permissionMode 적용 (admin→bypass, user→acceptEdits)
+### Phase 3: 메시지 영속화 + 핀보드 + 설정 + UI 폴리시 ✅ DONE
+1. message-store.ts — 메시지 DB 저장/복원 (ws-handler 실시간 저장, 세션 전환 시 복원) ✅
+2. 핀보드 — pin-manager CRUD, PinList UI, 사이드바 핀 탭, iframe file serve ✅
+3. 설정 패널 — SettingsPanel, settings-store, GET /config ✅
+4. UI 폴리시 — ErrorBoundary, toast, FileTree 개선 ✅
 
-### Phase 4: 패널 UX + 모바일 + 폴리싱 (진행 예정)
-1. ContextPanel 드래그 리사이즈 + 열기/닫기 토글 (채팅↔패널 사이 드래그 핸들, 더블클릭 시 기본 너비 리셋, 너비 localStorage 저장)
-2. 파일 드래그&드롭 → 채팅: 사이드바 파일 트리(또는 핀보드)에서 파일을 채팅 InputBox로 드래그하면 파일 내용을 컨텍스트로 첨부하여 Claude에게 전달 (채팅 메시지에 `@파일명` 태그 + 내용 자동 삽입)
-3. 모바일 반응형: 하단 탭바 UI (채팅 | 파일 | 편집 | 핀), ≤768px 브레이크포인트
-   - 파일/핀 클릭 → 편집 탭 자동 전환
-   - 드래그&드롭 → 롱프레스 "채팅에 첨부" 대체
-   - 사이드바/ContextPanel 대신 풀스크린 탭 전환
-4. 다크/라이트 테마
-5. 비용 추적 대시보드
-6. UX 에러 표시 다듬기 (요약 + "기술 상세" 접기, 로딩 스켈레톤)
-7. 비개발자 UX 다듬기
+### Phase 3.5: ToolUseCard 칩 레이아웃 + DB 마이그레이션 ✅ DONE
+1. ToolChip 가로 칩 컴포넌트 + ToolChipGroup (클릭 시 세로 펼침) ✅
+2. DB 마이그레이션 — messages, pins 테이블 직접 생성 ✅
+
+### Phase 4: ContextPanel 강화 + Python + 안정성 (진행 예정)
+
+실사용에서 가장 임팩트가 큰 기능 순으로 정렬.
+
+#### 4A. ContextPanel 드래그 리사이즈 + 개선
+1. 채팅↔패널 사이 드래그 핸들 (마우스/터치)
+2. 더블클릭 시 기본 너비 리셋, 너비 localStorage 저장
+3. 열기/닫기 토글 버튼
+4. HTML 파일 iframe 렌더링 모드 (핀보드 연동)
+
+#### 4B. 슬래시 명령어 + Skills
+1. SlashCommandPicker 컴포넌트 (`/` 입력 시 드롭다운)
+2. command-loader.ts 개선 — `~/.claude/commands/` + skills 스캔
+3. 명령어 선택 → InputBox에 삽입 → 전송
+
+#### 4C. Python 실행 환경
+1. python-runner.ts (node-pty, venv 관리)
+2. PythonScratchpad + PythonOutput 컴포넌트
+3. 실행 시간/메모리 상한 (ulimit)
+4. 스크립트 저장/재실행 (scripts 테이블 활용)
+
+#### 4D. 안정성 + 보안
+1. WebSocket 자동 재연결 (exponential backoff, 최대 30초)
+2. SDK 프로세스 hang 감지 + abort + 유저 알림
+3. 동시 세션 상한 (`MAX_CONCURRENT_SESSIONS`) + 큐잉 UI
+4. 역할별 permissionMode 적용 (admin→bypass, user→acceptEdits)
+
+### Phase 5: 모바일 + 배포 + 폴리싱 (이후)
+1. 파일 드래그&드롭 → 채팅 컨텍스트 첨부
+2. 모바일 반응형 (하단 탭바, ≤768px)
+3. 다크/라이트 테마
+4. 비용 추적 대시보드
+5. Docker + Cloudflare Tunnel + PWA (기존 Phase 5 배포 계획)
 
 ---
 

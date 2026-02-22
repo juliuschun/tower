@@ -254,6 +254,29 @@ send({ type: 'chat', message, sessionId, claudeSessionId, cwd });
 
 ---
 
+## Phase 3 교훈: 메시지 영속화 + DB 마이그레이션
+
+### 1. DB 저장 vs SDK jsonl 파싱 — 설계 선택
+메시지 영속화에 두 가지 접근법:
+- **DB 저장 (채택)**: ws-handler에서 실시간 `saveMessage()`, 세션 전환 시 `SELECT`로 복원
+- **SDK jsonl 파싱 (미채택)**: `~/.claude/projects/` jsonl을 역파싱
+
+DB 방식 이유: SDK jsonl은 내부 스트리밍 포맷이라 구조 불안정. DB는 이미 파싱된 상태로 저장하니 복원이 단순.
+트레이드오프: DB 테이블 부재 시 저장 자체가 안 됨 (try/catch 무시). SDK는 `resume: sessionId`로 대화 연속성 관리하므로 DB는 순수 UI 복원용.
+
+### 2. CREATE TABLE IF NOT EXISTS가 적용 안 되는 경우
+`initSchema()`에 `CREATE TABLE IF NOT EXISTS`를 넣어도 기존 DB에 반영 안 될 수 있음:
+- 원인: `getDb()` 싱글턴이 이미 생성된 상태에서 DB 파일에 변경 없음
+- 서버 재시작으로 `initSchema()` 재실행 필요
+- **교훈**: DB 스키마 변경 후 반드시 서버 재시작 확인. `try {} catch {}`로 에러 무시하면 테이블 부재를 감지 못 함
+
+### 3. ToolUseCard 칩 레이아웃 — 스크롤 절약
+도구 사용이 많을 때 full-width 카드가 세로로 쌓이면 스크롤 폭증.
+가로 칩(chip) + 클릭 시 세로 펼침 방식이 정보 밀도/접근성 모두 우수.
+`ToolChip`은 export하여 `MessageBubble`의 `ToolChipGroup`에서 사용.
+
+---
+
 ## 핵심 트러블슈팅
 
 ### 1. "Cannot be launched inside another Claude Code session" 에러
