@@ -164,7 +164,7 @@ describe('ws-handler integration', () => {
   });
 
   describe('set_active_session', () => {
-    it('sends ack and aborts old session on switch', async () => {
+    it('sends ack and cleans up idle session on switch (no abort of running sessions)', async () => {
       const { ws, messages } = await createWsClient();
       await waitForMessage(messages, 'connected');
 
@@ -172,13 +172,15 @@ describe('ws-handler integration', () => {
       sendJson(ws, { type: 'set_active_session', sessionId: 's1' });
       await waitForMessage(messages, 'set_active_session_ack');
 
-      // Switch to second session → old session should be aborted
+      // Switch to second session → old idle session should be cleaned up but NOT aborted
+      // (abort is now handled by the streaming loop's epoch guard to prevent multi-tab interference)
       mockGetSDKSession.mockReturnValueOnce({ isRunning: false });
       sendJson(ws, { type: 'set_active_session', sessionId: 's2' });
       const ack = await waitForMessages(messages, 'set_active_session_ack', 2);
 
       expect(ack[1].sessionId).toBe('s2');
-      expect(mockAbortSession).toHaveBeenCalledWith('s1');
+      // abortSession should NOT be called — only cleanup of idle sessions
+      expect(mockAbortSession).not.toHaveBeenCalled();
 
       ws.close();
     });

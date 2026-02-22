@@ -21,10 +21,20 @@ interface WsClient {
   activeQueryEpoch: number; // incremented on each new query / session switch
 }
 
+interface PendingQuestion {
+  questionId: string;
+  sessionId: string;
+  questions: any[];
+  resolve: (answer: string) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 const SDK_HANG_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const ASK_USER_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 const clients = new Map<string, WsClient>();
 const sessionClients = new Map<string, string>(); // sessionId → clientId
+const pendingQuestions = new Map<string, PendingQuestion>(); // questionId → PendingQuestion
 
 function sendToSession(sessionId: string, data: any) {
   const c = resolveSessionClient(sessionClients, clients, sessionId);
@@ -32,6 +42,84 @@ function sendToSession(sessionId: string, data: any) {
   if (c.ws.readyState === WebSocket.OPEN) {
     c.ws.send(JSON.stringify(data));
   }
+}
+
+/**
+ * Send directly to the client that started the streaming.
+ * Falls back to session routing only when the originating WS is dead (reconnection case).
+ * This prevents other tabs from "stealing" streaming messages via the session map.
+ */
+function sendToClient(client: WsClient, sessionId: string, data: any) {
+  const payload = JSON.stringify(data);
+  if (client.ws.readyState === WebSocket.OPEN) {
+    client.ws.send(payload);
+  } else {
+    // Client disconnected — try reconnected client via session map
+    const reconnected = resolveSessionClient(sessionClients, clients, sessionId);
+    if (reconnected && reconnected.ws.readyState === WebSocket.OPEN) {
+      reconnected.ws.send(payload);
+    }
+    // If no reconnected client, message is saved to DB anyway
+  }
+}
+
+function createCanUseTool(sessionId: string) {
+  return async (toolName: string, input: Record<string, unknown>, options: { signal: AbortSignal }) => {
+    // Allow all tools except AskUserQuestion
+    if (toolName !== 'AskUserQuestion') {
+      return { behavior: 'allow' as const, updatedInput: input };
+    }
+
+    // Intercept AskUserQuestion — send to frontend and wait for user response
+    const questionId = `q-${uuidv4()}`;
+    const questions = (input as any).questions || [];
+
+    return new Promise<{ behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string; interrupt?: boolean }>((resolve) => {
+      // Auto-select first option on timeout
+      const timer = setTimeout(() => {
+        const pq = pendingQuestions.get(questionId);
+        if (pq) {
+          pendingQuestions.delete(questionId);
+          const defaultAnswer = questions.map((q: any) => {
+            const firstOpt = q.options?.[0]?.label || 'No response';
+            return `${q.question}: ${firstOpt}`;
+          }).join('\n');
+          sendToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
+          resolve({ behavior: 'deny', message: `User did not respond in time. Auto-selected: ${defaultAnswer}` });
+        }
+      }, ASK_USER_TIMEOUT);
+
+      pendingQuestions.set(questionId, {
+        questionId,
+        sessionId,
+        questions,
+        resolve: (answer: string) => {
+          clearTimeout(timer);
+          pendingQuestions.delete(questionId);
+          resolve({ behavior: 'deny', message: `User responded: ${answer}` });
+        },
+        timer,
+      });
+
+      // Clean up on abort
+      options.signal.addEventListener('abort', () => {
+        const pq = pendingQuestions.get(questionId);
+        if (pq) {
+          clearTimeout(pq.timer);
+          pendingQuestions.delete(questionId);
+          resolve({ behavior: 'deny', message: 'Session aborted', interrupt: true });
+        }
+      }, { once: true });
+
+      // Send question to frontend
+      sendToSession(sessionId, {
+        type: 'ask_user',
+        sessionId,
+        questionId,
+        questions,
+      });
+    });
+  };
 }
 
 export function broadcast(data: any) {
@@ -141,6 +229,9 @@ async function handleMessage(client: WsClient, data: any) {
     case 'set_active_session':
       handleSetActiveSession(client, data);
       break;
+    case 'answer_question':
+      handleAnswerQuestion(client, data);
+      break;
     case 'ping':
       send(client.ws, { type: 'pong' });
       break;
@@ -169,6 +260,18 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
   const sdkSession = getSDKSession(sessionId);
   if (sdkSession?.isRunning) {
     send(client.ws, { type: 'reconnect_result', status: 'streaming', sessionId });
+
+    // Re-send any pending questions for this session
+    for (const pq of pendingQuestions.values()) {
+      if (pq.sessionId === sessionId) {
+        send(client.ws, {
+          type: 'ask_user',
+          sessionId,
+          questionId: pq.questionId,
+          questions: pq.questions,
+        });
+      }
+    }
   } else {
     send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
   }
@@ -179,9 +282,9 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
   const newSessionId = data.sessionId;
 
   if (oldSessionId && oldSessionId !== newSessionId) {
-    // Abort old SDK query if running
-    abortSession(oldSessionId);
-    // Cleanup finished sessions
+    // Don't abort running sessions here — another tab might own the streaming.
+    // The streaming loop's epoch guard will abort when THIS client's epoch bumps.
+    // Only cleanup finished (idle) sessions to free resources.
     const sdkSession = getSDKSession(oldSessionId);
     if (sdkSession && !sdkSession.isRunning) {
       cleanupSession(oldSessionId);
@@ -206,7 +309,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
 
   // Check concurrent session limit
   if (getActiveSessionCount() >= config.maxConcurrentSessions) {
-    sendToSession(sessionId, {
+    sendToClient(client, sessionId, {
       type: 'error',
       message: `동시 세션 한도 초과 (최대 ${config.maxConcurrentSessions}개)`,
       errorCode: 'SESSION_LIMIT',
@@ -241,7 +344,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     if (hangTimer) clearTimeout(hangTimer);
     hangTimer = setTimeout(() => {
       abortSession(sessionId);
-      sendToSession(sessionId, {
+      sendToClient(client, sessionId, {
         type: 'error',
         message: 'SDK 응답 시간 초과 (5분). 세션을 중단했습니다.',
         errorCode: 'SDK_HANG',
@@ -254,11 +357,15 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     const permissionMode = getPermissionMode(client.userRole);
     resetHangTimer();
 
+    // Create canUseTool to intercept AskUserQuestion
+    const canUseTool = createCanUseTool(sessionId);
+
     for await (const message of executeQuery(sessionId, data.message, {
       cwd: data.cwd || config.defaultCwd,
       resumeSessionId,
       permissionMode,
       model: data.model,
+      canUseTool,
     })) {
       // GUARD: Client switched session or started a new query — stop this stale loop
       if (isEpochStale(client, myEpoch)) {
@@ -334,7 +441,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         }
       }
 
-      sendToSession(sessionId, {
+      sendToClient(client, sessionId, {
         type: 'sdk_message',
         sessionId,
         data: message,
@@ -382,19 +489,26 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       }
     }
 
-    sendToSession(sessionId, {
+    sendToClient(client, sessionId, {
       type: 'sdk_done',
       sessionId,
       claudeSessionId: client.claudeSessionId,
     });
   } catch (error: any) {
-    sendToSession(sessionId, {
+    sendToClient(client, sessionId, {
       type: 'error',
       message: error.message || 'Claude query failed',
       sessionId,
     });
   } finally {
     if (hangTimer) clearTimeout(hangTimer);
+  }
+}
+
+function handleAnswerQuestion(_client: WsClient, data: { questionId: string; answer: string }) {
+  const pq = pendingQuestions.get(data.questionId);
+  if (pq) {
+    pq.resolve(data.answer);
   }
 }
 
