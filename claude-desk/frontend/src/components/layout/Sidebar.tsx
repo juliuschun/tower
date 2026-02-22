@@ -28,6 +28,7 @@ interface SidebarProps {
   onPromptAdd?: () => void;
   onPromptInsert?: (prompt: PromptItem) => void;
   onViewDiff?: (diff: string) => void;
+  onNewSessionInFolder?: (path: string) => void;
 }
 
 export function Sidebar({
@@ -36,7 +37,7 @@ export function Sidebar({
   onFileClick, onDirectoryClick, onRequestFileTree,
   onPinFile, onUnpinFile, onPinClick, onSettingsClick,
   onPromptClick, onPromptEdit, onPromptDelete, onPromptAdd,
-  onViewDiff,
+  onViewDiff, onNewSessionInFolder,
 }: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -210,6 +211,7 @@ export function Sidebar({
                 onFileClick={onFileClick}
                 onDirectoryClick={onDirectoryClick}
                 onPinFile={onPinFile}
+                onNewSessionInFolder={onNewSessionInFolder}
               />
             )}
           </div>

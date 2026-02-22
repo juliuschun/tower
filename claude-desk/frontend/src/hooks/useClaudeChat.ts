@@ -95,8 +95,15 @@ export function useClaudeChat() {
 
         // System init — may repeat each turn, only update info without resetting
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'init') {
-          setSessionId(data.sessionId);
-          setClaudeSessionId(sdkMsg.session_id);
+          // Only update session IDs if we're still on the same session
+          const curSid = useChatStore.getState().sessionId;
+          if (!curSid || curSid === data.sessionId) {
+            setSessionId(data.sessionId);
+            setClaudeSessionId(sdkMsg.session_id);
+          } else {
+            // Stale init from a different session — ignore entirely
+            return;
+          }
 
           // Convert SDK string[] to SlashCommandInfo[] and merge with /api/commands
           const sdkCmds: SlashCommandInfo[] = (sdkMsg.slash_commands || []).map((cmd: string) => ({

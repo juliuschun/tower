@@ -152,7 +152,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
 
         {/* Expand chevron */}
         <svg
-          className={`w-4 h-4 text-gray-600 transition-transform duration-200 shrink-0 ${expanded ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0 ${expanded ? 'rotate-180' : ''}`}
           fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -207,7 +207,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
             <div className="text-[12px] text-gray-400 flex items-center gap-2">
               <span className="text-gray-500">패턴</span>
               <code className={`${meta.color} bg-surface-950/60 px-2 py-0.5 rounded font-mono`}>{input.pattern}</code>
-              {input.path && <><span className="text-gray-600">|</span> <span className="text-gray-500">{input.path}</span></>}
+              {input.path && <><span className="text-gray-400">|</span> <span className="text-gray-400">{input.path}</span></>}
             </div>
           )}
 
@@ -250,7 +250,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
                 결과
-                <span className="text-gray-600">({result.length.toLocaleString()} 글자)</span>
+                <span className="text-gray-400">({result.length.toLocaleString()} 글자)</span>
               </button>
               {resultExpanded && (
                 <div className="bg-surface-950/60 rounded-lg p-3 font-mono text-[11px] text-gray-300 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">

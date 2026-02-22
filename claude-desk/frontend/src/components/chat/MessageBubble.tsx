@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { ToolUseCard, ToolChip } from './ToolUseCard';
-import { ThinkingBlock } from './ThinkingBlock';
+import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
 import type { ChatMessage, ContentBlock } from '../../stores/chat-store';
 
 interface MessageBubbleProps {
@@ -59,11 +59,11 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
                 );
               }
 
-              // Thinking
+              // Thinking — chip row (same layout as tool chips)
               if (group.type === 'thinking') {
-                return group.blocks.map((block, bi) => (
-                  <ThinkingBlock key={`${gi}-${bi}`} text={block.thinking!.text} />
-                ));
+                return (
+                  <ThinkingChipGroup key={gi} blocks={group.blocks} />
+                );
               }
 
               // Text
@@ -147,6 +147,30 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
             onFileClick={onFileClick}
             defaultExpanded={true}
           />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThinkingChipGroup({ blocks }: { blocks: ContentBlock[] }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {blocks.map((block, i) => (
+          <ThinkingChip
+            key={i}
+            text={block.thinking!.text}
+            isActive={activeIndex === i}
+            onClick={() => setActiveIndex(activeIndex === i ? null : i)}
+          />
+        ))}
+      </div>
+      {activeIndex !== null && blocks[activeIndex] && (
+        <div className="mt-2">
+          <ThinkingContent text={blocks[activeIndex].thinking!.text} />
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { FileEntry } from '../../stores/file-store';
 import { toastSuccess, toastError } from '../../utils/toast';
 
@@ -7,6 +7,7 @@ interface FileTreeProps {
   onFileClick: (path: string) => void;
   onDirectoryClick: (path: string) => void;
   onPinFile?: (path: string) => void;
+  onNewSessionInFolder?: (path: string) => void;
   depth?: number;
 }
 
@@ -118,7 +119,40 @@ function DirectoryDropWrapper({ entry, children }: { entry: FileEntry; children:
   );
 }
 
-export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, depth = 0 }: FileTreeProps) {
+function ContextMenu({ x, y, path, onNewSession, onClose }: {
+  x: number; y: number; path: string;
+  onNewSession: (path: string) => void; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const displayPath = path.replace(/^\/home\/[^/]+/, '~');
+  return (
+    <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+      style={{ left: x, top: y }}>
+      <button
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors"
+        onClick={() => { onNewSession(path); onClose(); }}
+      >
+        <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+        여기서 새 세션
+      </button>
+      <div className="px-3 py-1 text-[10px] text-gray-500 truncate border-t border-surface-700/50 mt-1 pt-1">{displayPath}</div>
+    </div>
+  );
+}
+
+export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, onNewSessionInFolder, depth = 0 }: FileTreeProps) {
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+
   return (
     <div className={depth > 0 ? 'ml-3' : ''}>
       {entries.map((entry) => (
@@ -132,6 +166,12 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, de
                   onDirectoryClick(entry.path);
                 } else {
                   onFileClick(entry.path);
+                }
+              }}
+              onContextMenu={(e) => {
+                if (entry.isDirectory && onNewSessionInFolder) {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, path: entry.path });
                 }
               }}
               draggable={!entry.isDirectory}
@@ -159,7 +199,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, de
               )}
               <span className="truncate">{entry.name}</span>
               {entry.size !== undefined && !entry.isDirectory && (
-                <span className="ml-auto text-[10px] text-gray-600">
+                <span className="ml-auto text-[10px] text-gray-500">
                   {entry.size < 1024 ? `${entry.size}B` : `${(entry.size / 1024).toFixed(1)}K`}
                 </span>
               )}
@@ -185,12 +225,20 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, de
               onFileClick={onFileClick}
               onDirectoryClick={onDirectoryClick}
               onPinFile={onPinFile}
+              onNewSessionInFolder={onNewSessionInFolder}
               depth={depth + 1}
             />
           )}
         </div>
         </DirectoryDropWrapper>
       ))}
+      {contextMenu && onNewSessionInFolder && (
+        <ContextMenu
+          x={contextMenu.x} y={contextMenu.y} path={contextMenu.path}
+          onNewSession={onNewSessionInFolder}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }

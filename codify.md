@@ -648,45 +648,6 @@ cat /tmp/claude-code-webui.log
 
 ---
 
-## 운영 트러블슈팅: 서버 실행 + 접속
-
-### NO_AUTH 누락으로 WebSocket 401 에러
-
-**증상:**
-- 브라우저에서 페이지는 로드되지만 채팅이 안 됨 (백엔드 연결 실패)
-- SSH 터널에서 `channel N: open failed: connect failed: Connection refused` 간헐 발생
-- WebSocket 핸드셰이크가 `401 Unauthorized` 반환
-
-**원인:**
-`start.sh` 대신 직접 `node dist/backend/index.js`로 실행하면 `NO_AUTH=true` 환경변수가 누락됨.
-`config.ts`의 기본값이 `authEnabled: process.env.NO_AUTH !== 'true'` → 인증 활성화 → WS 연결 시 토큰 없으면 401.
-
-**확인 방법:**
-```bash
-# 실행 중인 프로세스의 환경변수 확인
-cat /proc/$(lsof -ti:32354)/environ | tr '\0' '\n' | grep NO_AUTH
-
-# WS 핸드셰이크 직접 테스트
-curl -s -i -N --http1.1 \
-  -H "Upgrade: websocket" \
-  -H "Connection: Upgrade" \
-  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
-  -H "Sec-WebSocket-Version: 13" \
-  http://localhost:32354/ws
-# 정상: HTTP/1.1 101 Switching Protocols
-# 비정상: HTTP/1.1 401 Unauthorized
-```
-
-**해결:** PM2로 통일 관리하면 환경변수가 `ecosystem.config.cjs`에 선언되어 있어 누락 없음.
-```bash
-cd ~/tunnelingcc/claude-desk
-./start.sh restart    # 빌드 + PM2 재시작 (환경변수 자동 적용)
-```
-
-**교훈:** `npx tsx` 직접 실행이나 `node dist/...` 수동 실행은 환경변수 누락 + PM2와 포트 충돌 위험. PM2 ecosystem 설정 파일로 환경변수를 영속화.
-
----
-
 ## 운영: PM2 통일 관리
 
 ### 근본 문제 — 이중 실행 방식의 포트 충돌
@@ -746,3 +707,12 @@ kill <orphan-pid>
 # 4. PM2 재시작
 pm2 restart claude-desk
 ```
+
+### WS 연결 안 될 때 빠른 진단
+```bash
+# WS 핸드셰이크 테스트 (101=정상, 401=인증 문제)
+curl -s -i --http1.1 -H "Upgrade: websocket" -H "Connection: Upgrade" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Version: 13" \
+  http://localhost:32354/ws 2>&1 | head -3
+```
+401이면 인증이 켜져 있는 정상 상태. 브라우저에서 `admin / admin123`으로 로그인 필요.

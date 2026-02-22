@@ -41,7 +41,7 @@ export function ContextPanel({ onSave, onReload }: ContextPanelProps) {
 
   if (!openFile) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-600 text-sm">
+      <div className="h-full flex items-center justify-center text-gray-400 text-sm">
         파일을 선택하면 여기에 표시됩니다
       </div>
     );

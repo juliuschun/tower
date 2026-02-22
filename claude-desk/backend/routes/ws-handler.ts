@@ -29,12 +29,11 @@ function sendToSession(sessionId: string, data: any) {
   if (!clientId) return;
   const c = clients.get(clientId);
   if (!c) {
-    // Client was deleted but sessionClients not cleaned — remove stale entry
     sessionClients.delete(sessionId);
     return;
   }
   // Guard: client switched to a different session — stale mapping, drop message
-  if (c.sessionId && c.sessionId !== sessionId) {
+  if (c.sessionId !== sessionId) {
     sessionClients.delete(sessionId);
     return;
   }
@@ -270,6 +269,12 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       permissionMode,
       model: data.model,
     })) {
+      // GUARD: Client switched to a different session — stop this loop immediately
+      if (client.sessionId !== sessionId) {
+        abortSession(sessionId);
+        break;
+      }
+
       // Reset hang timer on each message
       resetHangTimer();
       // Track Claude session ID for future resume
@@ -344,6 +349,9 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         data: message,
       });
     }
+
+    // Client switched away during streaming — don't send sdk_done to wrong session
+    if (client.sessionId !== sessionId) return;
 
     // Get final Claude session ID
     const claudeId = getClaudeSessionId(sessionId);
