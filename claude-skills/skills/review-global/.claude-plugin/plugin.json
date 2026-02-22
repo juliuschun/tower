@@ -1,0 +1,10 @@
+{
+  "name": "review-global",
+  "description": "Cross-project situation reports. Scans session transcripts, git activity, and project files to produce a timestamped review of what's active, stalled, and needs attention.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Julius"
+  },
+  "repository": "https://github.com/juliuschun/skills-review",
+  "license": "MIT"
+}
