@@ -43,16 +43,23 @@ export interface RateLimitInfo {
   type?: string;
 }
 
+export interface SlashCommandInfo {
+  name: string;
+  description: string;
+  source: 'sdk' | 'commands';
+}
+
 interface ChatState {
   messages: ChatMessage[];
   isStreaming: boolean;
   sessionId: string | null;
   claudeSessionId: string | null;
-  slashCommands: string[];
+  slashCommands: SlashCommandInfo[];
   tools: string[];
   model: string | null;
   cost: CostInfo;
   rateLimit: RateLimitInfo | null;
+  draftInput: string | null;
 
   addMessage: (msg: ChatMessage) => void;
   updateLastAssistant: (content: ContentBlock[]) => void;
@@ -61,11 +68,12 @@ interface ChatState {
   setStreaming: (v: boolean) => void;
   setSessionId: (id: string | null) => void;
   setClaudeSessionId: (id: string | null) => void;
-  setSystemInfo: (info: { slashCommands?: string[]; tools?: string[]; model?: string }) => void;
+  setSystemInfo: (info: { slashCommands?: string[] | SlashCommandInfo[]; tools?: string[]; model?: string }) => void;
   setCost: (cost: Partial<CostInfo>) => void;
   setRateLimit: (info: RateLimitInfo | null) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
+  setDraftInput: (text: string | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -78,6 +86,7 @@ export const useChatStore = create<ChatState>((set) => ({
   model: null,
   cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 },
   rateLimit: null,
+  draftInput: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -124,13 +133,25 @@ export const useChatStore = create<ChatState>((set) => ({
   setSessionId: (id) => set({ sessionId: id }),
   setClaudeSessionId: (id) => set({ claudeSessionId: id }),
   setSystemInfo: (info) =>
-    set((s) => ({
-      slashCommands: info.slashCommands ?? s.slashCommands,
-      tools: info.tools ?? s.tools,
-      model: info.model ?? s.model,
-    })),
+    set((s) => {
+      let commands = s.slashCommands;
+      if (info.slashCommands) {
+        // Normalize: SDK sends string[], convert to SlashCommandInfo[]
+        commands = info.slashCommands.map((cmd) =>
+          typeof cmd === 'string'
+            ? { name: cmd, description: '', source: 'sdk' as const }
+            : cmd
+        );
+      }
+      return {
+        slashCommands: commands,
+        tools: info.tools ?? s.tools,
+        model: info.model ?? s.model,
+      };
+    }),
   setCost: (cost) => set((s) => ({ cost: { ...s.cost, ...cost } })),
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
   clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 }, rateLimit: null }),
+  setDraftInput: (text) => set({ draftInput: text }),
 }));

@@ -7,12 +7,17 @@ import { ContextPanel } from './components/layout/ContextPanel';
 import { LoginPage } from './components/auth/LoginPage';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { PromptEditor } from './components/prompts/PromptEditor';
+import { ResizeHandle, DEFAULT_WIDTH } from './components/layout/ResizeHandle';
 import { useClaudeChat } from './hooks/useClaudeChat';
 import { useChatStore } from './stores/chat-store';
 import { useSessionStore, type SessionMeta } from './stores/session-store';
 import { useFileStore } from './stores/file-store';
 import { usePinStore, type Pin } from './stores/pin-store';
+import { usePromptStore, type PromptItem } from './stores/prompt-store';
 import { useSettingsStore } from './stores/settings-store';
+import { useModelStore } from './stores/model-store';
+import { normalizeContentBlocks } from './utils/message-parser';
 import { toastSuccess, toastError } from './utils/toast';
 
 const API_BASE = '/api';
@@ -32,6 +37,15 @@ function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [authStatus, setAuthStatus] = useState<{ authEnabled: boolean; hasUsers: boolean } | null>(null);
   const [authError, setAuthError] = useState('');
+  const [contextPanelWidth, setContextPanelWidth] = useState(() => {
+    const saved = localStorage.getItem('contextPanelWidth');
+    return saved ? parseInt(saved) : DEFAULT_WIDTH;
+  });
+
+  const handleContextPanelResize = useCallback((width: number) => {
+    setContextPanelWidth(width);
+    localStorage.setItem('contextPanelWidth', String(width));
+  }, []);
 
   const { sendMessage, abort, requestFile, requestFileTree, saveFile, connected } = useClaudeChat();
 
@@ -148,7 +162,9 @@ function App() {
           const msgs = stored.map((m: any) => ({
             id: m.id,
             role: m.role,
-            content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
+            content: normalizeContentBlocks(
+              typeof m.content === 'string' ? JSON.parse(m.content) : m.content
+            ),
             timestamp: new Date(m.created_at).getTime(),
             parentToolUseId: m.parent_tool_use_id,
           }));
@@ -202,9 +218,9 @@ function App() {
       await fetch(`${API_BASE}/sessions/${id}`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, autoNamed: 0 }),
       });
-      useSessionStore.getState().updateSessionMeta(id, { name });
+      useSessionStore.getState().updateSessionMeta(id, { name, autoNamed: 0 });
     } catch { }
   }, [token]);
 
@@ -278,6 +294,74 @@ function App() {
     requestFile(pin.file_path);
   }, [requestFile]);
 
+  // ───── Prompt handlers ─────
+  const [promptEditorOpen, setPromptEditorOpen] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState<PromptItem | null>(null);
+
+  const handlePromptClick = useCallback((prompt: PromptItem) => {
+    // Show prompt content in ContextPanel
+    useFileStore.getState().setContextPanelTab('preview');
+    useFileStore.getState().setOpenFile({
+      path: `prompt:${prompt.title}`,
+      content: prompt.content || '(내용 없음)',
+      language: 'markdown',
+      modified: false,
+    });
+  }, []);
+
+  const handlePromptAdd = useCallback(() => {
+    setEditingPrompt(null);
+    setPromptEditorOpen(true);
+  }, []);
+
+  const handlePromptEdit = useCallback((prompt: PromptItem) => {
+    setEditingPrompt(prompt);
+    setPromptEditorOpen(true);
+  }, []);
+
+  const handlePromptSave = useCallback(async (title: string, content: string) => {
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      if (editingPrompt && typeof editingPrompt.id === 'number') {
+        await fetch(`${API_BASE}/prompts/${editingPrompt.id}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ title, content }),
+        });
+        usePromptStore.getState().updatePrompt(editingPrompt.id, { title, content });
+      } else {
+        const res = await fetch(`${API_BASE}/prompts`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ title, content }),
+        });
+        if (res.ok) {
+          const pin = await res.json();
+          usePromptStore.getState().addPrompt({
+            id: pin.id,
+            title: pin.title,
+            content: pin.content || '',
+            source: 'user',
+            readonly: false,
+          });
+        }
+      }
+    } catch {}
+    setEditingPrompt(null);
+  }, [token, editingPrompt]);
+
+  const handlePromptDelete = useCallback(async (id: number | string) => {
+    if (typeof id !== 'number') return; // Can't delete command-sourced prompts
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`${API_BASE}/prompts/${id}`, { method: 'DELETE', headers });
+      usePromptStore.getState().removePrompt(id);
+    } catch {}
+  }, [token]);
+
   // ───── Settings handlers ─────
   const handleOpenSettings = useCallback(() => {
     useSettingsStore.getState().setOpen(true);
@@ -301,9 +385,20 @@ function App() {
       .then((data) => usePinStore.getState().setPins(data))
       .catch(() => {});
 
+    fetch(`${API_BASE}/prompts`, { headers })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => usePromptStore.getState().setPrompts(data))
+      .catch(() => {});
+
     fetch(`${API_BASE}/config`, { headers })
       .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) useSettingsStore.getState().setServerConfig(data); })
+      .then((data) => {
+        if (data) {
+          useSettingsStore.getState().setServerConfig(data);
+          if (data.models) useModelStore.getState().setAvailableModels(data.models);
+          if (data.connectionType) useModelStore.getState().setConnectionType(data.connectionType);
+        }
+      })
       .catch(() => {});
   }, [token, authStatus]);
 
@@ -350,6 +445,10 @@ function App() {
             onUnpinFile={handleUnpinFile}
             onPinClick={handlePinClick}
             onSettingsClick={handleOpenSettings}
+            onPromptClick={handlePromptClick}
+            onPromptEdit={handlePromptEdit}
+            onPromptDelete={handlePromptDelete}
+            onPromptAdd={handlePromptAdd}
           />
         )}
 
@@ -368,11 +467,14 @@ function App() {
 
         {/* Right: Context panel */}
         {contextPanelOpen && (
-          <div className="w-96 border-l border-surface-800 bg-surface-900/90 backdrop-blur-md">
-            <ErrorBoundary fallbackLabel="Context panel error">
-              <ContextPanel onSave={handleSaveFile} />
-            </ErrorBoundary>
-          </div>
+          <>
+            <ResizeHandle onResize={handleContextPanelResize} />
+            <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
+              <ErrorBoundary fallbackLabel="Context panel error">
+                <ContextPanel onSave={handleSaveFile} />
+              </ErrorBoundary>
+            </div>
+          </>
         )}
       </div>
 
@@ -381,6 +483,14 @@ function App() {
 
       {/* Settings modal */}
       <SettingsPanel onLogout={handleLogout} />
+
+      {/* Prompt editor modal */}
+      <PromptEditor
+        open={promptEditorOpen}
+        onClose={() => { setPromptEditorOpen(false); setEditingPrompt(null); }}
+        onSave={handlePromptSave}
+        initial={editingPrompt ? { title: editingPrompt.title, content: editingPrompt.content } : undefined}
+      />
     </div>
   );
 }
@@ -388,7 +498,11 @@ function App() {
 function BottomBar() {
   const cost = useChatStore((s) => s.cost);
   const isStreaming = useChatStore((s) => s.isStreaming);
-  const model = useChatStore((s) => s.model);
+  const sdkModel = useChatStore((s) => s.model);
+  const selectedModel = useModelStore((s) => s.selectedModel);
+  const availableModels = useModelStore((s) => s.availableModels);
+  const currentModelInfo = availableModels.find((m) => m.id === selectedModel);
+  const model = sdkModel || currentModelInfo?.name || selectedModel;
 
   return (
     <footer className="h-8 bg-surface-900 border-t border-surface-800 flex items-center px-4 text-[11px] text-gray-400 gap-5 shrink-0 tabular-nums font-medium tracking-wide">

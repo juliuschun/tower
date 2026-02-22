@@ -277,6 +277,68 @@ DB 방식 이유: SDK jsonl은 내부 스트리밍 포맷이라 구조 불안정
 
 ---
 
+## Phase 5 교훈: 모델 셀렉터 + 세션 인텔리전스
+
+### 1. SDK Options.model — 직접 지원 확인법
+SDK `sdk.d.ts`에서 Options 타입을 직접 확인:
+```ts
+export type Options = {
+  model?: string;  // ← 있음!
+  // ...
+};
+```
+환경변수 `ANTHROPIC_MODEL` 우회가 필요한지 먼저 타입 체크. SDK v2.1.50 기준 `model`은 직접 지원됨.
+
+### 2. SDK Query 인터페이스 — 런타임 모델 변경도 가능
+```ts
+export interface Query extends AsyncGenerator<SDKMessage, void> {
+  setModel(model?: string): Promise<void>;
+  supportedModels(): Promise<ModelInfo[]>;
+  // ...
+}
+```
+`query.setModel()`, `query.supportedModels()`로 런타임에 모델 목록 조회/변경 가능.
+다만 매 메시지마다 새 query를 시작하므로 Options.model로 설정하는 게 더 간단.
+
+### 3. MAX 환경에서 Haiku 호출 — SDK query()로 우회
+ANTHROPIC_API_KEY 없이 직접 `@anthropic-ai/sdk` 호출 불가.
+Claude Code SDK `query()`에 `model: 'claude-haiku-4-5-20251001'`을 넣으면
+MAX 구독 크레딧으로 Haiku 모델 사용 가능. 경량 프롬프트(이름 생성, 요약)에 적합.
+```ts
+query({
+  prompt: '제목을 15자 내외로 생성해...',
+  options: { model: 'claude-haiku-4-5-20251001', maxTurns: 1 }
+});
+```
+주의: `maxTurns: 1`로 도구 사용 없이 한 턴에 끝나게 해야 비용 절약.
+
+### 4. SQLite ALTER TABLE 멱등성 — try/catch 패턴
+```ts
+const migrations = [
+  `ALTER TABLE sessions ADD COLUMN model_used TEXT`,
+  `ALTER TABLE sessions ADD COLUMN turn_count INTEGER DEFAULT 0`,
+];
+for (const sql of migrations) {
+  try { db.exec(sql); } catch {} // 이미 존재하면 무시
+}
+```
+better-sqlite3는 `IF NOT EXISTS`를 ALTER TABLE에서 지원 안 함.
+컬럼이 이미 있으면 "duplicate column" 에러 발생 → try/catch로 무시.
+
+### 5. 프론트 auto-trigger 타이밍 — sdk_done에서
+자동 이름 생성처럼 "첫 응답 완료 후" 실행해야 하는 작업은 `sdk_done` 핸들러에서:
+```ts
+case 'sdk_done':
+  // ... claudeSessionId 저장 ...
+  // 세션 이름이 기본값이면 auto-name 호출
+  if (isDefaultName && hasUserMsg && hasAssistantMsg) {
+    fetch(`/api/sessions/${activeId}/auto-name`, { method: 'POST' })
+  }
+```
+주의: `sdk_done`은 매 턴마다 발생. 조건 체크(기본 이름인지, 메시지 존재하는지)로 중복 호출 방지.
+
+---
+
 ## 핵심 트러블슈팅
 
 ### 1. "Cannot be launched inside another Claude Code session" 에러

@@ -1,5 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { SessionMeta } from '../../stores/session-store';
+
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return '방금 전';
+  if (mins < 60) return `${mins}분 전`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}일 전`;
+  return new Date(dateStr).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+}
 
 interface SessionItemProps {
   session: SessionMeta;
@@ -62,7 +74,7 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
 
-      {/* Name (editable) */}
+      {/* Name + subtext */}
       {editing ? (
         <input
           ref={inputRef}
@@ -77,14 +89,18 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           className="flex-1 min-w-0 bg-surface-700 text-gray-100 text-[13px] px-1.5 py-0.5 rounded border border-surface-600 outline-none focus:border-primary-500"
         />
       ) : (
-        <span className="truncate flex-1 font-medium">{session.name}</span>
-      )}
-
-      {/* Cost badge */}
-      {session.totalCost > 0 && (
-        <span className="text-[10px] tabular-nums font-semibold text-surface-700/80 group-hover:text-surface-600 transition-colors bg-surface-800/30 px-1.5 py-0.5 rounded">
-          ${session.totalCost.toFixed(2)}
-        </span>
+        <div className="flex-1 min-w-0">
+          <span className="truncate block font-medium">{session.name}</span>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="text-[10px] text-surface-700">{relativeTime(session.updatedAt)}</span>
+            {(session.turnCount ?? 0) > 0 && (
+              <span className="text-[10px] text-surface-700">{session.turnCount}턴</span>
+            )}
+            {session.totalCost > 0 && (
+              <span className="text-[10px] tabular-nums text-surface-700">${session.totalCost.toFixed(2)}</span>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Delete button */}

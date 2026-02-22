@@ -7,6 +7,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectDelay = useRef(2000);
   const onMessageRef = useRef(onMessage);
   const wasConnected = useRef(false);
   onMessageRef.current = onMessage;
@@ -19,6 +20,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
 
     ws.onopen = () => {
       setConnected(true);
+      reconnectDelay.current = 2000; // Reset backoff on successful connection
       if (wasConnected.current) {
         toastSuccess('재연결됨');
       }
@@ -45,8 +47,9 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
       if (wasConnected.current) {
         toastWarning('연결 끊김, 재연결 중...');
       }
-      // Auto-reconnect after 2s
-      reconnectTimer.current = setTimeout(connect, 2000);
+      // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
+      reconnectTimer.current = setTimeout(connect, reconnectDelay.current);
+      reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
     };
 
     ws.onerror = () => {

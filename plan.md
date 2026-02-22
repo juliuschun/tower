@@ -4,10 +4,10 @@
 
 원격 서버(Azure VM)에서 Claude Code를 돌리고 브라우저에서 접속하는 환경을 구축 중.
 기존 오픈소스 3개(claude-code-webui, claude-code-web, claude-code-ui)를 분석한 결과,
-SDK 기반 + 깔끔한 UI + 파일/에디터/Python 실행을 결합한 자체 플랫폼이 필요.
+SDK 기반 + 깔끔한 UI + 파일/에디터를 결합한 자체 플랫폼이 필요.
 
 **타겟 유저:** 리서치/분석 팀 (비개발자 포함)
-**핵심 니즈:** Claude와 대화하며 리서치 → MD 보고서 렌더링 → 데이터 분석(Python) → 파일 편집
+**핵심 니즈:** Claude와 대화하며 리서치 → MD 보고서 렌더링 → 파일 편집
 
 **비-목표 (Non-goals):**
 - 멀티 서버 클러스터링 / 수평 스케일링 (단일 VM 전제)
@@ -25,7 +25,6 @@ SDK 기반 + 깔끔한 UI + 파일/에디터/Python 실행을 결합한 자체 �
 | **Claude 연동** | @anthropic-ai/claude-code SDK | PTY 아닌 SDK. API 키 전환 용이 |
 | **에디터** | CodeMirror 6 (@uiw/react-codemirror) | Monaco보다 가볍고 모바일 지원 |
 | **MD 렌더링** | react-markdown + remark-gfm + rehype-highlight | GFM 테이블, 코드 하이라이팅 |
-| **Python 실행** | node-pty (PTY) | Claude용이 아닌 Python 전용 |
 | **DB** | better-sqlite3 | 세션 메타, 유저, 스크립트 저장 |
 | **상태관리** | zustand | Redux보다 단순 |
 | **언어** | TypeScript | 프론트/백엔드 모두 |
@@ -44,7 +43,7 @@ SDK 기반 + 깔끔한 UI + 파일/에디터/Python 실행을 결합한 자체 �
 │        │                         │                   │
 │ 세션   │  [메시지 버블]           │  MD 렌더 뷰어     │
 │ 히스토리│  [도구 사용 카드]        │  코드 에디터      │
-│        │  [사고 과정 접기]        │  Python 출력      │
+│        │  [사고 과정 접기]        │                   │
 │ 프롬프트│                         │  HTML iframe      │
 │        │                         │  파일 미리보기     │
 │ 파일   │                         │  프롬프트 미리보기 │
@@ -58,7 +57,7 @@ SDK 기반 + 깔끔한 UI + 파일/에디터/Python 실행을 결합한 자체 �
 
 - **좌측 사이드바:** 접기 가능. 세션 히스토리 (하단에 프롬프트 섹션) + 파일 트리 + 핀보드
 - **중앙 채팅:** 메인 인터랙션. Claude 응답은 마크다운 렌더링
-- **우측 컨텍스트:** 파일 클릭 시 열림. MD 렌더/에디터/HTML iframe/Python 출력. 드래그 리사이즈 + 열기/닫기 토글 (너비 localStorage 저장)
+- **우측 컨텍스트:** 파일 클릭 시 열림. MD 렌더/에디터/HTML iframe. 드래그 리사이즈 + 열기/닫기 토글 (너비 localStorage 저장)
 - **모바일 (≤768px):** 하단 탭바로 전환 (💬채팅 | 📁파일 | ✏️편집 | 📌핀). 파일 클릭 시 편집 탭 자동 전환. 드래그&드롭 대신 롱프레스→"채팅에 첨부"
 
 ### 비개발자를 위한 UI 원칙
@@ -94,17 +93,12 @@ CLIENT → SERVER:
   file_read   { path }
   file_write  { path, content }
   file_tree   { path }
-  python_exec { code, workspaceId }
-  python_kill { workspaceId }
-
 SERVER → CLIENT:
   sdk_message { data: SDKMessage }
   sdk_done    { sessionId, cost, duration }
   file_content { path, content, language }
   file_tree    { entries }
   file_changed { path, changeType }
-  python_output { data, stream }
-  python_exit   { code }
   error         { message }
 ```
 
@@ -125,14 +119,7 @@ SERVER → CLIENT:
 - 경로 검증: 워크스페이스 밖 접근 차단
 - `.git/`, `node_modules/`, `__pycache__/` 기본 숨김
 
-### 5. Python 실행
-
-- `node-pty`로 Python PTY 생성 (Claude용 아님, Python 전용)
-- 워크스페이스별 venv 격리 (`pip install` 안전)
-- 스크래치패드 UI: CodeMirror + ▶ 실행 버튼 + 출력 패널
-- 스크립트 저장/재실행 기능
-
-### 6. 슬래시 명령어 & Skills
+### 5. 슬래시 명령어 & Skills
 
 - `~/.claude/commands/` 와 `~/.claude/skills/` 스캔하여 명령어 목록 생성
 - `/` 입력 시 드롭다운 피커 표시 (이름 + 설명)
@@ -180,7 +167,6 @@ Phase별로 흩어지지 않고 공통 인프라로 관리할 항목:
 
 - **WebSocket 재연결:** 클라이언트 자동 재연결 (exponential backoff, 최대 30초)
 - **SDK 프로세스 hang 감지:** heartbeat 없이 N초 경과 시 abort + 유저 알림
-- **Python PTY 보호:** 실행 시간 상한 (기본 5분), 메모리 상한 (ulimit)
 - **SQLite WAL 비대화:** 주기적 `PRAGMA wal_checkpoint(TRUNCATE)` 또는 앱 시작 시 실행
 - **데이터 수명 관리:** 90일 이상 된 세션 JSONL 자동 정리 (설정 가능), DB vacuum 주기
 
@@ -204,7 +190,6 @@ claude-desk/
       file-system.ts         -- 파일 트리, 읽기/쓰기, chokidar
       pin-manager.ts         -- 핀 CRUD
       session-manager.ts     -- 세션 CRUD, JSONL 파싱
-      python-runner.ts       -- Python PTY 실행
       command-loader.ts      -- Skills 로더
       auth.ts                -- JWT + bcrypt
     routes/
@@ -225,7 +210,7 @@ claude-desk/
         chat/                -- ChatPanel, MessageBubble, ToolUseCard,
                                 ThinkingBlock, InputBox, SlashCommandPicker
         files/               -- FileTree, MarkdownRenderer, DiffView
-        editor/              -- CodeEditor, PythonScratchpad, PythonOutput
+        editor/              -- CodeEditor
         sessions/            -- SessionList, SessionReplay
         auth/                -- LoginPage, SetupPage
       hooks/
@@ -349,7 +334,7 @@ CREATE TABLE IF NOT EXISTS pins (
 1. ToolChip 가로 칩 컴포넌트 + ToolChipGroup (클릭 시 세로 펼침) ✅
 2. DB 마이그레이션 — messages, pins 테이블 직접 생성 ✅
 
-### Phase 4: ContextPanel 강화 + Python + 안정성 (진행 예정)
+### Phase 4: ContextPanel 강화 + 프롬프트 + 안정성 ✅ DONE
 
 실사용에서 가장 임팩트가 큰 기능 순으로 정렬.
 
@@ -364,24 +349,170 @@ CREATE TABLE IF NOT EXISTS pins (
 2. command-loader.ts 개선 — `~/.claude/commands/` + skills 스캔
 3. 명령어 선택 → InputBox에 삽입 → 전송
 
-#### 4C. Python 실행 환경
-1. python-runner.ts (node-pty, venv 관리)
-2. PythonScratchpad + PythonOutput 컴포넌트
-3. 실행 시간/메모리 상한 (ulimit)
-4. 스크립트 저장/재실행 (scripts 테이블 활용)
+#### 4C. 프롬프트 섹션 (Phase 2.5에서 이동)
+1. DB 스키마 확장 — pins 테이블에 `pin_type` (file/prompt), `content` 컬럼 추가
+2. 세션 탭 하단 접기 가능 프롬프트 영역
+3. `~/.claude/commands/` 항목 자동 목록 포함
+4. 클릭 → ContextPanel에 미리보기, 드래그 → InputBox에 삽입
 
-#### 4D. 안정성 + 보안
+#### 4D. 첨부 칩 시스템 (Attachment Chips)
+
+InputBox에 "textarea + 첨부 칩 영역" 패턴 도입. ChatGPT/Claude.ai와 동일한 UX.
+
+**UI 구조:**
+```
+┌──────────────────────────────────────┐
+│ [⚡ 일일 리서치 ✕] [📄 report.md ✕]  │  ← 첨부 칩 영역
+├──────────────────────────────────────┤
+│ 메시지를 입력하세요...                │  ← 기존 textarea
+└──────────────────────────────────────┘
+```
+
+**칩 타입:**
+| 소스 | 드래그 대상 | 칩 표시 | 전송 시 동작 |
+|------|-----------|---------|------------|
+| 프롬프트 (user) | 사이드바 프롬프트 | ⚡ 제목 | content를 메시지 앞에 삽입 |
+| 프롬프트 (commands) | 사이드바 프롬프트 | ⚡ /명령어 | `/명령어`로 전송 |
+| 파일 (핀/트리) | 사이드바 파일/핀 | 📄 파일명 | 파일 경로를 컨텍스트로 첨부 |
+| 이미지 (Phase 6) | OS 드래그 앤 드롭 | 🖼 파일명 | 업로드 후 경로 첨부 |
+
+**구현 항목:**
+
+1. **chat-store 확장** — `attachments: Attachment[]` 배열 추가
+   ```ts
+   interface Attachment {
+     id: string;
+     type: 'prompt' | 'command' | 'file' | 'image';
+     label: string;       // 칩에 표시할 이름
+     content: string;     // 실제 전송할 내용 (프롬프트 텍스트 or 파일 경로)
+   }
+   ```
+2. **AttachmentChip 컴포넌트** — 타입별 아이콘 + 이름 + ✕ 삭제 버튼
+3. **InputBox 수정** — textarea 위에 칩 영역 렌더링, 전송 시 attachments 조합
+4. **드래그 앤 드롭**
+   - 사이드바 항목에 `draggable` + `onDragStart` (dataTransfer에 타입/데이터 세팅)
+   - InputBox에 `onDragOver` + `onDrop` (칩으로 변환하여 attachments에 추가)
+   - 드롭 존 하이라이트 (드래그 진입 시 보더 강조)
+5. **전송 로직** — attachments를 메시지 텍스트와 조합
+   - prompt: content + "\n\n" + 사용자 텍스트
+   - command: `/명령어 사용자 텍스트`
+   - file: `[파일: /path/to/file]\n\n사용자 텍스트` (또는 SDK 컨텍스트 방식)
+
+**확장성:**
+- Phase 6에서 OS 파일 드래그 앤 드롭, 이미지 업로드도 동일한 칩 시스템으로 통합
+- 복수 첨부 지원 (여러 파일/프롬프트 동시)
+- 칩 순서 변경 (드래그)은 추후
+
+#### 4E. 채팅 비주얼 개선
+1. 폰트 정비 — 본문/코드/UI 폰트 분리, 가독성 좋은 웹폰트 적용 (Pretendard, JetBrains Mono 등)
+2. 메시지 버블 레이아웃 다듬기 — 여백, 줄간격, 최대 너비 조정
+3. 마크다운 렌더링 스타일 개선 — 코드블록 테마, 테이블/리스트 간격, 인라인 코드 배경색
+4. ToolUseCard/ToolChip 시각 다듬기 — 아이콘, 색상, hover/active 상태
+5. 타이포그래피 일관성 — 헤더/본문/캡션 크기 체계 정리
+
+#### 4F. 안정성 + 보안
 1. WebSocket 자동 재연결 (exponential backoff, 최대 30초)
 2. SDK 프로세스 hang 감지 + abort + 유저 알림
 3. 동시 세션 상한 (`MAX_CONCURRENT_SESSIONS`) + 큐잉 UI
 4. 역할별 permissionMode 적용 (admin→bypass, user→acceptEdits)
 
-### Phase 5: 모바일 + 배포 + 폴리싱 (이후)
-1. 파일 드래그&드롭 → 채팅 컨텍스트 첨부
-2. 모바일 반응형 (하단 탭바, ≤768px)
-3. 다크/라이트 테마
-4. 비용 추적 대시보드
-5. Docker + Cloudflare Tunnel + PWA (기존 Phase 5 배포 계획)
+### Phase 5: 모델 셀렉터 + 세션 인텔리전스
+
+#### 5A. 모델 셀렉터
+
+Header의 모델 배지를 클릭하면 드롭다운으로 모델 전환 가능.
+
+**드롭다운 UI:**
+```
+┌──────────────────────────────────┐
+│  Claude Opus 4.6      ✓  [MAX]  │
+│  Claude Sonnet 4.6       [MAX]  │
+│  Claude Haiku 4.5        [API]  │
+│ ─────────────────────────────── │
+│  ⚙ 모델 설정...                  │
+└──────────────────────────────────┘
+```
+
+**구현 항목:**
+1. Header 모델 배지 → 클릭 시 드롭다운 (ModelSelector 컴포넌트)
+2. 연결 유형 배지 표시: MAX (보라) / API (초록) — 실행 환경 자동 감지
+3. 모델 선택 시 다음 메시지부터 적용 (진행 중 대화 영향 없음)
+4. Settings 패널에 "모델 설정" 탭 추가 — 사용 가능 모델 목록 관리, 기본 모델 지정
+5. DB: `sessions` 테이블에 `model_used TEXT` 컬럼 추가 (세션별 모델 추적)
+6. 새 store: `model-store.ts` — 사용 가능 모델 목록, 선택된 모델, 연결 유형
+
+**기술 노트:**
+- SDK `query()` 호출 시 모델 파라미터 전달 가능 여부 확인 필요
+- 불가능하면 Claude Code 실행 시 `--model` 플래그 또는 환경변수로 전달
+- 연결 유형은 `ANTHROPIC_API_KEY` 유무 또는 `~/.claude/credentials` 상태로 판별
+
+#### 5B. 세션 자동 이름 생성
+
+첫 대화 완료 후 Haiku 에이전트가 자동으로 세션 제목 생성.
+
+**구현 항목:**
+1. 백엔드: `POST /api/sessions/:id/auto-name` — Haiku API 직접 호출 (SDK와 별개)
+2. 트리거: 첫 assistant 응답 완료 후 자동 실행
+3. 15자 내외 한글 제목 생성 (예: "React 라우터 버그 수정", "DB 스키마 마이그레이션")
+4. 유저가 직접 이름 변경 시 자동 이름 생성 비활성화 (`auto_named` 플래그)
+5. DB: `sessions` 테이블에 `auto_named INTEGER DEFAULT 1` 컬럼 추가
+
+#### 5C. 세션 요약 카드
+
+수동 트리거 방식 + stale 힌트로 요약 최신성 인지.
+
+**요약 카드 UI:**
+```
+┌─────────────────────────────────────────────────┐
+│ 📋 세션 요약                            🔄  ✕   │
+│                                                 │
+│ React 프로젝트의 라우터 이슈를 디버깅함.           │
+│ App.tsx에서 중첩 라우트 구조를 리팩토링하고         │
+│ 인증 가드 미들웨어를 추가함. 테스트 통과 확인.      │
+│                                                 │
+│ 💬 12 turns · 📝 4 files edited · ⏱ 23분       │
+│ ⚠ 요약 이후 8턴 진행됨                    🔄     │
+└─────────────────────────────────────────────────┘
+```
+
+**구현 항목:**
+1. 백엔드: `POST /api/sessions/:id/summarize` — Haiku API 직접 호출, 주요 메시지 읽고 5줄 요약
+2. 요약 생성: 오직 유저가 🔄 버튼 클릭 시에만 (자동 실행 안 함)
+3. stale 표시: `summary_at_turn` 저장 → 현재 turn 수와 비교 → 5턴 이상 차이 시 ⚠ 경고색
+4. 요약 없는 세션: "아직 요약 없음 — 🔄 요약 생성" 버튼만 표시
+5. 위치: 세션 진입 시 채팅 영역 상단 접이식 카드
+6. DB: `sessions` 테이블에 `summary TEXT`, `summary_at_turn INTEGER`, `turn_count INTEGER DEFAULT 0`, `files_edited TEXT DEFAULT '[]'` 추가
+7. `SummaryCard.tsx` 컴포넌트 — 접이식, 새로고침 버튼, stale 힌트
+8. 메타 정보 표시: 턴 수, 수정 파일 수, 소요 시간, 비용/토큰, 사용 모델
+
+**사이드바 세션 목록 개선:**
+```
+┌───────────────────────────┐
+│ ⭐ React 라우터 버그 수정    │
+│    12 turns · $0.42       │
+│    2시간 전                │
+├───────────────────────────┤
+│    DB 스키마 설계            │
+│    5 turns · $0.18        │
+│    어제                    │
+└───────────────────────────┘
+```
+
+### Phase 6: 모바일 + 파일 업로드 + 배포 (이후)
+
+1. 사이드바 파일 드래그&드롭 → 채팅 컨텍스트 첨부
+2. 로컬 파일 업로드 (OS에서 브라우저로 드래그&드롭)
+   - **드롭 존 2곳:**
+     - 채팅 영역에 드롭 → 파일 내용을 컨텍스트로 첨부하여 Claude에게 전달
+     - 파일 트리에 드롭 → 워크스페이스 디렉토리에 업로드 (저장)
+   - **백엔드:** `POST /api/files/upload` (multer, multipart/form-data), `isPathSafe()` 검증
+   - **프론트:** HTML5 Drag & Drop API, 드롭 존 하이라이트 표시, 업로드 프로그레스 바
+   - **제한:** 파일 크기 상한 (기본 10MB, 설정 가능), 위험 확장자 차단 (.exe, .sh 등)
+   - **복수 파일:** 여러 파일 동시 드롭 지원
+3. 모바일 반응형 (하단 탭바, ≤768px)
+4. 다크/라이트 테마
+5. 비용 추적 대시보드
+6. Docker + Cloudflare Tunnel + PWA (기존 배포 계획)
 
 ---
 
@@ -391,15 +522,14 @@ CREATE TABLE IF NOT EXISTS pins (
 2. **세션 이어하기:** 대화 후 새로고침 → 히스토리에서 선택 → 이전 맥락 유지 확인 ✅
 3. **파일 편집:** Claude에게 파일 생성 요청 → 파일 트리에 실시간 반영 → 클릭하여 열기/편집
 4. **MD 렌더링:** .md 파일 생성 → 렌더링 뷰에서 테이블/코드블록/이미지 확인
-5. **Python 실행:** 스크래치패드에 코드 작성 → 실행 → 출력 확인 → pip install 테스트
-6. **Skills:** `/` 입력 → 드롭다운에 prime, ralph 등 표시 → 선택 시 실행 확인 ✅
+5. **Skills:** `/` 입력 → 드롭다운에 prime, ralph 등 표시 → 선택 시 실행 확인 ✅
 7. **SSH 터널:** `ssh -L 32354:localhost:32354 azureuser@4.230.33.35` → 브라우저 접속 ✅
 8. **핀보드:** 핀 탭에서 .html 파일 핀 → 클릭 시 iframe 렌더링 → 드래그→채팅 컨텍스트 첨부 → 핀 해제 확인
 9. **프롬프트:** 세션 탭 하단 프롬프트 섹션 → `+`로 추가 → 클릭 시 ContextPanel에 미리보기 → 드래그→채팅 InputBox 삽입 → ~/.claude/commands/ 항목 자동 표시 확인
 
 ---
 
-## Phase 5: 배포 & 서빙 — "설치하면 그냥 돌아가야 한다"
+## Phase 6: 배포 & 서빙 — "설치하면 그냥 돌아가야 한다"
 
 ### 문제 정의
 
@@ -488,9 +618,6 @@ RUN groupmod -g ${HOST_GID} node && usermod -u ${HOST_UID} -g ${HOST_GID} node
 
 # Claude Code CLI 설치
 RUN npm install -g @anthropic-ai/claude-code
-
-# Python (분석용)
-RUN apt-get update && apt-get install -y python3 python3-venv python3-pip
 
 # 앱 빌드
 WORKDIR /app

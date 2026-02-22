@@ -72,27 +72,22 @@ export function ToolChip({ name, input, result, isActive, onClick }: ToolChipPro
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border cursor-pointer transition-all duration-150 text-[12px] max-w-[220px] ${
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border cursor-pointer transition-all duration-150 text-[11px] max-w-[200px] ${
         isActive
-          ? `${meta.bg} ${meta.border} ring-1 ring-offset-0 ${meta.border}`
-          : `bg-surface-800/60 border-surface-700/50 hover:${meta.bg} hover:${meta.border}`
+          ? `${meta.bg} ${meta.border}`
+          : `bg-transparent border-surface-700/40 hover:border-surface-600/60 hover:bg-surface-800/40`
       }`}
     >
-      <svg className={`w-3.5 h-3.5 ${meta.color} shrink-0`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className={`w-3 h-3 ${meta.color} shrink-0 opacity-70`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         {meta.icon}
       </svg>
-      <span className={`truncate ${isActive ? meta.color : 'text-gray-400'}`}>{summary}</span>
+      <span className={`truncate ${isActive ? meta.color : 'text-gray-500'}`}>{summary}</span>
       {isRunning && (
         <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse shrink-0" />
       )}
       {result && !isRunning && (
-        <svg className="w-3 h-3 text-emerald-400/80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      )}
-      {isActive && (
-        <svg className="w-3 h-3 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        <svg className="w-2.5 h-2.5 text-emerald-500/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
         </svg>
       )}
     </button>

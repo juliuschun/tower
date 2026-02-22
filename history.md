@@ -186,3 +186,83 @@
 ### 총 규모
 - 수정 2개 (ToolUseCard, MessageBubble) + DB 직접 마이그레이션
 - 26 files changed, 984 insertions(+), 124 deletions(-) (Phase 3 포함)
+
+## 2026-02-22: Phase 4A/B/C/F — ContextPanel 리사이즈, 프롬프트, 슬래시 명령어, 안정성
+
+### Batch 1: 백엔드 (5개 파일 수정)
+- **`backend/db/schema.ts`** — ALTER TABLE 마이그레이션: `pin_type`, `content` 컬럼 추가 (try/catch 멱등성)
+- **`backend/services/pin-manager.ts`** — Pin 인터페이스 확장, `createPromptPin()`, `updatePromptPin()`, `getPromptsWithCommands()` (DB 프롬프트 + `~/.claude/commands/` 병합)
+- **`backend/services/command-loader.ts`** — frontmatter 파싱으로 description 추출, `fullContent` 필드 추가
+- **`backend/routes/api.ts`** — `GET/POST/PATCH/DELETE /api/prompts` 엔드포인트
+- **`backend/config.ts`** — `maxConcurrentSessions` (env 설정, 기본 3), `getPermissionMode(role)` (admin=bypass, user=acceptEdits)
+- **`backend/services/claude-sdk.ts`** — `getActiveSessionCount()`, `permissionMode` 옵션
+- **`backend/routes/ws-handler.ts`** — JWT에서 userRole 추출, 동시 세션 한도 체크 (`SESSION_LIMIT` 에러), 5분 hang 감지 타이머 + 자동 abort
+
+### Batch 2: 프론트엔드 (4개 새 파일, 5개 수정)
+- **새 파일** `frontend/src/stores/prompt-store.ts` — zustand 프롬프트 스토어
+- **새 파일** `frontend/src/components/prompts/PromptItem.tsx` — 번개 아이콘 + 소스 뱃지(cmd/user) + 편집/삭제 버튼
+- **새 파일** `frontend/src/components/prompts/PromptEditor.tsx` — 생성/편집 모달 (제목 + textarea)
+- **새 파일** `frontend/src/components/layout/ResizeHandle.tsx` — 드래그 리사이즈 핸들 (280-800px, 더블클릭 리셋 384px)
+- **수정** `frontend/src/components/layout/Sidebar.tsx` — 세션 탭 하단 접기 가능 프롬프트 섹션
+- **수정** `frontend/src/App.tsx` — ResizeHandle 통합, 프롬프트 CRUD 핸들러, PromptEditor 모달, `/api/prompts` 로드
+- **수정** `frontend/src/stores/chat-store.ts` — `slashCommands` 타입 `string[]` → `SlashCommandInfo[]` (name/description/source), `draftInput` 추가
+- **수정** `frontend/src/hooks/useClaudeChat.ts` — SDK slash commands와 `/api/commands` 병합, `SESSION_LIMIT`/`SDK_HANG` 에러 분기 처리
+- **수정** `frontend/src/components/chat/InputBox.tsx` — 키보드 네비게이션 (↑↓/Tab/Enter), 설명+소스 뱃지, `selectedIndex`, `draftInput` 수신
+
+### Batch 3: 안정성
+- **수정** `frontend/src/hooks/useWebSocket.ts` — 지수 백오프 재연결 (2s→4s→8s→...→30s max, 성공 시 리셋)
+- SESSION_LIMIT, SDK_HANG 에러 시 전용 시스템 메시지 표시
+
+### 디버깅 및 수정
+- 빌드 오류: `createPin()` 반환 타입에 `pin_type`, `content` 누락 → 추가
+- commands content가 frontmatter 첫 줄(`---`)만 반환 → `loadCommands()`에서 frontmatter description 파싱 + `fullContent` 추가
+- 프롬프트 클릭 시 ContextPanel이 안 열림 → `setContextPanelTab('preview')` 호출 추가, 빈 content 시 fallback 텍스트
+
+### 총 규모
+- 새 파일 4개, 수정 ~12개, ~500줄 추가
+
+## 2026-02-22: Phase 5 — 모델 셀렉터 + 세션 인텔리전스
+
+### 환경 제약
+- MAX 구독 환경이라 ANTHROPIC_API_KEY 없음
+- `@anthropic-ai/sdk` 직접 호출 불가 → 5B/5C도 Claude Code SDK `query()`로 경량 프롬프트 전송
+- SDK `Options.model` 파라미터 직접 지원 확인 → 환경변수 우회 불필요
+
+### 5A: 모델 셀렉터
+- **SDK Options.model 직접 지원 확인** — `sdk.d.ts`에서 `model?: string` 확인
+- **`backend/config.ts`** — `availableModels: ModelInfo[]` (Sonnet 4.6, Opus 4.6, Haiku 4.5) + `connectionType: 'MAX'`
+- **`backend/services/claude-sdk.ts`** — `executeQuery()`에 `model?` 옵션 추가, `queryOptions`에 spread
+- **`backend/routes/ws-handler.ts`** — `handleChat()`에 `model?` 파라미터, `executeQuery()`에 전달
+- **`backend/routes/api.ts`** — `GET /api/config`에 `models`, `connectionType` 필드 추가
+- **새 파일** `frontend/src/stores/model-store.ts` — zustand 스토어 (availableModels, selectedModel, connectionType)
+- **새 파일** `frontend/src/components/layout/ModelSelector.tsx` — 드롭다운 셀렉터 (보라색 MAX 배지, 모델별 id 표시)
+- **`frontend/src/components/layout/Header.tsx`** — 정적 모델 배지 → ModelSelector 교체
+- **`frontend/src/hooks/useClaudeChat.ts`** — `sendMessage` 시 `useModelStore.selectedModel`을 WS에 포함
+- **`frontend/src/App.tsx`** — config 로드 시 `setAvailableModels()`, `setConnectionType()` 호출
+
+### 5B: 세션 자동 이름 생성
+- **새 파일** `backend/services/auto-namer.ts` — SDK query()로 Haiku에 경량 프롬프트: "15자 한글 제목 생성"
+- **`backend/routes/api.ts`** — `POST /api/sessions/:id/auto-name` 엔드포인트 (첫 user+assistant 메시지 추출 → 이름 생성 → DB 업데이트)
+- **`frontend/src/hooks/useClaudeChat.ts`** — `sdk_done` 시 세션 이름이 기본값(`세션 ...`)이면 auto-name API 호출
+- **`frontend/src/App.tsx`** — 수동 이름 변경 시 `autoNamed: 0` PATCH (이후 자동 이름 방지)
+
+### 5C: 세션 요약 카드
+- **새 파일** `backend/services/summarizer.ts` — SDK query()로 Haiku에 요약 요청: "5줄 한글 요약"
+- **`backend/routes/api.ts`** — `POST /api/sessions/:id/summarize` (최근 20메시지 → 요약 → DB 저장)
+- **`backend/routes/ws-handler.ts`** — `sdk_done` 마다 `turn_count += 1`, tool_use Write/Edit 감지 → `files_edited` JSON 배열
+- **`backend/services/session-manager.ts`** — SessionMeta 확장 (6필드), updateSession/getSessions/getSession에 반영, `mapRow()` 헬퍼
+- **새 파일** `frontend/src/components/sessions/SummaryCard.tsx` — 접이식 카드 (요약+메타+stale경고+갱신버튼)
+- **`frontend/src/components/chat/ChatPanel.tsx`** — 메시지 영역 상단에 SummaryCard 통합
+- **`frontend/src/components/sessions/SessionItem.tsx`** — 상대시간 함수, 턴 수/비용 서브텍스트
+
+### DB 마이그레이션 (6개 컬럼)
+- `ALTER TABLE sessions ADD COLUMN model_used TEXT`
+- `ALTER TABLE sessions ADD COLUMN auto_named INTEGER DEFAULT 1`
+- `ALTER TABLE sessions ADD COLUMN summary TEXT`
+- `ALTER TABLE sessions ADD COLUMN summary_at_turn INTEGER`
+- `ALTER TABLE sessions ADD COLUMN turn_count INTEGER DEFAULT 0`
+- `ALTER TABLE sessions ADD COLUMN files_edited TEXT DEFAULT '[]'`
+
+### 총 규모
+- 새 파일 5개, 수정 12개
+- 29 files changed, ~1300 insertions, ~210 deletions (Phase 4 포함)

@@ -14,12 +14,22 @@ export interface ClaudeSession {
 
 const activeSessions = new Map<string, ClaudeSession>();
 
+export function getActiveSessionCount(): number {
+  let count = 0;
+  for (const session of activeSessions.values()) {
+    if (session.isRunning) count++;
+  }
+  return count;
+}
+
 export async function* executeQuery(
   sessionId: string,
   prompt: string,
   options: {
     cwd?: string;
     resumeSessionId?: string;
+    permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+    model?: string;
   } = {}
 ): AsyncGenerator<SDKMessage> {
   // Abort any existing query for this session
@@ -49,7 +59,8 @@ export async function* executeQuery(
     executableArgs: [],
     pathToClaudeCodeExecutable: config.claudeExecutable,
     cwd: options.cwd || config.defaultCwd,
-    permissionMode: config.permissionMode,
+    permissionMode: options.permissionMode || config.permissionMode,
+    ...(options.model ? { model: options.model } : {}),
   };
 
   if (options.resumeSessionId) {

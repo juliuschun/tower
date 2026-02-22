@@ -1,6 +1,7 @@
 import React from 'react';
 import { useChatStore } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
+import { ModelSelector } from './ModelSelector';
 
 interface HeaderProps {
   connected: boolean;
@@ -8,7 +9,6 @@ interface HeaderProps {
 }
 
 export function Header({ connected, onToggleSidebar }: HeaderProps) {
-  const model = useChatStore((s) => s.model);
   const cost = useChatStore((s) => s.cost);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
@@ -45,11 +45,7 @@ export function Header({ connected, onToggleSidebar }: HeaderProps) {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
-        {model && (
-          <span className="text-[11px] font-medium text-gray-400 bg-surface-800/80 border border-surface-700/50 px-2.5 py-1 rounded-md shadow-sm">
-            {model}
-          </span>
-        )}
+        <ModelSelector />
 
         {cost.totalCost > 0 && (
           <span className="text-[11px] font-semibold text-primary-300 bg-primary-900/10 border border-primary-800/30 px-2.5 py-1 rounded-md shadow-sm">

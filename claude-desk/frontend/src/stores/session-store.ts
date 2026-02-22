@@ -11,6 +11,12 @@ export interface SessionMeta {
   totalTokens: number;
   createdAt: string;
   updatedAt: string;
+  modelUsed?: string;
+  autoNamed?: number;
+  summary?: string;
+  summaryAtTurn?: number;
+  turnCount?: number;
+  filesEdited?: string[];
 }
 
 interface SessionState {

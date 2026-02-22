@@ -8,10 +8,10 @@ export function ThinkingBlock({ text }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="border border-surface-700 rounded-lg overflow-hidden">
+    <div className="rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400 hover:bg-surface-800 transition-colors"
+        className="flex items-center gap-1.5 px-1 py-0.5 text-[11px] text-gray-600 hover:text-gray-400 transition-colors"
       >
         <svg
           className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -19,11 +19,11 @@ export function ThinkingBlock({ text }: ThinkingBlockProps) {
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
-        <span className="thinking-indicator">사고 과정</span>
-        <span className="text-gray-600 ml-auto">{text.length} 글자</span>
+        <span className="thinking-indicator">thinking</span>
+        <span className="text-gray-700">{text.length.toLocaleString()}</span>
       </button>
       {expanded && (
-        <div className="px-3 py-2 text-xs text-gray-400 bg-surface-850 border-t border-surface-700 whitespace-pre-wrap max-h-60 overflow-y-auto">
+        <div className="px-3 py-2.5 text-[12px] text-gray-500 bg-surface-900/40 border border-surface-800/40 rounded-lg mt-1 whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
           {text}
         </div>
       )}

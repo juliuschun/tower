@@ -2,9 +2,11 @@ import React, { useMemo } from 'react';
 import { useSessionStore, type SessionMeta } from '../../stores/session-store';
 import { useFileStore } from '../../stores/file-store';
 import { usePinStore, type Pin } from '../../stores/pin-store';
+import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
 import { SessionItem } from '../sessions/SessionItem';
 import { FileTree } from '../files/FileTree';
 import { PinList } from '../pinboard/PinList';
+import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
 
 interface SidebarProps {
   onNewSession: () => void;
@@ -19,6 +21,11 @@ interface SidebarProps {
   onUnpinFile?: (id: number) => void;
   onPinClick?: (pin: Pin) => void;
   onSettingsClick?: () => void;
+  onPromptClick?: (prompt: PromptItem) => void;
+  onPromptEdit?: (prompt: PromptItem) => void;
+  onPromptDelete?: (id: number | string) => void;
+  onPromptAdd?: () => void;
+  onPromptInsert?: (prompt: PromptItem) => void;
 }
 
 export function Sidebar({
@@ -26,6 +33,7 @@ export function Sidebar({
   onRenameSession, onToggleFavorite,
   onFileClick, onDirectoryClick, onRequestFileTree,
   onPinFile, onUnpinFile, onPinClick, onSettingsClick,
+  onPromptClick, onPromptEdit, onPromptDelete, onPromptAdd,
 }: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -35,6 +43,10 @@ export function Sidebar({
   const setSearchQuery = useSessionStore((s) => s.setSearchQuery);
 
   const tree = useFileStore((s) => s.tree);
+
+  const prompts = usePromptStore((s) => s.prompts);
+  const promptsExpanded = usePromptStore((s) => s.expanded);
+  const setPromptsExpanded = usePromptStore((s) => s.setExpanded);
 
   // Filter and sort sessions: favorites first, then by updatedAt
   const filteredSessions = useMemo(() => {
@@ -133,6 +145,46 @@ export function Sidebar({
                   onToggleFavorite={onToggleFavorite}
                 />
               ))}
+            </div>
+
+            {/* Collapsible prompt section */}
+            <div className="mt-3 border-t border-surface-800/50 pt-2">
+              <button
+                onClick={() => setPromptsExpanded(!promptsExpanded)}
+                className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold text-surface-600 hover:text-surface-400 transition-colors"
+              >
+                <svg className={`w-3 h-3 transition-transform ${promptsExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                프롬프트 ({prompts.length})
+                {onPromptAdd && (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); onPromptAdd(); }}
+                    className="ml-auto text-surface-700 hover:text-primary-400 transition-colors"
+                    title="프롬프트 추가"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </span>
+                )}
+              </button>
+              {promptsExpanded && (
+                <div className="mt-1 space-y-0.5">
+                  {prompts.map((prompt) => (
+                    <PromptItemComponent
+                      key={prompt.id}
+                      prompt={prompt}
+                      onClick={(p) => onPromptClick?.(p)}
+                      onEdit={(p) => onPromptEdit?.(p)}
+                      onDelete={(id) => onPromptDelete?.(id)}
+                    />
+                  ))}
+                  {prompts.length === 0 && (
+                    <p className="text-[11px] text-surface-700 px-3 py-2">프롬프트가 없습니다</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ) : sidebarTab === 'files' ? (

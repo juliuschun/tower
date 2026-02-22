@@ -15,6 +15,12 @@ export interface SessionMeta {
   totalTokens: number;
   createdAt: string;
   updatedAt: string;
+  modelUsed?: string;
+  autoNamed?: number;
+  summary?: string;
+  summaryAtTurn?: number;
+  turnCount?: number;
+  filesEdited?: string[];
 }
 
 export function createSession(name: string, cwd: string, userId?: number): SessionMeta {
@@ -37,7 +43,7 @@ export function createSession(name: string, cwd: string, userId?: number): Sessi
   };
 }
 
-export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite'>>) {
+export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited'>>) {
   const db = getDb();
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const values: any[] = [];
@@ -48,6 +54,12 @@ export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'na
   if (updates.totalTokens !== undefined) { sets.push('total_tokens = ?'); values.push(updates.totalTokens); }
   if (updates.tags !== undefined) { sets.push('tags = ?'); values.push(JSON.stringify(updates.tags)); }
   if (updates.favorite !== undefined) { sets.push('favorite = ?'); values.push(updates.favorite ? 1 : 0); }
+  if (updates.modelUsed !== undefined) { sets.push('model_used = ?'); values.push(updates.modelUsed); }
+  if (updates.autoNamed !== undefined) { sets.push('auto_named = ?'); values.push(updates.autoNamed); }
+  if (updates.summary !== undefined) { sets.push('summary = ?'); values.push(updates.summary); }
+  if (updates.summaryAtTurn !== undefined) { sets.push('summary_at_turn = ?'); values.push(updates.summaryAtTurn); }
+  if (updates.turnCount !== undefined) { sets.push('turn_count = ?'); values.push(updates.turnCount); }
+  if (updates.filesEdited !== undefined) { sets.push('files_edited = ?'); values.push(JSON.stringify(updates.filesEdited)); }
 
   values.push(id);
   db.prepare(`UPDATE sessions SET ${sets.join(', ')} WHERE id = ?`).run(...values);
@@ -60,24 +72,10 @@ export function getSessions(userId?: number): SessionMeta[] {
     : db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC');
 
   const rows = userId ? query.all(userId) : query.all();
-  return (rows as any[]).map(row => ({
-    id: row.id,
-    claudeSessionId: row.claude_session_id,
-    name: row.name,
-    cwd: row.cwd,
-    tags: JSON.parse(row.tags || '[]'),
-    favorite: !!row.favorite,
-    totalCost: row.total_cost,
-    totalTokens: row.total_tokens,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return (rows as any[]).map(mapRow);
 }
 
-export function getSession(id: string): SessionMeta | null {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
-  if (!row) return null;
+function mapRow(row: any): SessionMeta {
   return {
     id: row.id,
     claudeSessionId: row.claude_session_id,
@@ -89,7 +87,20 @@ export function getSession(id: string): SessionMeta | null {
     totalTokens: row.total_tokens,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    modelUsed: row.model_used || undefined,
+    autoNamed: row.auto_named ?? 1,
+    summary: row.summary || undefined,
+    summaryAtTurn: row.summary_at_turn ?? undefined,
+    turnCount: row.turn_count ?? 0,
+    filesEdited: JSON.parse(row.files_edited || '[]'),
   };
+}
+
+export function getSession(id: string): SessionMeta | null {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
+  if (!row) return null;
+  return mapRow(row);
 }
 
 export function deleteSession(id: string): boolean {

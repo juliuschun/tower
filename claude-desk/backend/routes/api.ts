@@ -9,8 +9,13 @@ import {
 import { getFileTree, readFile, writeFile, isPathSafe } from '../services/file-system.js';
 import { loadCommands } from '../services/command-loader.js';
 import { getMessages } from '../services/message-store.js';
-import { getPins, createPin, updatePin, deletePin, reorderPins } from '../services/pin-manager.js';
-import { config } from '../config.js';
+import { generateSessionName } from '../services/auto-namer.js';
+import { generateSummary } from '../services/summarizer.js';
+import {
+  getPins, createPin, updatePin, deletePin, reorderPins,
+  createPromptPin, updatePromptPin, getPromptsWithCommands,
+} from '../services/pin-manager.js';
+import { config, availableModels } from '../config.js';
 
 const router = Router();
 
@@ -63,9 +68,89 @@ router.get('/sessions/:id', (req, res) => {
 });
 
 router.patch('/sessions/:id', (req, res) => {
-  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId } = req.body;
-  updateSession(req.params.id, { name, tags, favorite, totalCost, totalTokens, claudeSessionId });
+  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed } = req.body;
+  const updates: any = { name, tags, favorite, totalCost, totalTokens, claudeSessionId };
+  if (autoNamed !== undefined) updates.autoNamed = autoNamed;
+  updateSession(req.params.id, updates);
   res.json({ ok: true });
+});
+
+// Auto-name session based on first messages
+router.post('/sessions/:id/auto-name', async (req, res) => {
+  try {
+    const messages = getMessages(req.params.id);
+    const userMsg = messages.find((m) => m.role === 'user');
+    const assistantMsg = messages.find((m) => m.role === 'assistant');
+    if (!userMsg || !assistantMsg) {
+      return res.status(400).json({ error: 'Need at least one user and assistant message' });
+    }
+
+    // Extract text from content
+    const extractText = (content: string): string => {
+      try {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((b: any) => b.type === 'text')
+            .map((b: any) => b.text)
+            .join(' ');
+        }
+        return content;
+      } catch {
+        return content;
+      }
+    };
+
+    const userText = extractText(userMsg.content);
+    const assistantText = extractText(assistantMsg.content);
+
+    const name = await generateSessionName(userText, assistantText);
+    updateSession(req.params.id, { name, autoNamed: 1 } as any);
+    res.json({ ok: true, name });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Summarize session
+router.post('/sessions/:id/summarize', async (req, res) => {
+  try {
+    const messages = getMessages(req.params.id);
+    if (messages.length === 0) {
+      return res.status(400).json({ error: 'No messages to summarize' });
+    }
+
+    const extractText = (content: string): string => {
+      try {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((b: any) => b.type === 'text')
+            .map((b: any) => b.text)
+            .join(' ');
+        }
+        return content;
+      } catch {
+        return content;
+      }
+    };
+
+    // Take last 20 messages
+    const recent = messages.slice(-20);
+    const messagesText = recent
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${extractText(m.content).slice(0, 300)}`)
+      .join('\n');
+
+    const summary = await generateSummary(messagesText);
+
+    // Get current session to read turnCount
+    const session = getSession(req.params.id);
+    const turnCount = session?.turnCount ?? 0;
+    updateSession(req.params.id, { summary, summaryAtTurn: turnCount });
+    res.json({ ok: true, summary, summaryAtTurn: turnCount });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 router.delete('/sessions/:id', (req, res) => {
@@ -174,6 +259,31 @@ router.get('/files/serve', (req, res) => {
   }
 });
 
+// ───── Prompts ─────
+router.get('/prompts', (req, res) => {
+  const userId = (req as any).user?.userId;
+  res.json(getPromptsWithCommands(userId));
+});
+
+router.post('/prompts', (req, res) => {
+  const { title, content } = req.body;
+  if (!title || content === undefined) return res.status(400).json({ error: 'title and content required' });
+  const userId = (req as any).user?.userId;
+  const pin = createPromptPin(title, content, userId);
+  res.json(pin);
+});
+
+router.patch('/prompts/:id', (req, res) => {
+  const { title, content } = req.body;
+  updatePromptPin(parseInt(req.params.id), { title, content });
+  res.json({ ok: true });
+});
+
+router.delete('/prompts/:id', (req, res) => {
+  deletePin(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
 // ───── Config ─────
 router.get('/config', (_req, res) => {
   res.json({
@@ -181,6 +291,8 @@ router.get('/config', (_req, res) => {
     workspaceRoot: config.workspaceRoot,
     permissionMode: config.permissionMode,
     claudeExecutable: config.claudeExecutable,
+    models: availableModels,
+    connectionType: 'MAX',
   });
 });
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useChatStore } from '../../stores/chat-store';
+import { useChatStore, type SlashCommandInfo } from '../../stores/chat-store';
 
 interface InputBoxProps {
   onSend: (message: string) => void;
@@ -10,17 +10,42 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const [input, setInput] = useState('');
   const [queued, setQueued] = useState<string | null>(null);
   const [showCommands, setShowCommands] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const slashCommands = useChatStore((s) => s.slashCommands);
+  const draftInput = useChatStore((s) => s.draftInput);
 
-  const filteredCommands = input.startsWith('/')
-    ? slashCommands.filter((cmd) => cmd.toLowerCase().includes(input.slice(1).toLowerCase()))
+  // Apply draft input from external source (e.g. prompt click)
+  useEffect(() => {
+    if (draftInput !== null) {
+      setInput(draftInput);
+      useChatStore.getState().setDraftInput(null);
+      textareaRef.current?.focus();
+      // Auto-resize textarea
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+        }
+      }, 0);
+    }
+  }, [draftInput]);
+
+  const filteredCommands: SlashCommandInfo[] = input.startsWith('/')
+    ? slashCommands.filter((cmd) => cmd.name.toLowerCase().includes(input.slice(1).toLowerCase()))
     : [];
 
   useEffect(() => {
-    setShowCommands(input.startsWith('/') && input.length > 0 && !input.includes(' ') && filteredCommands.length > 0);
+    const shouldShow = input.startsWith('/') && input.length > 0 && !input.includes(' ') && filteredCommands.length > 0;
+    setShowCommands(shouldShow);
+    if (!shouldShow) setSelectedIndex(0);
   }, [input, filteredCommands.length]);
+
+  // Reset selectedIndex when filtered list changes
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [filteredCommands.length]);
 
   // Auto-send queued message when streaming stops
   useEffect(() => {
@@ -53,6 +78,25 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (showCommands) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.min(i + 1, filteredCommands.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        if (filteredCommands[selectedIndex]) {
+          selectCommand(filteredCommands[selectedIndex].name);
+        }
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -101,15 +145,28 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       <div className="rounded-2xl shadow-2xl shadow-black/40 ring-1 ring-white/10 bg-surface-800/80 backdrop-blur-2xl">
         {/* Slash command picker */}
         {showCommands && (
-          <div className="absolute bottom-full left-0 right-0 mb-2 bg-surface-800/90 backdrop-blur-xl border border-surface-700/50 rounded-xl max-h-40 overflow-y-auto shadow-xl">
-            {filteredCommands.map((cmd) => (
+          <div className="absolute bottom-full left-0 right-0 mb-2 bg-surface-800/90 backdrop-blur-xl border border-surface-700/50 rounded-xl max-h-48 overflow-y-auto shadow-xl">
+            {filteredCommands.map((cmd, idx) => (
               <button
-                key={cmd}
-                className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-300 hover:bg-surface-700/50 hover:text-white transition-colors flex items-center gap-2 group"
-                onClick={() => selectCommand(cmd)}
+                key={cmd.name}
+                className={`w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-surface-700/50 hover:text-white transition-colors flex items-center gap-2 group ${
+                  idx === selectedIndex ? 'bg-surface-700/50 text-white' : ''
+                }`}
+                onClick={() => selectCommand(cmd.name)}
+                onMouseEnter={() => setSelectedIndex(idx)}
               >
-                <span className="text-primary-500/70 group-hover:text-primary-400 font-mono">/</span>
-                <span>{cmd}</span>
+                <span className="text-primary-500/70 group-hover:text-primary-400 font-mono shrink-0">/</span>
+                <span className="font-medium truncate">{cmd.name}</span>
+                {cmd.description && (
+                  <span className="text-[11px] text-gray-500 truncate ml-1">{cmd.description}</span>
+                )}
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-auto shrink-0 ${
+                  cmd.source === 'commands'
+                    ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20'
+                    : 'bg-surface-700/50 text-gray-500 border border-surface-600/30'
+                }`}>
+                  {cmd.source === 'commands' ? 'cmd' : 'sdk'}
+                </span>
               </button>
             ))}
           </div>

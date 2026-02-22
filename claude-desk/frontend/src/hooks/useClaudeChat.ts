@@ -1,8 +1,9 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { useChatStore, type ChatMessage, type ContentBlock } from '../stores/chat-store';
+import { useChatStore, type ChatMessage, type ContentBlock, type SlashCommandInfo } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
+import { useModelStore } from '../stores/model-store';
 import { parseSDKMessage } from '../utils/message-parser';
 import { toastSuccess, toastError } from '../utils/toast';
 
@@ -31,11 +32,39 @@ export function useClaudeChat() {
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'init') {
           setSessionId(data.sessionId);
           setClaudeSessionId(sdkMsg.session_id);
-          setSystemInfo({
-            slashCommands: sdkMsg.slash_commands,
-            tools: sdkMsg.tools,
-            model: sdkMsg.model,
-          });
+
+          // Convert SDK string[] to SlashCommandInfo[] and merge with /api/commands
+          const sdkCmds: SlashCommandInfo[] = (sdkMsg.slash_commands || []).map((cmd: string) => ({
+            name: cmd,
+            description: '',
+            source: 'sdk' as const,
+          }));
+
+          // Fetch descriptions from /api/commands and merge
+          const tk = localStorage.getItem('token');
+          const hdrs: Record<string, string> = {};
+          if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+          fetch('/api/commands', { headers: hdrs })
+            .then((r) => r.ok ? r.json() : [])
+            .then((serverCmds: Array<{ name: string; description: string; source: string }>) => {
+              const cmdMap = new Map(serverCmds.map((c) => [c.name, c]));
+              const merged: SlashCommandInfo[] = sdkCmds.map((cmd) => {
+                const match = cmdMap.get(`/${cmd.name}`) || cmdMap.get(cmd.name);
+                if (match) {
+                  cmdMap.delete(match.name);
+                  return { ...cmd, description: match.description, source: match.source === 'commands' ? 'commands' as const : 'sdk' as const };
+                }
+                return cmd;
+              });
+              // Add any commands-only entries not in SDK list
+              for (const [, cmd] of cmdMap) {
+                merged.push({ name: cmd.name.replace(/^\//, ''), description: cmd.description, source: 'commands' });
+              }
+              setSystemInfo({ slashCommands: merged, tools: sdkMsg.tools, model: sdkMsg.model });
+            })
+            .catch(() => {
+              setSystemInfo({ slashCommands: sdkCmds, tools: sdkMsg.tools, model: sdkMsg.model });
+            });
           return;
         }
 
@@ -117,13 +146,13 @@ export function useClaudeChat() {
         break;
       }
 
-      case 'sdk_done':
+      case 'sdk_done': {
         setStreaming(false);
         currentAssistantMsg.current = null;
+        const activeId = useSessionStore.getState().activeSessionId;
         if (data.claudeSessionId) {
           setClaudeSessionId(data.claudeSessionId);
           // Persist claudeSessionId to DB for session resume
-          const activeId = useSessionStore.getState().activeSessionId;
           if (activeId) {
             const tk = localStorage.getItem('token');
             const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -136,7 +165,33 @@ export function useClaudeChat() {
             useSessionStore.getState().updateSessionMeta(activeId, { claudeSessionId: data.claudeSessionId });
           }
         }
+
+        // Auto-name: trigger if session name looks like default (date format)
+        if (activeId) {
+          const session = useSessionStore.getState().sessions.find((s) => s.id === activeId);
+          const isDefaultName = session?.name?.startsWith('세션 ');
+          const msgs = useChatStore.getState().messages;
+          const hasUserMsg = msgs.some((m) => m.role === 'user');
+          const hasAssistantMsg = msgs.some((m) => m.role === 'assistant');
+          if (isDefaultName && hasUserMsg && hasAssistantMsg) {
+            const tk = localStorage.getItem('token');
+            const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+            fetch(`/api/sessions/${activeId}/auto-name`, {
+              method: 'POST',
+              headers: hdrs,
+            })
+              .then((r) => r.ok ? r.json() : null)
+              .then((result) => {
+                if (result?.name) {
+                  useSessionStore.getState().updateSessionMeta(activeId, { name: result.name });
+                }
+              })
+              .catch(() => {});
+          }
+        }
         break;
+      }
 
       case 'file_tree': {
         // If we already have a tree and this is a subdirectory fetch, set as children
@@ -179,13 +234,31 @@ export function useClaudeChat() {
       case 'error':
         setStreaming(false);
         currentAssistantMsg.current = null;
-        toastError(data.message || 'Unknown error');
-        addMessage({
-          id: crypto.randomUUID(),
-          role: 'system',
-          content: [{ type: 'text', text: `오류: ${data.message}` }],
-          timestamp: Date.now(),
-        });
+        if (data.errorCode === 'SESSION_LIMIT') {
+          toastError('동시 세션 한도 초과');
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'system',
+            content: [{ type: 'text', text: `세션 한도 초과: ${data.message}. 다른 세션이 완료될 때까지 기다려주세요.` }],
+            timestamp: Date.now(),
+          });
+        } else if (data.errorCode === 'SDK_HANG') {
+          toastError('SDK 응답 시간 초과');
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'system',
+            content: [{ type: 'text', text: data.message }],
+            timestamp: Date.now(),
+          });
+        } else {
+          toastError(data.message || 'Unknown error');
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'system',
+            content: [{ type: 'text', text: `오류: ${data.message}` }],
+            timestamp: Date.now(),
+          });
+        }
         break;
     }
   }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree, setDirectoryChildren, handleFileChange]);
@@ -213,6 +286,7 @@ export function useClaudeChat() {
         sessionId: useChatStore.getState().sessionId,
         claudeSessionId: useChatStore.getState().claudeSessionId,
         cwd,
+        model: useModelStore.getState().selectedModel,
       });
     },
     [send, addMessage, setStreaming]

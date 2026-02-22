@@ -80,6 +80,27 @@ function initSchema(db: Database.Database) {
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
   `);
+
+  // Migrate: add pin_type and content columns to pins table
+  try {
+    db.exec(`ALTER TABLE pins ADD COLUMN pin_type TEXT NOT NULL DEFAULT 'file'`);
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE pins ADD COLUMN content TEXT`);
+  } catch {}
+
+  // Phase 5 migrations
+  const sessionMigrations = [
+    `ALTER TABLE sessions ADD COLUMN model_used TEXT`,
+    `ALTER TABLE sessions ADD COLUMN auto_named INTEGER DEFAULT 1`,
+    `ALTER TABLE sessions ADD COLUMN summary TEXT`,
+    `ALTER TABLE sessions ADD COLUMN summary_at_turn INTEGER`,
+    `ALTER TABLE sessions ADD COLUMN turn_count INTEGER DEFAULT 0`,
+    `ALTER TABLE sessions ADD COLUMN files_edited TEXT DEFAULT '[]'`,
+  ];
+  for (const sql of sessionMigrations) {
+    try { db.exec(sql); } catch {}
+  }
 }
 
 export function closeDb() {

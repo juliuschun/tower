@@ -47,6 +47,41 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
   return blocks;
 }
 
+/**
+ * Normalize raw SDK content blocks (from DB) into UI ContentBlock format.
+ * Raw SDK: { type: 'tool_use', id, name, input }
+ * ContentBlock: { type: 'tool_use', toolUse: { id, name, input } }
+ */
+export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
+  if (!Array.isArray(blocks)) return [];
+  return blocks.map((item) => {
+    // Already in ContentBlock format (has toolUse/thinking wrapper)
+    if (item.type === 'tool_use' && item.toolUse) return item;
+    if (item.type === 'thinking' && item.thinking?.text) return item;
+    if (item.type === 'text') return item;
+
+    // Raw SDK format — convert
+    if (item.type === 'tool_use') {
+      return {
+        type: 'tool_use' as const,
+        toolUse: {
+          id: item.id || '',
+          name: item.name || '',
+          input: item.input || {},
+          result: item.result,
+        },
+      };
+    }
+    if (item.type === 'thinking') {
+      return {
+        type: 'thinking' as const,
+        thinking: { text: typeof item.thinking === 'string' ? item.thinking : (item.text || '') },
+      };
+    }
+    return item;
+  });
+}
+
 /** Get a human-friendly label for a tool name */
 export function getToolLabel(name: string): string {
   const labels: Record<string, string> = {

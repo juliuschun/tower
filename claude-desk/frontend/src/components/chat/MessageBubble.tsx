@@ -17,8 +17,8 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
 
   if (isSystem) {
     return (
-      <div className="flex justify-center my-2">
-        <div className="bg-red-900/30 border border-red-800/50 text-red-300 text-sm px-4 py-2 rounded-lg max-w-lg">
+      <div className="flex justify-center my-3">
+        <div className="bg-surface-900/60 border border-surface-700/40 text-gray-500 text-[13px] px-4 py-1.5 rounded-full max-w-lg">
           {message.content.map((b, i) => (
             <span key={i}>{b.text}</span>
           ))}
@@ -31,22 +31,22 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
   const groups = groupContentBlocks(message.content);
 
   return (
-    <div className={`flex gap-4 my-6 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>
+    <div className={`flex gap-3 my-5 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-full bg-primary-600/20 border border-primary-500/30 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1 shadow-[0_0_15px_rgba(139,92,246,0.15)] ring-1 ring-primary-500/20 text-primary-400 select-none">
+        <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
           C
         </div>
       )}
 
-      <div className={`max-w-[85%] ${isUser ? 'order-first' : ''}`}>
+      <div className={`max-w-[88%] min-w-0 ${isUser ? 'order-first' : ''}`}>
         {isUser ? (
-          <div className="bg-surface-800/80 backdrop-blur-sm border border-surface-700/50 rounded-2xl rounded-tr-sm px-5 py-3.5 text-[15px] leading-relaxed shadow-sm">
+          <div className="bg-surface-800/70 border border-surface-700/40 rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed">
             {message.content.map((block, i) => (
               <span key={i}>{block.text}</span>
             ))}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {groups.map((group, gi) => {
               // Tool use blocks — chip layout (single or multiple)
               if (group.type === 'tool_use') {
@@ -107,7 +107,7 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
       </div>
 
       {isUser && (
-        <div className="w-8 h-8 rounded-full bg-surface-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1 ring-1 ring-surface-700/50 text-surface-400 select-none">
+        <div className="w-7 h-7 rounded-full bg-surface-850 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 ring-1 ring-surface-700/40 text-surface-300 select-none">
           U
         </div>
       )}
@@ -117,12 +117,16 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
 
 function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  // Filter out blocks without valid toolUse data
+  const validBlocks = blocks.filter((b) => b.toolUse?.name);
+
+  if (validBlocks.length === 0) return null;
 
   return (
     <div>
       {/* Chip row */}
       <div className="flex flex-wrap gap-1.5">
-        {blocks.map((block, i) => (
+        {validBlocks.map((block, i) => (
           <ToolChip
             key={i}
             name={block.toolUse!.name}
@@ -134,12 +138,12 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
         ))}
       </div>
       {/* Expanded detail card below */}
-      {activeIndex !== null && blocks[activeIndex] && (
+      {activeIndex !== null && validBlocks[activeIndex] && (
         <div className="mt-2">
           <ToolUseCard
-            name={blocks[activeIndex].toolUse!.name}
-            input={blocks[activeIndex].toolUse!.input}
-            result={blocks[activeIndex].toolUse!.result}
+            name={validBlocks[activeIndex].toolUse!.name}
+            input={validBlocks[activeIndex].toolUse!.input}
+            result={validBlocks[activeIndex].toolUse!.result}
             onFileClick={onFileClick}
             defaultExpanded={true}
           />

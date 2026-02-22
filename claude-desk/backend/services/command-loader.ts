@@ -5,6 +5,7 @@ import os from 'os';
 export interface SlashCommand {
   name: string;
   description: string;
+  fullContent: string;
   source: 'commands' | 'skills';
 }
 
@@ -28,10 +29,21 @@ function scanDirectory(dir: string, source: 'commands' | 'skills', commands: Sla
       if (item.isFile() && item.name.endsWith('.md')) {
         const name = item.name.replace('.md', '');
         const content = fs.readFileSync(path.join(dir, item.name), 'utf-8');
-        const firstLine = content.split('\n')[0].trim();
+        // Parse frontmatter for description
+        let description = '';
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        if (fmMatch) {
+          const descMatch = fmMatch[1].match(/description:\s*(.+)/);
+          if (descMatch) description = descMatch[1].trim();
+        }
+        if (!description) {
+          const firstLine = content.split('\n')[0].trim();
+          description = firstLine.startsWith('#') ? firstLine.replace(/^#+\s*/, '') : firstLine.slice(0, 80);
+        }
         commands.push({
           name: `/${name}`,
-          description: firstLine.startsWith('#') ? firstLine.replace(/^#+\s*/, '') : firstLine.slice(0, 80),
+          description,
+          fullContent: content,
           source,
         });
       } else if (item.isDirectory()) {
