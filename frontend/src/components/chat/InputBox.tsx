@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, type SlashCommandInfo } from '../../stores/chat-store';
+import { shouldAutoSendQueue } from '../../utils/session-filters';
 import { AttachmentChip } from './AttachmentChip';
 
 interface InputBoxProps {
@@ -44,7 +45,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   useEffect(() => {
     if (!isStreaming && queued) {
       const nowSid = useChatStore.getState().sessionId;
-      if (nowSid === queued.sessionId) {
+      if (shouldAutoSendQueue(false, queued.sessionId, nowSid)) {
         onSend(queued.message);
       }
       setQueued(null);

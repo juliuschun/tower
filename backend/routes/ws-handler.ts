@@ -8,6 +8,7 @@ import { saveMessage, updateMessageContent, attachToolResultInDb } from '../serv
 import { getSession, updateSession } from '../services/session-manager.js';
 import { config, getPermissionMode } from '../config.js';
 import { autoCommit } from '../services/git-manager.js';
+import { isEpochStale, resolveSessionClient, switchSession, abortCleanup, type SessionClient } from './session-guards.js';
 
 interface WsClient {
   id: string;
@@ -26,18 +27,8 @@ const clients = new Map<string, WsClient>();
 const sessionClients = new Map<string, string>(); // sessionId → clientId
 
 function sendToSession(sessionId: string, data: any) {
-  const clientId = sessionClients.get(sessionId);
-  if (!clientId) return;
-  const c = clients.get(clientId);
-  if (!c) {
-    sessionClients.delete(sessionId);
-    return;
-  }
-  // Guard: client switched to a different session — stale mapping, drop message
-  if (c.sessionId !== sessionId) {
-    sessionClients.delete(sessionId);
-    return;
-  }
+  const c = resolveSessionClient(sessionClients, clients, sessionId);
+  if (!c) return;
   if (c.ws.readyState === WebSocket.OPEN) {
     c.ws.send(JSON.stringify(data));
   }
@@ -188,10 +179,6 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
   const newSessionId = data.sessionId;
 
   if (oldSessionId && oldSessionId !== newSessionId) {
-    // Remove stale sessionClients mapping for old session
-    if (sessionClients.get(oldSessionId) === client.id) {
-      sessionClients.delete(oldSessionId);
-    }
     // Abort old SDK query if running
     abortSession(oldSessionId);
     // Cleanup finished sessions
@@ -201,15 +188,12 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
     }
   }
 
-  // Invalidate any running query loop for this client
-  client.activeQueryEpoch++;
+  // Pure: clean old mapping, bump epoch, set new session
+  switchSession(client, sessionClients, oldSessionId, newSessionId);
 
-  // Update client to new session
-  client.sessionId = newSessionId;
   if (data.claudeSessionId) {
     client.claudeSessionId = data.claudeSessionId;
   }
-  sessionClients.set(newSessionId, client.id);
 
   send(client.ws, { type: 'set_active_session_ack', sessionId: newSessionId });
 }
@@ -277,7 +261,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       model: data.model,
     })) {
       // GUARD: Client switched session or started a new query — stop this stale loop
-      if (client.activeQueryEpoch !== myEpoch) {
+      if (isEpochStale(client, myEpoch)) {
         abortSession(sessionId);
         break;
       }
@@ -358,7 +342,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     }
 
     // Client switched away during streaming — don't send sdk_done to wrong session
-    if (client.activeQueryEpoch !== myEpoch) return;
+    if (isEpochStale(client, myEpoch)) return;
 
     // Get final Claude session ID
     const claudeId = getClaudeSessionId(sessionId);
@@ -417,13 +401,9 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
 function handleAbort(client: WsClient, data: { sessionId?: string }) {
   const sessionId = data.sessionId || client.sessionId;
   if (sessionId) {
-    // Invalidate running query loop for this client
-    client.activeQueryEpoch++;
     const aborted = abortSession(sessionId);
-    // Clean up session routing so stale messages aren't delivered
-    if (sessionClients.get(sessionId) === client.id) {
-      sessionClients.delete(sessionId);
-    }
+    // Pure: bump epoch + clean up session routing
+    abortCleanup(client, sessionClients, sessionId);
     send(client.ws, { type: 'abort_result', aborted, sessionId });
   }
 }

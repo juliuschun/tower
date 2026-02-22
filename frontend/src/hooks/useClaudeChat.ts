@@ -6,6 +6,7 @@ import { useSessionStore } from '../stores/session-store';
 import { useModelStore } from '../stores/model-store';
 import { useGitStore } from '../stores/git-store';
 import { parseSDKMessage, normalizeContentBlocks } from '../utils/message-parser';
+import { shouldDropSessionMessage, shouldResetAssistantRef } from '../utils/session-filters';
 import { toastSuccess, toastError, toastWarning } from '../utils/toast';
 
 /** Debounce timer for auto-reload of externally changed files */
@@ -90,7 +91,7 @@ export function useClaudeChat() {
       case 'sdk_message': {
         // Ignore messages for sessions we're not currently viewing
         const _currentSid = useChatStore.getState().sessionId;
-        if (_currentSid && _currentSid !== data.sessionId) return;
+        if (shouldDropSessionMessage(_currentSid, data.sessionId)) return;
 
         const sdkMsg = data.data;
 
@@ -98,7 +99,7 @@ export function useClaudeChat() {
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'init') {
           // Only update session IDs if we're still on the same session (or first init)
           const curSid = useChatStore.getState().sessionId;
-          if (curSid === data.sessionId) {
+          if (!shouldDropSessionMessage(curSid, data.sessionId)) {
             setSessionId(data.sessionId);
             setClaudeSessionId(sdkMsg.session_id);
           } else {
@@ -183,7 +184,7 @@ export function useClaudeChat() {
           const msgId = sdkMsg.uuid || crypto.randomUUID();
 
           // Reset ref if session changed since last assistant message
-          if (currentAssistantSessionRef.current && currentAssistantSessionRef.current !== data.sessionId) {
+          if (shouldResetAssistantRef(currentAssistantSessionRef.current, data.sessionId)) {
             currentAssistantMsg.current = null;
           }
           currentAssistantSessionRef.current = data.sessionId;
@@ -228,7 +229,7 @@ export function useClaudeChat() {
       case 'sdk_done': {
         // Ignore done signals for sessions we're not currently viewing
         const _doneSid = useChatStore.getState().sessionId;
-        if (_doneSid && _doneSid !== data.sessionId) return;
+        if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
 
         setStreaming(false);
         currentAssistantMsg.current = null;
@@ -348,7 +349,7 @@ export function useClaudeChat() {
       case 'error': {
         // Ignore session-specific errors for sessions we're not viewing
         const _errSid = useChatStore.getState().sessionId;
-        if (_errSid && _errSid !== data.sessionId) return;
+        if (shouldDropSessionMessage(_errSid, data.sessionId)) return;
 
         setStreaming(false);
         currentAssistantMsg.current = null;

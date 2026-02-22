@@ -13,5 +13,8 @@
   },
   "include": [
     "backend"
+  ],
+  "exclude": [
+    "backend/**/*.test.ts"
   ]
 }
