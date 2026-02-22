@@ -9,6 +9,11 @@ SDK 기반 + 깔끔한 UI + 파일/에디터/Python 실행을 결합한 자체 �
 **타겟 유저:** 리서치/분석 팀 (비개발자 포함)
 **핵심 니즈:** Claude와 대화하며 리서치 → MD 보고서 렌더링 → 데이터 분석(Python) → 파일 편집
 
+**비-목표 (Non-goals):**
+- 멀티 서버 클러스터링 / 수평 스케일링 (단일 VM 전제)
+- 실시간 협업 (동시 편집, 커서 공유 등)
+- Claude API 직접 호출로 SDK 우회
+
 ---
 
 ## Tech Stack
@@ -40,19 +45,20 @@ SDK 기반 + 깔끔한 UI + 파일/에디터/Python 실행을 결합한 자체 �
 │ 세션   │  [메시지 버블]           │  MD 렌더 뷰어     │
 │ 히스토리│  [도구 사용 카드]        │  코드 에디터      │
 │        │  [사고 과정 접기]        │  Python 출력      │
-│ 파일   │                         │  파일 미리보기     │
-│ 트리   │                         │                   │
-│        │  ┌───────────────────┐  │                   │
-│ Skills │  │ 입력창 + / 명령어  │  │                   │
-│        │  └───────────────────┘  │                   │
+│ 파일   │                         │  HTML iframe      │
+│ 트리   │                         │  파일 미리보기     │
+│        │                         │                   │
+│ 핀보드  │  ┌───────────────────┐  │                   │
+│        │  │ 입력창 + / 명령어  │  │                   │
+│ Skills │  └───────────────────┘  │                   │
 ├────────┴─────────────────────────┴───────────────────┤
 │  BOTTOM BAR: 비용 · 토큰 사용량 · 세션 상태           │
 └──────────────────────────────────────────────────────┘
 ```
 
-- **좌측 사이드바:** 접기 가능. 세션 히스토리 + 파일 트리 + 스킬 목록
+- **좌측 사이드바:** 접기 가능. 세션 히스토리 + 파일 트리 + 핀보드 + 스킬 목록
 - **중앙 채팅:** 메인 인터랙션. Claude 응답은 마크다운 렌더링
-- **우측 컨텍스트:** 파일 클릭 시 열림. MD 렌더/에디터/Python 출력
+- **우측 컨텍스트:** 파일 클릭 시 열림. MD 렌더/에디터/HTML iframe/Python 출력
 - **모바일:** 탭 전환 (채팅 | 파일 | 에디터)
 
 ### 비개발자를 위한 UI 원칙
@@ -145,6 +151,39 @@ SERVER → CLIENT:
 - 역할: admin / user
 - `--no-auth` 플래그로 단독 사용 시 인증 끄기
 
+### 9. 동시성 모델
+
+다중 사용자가 동시에 Claude와 대화할 때의 정책.
+
+- **SDK 호출 방식:** `query()` 호출 시 별도 자식 프로세스 생성 → 동시 세션 가능하나 리소스 제한 필요
+- **동시 세션 상한:** 환경변수 `MAX_CONCURRENT_SESSIONS` (기본 3)
+- **초과 시 동작:** 큐잉 + "현재 N명이 사용 중, 잠시 후 시도하세요" UI 메시지
+- **프로세스 타임아웃:** 단일 query가 5분 이상 응답 없으면 abort
+- **리소스 모니터링:** 활성 세션 수 + 메모리 사용량을 BOTTOM BAR에 표시 (admin만)
+
+### 10. 권한 정책 (permissionMode 전략)
+
+`bypassPermissions`를 외부에 그대로 노출하면 위험. 역할별 분리:
+
+| 역할 | permissionMode | 근거 |
+|------|---------------|------|
+| admin | `bypassPermissions` | 서버 관리자, 전체 제어 |
+| user | `acceptEdits` | 파일 편집은 허용, 임의 명령 실행은 차단 |
+
+- 역할 → permissionMode 매핑은 `config.ts`에서 관리
+- Phase 5 외부 노출 전에 반드시 적용
+- 장기: 유저별 워크스페이스 디렉토리 격리 (`/workspace/{username}/`) 검토
+
+### 11. 에러 복구 & 안정성
+
+Phase별로 흩어지지 않고 공통 인프라로 관리할 항목:
+
+- **WebSocket 재연결:** 클라이언트 자동 재연결 (exponential backoff, 최대 30초)
+- **SDK 프로세스 hang 감지:** heartbeat 없이 N초 경과 시 abort + 유저 알림
+- **Python PTY 보호:** 실행 시간 상한 (기본 5분), 메모리 상한 (ulimit)
+- **SQLite WAL 비대화:** 주기적 `PRAGMA wal_checkpoint(TRUNCATE)` 또는 앱 시작 시 실행
+- **데이터 수명 관리:** 90일 이상 된 세션 JSONL 자동 정리 (설정 가능), DB vacuum 주기
+
 ---
 
 ## 프로젝트 구조
@@ -163,6 +202,7 @@ claude-desk/
     services/
       claude-sdk.ts          -- SDK query() 래퍼
       file-system.ts         -- 파일 트리, 읽기/쓰기, chokidar
+      pin-manager.ts         -- 핀 CRUD
       session-manager.ts     -- 세션 CRUD, JSONL 파싱
       python-runner.ts       -- Python PTY 실행
       command-loader.ts      -- Skills 로더
@@ -178,6 +218,7 @@ claude-desk/
       stores/                -- zustand 스토어
         chat-store.ts
         file-store.ts
+        pin-store.ts
         session-store.ts
       components/
         layout/              -- Header, Sidebar, MainPanel, ContextPanel
@@ -217,18 +258,71 @@ claude-desk/
 6. 세션 자동 생성 + claudeSessionId resume ✅
 7. WS 인증 토큰 전달 ✅
 
-### Phase 3: Python 실행 + Skills (진행 예정)
-1. python-runner.ts (node-pty, venv 관리)
+### Phase 2.5: 핀보드 (Pinboard) — 즐겨찾기 대시보드
+
+로컬 HTML 대시보드, MD 보고서 등을 사이드바에 핀(즐겨찾기)하여 빠르게 접근.
+파일 트리에서 핀 → 사이드바 핀보드 탭에서 한 클릭으로 ContextPanel에 렌더링.
+
+**DB 스키마:**
+
+```sql
+CREATE TABLE IF NOT EXISTS pins (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_type TEXT NOT NULL DEFAULT 'markdown',  -- 'markdown' | 'html' | 'code' | 'text'
+  sort_order INTEGER DEFAULT 0,
+  user_id INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+```
+
+**렌더링 규칙:**
+
+| 파일 타입 | ContextPanel 렌더 방식 |
+|----------|----------------------|
+| `.md` | 기존 react-markdown 렌더러 (미리보기/편집 토글 유지) |
+| `.html` / `.htm` | iframe (`src="/api/files/serve?path=..."`, `sandbox="allow-scripts"`) — same-origin 제외하여 부모 페이지 격리 |
+| 기타 (`.txt`, `.csv`, 코드) | CodeMirror 에디터 (읽기 전용) |
+
+**구현 항목:**
+
+1. DB: `pins` 테이블 추가 (`schema.ts`)
+2. `pin-manager.ts` — 핀 CRUD 서비스 (better-sqlite3)
+3. REST API (`api.ts`):
+   - `GET/POST /api/pins`, `PATCH/DELETE /api/pins/:id`, `POST /api/pins/reorder`
+   - `GET /api/files/serve?path=...` — HTML iframe용 raw 파일 서빙 (Content-Type 헤더)
+4. `pin-store.ts` — zustand 스토어 (pins[], add/remove/update/reorder)
+5. 사이드바 3번째 탭 "핀보드" + `PinList` 컴포넌트
+   - 클릭 → ContextPanel에서 열기
+   - 우클릭 → 이름 변경 / 핀 해제
+   - 드래그 정렬 (sort_order 기반)
+6. ContextPanel에 HTML iframe 렌더링 모드 추가 (`sandbox="allow-scripts"`, same-origin 제외)
+7. FileTree에 핀 액션 (hover 시 📌 아이콘, 지원: `.md`, `.html`, `.htm`, `.txt`, `.csv`)
+8. App.tsx 연결: 핀 로드, 핀 클릭 → ContextPanel 열기
+
+**설계 노트:**
+- 핀은 파일 경로만 저장, 내용은 디스크에서 실시간 읽기 (기존 `readFile()` 재사용)
+- `file_changed` WebSocket 이벤트로 핀된 파일 변경 자동 감지 (추가 WS 메시지 불필요)
+- `isPathSafe()` 재사용하여 워크스페이스 밖 파일 접근 차단
+
+### Phase 3: Python 실행 + Skills + 안정성 기반 (진행 예정)
+1. python-runner.ts (node-pty, venv 관리, 실행 시간/메모리 상한)
 2. PythonScratchpad + PythonOutput 컴포넌트
 3. command-loader.ts (skills 스캔)
 4. SlashCommandPicker 컴포넌트
 5. 세션 히스토리 목록 + 검색
+6. WebSocket 자동 재연결 (exponential backoff)
+7. SDK 프로세스 hang 감지 + abort + 유저 알림
+8. 동시 세션 상한 (`MAX_CONCURRENT_SESSIONS`) + 큐잉 UI
+9. 역할별 permissionMode 적용 (admin→bypass, user→acceptEdits)
 
 ### Phase 4: 폴리싱 (진행 예정)
 1. 다크/라이트 테마
 2. 모바일 반응형
 3. 비용 추적 대시보드
-4. 에러 핸들링 / 로딩 상태
+4. UX 에러 표시 다듬기 (요약 + "기술 상세" 접기, 로딩 스켈레톤)
 5. 비개발자 UX 다듬기
 
 ---
@@ -242,6 +336,7 @@ claude-desk/
 5. **Python 실행:** 스크래치패드에 코드 작성 → 실행 → 출력 확인 → pip install 테스트
 6. **Skills:** `/` 입력 → 드롭다운에 prime, ralph 등 표시 → 선택 시 실행 확인 ✅
 7. **SSH 터널:** `ssh -L 32354:localhost:32354 azureuser@4.230.33.35` → 브라우저 접속 ✅
+8. **핀보드:** 파일 트리에서 .html 파일 핀 → 핀보드 탭에 표시 → 클릭 시 iframe 렌더링 확인 → .md 핀 → 마크다운 렌더링 확인 → 핀 해제 확인
 
 ---
 
@@ -327,6 +422,11 @@ volumes:
 ```dockerfile
 FROM node:20-slim
 
+# 호스트 azureuser와 uid 일치시켜 ~/.claude 권한 문제 방지
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN groupmod -g ${HOST_GID} node && usermod -u ${HOST_UID} -g ${HOST_GID} node
+
 # Claude Code CLI 설치
 RUN npm install -g @anthropic-ai/claude-code
 
@@ -335,16 +435,21 @@ RUN apt-get update && apt-get install -y python3 python3-venv python3-pip
 
 # 앱 빌드
 WORKDIR /app
-COPY package*.json ./
+COPY --chown=node:node package*.json ./
 RUN npm ci --production
-COPY dist/ ./dist/
+COPY --chown=node:node dist/ ./dist/
 
 # CLAUDECODE 환경변수 제거 (SDK 요구사항)
 ENV CLAUDECODE=""
 
+# non-root 실행 (uid가 호스트와 일치하므로 volume 권한 OK)
+USER node
 EXPOSE 32354
 CMD ["node", "dist/backend/index.js"]
 ```
+
+> **주의:** `~/.claude` volume mount 시 컨테이너 내부 uid와 호스트 uid가 일치해야 함.
+> `permission_issue.md` 참고. 빌드 시 `--build-arg HOST_UID=$(id -u)` 로 조정 가능.
 
 **설치 플로우 (사용자 시점):**
 
@@ -516,8 +621,11 @@ GitHub repo fork → Fly.io 연결 → 환경변수 설정 → 자동 배포
 - [ ] JWT 인증 기본 활성화 (AUTH_ENABLED=true)
 - [ ] ANTHROPIC_API_KEY는 환경변수로만 (이미지에 포함 금지)
 - [ ] 워크스페이스 경로 밖 파일 접근 차단 (기존 설계)
-- [ ] Docker 컨테이너 non-root 유저로 실행
+- [ ] Docker 컨테이너 non-root 유저로 실행 (uid 매핑 포함)
 - [ ] Rate limiting (로그인 시도 제한)
+- [ ] 역할별 permissionMode 적용 (user 역할은 bypass 금지)
+- [ ] 동시 세션 수 상한 설정
+- [ ] 세션 JSONL / DB 자동 정리 정책 (90일 기본)
 - [ ] 모바일: PWA는 HTTPS에서만 설치 가능 → Tunnel 필수
 
 ---
