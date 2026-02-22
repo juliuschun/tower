@@ -40,7 +40,7 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
 
       <div className={`max-w-[88%] min-w-0 ${isUser ? 'order-first' : ''}`}>
         {isUser ? (
-          <div className="bg-surface-800/70 border border-surface-700/40 rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed">
+          <div className="bg-surface-800/70 border border-surface-700/40 rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap">
             {message.content.map((block, i) => (
               <span key={i}>{block.text}</span>
             ))}
