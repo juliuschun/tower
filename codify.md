@@ -716,3 +716,85 @@ curl -s -i --http1.1 -H "Upgrade: websocket" -H "Connection: Upgrade" \
   http://localhost:32354/ws 2>&1 | head -3
 ```
 401이면 인증이 켜져 있는 정상 상태. 브라우저에서 `admin / admin123`으로 로그인 필요.
+
+---
+
+## 새 VM 클린 설치 가이드
+
+### 전제 조건
+- Ubuntu 22.04+ / Node.js 18+
+- Claude Code CLI 설치됨 (`~/.local/bin/claude`)
+- GitHub 접근 가능 (gh CLI 또는 토큰)
+
+### 1단계: 기본 도구 설치
+```bash
+# PM2 (프로세스 매니저)
+sudo npm install -g pm2
+
+# cloudflared (Cloudflare Tunnel - 외부 접속용)
+curl -L --output /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i /tmp/cloudflared.deb
+```
+
+### 2단계: claude-desk 설치
+```bash
+# gh CLI로 clone (private repo)
+gh repo clone doomoolmori/claude-desk ~/claude-desk
+
+# 또는 git clone (credential 설정 필요)
+# git clone https://github.com/doomoolmori/claude-desk.git ~/claude-desk
+
+cd ~/claude-desk
+npm ci
+npm run build
+mkdir -p data
+```
+
+### 3단계: PM2로 서비스 시작
+```bash
+cd ~/claude-desk
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup  # 부팅 시 자동 시작
+```
+- 기본 포트: 32354
+- 기본 인증: admin / admin123
+- config.ts가 자동으로 claude 바이너리와 홈 디렉토리를 탐지함
+
+### 4단계: 외부 접속 (택 1)
+
+#### A. Quick Tunnel (테스트용, 즉시 사용)
+```bash
+cloudflared tunnel --url http://localhost:32354
+```
+- 임시 URL 발급 (예: https://xxx-xxx.trycloudflare.com)
+- 서버 재시작 시 URL 변경됨
+- 인증/계정 불필요
+
+#### B. SSH 터널 (로컬 PC에서만 접속)
+```bash
+ssh -f -N -o ServerAliveInterval=60 \
+  -L 32354:localhost:32354 user@서버IP
+```
+브라우저: http://localhost:32354
+
+#### C. Named Tunnel (운영용, 고정 도메인)
+```bash
+cloudflared login  # 브라우저 인증 필요
+cloudflared tunnel create claude-desk
+# config.yml 작성 후
+cloudflared service install
+```
+
+#### D. Azure NSG 포트 개방 (직접 IP 접속)
+```bash
+az vm open-port --resource-group <RG> --name <VM> --port 32354 --priority 1010
+```
+- HTTP 비암호화이므로 내부용으로만 권장
+
+### 주의사항
+
+1. **claude 바이너리 PATH**: zsh 사용 시 `~/.zprofile`에 `source ~/.profile` 추가 필요
+2. **파일 권한**: Docker 등으로 `~/.claude/` 소유자가 바뀌면 `sudo chown -R $(whoami) ~/.claude/`
+3. **DB 복사 금지**: 다른 서버의 SQLite DB를 복사하면 경로 불일치 에러 발생. 항상 빈 DB로 시작
+4. **ESM 모듈**: package.json에 `"type": "module"` → CommonJS 문법(require) 사용 불가
