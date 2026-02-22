@@ -416,9 +416,19 @@ InputBox에 "textarea + 첨부 칩 영역" 패턴 도입. ChatGPT/Claude.ai와 �
 3. 동시 세션 상한 (`MAX_CONCURRENT_SESSIONS`) + 큐잉 UI
 4. 역할별 permissionMode 적용 (admin→bypass, user→acceptEdits)
 
-### Phase 5: 모델 셀렉터 + 세션 인텔리전스
+### Phase 4.5: ContextPanel UX + 파일 편집 안정성 ✅ DONE
 
-#### 5A. 모델 셀렉터
+1. file-store.ts 확장 — `lastOpenedFilePath`, `originalContent`, `externalChange` 상태 + `markSaved()`, `reloadFromDisk()`, `keepLocalEdits()` 액션 ✅
+2. file_saved 버그 수정 — `markSaved()` 호출로 modified 리셋 + originalContent 갱신 ✅
+3. file_changed 충돌 감지 — 로컬 편집 없으면 500ms 디바운스 자동 리로드, 로컬 편집 있으면 충돌 배너 ✅
+4. Ctrl+S 저장 — CodeMirror `Mod-s` keymap + App.tsx 글로벌 keydown 핸들러 ✅
+5. ContextPanel 충돌 배너 — "이 파일이 외부에서 수정되었습니다" + 다시 불러오기 / 내 편집 유지 ✅
+6. 미저장 경고 — X 닫기 / 파일 전환 시 `window.confirm()` 다이얼로그 ✅
+7. 패널 토글 버튼 — 닫힌 상태에서 우측 얇은 ◀ 버튼, 클릭 시 마지막 파일 재오픈 ✅
+
+### Phase 5: 모델 셀렉터 + 세션 인텔리전스 ✅ DONE
+
+#### 5A. 모델 셀렉터 ✅
 
 Header의 모델 배지를 클릭하면 드롭다운으로 모델 전환 가능.
 
@@ -446,7 +456,7 @@ Header의 모델 배지를 클릭하면 드롭다운으로 모델 전환 가능.
 - 불가능하면 Claude Code 실행 시 `--model` 플래그 또는 환경변수로 전달
 - 연결 유형은 `ANTHROPIC_API_KEY` 유무 또는 `~/.claude/credentials` 상태로 판별
 
-#### 5B. 세션 자동 이름 생성
+#### 5B. 세션 자동 이름 생성 ✅
 
 첫 대화 완료 후 Haiku 에이전트가 자동으로 세션 제목 생성.
 
@@ -457,7 +467,7 @@ Header의 모델 배지를 클릭하면 드롭다운으로 모델 전환 가능.
 4. 유저가 직접 이름 변경 시 자동 이름 생성 비활성화 (`auto_named` 플래그)
 5. DB: `sessions` 테이블에 `auto_named INTEGER DEFAULT 1` 컬럼 추가
 
-#### 5C. 세션 요약 카드
+#### 5C. 세션 요약 카드 ✅
 
 수동 트리거 방식 + stale 힌트로 요약 최신성 인지.
 
@@ -497,6 +507,108 @@ Header의 모델 배지를 클릭하면 드롭다운으로 모델 전환 가능.
 │    어제                    │
 └───────────────────────────┘
 ```
+
+---
+
+## TODO / 백로그
+
+### Footer: 현재 세션 CWD 표시
+
+채팅이 어느 폴더에서 실행 중인지 BottomBar에 표시.
+
+- 위치: `App.tsx` > `BottomBar` 컴포넌트 (하단 footer)
+- 소스: `useSessionStore`의 `activeSession.cwd` (이미 세션 메타에 포함됨)
+- 표시 방식: 폴더 아이콘 + 경로 (긴 경로는 앞부분 truncate)
+- 세션 없을 때: 미표시
+
+---
+
+실사용 중 발견된 이슈와 향후 개선 항목.
+
+### ✅ 세션 격리 (Cross-session message leak / 응답 유실) — DONE
+
+커밋 `32ddd8d`에서 수정 완료.
+- [x] A. 세션 전환 시 abort (프론트 `abort()` + 백엔드 `abortSession`)
+- [x] B+C. `set_active_session` 핸들러 + `sendToSession` 가드
+- [x] D. 프론트 sessionId 필터 null 허점 수정 (3곳)
+- [x] activeSessions 메모리 누수 5분 자동 정리
+- [x] JWT 토큰 만료 시 자동 로그아웃
+
+### 🔴 세션 CWD (작업 디렉토리) 설계
+
+**현재 문제:**
+- 세션 생성 시 cwd가 항상 `config.defaultCwd`로 고정 (프론트가 cwd를 안 보냄)
+- UI에서 CWD를 변경할 방법이 전혀 없음
+- BottomBar에 경로가 잘려서 표시되고 클릭 불가
+- Claude가 작업하는 폴더 = 세션 cwd인데, 사용자가 제어 불가
+
+**설계 결정 필요:**
+
+1. **세션 생성 시 CWD 어떻게 결정?**
+   - A) 서버 기본값 고정 (`config.defaultCwd`) — 현재 방식, 단순하지만 유연성 없음
+   - B) 새 세션 UI에 폴더 선택 피커 — 사이드바 파일 트리에서 폴더 선택 후 세션 생성
+   - C) BottomBar 또는 Header에 폴더 선택 드롭다운 — 세션 중에도 변경 가능
+   - D) 파일 트리에서 폴더 우클릭 → "여기서 새 세션" — 파일 탐색과 자연스럽게 연결
+
+2. **세션 도중 CWD 변경 허용?**
+   - 허용하면: 백엔드에서 다음 chat부터 새 cwd 적용 + DB 업데이트
+   - 비허용하면: 세션 생성 시에만 결정, 이후 고정 (더 단순)
+   - Claude Code CLI는 세션 중 `cd`로 자유롭게 이동하지만, SDK의 cwd는 초기값
+
+3. **BottomBar CWD 표시 개선:**
+   - 클릭 시 폴더 피커 열기 (breadcrumb 스타일로 경로 표시, 각 세그먼트 클릭 가능)
+   - 또는 클릭 시 파일 트리를 해당 폴더로 이동
+   - 긴 경로: 앞부분 생략 (`.../claude-desk`) 또는 `~` 상대 경로
+
+**추천 방향 (B+C 조합):**
+```
+┌─────────────────────────────────────────────────┐
+│ BottomBar: 🟢 대기 │ 📁 ~/tunnelingcc/claude-desk [▼]  │
+│                     클릭 시 폴더 피커 드롭다운         │
+└─────────────────────────────────────────────────┘
+```
+- 새 세션: 마지막 사용 cwd 기억 + 변경 가능
+- 기존 세션: BottomBar 클릭으로 cwd 변경 → 다음 메시지부터 적용
+- 변경 시 파일 트리도 해당 폴더로 갱신
+- DB에 cwd 업데이트 (`PATCH /api/sessions/:id`)
+
+**구현 범위:**
+- [ ] BottomBar cwd 클릭 → 폴더 피커 드롭다운 (파일 트리 재활용 또는 breadcrumb)
+- [ ] 세션 cwd 변경 API (`PATCH /sessions/:id` + chat 메시지에 cwd 반영)
+- [ ] 새 세션 생성 시 현재 세션의 cwd 상속
+- [ ] `sendMessage`에서 `activeSession.cwd`를 chat 메시지에 포함
+
+### 세션 이름 인라인 편집 (사이드바)
+
+현재 세션 이름 변경은 더블클릭 → input으로 가능하지만, 리스트에서의 UX가 불완전.
+
+- [ ] 세션 목록에서 이름 수정 진입이 직관적이지 않음 (더블클릭 발견성 낮음)
+- [ ] 이름 변경 시 리스트 레이아웃 깜빡임 (input 크기 전환)
+- [ ] 개선안: 우클릭 컨텍스트 메뉴 또는 호버 시 연필 아이콘 표시
+- [ ] 이름 변경 후 정렬 순서 즉시 반영
+
+### 세션 연속성 / 메시지 유실 문제
+
+세션 작업 중간에 다른 세션으로 전환 후 돌아왔을 때, 또는 서버 재시작이 발생했을 때 기존 작업 흐름이 끊기는 문제.
+
+**증상:**
+- thinking 중에 서버가 재시작되면 해당 턴의 응답이 유실됨
+- 세션 A에서 작업 중 → 세션 B로 전환 → 세션 A로 복귀 시, SDK 내부 상태와 UI 상태 불일치
+- 서버 재시작 후 `claudeSessionId`로 resume해도, 마지막 턴이 반영되지 않은 채 이어지는 경우 있음
+
+**조사 필요 항목:**
+- [ ] SDK `resume` 시 마지막 미완료 턴의 처리 방식 확인 (SDK가 재전송하는지, 무시하는지)
+- [ ] 서버 재시작 감지 → 프론트에 "서버가 재시작되었습니다. 마지막 응답이 유실되었을 수 있습니다" 알림
+- [ ] ws reconnect 시 세션 상태 재동기화 (현재 claudeSessionId, 마지막 메시지 ID 비교)
+- [ ] 스트리밍 중 WS 끊김 → 재연결 후 미완료 응답 복구 가능성 (SDK abort 후 재시도?)
+- [ ] DB에 저장된 메시지와 실제 SDK 세션 상태의 일관성 보장 방안
+
+**잠재 해결 방향:**
+- 서버 시작 시 `boot_id` 발급 → 프론트가 reconnect 시 이전 boot_id와 비교 → 다르면 서버 재시작 감지
+- 스트리밍 중 WS 끊김 시, 재연결 후 마지막 `sdk_done` 이후의 메시지만 DB에서 복원
+- 세션 전환 시 진행 중인 query를 abort하고 상태를 확정(committed)한 후 전환
+
+---
 
 ### Phase 6: 모바일 + 파일 업로드 + 배포 (이후)
 
@@ -826,3 +938,311 @@ GitHub repo fork → Fly.io 연결 → 환경변수 설정 → 자동 배포
 4. PWA 설정 (vite-plugin-pwa + manifest + 아이콘)
 5. Fly.io / Railway 배포 설정 (fly.toml, railway.json)
 6. README에 시나리오별 설치 가이드 작성
+
+---
+
+## 새 Azure VM에 재설치 가이드 (business-ai 등)
+
+### 사전 조건
+
+| 항목 | 필요 버전 | 확인 명령 |
+|------|----------|----------|
+| **OS** | Ubuntu 22.04+ (추천) | `lsb_release -a` |
+| **Node.js** | v20.20.0+ | `node --version` |
+| **npm** | v10+ | `npm --version` |
+| **Git** | 2.x | `git --version` |
+| **build-essential** | (any) | `dpkg -l build-essential` |
+| **Python 3** | 3.8+ (better-sqlite3 빌드용) | `python3 --version` |
+| **Claude Code CLI** | latest | `claude --version` |
+| **Azure CLI** | 2.x (로컬에서 VM 관리 시) | `az --version` |
+
+---
+
+### Step 0: Azure VM 생성 (business-ai가 아직 없을 경우)
+
+```bash
+# 로컬에서 실행 (Azure CLI 연결된 머신)
+az group create --name rg-business-ai --location koreacentral
+
+az vm create \
+  --resource-group rg-business-ai \
+  --name business-ai \
+  --image Ubuntu2204 \
+  --size Standard_D2s_v3 \
+  --admin-username azureuser \
+  --generate-ssh-keys \
+  --public-ip-sku Standard
+
+# NSG에 포트 32354 오픈 (SSH 터널 사용 시 불필요)
+az vm open-port \
+  --resource-group rg-business-ai \
+  --name business-ai \
+  --port 32354 --priority 1010
+
+# VM IP 확인
+az vm show -d --resource-group rg-business-ai --name business-ai \
+  --query publicIps -o tsv
+```
+
+---
+
+### Step 1: 대상 VM 기초 환경 구성
+
+```bash
+# SSH 접속
+ssh azureuser@<BUSINESS-AI-IP>
+
+# 시스템 업데이트 + 빌드 도구
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y build-essential python3 git curl
+
+# Node.js 20 설치 (nvm 방식)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.bashrc
+nvm install 20
+nvm use 20
+nvm alias default 20
+
+# 확인
+node --version   # v20.x.x
+npm --version    # 10.x.x
+```
+
+---
+
+### Step 2: Claude Code CLI 설치
+
+```bash
+# npm 글로벌 설치
+npm install -g @anthropic-ai/claude-code
+
+# 또는 직접 바이너리 (이미 설치된 경우 경로 확인)
+which claude    # /home/azureuser/.local/bin/claude 또는 nvm 경로
+
+# Claude 인증 (최초 1회 — 브라우저 OAuth 또는 API 키)
+claude          # 실행 후 인증 플로우 진행
+# 또는 API 키 방식:
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+> **참고:** `config.ts`의 `claudeExecutable` 경로가 실제 설치 경로와 일치하는지 확인.
+> 다르면 환경변수 `CLAUDE_PATH`로 오버라이드 가능.
+
+---
+
+### Step 3: 프로젝트 코드 전송
+
+**방법 A: Git (추천 — remote 설정 필요)**
+
+```bash
+# 현재 서버 (tunnelingcc)에서 — GitHub 등에 remote 추가
+cd /home/azureuser/tunnelingcc
+git remote add origin git@github.com:<org>/claude-desk.git
+git add -A && git commit -m "snapshot for deployment"
+git push -u origin main
+
+# 대상 VM에서
+cd ~
+git clone git@github.com:<org>/claude-desk.git tunnelingcc
+```
+
+**방법 B: scp / rsync (remote 없을 때)**
+
+```bash
+# 현재 서버에서 대상 VM으로 직접 전송
+rsync -avz --exclude='node_modules' --exclude='dist' --exclude='data/*.db*' \
+  /home/azureuser/tunnelingcc/ \
+  azureuser@<BUSINESS-AI-IP>:~/tunnelingcc/
+
+# 또는 로컬을 경유
+scp -r azureuser@4.230.33.35:~/tunnelingcc/ ./tunnelingcc-backup/
+scp -r ./tunnelingcc-backup/ azureuser@<BUSINESS-AI-IP>:~/tunnelingcc/
+```
+
+**방법 C: Azure CLI로 VM 간 전송 (같은 구독)**
+
+```bash
+# 현재 VM에서 대상 VM IP 확인 후 직접 rsync
+DEST_IP=$(az vm show -d -g rg-business-ai -n business-ai --query publicIps -o tsv)
+rsync -avz --exclude='node_modules' --exclude='dist' --exclude='data/*.db*' \
+  /home/azureuser/tunnelingcc/ azureuser@$DEST_IP:~/tunnelingcc/
+```
+
+---
+
+### Step 4: 의존성 설치 + 빌드
+
+```bash
+ssh azureuser@<BUSINESS-AI-IP>
+
+cd ~/tunnelingcc/claude-desk
+
+# 의존성 설치 (better-sqlite3 네이티브 컴파일 포함)
+npm ci
+
+# 프로덕션 빌드
+npm run build
+
+# 빌드 결과 확인
+ls dist/backend/index.js    # 백엔드
+ls dist/frontend/index.html # 프론트엔드
+```
+
+> **better-sqlite3 빌드 실패 시:**
+> `sudo apt install -y build-essential python3` 확인 후 `npm rebuild better-sqlite3`
+
+---
+
+### Step 5: 환경 설정
+
+```bash
+# start.sh 수정 — 경로를 대상 VM에 맞게
+cd ~/tunnelingcc/claude-desk
+
+cat > start.sh << 'STARTEOF'
+#!/bin/bash
+# Claude Desk 서버 시작 스크립트
+cd "$(dirname "$0")"
+
+export NO_AUTH=true
+export DEFAULT_CWD=/home/azureuser
+export WORKSPACE_ROOT=/home/azureuser
+# export CLAUDE_PATH=/home/azureuser/.nvm/versions/node/v20.x.x/bin/claude  # nvm 경로일 경우
+
+echo "Starting Claude Desk..."
+echo "접속: http://localhost:32354"
+echo ""
+
+npx tsx backend/index.ts
+STARTEOF
+
+chmod +x start.sh
+```
+
+**config.ts 경로 확인 체크리스트:**
+- [ ] `claudeExecutable` — Claude CLI 실제 경로 (`which claude`로 확인)
+- [ ] `defaultCwd` — 환경변수 또는 기본값
+- [ ] `workspaceRoot` — 환경변수 또는 기본값
+- [ ] `dbPath` — data/ 디렉토리 존재 확인 (`mkdir -p data`)
+
+---
+
+### Step 6: 서비스 등록 (systemd — 재부팅 시 자동 시작)
+
+```bash
+sudo tee /etc/systemd/system/claude-desk.service << 'EOF'
+[Unit]
+Description=Claude Desk Web Platform
+After=network.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/tunnelingcc/claude-desk
+ExecStart=/home/azureuser/.nvm/versions/node/v20.20.0/bin/node dist/backend/index.js
+Restart=on-failure
+RestartSec=5
+Environment=NO_AUTH=true
+Environment=DEFAULT_CWD=/home/azureuser
+Environment=WORKSPACE_ROOT=/home/azureuser
+# Environment=CLAUDE_PATH=/home/azureuser/.local/bin/claude
+# Environment=ANTHROPIC_API_KEY=sk-ant-...
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable claude-desk
+sudo systemctl start claude-desk
+
+# 상태 확인
+sudo systemctl status claude-desk
+journalctl -u claude-desk -f   # 로그 실시간 확인
+```
+
+> **주의:** nvm 사용 시 `ExecStart`의 node 경로를 절대경로로 지정해야 함.
+> `which node` 로 확인 후 적용.
+
+---
+
+### Step 7: 접속 확인
+
+```bash
+# 로컬에서 SSH 터널
+ssh -L 32354:localhost:32354 azureuser@<BUSINESS-AI-IP>
+
+# 브라우저에서
+# http://localhost:32354
+```
+
+---
+
+### Step 8: 데이터 마이그레이션 (선택)
+
+기존 서버의 세션/메시지 데이터를 이전하려면:
+
+```bash
+# 현재 서버에서 DB 파일 복사
+scp azureuser@4.230.33.35:~/tunnelingcc/claude-desk/data/claude-desk.db \
+    azureuser@<BUSINESS-AI-IP>:~/tunnelingcc/claude-desk/data/
+
+# Claude 네이티브 세션도 이전하려면 (선택)
+rsync -avz ~/.claude/projects/ azureuser@<BUSINESS-AI-IP>:~/.claude/projects/
+```
+
+---
+
+### 재설치 원커맨드 스크립트 (향후 자동화)
+
+아래 스크립트를 만들어두면 추후 재설치가 간편해짐:
+
+```bash
+#!/bin/bash
+# install-claude-desk.sh — 새 VM에서 실행
+set -e
+
+echo "=== Claude Desk 설치 스크립트 ==="
+
+# 1. 시스템 의존성
+sudo apt update && sudo apt install -y build-essential python3 git curl
+
+# 2. Node.js 20
+if ! command -v node &> /dev/null; then
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  nvm install 20
+fi
+
+# 3. Claude Code CLI
+if ! command -v claude &> /dev/null; then
+  npm install -g @anthropic-ai/claude-code
+  echo "⚠ Claude CLI 인증을 완료하세요: claude"
+fi
+
+# 4. 프로젝트 설치
+cd ~/tunnelingcc/claude-desk
+npm ci
+npm run build
+mkdir -p data
+
+# 5. systemd 등록
+echo "=== systemd 서비스 등록 ==="
+# (Step 6의 내용을 여기에 포함)
+
+echo "=== 설치 완료 ==="
+echo "시작: sudo systemctl start claude-desk"
+echo "접속: http://localhost:32354"
+```
+
+---
+
+### 재설치 전 코드 개선 권장 사항
+
+현재 코드에서 재설치 용이성을 높이려면 다음을 권장:
+
+1. **Git remote 설정** — 코드 버전 관리 및 전송용 (현재 remote 없음)
+2. **경로 하드코딩 제거** — `config.ts`의 기본값들이 `/home/azureuser`를 참조함. 환경변수 우선으로 이미 설계되어 있어 `.env` 파일만 잘 세팅하면 됨
+3. **`.env.example` 파일 추가** — 필요한 환경변수 목록 문서화
+4. **Dockerfile 작성** (Phase 6에 계획됨) — Docker 방식이면 위 Step 1~5가 모두 생략 가능
