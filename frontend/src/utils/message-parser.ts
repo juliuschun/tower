@@ -41,6 +41,8 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
             : JSON.stringify(item.content),
         },
       });
+    } else {
+      console.warn('[parseSDKMessage] unhandled content block type:', item.type, item);
     }
   }
 
@@ -95,6 +97,8 @@ export function getToolLabel(name: string): string {
     WebSearch: '웹 검색',
     WebFetch: '웹 페이지 조회',
     AskUserQuestion: '사용자 질문',
+    EnterPlanMode: '계획 모드',
+    ExitPlanMode: '계획 완료',
     TodoWrite: '할 일 관리',
   };
   return labels[name] || name;
@@ -117,6 +121,14 @@ export function getToolSummary(name: string, input: Record<string, any>): string
       return input.pattern ? `🔎 "${truncate(input.pattern, 40)}"` : '내용 검색';
     case 'WebSearch':
       return input.query ? `🌐 ${truncate(input.query, 50)}` : '웹 검색';
+    case 'AskUserQuestion': {
+      const q = input.questions?.[0]?.question;
+      return q ? truncate(q, 50) : '사용자 질문';
+    }
+    case 'EnterPlanMode':
+      return '계획 모드 진입';
+    case 'ExitPlanMode':
+      return '계획 완료';
     default:
       return name;
   }

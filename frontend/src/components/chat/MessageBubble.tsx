@@ -100,6 +100,32 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
                 ));
               }
 
+              // Tool results — usually already merged into tool_use via attachToolResult
+              // Standalone tool_result blocks get a minimal inline display
+              if (group.type === 'tool_result') {
+                return (
+                  <div key={gi} className="flex flex-wrap gap-1.5">
+                    {group.blocks.map((block, bi) => {
+                      const resultText = block.toolUse?.result;
+                      if (!resultText) return null;
+                      return (
+                        <span
+                          key={bi}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-800/50 border border-surface-700/30 text-[11px] text-gray-500 max-w-[300px] truncate"
+                        >
+                          <svg className="w-3 h-3 text-emerald-500/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          결과
+                        </span>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              // Unknown block type — warn and skip
+              console.warn('[MessageBubble] unknown block group type:', group.type);
               return null;
             })}
           </div>

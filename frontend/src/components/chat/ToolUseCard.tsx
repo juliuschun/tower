@@ -56,6 +56,18 @@ const toolMeta: Record<string, { icon: React.ReactNode; color: string; bg: strin
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />,
     color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/20',
   },
+  AskUserQuestion: {
+    icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
+    color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20',
+  },
+  EnterPlanMode: {
+    icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />,
+    color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20',
+  },
+  ExitPlanMode: {
+    icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />,
+    color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20',
+  },
 };
 
 const defaultMeta = {
@@ -231,8 +243,41 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
             </div>
           )}
 
+          {/* === AskUserQuestion === */}
+          {name === 'AskUserQuestion' && input.questions && (
+            <div className="space-y-3">
+              {(input.questions as any[]).map((q: any, qi: number) => (
+                <div key={qi} className="space-y-2">
+                  <div className="text-[13px] text-yellow-300 font-medium">{q.question}</div>
+                  {q.options && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(q.options as any[]).map((opt: any, oi: number) => (
+                        <span
+                          key={oi}
+                          className="inline-flex items-center px-2.5 py-1 rounded-md bg-yellow-500/10 border border-yellow-500/20 text-[11px] text-yellow-300/80"
+                        >
+                          {opt.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="text-[10px] text-gray-500 italic">읽기 전용 — SDK가 자동 응답</div>
+            </div>
+          )}
+
+          {/* === EnterPlanMode / ExitPlanMode === */}
+          {(name === 'EnterPlanMode' || name === 'ExitPlanMode') && (
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${name === 'EnterPlanMode' ? 'bg-indigo-500/10 border border-indigo-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
+              <span className={`text-[12px] font-medium ${name === 'EnterPlanMode' ? 'text-indigo-300' : 'text-emerald-300'}`}>
+                {name === 'EnterPlanMode' ? '📋 계획 모드 진입' : '✅ 계획 완료 — 구현 시작'}
+              </span>
+            </div>
+          )}
+
           {/* === Generic fallback === */}
-          {!['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Task'].includes(name) && Object.keys(input).length > 0 && (
+          {!['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Task', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'].includes(name) && Object.keys(input).length > 0 && (
             <div className="bg-surface-950/60 rounded-lg p-3 font-mono text-[11px] text-gray-400 overflow-x-auto max-h-32 overflow-y-auto">
               {JSON.stringify(input, null, 2)}
             </div>
