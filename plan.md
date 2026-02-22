@@ -208,13 +208,14 @@ claude-desk/
 7. 세션 resume 기본 구현 ✅
 8. 심플 토큰 인증 (JWT) ✅
 
-### Phase 2: 파일 시스템 + 에디터 (진행 예정)
-1. 파일 트리 API + chokidar 감시
-2. FileTree 컴포넌트 (접기/펼치기, 파일 아이콘)
-3. MarkdownRenderer (.md 파일 렌더링 뷰)
-4. CodeMirror 에디터 통합
-5. 우측 컨텍스트 패널 (파일 선택 시 열림)
-6. 채팅 내 파일 경로 클릭 → 파일 열기
+### Phase 2: 파일 시스템 + 에디터 + 세션 UX ✅ DONE
+1. CodeMirror 6 에디터 (textarea 교체, 7언어 지원) ✅
+2. 파일 트리 SVG 아이콘 + lazy loading + 로딩 스피너 ✅
+3. chokidar 실시간 파일 감시 + WS broadcast ✅
+4. 사이드바 탭 (세션/파일) 전환 ✅
+5. 세션 검색, 즐겨찾기 토글, 인라인 이름 변경 ✅
+6. 세션 자동 생성 + claudeSessionId resume ✅
+7. WS 인증 토큰 전달 ✅
 
 ### Phase 3: Python 실행 + Skills (진행 예정)
 1. python-runner.ts (node-pty, venv 관리)

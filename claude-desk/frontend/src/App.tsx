@@ -34,6 +34,7 @@ function App() {
   const contextPanelOpen = useFileStore((s) => s.contextPanelOpen);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const addSession = useSessionStore((s) => s.addSession);
   const removeSession = useSessionStore((s) => s.removeSession);
   const setSessions = useSessionStore((s) => s.setSessions);
@@ -85,31 +86,58 @@ function App() {
     }
   };
 
-  const handleNewSession = useCallback(async () => {
+  // Create a session in DB and return it (reusable)
+  const createSessionInDb = useCallback(async (name?: string): Promise<SessionMeta | null> => {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch(`${API_BASE}/sessions`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ name: `세션 ${new Date().toLocaleString('ko-KR')}` }),
+        body: JSON.stringify({ name: name || `세션 ${new Date().toLocaleString('ko-KR')}` }),
       });
       if (res.ok) {
         const session = await res.json();
         addSession(session);
-        setActiveSessionId(session.id);
-        clearMessages();
+        return session;
       }
     } catch { }
-  }, [token, addSession, setActiveSessionId, clearMessages]);
+    return null;
+  }, [token, addSession]);
+
+  const handleNewSession = useCallback(async () => {
+    const session = await createSessionInDb();
+    if (session) {
+      setActiveSessionId(session.id);
+      useChatStore.getState().setSessionId(session.id);
+      useChatStore.getState().setClaudeSessionId(null);
+      clearMessages();
+    }
+  }, [createSessionInDb, setActiveSessionId, clearMessages]);
 
   const handleSelectSession = useCallback((session: SessionMeta) => {
+    // Skip if already on this session
+    const currentId = useSessionStore.getState().activeSessionId;
+    if (currentId === session.id) return;
+
     setActiveSessionId(session.id);
     clearMessages();
-    // If session has a Claude session ID, we'll resume from it in the next message
+    useChatStore.getState().setSessionId(session.id);
+
+    // Set Claude session ID for resume
     if (session.claudeSessionId) {
       useChatStore.getState().setClaudeSessionId(session.claudeSessionId);
+    } else {
+      useChatStore.getState().setClaudeSessionId(null);
     }
+
+    // Show switch indicator
+    useChatStore.getState().addMessage({
+      id: crypto.randomUUID(),
+      role: 'system',
+      content: [{ type: 'text', text: `세션 "${session.name}" 으로 전환됨${session.claudeSessionId ? ' (이전 대화 이어가기 가능)' : ''}` }],
+      timestamp: Date.now(),
+    });
   }, [setActiveSessionId, clearMessages]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
@@ -165,6 +193,20 @@ function App() {
     } catch { }
   }, [token]);
 
+  // Auto-create session on first message if no active session
+  const handleSendMessage = useCallback(async (message: string, cwd?: string) => {
+    const currentActiveId = useSessionStore.getState().activeSessionId;
+    if (!currentActiveId) {
+      // Auto-create a session
+      const session = await createSessionInDb();
+      if (session) {
+        setActiveSessionId(session.id);
+        useChatStore.getState().setSessionId(session.id);
+      }
+    }
+    sendMessage(message, cwd);
+  }, [sendMessage, createSessionInDb, setActiveSessionId]);
+
   const handleSaveFile = useCallback((path: string, content: string) => {
     saveFile(path, content);
   }, [saveFile]);
@@ -214,7 +256,7 @@ function App() {
         <main className="flex-1 min-w-0 flex justify-center">
           <div className="w-full max-w-4xl flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20 border-x border-surface-900/50">
             <ChatPanel
-              onSend={sendMessage}
+              onSend={handleSendMessage}
               onAbort={abort}
               onFileClick={handleFileClick}
             />

@@ -94,12 +94,12 @@ async function handleMessage(client: WsClient, data: any) {
   }
 }
 
-async function handleChat(client: WsClient, data: { message: string; sessionId?: string; cwd?: string }) {
+async function handleChat(client: WsClient, data: { message: string; sessionId?: string; claudeSessionId?: string; cwd?: string }) {
   const sessionId = data.sessionId || client.sessionId || uuidv4();
   client.sessionId = sessionId;
 
-  // Determine resume session ID: if we have a Claude session ID for this session, use it
-  const resumeSessionId = client.claudeSessionId;
+  // Use claudeSessionId from the message (per-session) over client-level (per-connection)
+  const resumeSessionId = data.claudeSessionId || client.claudeSessionId;
 
   try {
     for await (const message of executeQuery(sessionId, data.message, {

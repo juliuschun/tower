@@ -108,6 +108,8 @@ export function setupFileWatcher(rootPath: string, onChange: FileChangeCallback)
       '**/.venv/**',
       '**/dist/**',
       '**/data/**',
+      '**/.claude/**',
+      '**/.claude.json*',
     ],
     depth: 3,
     ignoreInitial: true,

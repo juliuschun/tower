@@ -2,10 +2,13 @@ import { useCallback, useRef } from 'react';
 import { useWebSocket } from './useWebSocket';
 import { useChatStore, type ChatMessage, type ContentBlock } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
+import { useSessionStore } from '../stores/session-store';
 import { parseSDKMessage } from '../utils/message-parser';
 
 export function useClaudeChat() {
-  const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  const token = localStorage.getItem('token');
+  const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  const wsUrl = token ? `${wsBase}?token=${encodeURIComponent(token)}` : wsBase;
   const currentAssistantMsg = useRef<ChatMessage | null>(null);
 
   const {
@@ -118,16 +121,35 @@ export function useClaudeChat() {
         currentAssistantMsg.current = null;
         if (data.claudeSessionId) {
           setClaudeSessionId(data.claudeSessionId);
+          // Persist claudeSessionId to DB for session resume
+          const activeId = useSessionStore.getState().activeSessionId;
+          if (activeId) {
+            const tk = localStorage.getItem('token');
+            const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+            fetch(`/api/sessions/${activeId}`, {
+              method: 'PATCH',
+              headers: hdrs,
+              body: JSON.stringify({ claudeSessionId: data.claudeSessionId }),
+            }).catch(() => {});
+            useSessionStore.getState().updateSessionMeta(activeId, { claudeSessionId: data.claudeSessionId });
+          }
         }
         break;
 
       case 'file_tree': {
-        // If this is a subdirectory response, set as children; otherwise set root tree
+        // If we already have a tree and this is a subdirectory fetch, set as children
         const currentTree = useFileStore.getState().tree;
         if (currentTree.length > 0 && data.path) {
-          // Check if this path corresponds to an existing directory in the tree
-          const isSubdir = currentTree.some((e: any) => data.path !== e.path);
-          if (isSubdir) {
+          // Check if this path is one of the directories in the existing tree (recursive)
+          const findInTree = (entries: any[], p: string): boolean => {
+            for (const e of entries) {
+              if (e.path === p && e.isDirectory) return true;
+              if (e.children && findInTree(e.children, p)) return true;
+            }
+            return false;
+          };
+          if (findInTree(currentTree, data.path)) {
             setDirectoryChildren(data.path, data.entries);
             break;
           }
@@ -181,6 +203,7 @@ export function useClaudeChat() {
         type: 'chat',
         message,
         sessionId: useChatStore.getState().sessionId,
+        claudeSessionId: useChatStore.getState().claudeSessionId,
         cwd,
       });
     },

@@ -73,3 +73,67 @@
 
 ### 세션 로드 수정
 - useEffect 의존성 및 조건문 수정: authEnabled=false일 때도 세션 목록 확실히 로드
+
+## 2026-02-22: Phase 2 — File System + Editor + Session UX
+
+### Step 1: CodeMirror 6 에디터
+- **새 파일** `frontend/src/components/editor/CodeEditor.tsx` — `@uiw/react-codemirror` 래핑 컴포넌트
+  - oneDark 테마 + 투명 배경 커스텀
+  - 7개 언어 지원: js/ts/python/json/markdown/html/css
+  - basicSetup: lineNumbers, foldGutter, bracketMatching ON / autocompletion OFF
+- **수정** `ContextPanel.tsx` — `<textarea>` → `<CodeEditor>` 교체
+  - 마크다운 파일: preview/editor 토글 유지 (react-markdown + CodeEditor)
+  - 기타 파일: CodeEditor 직접 표시
+
+### Step 2: 파일 트리 강화 + chokidar 실시간 감시
+- **수정** `backend/services/file-system.ts`
+  - `setupFileWatcher(rootPath, onChange)` — chokidar 사용
+  - ignored: .git, node_modules, __pycache__, .venv, dist, data, .claude
+  - depth: 3, ignoreInitial: true
+  - `stopFileWatcher()` export
+- **수정** `backend/routes/ws-handler.ts`
+  - chokidar 이벤트 → 모든 클라이언트에 `{ type: 'file_changed', event, path }` broadcast
+  - `broadcast()` 헬퍼 함수 추가
+  - `handleChat`에서 프론트가 보내는 `claudeSessionId`를 resume에 사용
+- **수정** `backend/index.ts` — graceful shutdown에 `stopFileWatcher()` 추가
+- **수정** `frontend/src/stores/file-store.ts`
+  - `setDirectoryChildren()` — lazy loading용 (서브디렉토리 자식 설정)
+  - `setDirectoryLoading()` — 로딩 상태 관리
+  - `handleFileChange()` — add/unlink/change 이벤트 처리
+- **수정** `frontend/src/hooks/useClaudeChat.ts`
+  - `file_changed` 메시지 핸들러 추가
+  - `file_tree` 응답 시 서브디렉토리 판별 (재귀 findInTree)
+  - WS URL에 localStorage 토큰 쿼리 파라미터 추가 (인증 연동)
+  - `sdk_done` 시 claudeSessionId를 DB에 PATCH 저장
+  - `sendMessage`에서 `claudeSessionId`를 같이 전송
+- **수정** `frontend/src/components/files/FileTree.tsx`
+  - 이모지 아이콘 → SVG 아이콘 (ChevronIcon, FolderIcon, FileIcon)
+  - 파일 확장자별 색상 (ts=파랑, js=노랑, py=초록 등)
+  - 디렉토리 로딩 스피너 (LoadingSpinner 컴포넌트)
+
+### Step 3: 사이드바 탭 전환 + 세션 UX
+- **새 파일** `frontend/src/components/sessions/SessionItem.tsx`
+  - 인라인 이름 변경 (더블클릭 → input, Enter/Blur로 커밋)
+  - 즐겨찾기 별표 토글 (SVG star icon, 노란색)
+  - 비용 뱃지 + 삭제 버튼 (기존 기능 분리)
+  - `PATCH /api/sessions/:id` 호출
+- **수정** `frontend/src/stores/session-store.ts`
+  - `sidebarTab: 'sessions' | 'files'` + `setSidebarTab`
+  - `searchQuery` + `setSearchQuery`
+- **수정** `frontend/src/components/layout/Sidebar.tsx`
+  - 탭 시스템: 세션 / 파일 (하단 보더 인디케이터)
+  - 세션 탭: 검색 입력 + SessionItem 리스트 (즐겨찾기 우선 정렬)
+  - 파일 탭: FileTree 통합 + requestFileTree 연결
+  - 새 대화 버튼은 탭 위에 항상 표시
+
+### 세션 관리 버그 수정
+- **WS 인증 토큰 전달**: `useClaudeChat`에서 localStorage 토큰을 WS URL 쿼리에 추가 (401 해결)
+- **자동 세션 생성**: 메시지 보낼 때 activeSessionId 없으면 DB에 세션 자동 생성
+- **sessionId 동기화**: handleNewSession, handleSelectSession에서 chat-store의 sessionId도 동기화
+- **세션 전환 resume**: 프론트에서 claudeSessionId를 chat 메시지와 함께 전송, 백엔드가 세션별 resume 처리
+- **전환 피드백**: 세션 전환 시 시스템 메시지 표시 ("세션 X 으로 전환됨")
+- **같은 세션 재클릭 방지**: 이미 활성인 세션 클릭 시 불필요한 클리어 안 함
+
+### 총 규모
+- 새 파일 2개, 수정 9개 + App.tsx
+- 빌드 성공, 서버 32354 포트 가동

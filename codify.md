@@ -203,6 +203,57 @@ const response = query({
 
 ---
 
+## Phase 2 교훈: 파일 시스템 + 세션 UX
+
+### 1. WS 인증 — 토큰 전달 필수
+프론트엔드에서 WebSocket 연결 시 `localStorage`의 JWT 토큰을 쿼리 파라미터로 전달해야 함:
+```ts
+const wsUrl = token ? `${wsBase}?token=${encodeURIComponent(token)}` : wsBase;
+```
+Phase 1에서 auth 없이 개발하다가 Phase 2에서 auth 활성화하면서 WS 401 에러 발생.
+
+### 2. chokidar ignored 패턴 — 정확한 glob 사용
+```ts
+ignored: ['**/node_modules/**', '**/.git/**', '**/.claude/**', '**/.claude.json*']
+```
+- `.claude/` 디렉토리가 계속 변경되어 대량의 노이즈 이벤트 발생
+- `depth: 3` + `ignoreInitial: true` 로 초기 로드 부하 제거
+
+### 3. 서브디렉토리 lazy loading — 루트 vs 자식 구분
+파일 트리 응답이 루트인지 서브디렉토리인지 판별 필요:
+```ts
+// 잘못된 방법 (항상 true):
+currentTree.some(e => data.path !== e.path)
+
+// 올바른 방법 — 재귀 탐색:
+const findInTree = (entries, p) => {
+  for (const e of entries) {
+    if (e.path === p && e.isDirectory) return true;
+    if (e.children && findInTree(e.children, p)) return true;
+  }
+  return false;
+};
+```
+
+### 4. 세션 ID 이원화 문제
+- `session-store.activeSessionId`: DB 세션 (사이드바 표시용)
+- `chat-store.sessionId`: WS 채팅용 (서버에 전달되는 ID)
+- `chat-store.claudeSessionId`: Claude SDK 내부 세션 (resume용)
+
+이 3개가 동기화되지 않으면 세션 전환이 안 됨.
+**핵심**: `handleSelectSession`에서 3개 모두 업데이트해야 함.
+
+### 5. claudeSessionId는 connection-scoped가 아닌 session-scoped로
+백엔드에서 `client.claudeSessionId`를 WS 연결 전체에 하나만 저장하면,
+세션 A → B → A 전환 시 세션 B의 claudeSessionId로 resume 시도.
+**해결**: 프론트에서 매 chat 메시지에 `claudeSessionId`를 같이 보냄:
+```ts
+send({ type: 'chat', message, sessionId, claudeSessionId, cwd });
+```
+백엔드: `const resumeSessionId = data.claudeSessionId || client.claudeSessionId;`
+
+---
+
 ## 핵심 트러블슈팅
 
 ### 1. "Cannot be launched inside another Claude Code session" 에러
