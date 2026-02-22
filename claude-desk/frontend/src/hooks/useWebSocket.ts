@@ -1,16 +1,23 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { toastSuccess, toastWarning } from '../utils/toast';
+import { toastSuccess, toastWarning, toastError } from '../utils/toast';
+import { useChatStore } from '../stores/chat-store';
 
 type MessageHandler = (data: any) => void;
+type ReconnectHandler = () => void;
 
-export function useWebSocket(url: string, onMessage: MessageHandler) {
+const STREAMING_SAFETY_TIMEOUT = 15_000; // 15 seconds
+
+export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect?: ReconnectHandler) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const reconnectDelay = useRef(2000);
   const onMessageRef = useRef(onMessage);
+  const onReconnectRef = useRef(onReconnect);
   const wasConnected = useRef(false);
+  const safetyTimer = useRef<ReturnType<typeof setTimeout>>();
   onMessageRef.current = onMessage;
+  onReconnectRef.current = onReconnect;
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -21,8 +28,16 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
     ws.onopen = () => {
       setConnected(true);
       reconnectDelay.current = 2000; // Reset backoff on successful connection
+
+      // Cancel safety timer on reconnect
+      if (safetyTimer.current) {
+        clearTimeout(safetyTimer.current);
+        safetyTimer.current = undefined;
+      }
+
       if (wasConnected.current) {
         toastSuccess('재연결됨');
+        onReconnectRef.current?.();
       }
       wasConnected.current = true;
       // Start ping interval
@@ -47,6 +62,20 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
       if (wasConnected.current) {
         toastWarning('연결 끊김, 재연결 중...');
       }
+
+      // Start safety timer if streaming — force reset after 15s without reconnect
+      const { isStreaming } = useChatStore.getState();
+      if (isStreaming && !safetyTimer.current) {
+        safetyTimer.current = setTimeout(() => {
+          safetyTimer.current = undefined;
+          const store = useChatStore.getState();
+          if (store.isStreaming) {
+            store.setStreaming(false);
+            toastError('연결 끊김으로 스트리밍 중단됨');
+          }
+        }, STREAMING_SAFETY_TIMEOUT);
+      }
+
       // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
       reconnectTimer.current = setTimeout(connect, reconnectDelay.current);
       reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
@@ -61,6 +90,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
     connect();
     return () => {
       clearTimeout(reconnectTimer.current);
+      clearTimeout(safetyTimer.current);
       wsRef.current?.close();
     };
   }, [connect]);

@@ -1,14 +1,40 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef } from 'react';
 import { useWebSocket } from './useWebSocket';
 import { useChatStore, type ChatMessage, type ContentBlock, type SlashCommandInfo } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
 import { useModelStore } from '../stores/model-store';
-import { parseSDKMessage } from '../utils/message-parser';
-import { toastSuccess, toastError } from '../utils/toast';
+import { useGitStore } from '../stores/git-store';
+import { parseSDKMessage, normalizeContentBlocks } from '../utils/message-parser';
+import { toastSuccess, toastError, toastWarning } from '../utils/toast';
 
 /** Debounce timer for auto-reload of externally changed files */
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
+
+/** Recover messages from DB for the active session */
+async function recoverMessagesFromDb(sessionId: string) {
+  try {
+    const tk = localStorage.getItem('token');
+    const hdrs: Record<string, string> = {};
+    if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+    const res = await fetch(`/api/sessions/${sessionId}/messages`, { headers: hdrs });
+    if (res.ok) {
+      const stored = await res.json();
+      if (stored.length > 0) {
+        const msgs = stored.map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: normalizeContentBlocks(
+            typeof m.content === 'string' ? JSON.parse(m.content) : m.content
+          ),
+          timestamp: new Date(m.created_at).getTime(),
+          parentToolUseId: m.parent_tool_use_id,
+        }));
+        useChatStore.getState().setMessages(msgs);
+      }
+    }
+  } catch {}
+}
 
 export function useClaudeChat() {
   const token = localStorage.getItem('token');
@@ -16,6 +42,7 @@ export function useClaudeChat() {
   const wsUrl = token ? `${wsBase}?token=${encodeURIComponent(token)}` : wsBase;
   const currentAssistantMsg = useRef<ChatMessage | null>(null);
   const sendRef = useRef<(data: any) => void>(() => {});
+  const serverEpochRef = useRef<string | null>(null);
 
   const {
     addMessage, setStreaming, setSessionId, setClaudeSessionId,
@@ -26,8 +53,35 @@ export function useClaudeChat() {
 
   const handleMessage = useCallback((data: any) => {
     switch (data.type) {
-      case 'connected':
+      case 'connected': {
+        const newEpoch = data.serverEpoch;
+        if (serverEpochRef.current && newEpoch && serverEpochRef.current !== newEpoch) {
+          // Server restarted — epoch changed
+          toastWarning('서버가 재시작되었습니다');
+          useChatStore.getState().setStreaming(false);
+          currentAssistantMsg.current = null;
+        }
+        serverEpochRef.current = newEpoch || null;
         break;
+      }
+
+      case 'reconnect_result': {
+        if (data.status === 'streaming') {
+          useChatStore.getState().setStreaming(true);
+          toastSuccess('스트림 재연결됨');
+        } else {
+          // status === 'idle'
+          const wasStreaming = useChatStore.getState().isStreaming;
+          useChatStore.getState().setStreaming(false);
+          currentAssistantMsg.current = null;
+          if (wasStreaming && data.sessionId) {
+            // Was streaming but SDK finished while disconnected — recover from DB
+            recoverMessagesFromDb(data.sessionId);
+            toastSuccess('응답 복구됨');
+          }
+        }
+        break;
+      }
 
       case 'sdk_message': {
         const sdkMsg = data.data;
@@ -258,6 +312,14 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'git_commit': {
+        if (data.commit) {
+          useGitStore.getState().addCommit(data.commit);
+          toastSuccess(`스냅샷: ${data.commit.shortHash} (${data.commit.authorName})`);
+        }
+        break;
+      }
+
       case 'error':
         setStreaming(false);
         currentAssistantMsg.current = null;
@@ -290,7 +352,22 @@ export function useClaudeChat() {
     }
   }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree, setDirectoryChildren, handleFileChange]);
 
-  const { send, connected } = useWebSocket(wsUrl, handleMessage);
+  // Reconnect handler — send session context to backend for stream re-attachment
+  const handleReconnect = useCallback(() => {
+    const { sessionId: sid, claudeSessionId: csid } = useChatStore.getState();
+    if (sid) {
+      // Delay slightly to ensure 'connected' message is processed first
+      setTimeout(() => {
+        sendRef.current({
+          type: 'reconnect',
+          sessionId: sid,
+          claudeSessionId: csid,
+        });
+      }, 50);
+    }
+  }, []);
+
+  const { send, connected } = useWebSocket(wsUrl, handleMessage, handleReconnect);
   sendRef.current = send;
 
   const sendMessage = useCallback(

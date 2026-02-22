@@ -1,12 +1,13 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { v4 as uuidv4 } from 'uuid';
-import { executeQuery, abortSession, getClaudeSessionId, getActiveSessionCount } from '../services/claude-sdk.js';
+import { executeQuery, abortSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession } from '../services/claude-sdk.js';
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken } from '../services/auth.js';
 import { saveMessage, updateMessageContent, attachToolResultInDb } from '../services/message-store.js';
 import { getSession, updateSession } from '../services/session-manager.js';
 import { config, getPermissionMode } from '../config.js';
+import { autoCommit } from '../services/git-manager.js';
 
 interface WsClient {
   id: string;
@@ -14,11 +15,23 @@ interface WsClient {
   sessionId?: string;       // our platform session ID
   claudeSessionId?: string; // Claude SDK session ID for resume
   userRole?: string;        // role from JWT (admin/user)
+  userId?: number;          // user ID from JWT
+  username?: string;        // username from JWT
 }
 
 const SDK_HANG_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 const clients = new Map<string, WsClient>();
+const sessionClients = new Map<string, string>(); // sessionId → clientId
+
+function sendToSession(sessionId: string, data: any) {
+  const clientId = sessionClients.get(sessionId);
+  if (!clientId) return;
+  const c = clients.get(clientId);
+  if (c && c.ws.readyState === WebSocket.OPEN) {
+    c.ws.send(JSON.stringify(data));
+  }
+}
 
 function broadcast(data: any) {
   const payload = JSON.stringify(data);
@@ -57,12 +70,14 @@ export function setupWebSocket(server: Server) {
       const payload = verifyWsToken(token);
       if (payload && typeof payload === 'object' && 'role' in payload) {
         client.userRole = (payload as any).role;
+        client.userId = (payload as any).userId;
+        client.username = (payload as any).username;
       }
     }
 
     clients.set(clientId, client);
 
-    send(ws, { type: 'connected', clientId });
+    send(ws, { type: 'connected', clientId, serverEpoch: config.serverEpoch });
 
     ws.on('message', async (raw) => {
       try {
@@ -75,6 +90,17 @@ export function setupWebSocket(server: Server) {
 
     ws.on('close', () => {
       clients.delete(clientId);
+      // Only remove from sessionClients if SDK is NOT running (allow reconnect to take over)
+      if (client.sessionId) {
+        const sdkSession = getSDKSession(client.sessionId);
+        if (!sdkSession?.isRunning) {
+          // SDK idle — clean up session mapping
+          if (sessionClients.get(client.sessionId) === clientId) {
+            sessionClients.delete(client.sessionId);
+          }
+        }
+        // If SDK is running, keep sessionClients entry — reconnecting client will replace it
+      }
     });
 
     ws.on('error', () => {
@@ -102,6 +128,9 @@ async function handleMessage(client: WsClient, data: any) {
     case 'file_tree':
       handleFileTree(client, data);
       break;
+    case 'reconnect':
+      await handleReconnect(client, data);
+      break;
     case 'ping':
       send(client.ws, { type: 'pong' });
       break;
@@ -110,13 +139,41 @@ async function handleMessage(client: WsClient, data: any) {
   }
 }
 
+async function handleReconnect(client: WsClient, data: { sessionId?: string; claudeSessionId?: string }) {
+  const sessionId = data.sessionId;
+  if (!sessionId) {
+    send(client.ws, { type: 'reconnect_result', status: 'idle' });
+    return;
+  }
+
+  // Restore session context on the new client
+  client.sessionId = sessionId;
+  if (data.claudeSessionId) {
+    client.claudeSessionId = data.claudeSessionId;
+  }
+
+  // Register new client for this session
+  sessionClients.set(sessionId, client.id);
+
+  // Check if SDK is still running for this session
+  const sdkSession = getSDKSession(sessionId);
+  if (sdkSession?.isRunning) {
+    send(client.ws, { type: 'reconnect_result', status: 'streaming', sessionId });
+  } else {
+    send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
+  }
+}
+
 async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string }) {
   const sessionId = data.sessionId || client.sessionId || uuidv4();
   client.sessionId = sessionId;
 
+  // Register this client as the active sender for this session
+  sessionClients.set(sessionId, client.id);
+
   // Check concurrent session limit
   if (getActiveSessionCount() >= config.maxConcurrentSessions) {
-    send(client.ws, {
+    sendToSession(sessionId, {
       type: 'error',
       message: `동시 세션 한도 초과 (최대 ${config.maxConcurrentSessions}개)`,
       errorCode: 'SESSION_LIMIT',
@@ -147,7 +204,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     if (hangTimer) clearTimeout(hangTimer);
     hangTimer = setTimeout(() => {
       abortSession(sessionId);
-      send(client.ws, {
+      sendToSession(sessionId, {
         type: 'error',
         message: 'SDK 응답 시간 초과 (5분). 세션을 중단했습니다.',
         errorCode: 'SDK_HANG',
@@ -234,7 +291,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         }
       }
 
-      send(client.ws, {
+      sendToSession(sessionId, {
         type: 'sdk_message',
         sessionId,
         data: message,
@@ -262,13 +319,30 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       }
     } catch {}
 
-    send(client.ws, {
+    // Auto-commit edited files
+    if (config.gitAutoCommit && editedFiles.size > 0) {
+      try {
+        const commitResult = await autoCommit(
+          config.workspaceRoot,
+          client.username || 'anonymous',
+          sessionId,
+          [...editedFiles]
+        );
+        if (commitResult) {
+          broadcast({ type: 'git_commit', commit: commitResult });
+        }
+      } catch (err) {
+        console.error('[Git] Auto-commit failed:', err);
+      }
+    }
+
+    sendToSession(sessionId, {
       type: 'sdk_done',
       sessionId,
       claudeSessionId: client.claudeSessionId,
     });
   } catch (error: any) {
-    send(client.ws, {
+    sendToSession(sessionId, {
       type: 'error',
       message: error.message || 'Claude query failed',
       sessionId,

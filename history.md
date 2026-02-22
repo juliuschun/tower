@@ -343,3 +343,42 @@
 
 ### 총 규모
 - 새 파일 1개, 수정 6개, ~200줄 추가
+
+## 2026-02-22: Phase 6A — 세션 연속성 / 복원력 (Session Resilience)
+
+### 문제
+스트리밍 중 WS 끊김이나 서버 재시작 시 프론트엔드가 "응답 중..." 상태에 영구 고착. 근본 원인 5가지: 서버 재시작 감지 불가, WS 재연결 핸드셰이크 없음, 스트림 분리(SDK 루프는 도는데 새 WS에 전달 안 됨), isStreaming 리셋 안 됨, DB 메시지 복구 안 됨.
+
+### 핵심 설계: sendToSession 간접 전송
+- 기존: `send(client.ws, data)` 직접 호출 → WS 끊기면 전송 실패
+- 변경: `sendToSession(sessionId, data)` → sessionClients 맵에서 현재 활성 클라이언트 조회 후 전송
+- 재연결 시 새 클라이언트가 맵에 등록되면 진행 중인 스트림이 자동으로 새 WS로 이어짐
+
+### 백엔드 변경
+- **`backend/config.ts`** — `serverEpoch` 추가 (서버 시작마다 고유 ID, 재시작 감지용)
+- **`backend/routes/ws-handler.ts`**
+  - `sessionClients` 맵 (sessionId → clientId) + `sendToSession()` 헬퍼
+  - `handleReconnect()` — 재연결 시 세션 컨텍스트 복원, SDK isRunning 상태 확인 후 `reconnect_result` 응답
+  - `handleChat` 내부 모든 `send(client.ws, ...)` → `sendToSession(sessionId, ...)` 교체
+  - `connected` 메시지에 `serverEpoch` 포함
+  - `ws.on('close')` — SDK 실행 중이면 sessionClients 유지 (재연결 대기)
+
+### 프론트엔드 변경
+- **`frontend/src/hooks/useWebSocket.ts`**
+  - `onReconnect` 콜백 파라미터 추가
+  - 15초 안전 타이머: WS 끊김 후 재연결 안 되면 `isStreaming` 강제 리셋 + 토스트
+  - 재연결 성공 시 타이머 취소 + onReconnect 콜백 호출
+- **`frontend/src/hooks/useClaudeChat.ts`**
+  - `serverEpochRef` — epoch 추적, 변경 감지 시 "서버가 재시작되었습니다" 토스트 + 스트리밍 리셋
+  - `handleReconnect` 콜백 — WS 재연결 시 `{type:'reconnect', sessionId, claudeSessionId}` 전송
+  - `reconnect_result` 핸들러 — streaming이면 스트림 재연결, idle이면 DB에서 메시지 복구
+  - `recoverMessagesFromDb()` — DB에서 메시지 로드 + normalizeContentBlocks 변환
+
+### 커버하는 시나리오 4가지
+1. **스트리밍 중 WS 끊김 → 재연결 (서버 살아있음)** — sendToSession으로 새 WS에 자동 전달
+2. **스트림 완료 후 재연결** — reconnect_result idle → DB에서 전체 응답 복구
+3. **서버 재시작** — serverEpoch 변경 감지 → 토스트 + isStreaming 리셋
+4. **15초 초과 재연결 실패** — 안전 타이머로 isStreaming 강제 리셋 + InputBox 재활성화
+
+### 총 규모
+- 수정 4개, ~160줄 추가

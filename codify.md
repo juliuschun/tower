@@ -385,6 +385,61 @@ query({ prompt, options: {
 
 ---
 
+## Phase 6A 교훈: WS 세션 복원력 (Session Resilience)
+
+### 1. sendToSession 간접 전송 패턴
+WS 직접 전송(`send(client.ws, data)`)은 연결 끊기면 끝. 세션 기반 간접 전송으로 교체:
+```ts
+const sessionClients = new Map<string, string>(); // sessionId → clientId
+
+function sendToSession(sessionId: string, data: any) {
+  const clientId = sessionClients.get(sessionId);
+  if (!clientId) return;
+  const c = clients.get(clientId);
+  if (c && c.ws.readyState === WebSocket.OPEN) {
+    c.ws.send(JSON.stringify(data));
+  }
+}
+```
+재연결 시 새 클라이언트가 맵에 등록되면 SDK for-await 루프가 자동으로 새 WS로 전달.
+
+### 2. serverEpoch — 서버 재시작 감지
+서버 시작 시 `Date.now().toString(36) + Math.random().toString(36).slice(2,6)` 생성.
+프론트에서 이전 epoch과 비교하면 단순 WS 재연결 vs 서버 리부트 구분 가능.
+
+### 3. WS close 시 sessionClients 정리 조건
+SDK가 실행 중이면 sessionClients에서 제거하지 않음. 재연결 대기 상태 유지:
+```ts
+ws.on('close', () => {
+  clients.delete(clientId);
+  if (client.sessionId) {
+    const sdkSession = getSDKSession(client.sessionId);
+    if (!sdkSession?.isRunning) {
+      sessionClients.delete(client.sessionId); // SDK idle → 정리
+    }
+    // SDK running → 맵 유지, 재연결 시 교체됨
+  }
+});
+```
+
+### 4. 프론트 안전 타이머 — isStreaming 영구 고착 방지
+WS 끊김 + 스트리밍 중이면 15초 타이머 시작. 재연결 성공 시 취소, 실패 시 강제 리셋:
+```ts
+if (isStreaming && !safetyTimer.current) {
+  safetyTimer.current = setTimeout(() => {
+    store.setStreaming(false);
+    toastError('연결 끊김으로 스트리밍 중단됨');
+  }, 15_000);
+}
+```
+핵심: useWebSocket이 store를 직접 참조하여 isStreaming 상태 확인.
+
+### 5. reconnect 핸드셰이크 — 재연결 시 세션 복원
+WS 재연결 → `connected` (serverEpoch 비교) → `reconnect` (sessionId 전송) → `reconnect_result` (streaming/idle).
+idle인데 이전에 streaming이었으면 DB에서 메시지 복구. 타이밍: connected 처리 후 50ms 딜레이로 reconnect 전송.
+
+---
+
 ## 핵심 트러블슈팅
 
 ### 1. "Cannot be launched inside another Claude Code session" 에러

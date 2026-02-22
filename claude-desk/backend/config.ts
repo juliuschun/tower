@@ -38,8 +38,14 @@ export const config = {
   // DB
   dbPath: process.env.DB_PATH || path.join(process.cwd(), 'data', 'claude-desk.db'),
 
+  // Git auto-commit
+  gitAutoCommit: process.env.GIT_AUTO_COMMIT !== 'false',
+
   // Frontend (for production)
   frontendDir: path.join(process.cwd(), 'dist', 'frontend'),
+
+  // Server epoch — changes on each restart, used to detect server restarts
+  serverEpoch: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
 };
 
 export function getPermissionMode(role?: string): PermissionMode {
