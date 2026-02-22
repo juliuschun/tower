@@ -9,6 +9,7 @@ import {
   scanClaudeNativeSessions
 } from '../services/session-manager.js';
 import { getFileTree, readFile, writeFile, isPathSafe } from '../services/file-system.js';
+import fs from 'fs';
 import { loadCommands } from '../services/command-loader.js';
 import { getMessages } from '../services/message-store.js';
 import { generateSessionName } from '../services/auto-namer.js';
@@ -84,9 +85,15 @@ router.get('/sessions/:id', (req, res) => {
 });
 
 router.patch('/sessions/:id', (req, res) => {
-  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed } = req.body;
+  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd } = req.body;
   const updates: any = { name, tags, favorite, totalCost, totalTokens, claudeSessionId };
   if (autoNamed !== undefined) updates.autoNamed = autoNamed;
+  if (cwd !== undefined) {
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+      return res.status(400).json({ error: 'Invalid directory path' });
+    }
+    updates.cwd = cwd;
+  }
   updateSession(req.params.id, updates);
   res.json({ ok: true });
 });
@@ -198,6 +205,26 @@ router.get('/sessions/:id/messages', (req, res) => {
   try {
     const messages = getMessages(req.params.id);
     res.json(messages);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ───── Directories ─────
+router.get('/directories', (req, res) => {
+  try {
+    const dirPath = (req.query.path as string) || '/';
+    if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+      return res.status(400).json({ error: 'Invalid directory path' });
+    }
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+      .map((d) => ({
+        name: d.name,
+        path: dirPath === '/' ? `/${d.name}` : `${dirPath}/${d.name}`,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ path: dirPath, entries });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

@@ -43,12 +43,13 @@ export function createSession(name: string, cwd: string, userId?: number): Sessi
   };
 }
 
-export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited'>>) {
+export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited'>>) {
   const db = getDb();
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const values: any[] = [];
 
   if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
+  if (updates.cwd !== undefined) { sets.push('cwd = ?'); values.push(updates.cwd); }
   if (updates.claudeSessionId !== undefined) { sets.push('claude_session_id = ?'); values.push(updates.claudeSessionId); }
   if (updates.totalCost !== undefined) { sets.push('total_cost = ?'); values.push(updates.totalCost); }
   if (updates.totalTokens !== undefined) { sets.push('total_tokens = ?'); values.push(updates.totalTokens); }

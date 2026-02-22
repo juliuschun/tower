@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster } from 'sonner';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
@@ -148,7 +148,7 @@ function App() {
         addSession(session);
         return session;
       }
-    } catch { }
+    } catch (err) { console.warn('[app] createSessionInDb failed:', err); }
     return null;
   }, [token, addSession]);
 
@@ -190,7 +190,7 @@ function App() {
         setActiveSession(session.id);
         requestFileTree(cwd);
       }
-    } catch {}
+    } catch (err) { console.warn('[app] handleNewSessionInFolder failed:', err); }
   }, [token, addSession, setActiveSessionId, clearMessages, abort, setActiveSession, requestFileTree]);
 
   const handleSelectSession = useCallback(async (session: SessionMeta) => {
@@ -239,7 +239,7 @@ function App() {
           return; // Skip system message if we restored messages
         }
       }
-    } catch {}
+    } catch (err) { console.warn('[app] handleSelectSession load messages failed:', err); }
 
     // Show switch indicator (only if no messages restored)
     useChatStore.getState().addMessage({
@@ -260,7 +260,7 @@ function App() {
       await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE', headers });
       removeSession(id);
       toastSuccess('세션 삭제됨');
-    } catch { }
+    } catch (err) { console.warn('[app] handleDeleteSession failed:', err); }
   }, [token, removeSession]);
 
   const handleFileClick = useCallback((path: string) => {
@@ -296,7 +296,7 @@ function App() {
         body: JSON.stringify({ name, autoNamed: 0 }),
       });
       useSessionStore.getState().updateSessionMeta(id, { name, autoNamed: 0 });
-    } catch { }
+    } catch (err) { console.warn('[app] handleRenameSession failed:', err); }
   }, [token]);
 
   const handleToggleFavorite = useCallback(async (id: string, favorite: boolean) => {
@@ -309,7 +309,7 @@ function App() {
         body: JSON.stringify({ favorite }),
       });
       useSessionStore.getState().updateSessionMeta(id, { favorite });
-    } catch { }
+    } catch (err) { console.warn('[app] handleToggleFavorite failed:', err); }
   }, [token]);
 
   // Auto-create session on first message if no active session
@@ -378,7 +378,7 @@ function App() {
         usePinStore.getState().addPin(pin);
         toastSuccess(`${name} 핀 추가됨`);
       }
-    } catch {}
+    } catch (err) { console.warn('[app] handlePinFile failed:', err); }
   }, [token]);
 
   const handleUnpinFile = useCallback(async (id: number) => {
@@ -388,7 +388,7 @@ function App() {
       await fetch(`${API_BASE}/pins/${id}`, { method: 'DELETE', headers });
       usePinStore.getState().removePin(id);
       toastSuccess('핀 해제됨');
-    } catch {}
+    } catch (err) { console.warn('[app] handleUnpinFile failed:', err); }
   }, [token]);
 
   const handlePinClick = useCallback((pin: Pin) => {
@@ -449,7 +449,7 @@ function App() {
           });
         }
       }
-    } catch {}
+    } catch (err) { console.warn('[app] handlePromptSave failed:', err); }
     setEditingPrompt(null);
   }, [token, editingPrompt]);
 
@@ -460,7 +460,7 @@ function App() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch(`${API_BASE}/prompts/${id}`, { method: 'DELETE', headers });
       usePromptStore.getState().removePrompt(id);
-    } catch {}
+    } catch (err) { console.warn('[app] handlePromptDelete failed:', err); }
   }, [token]);
 
   // ───── Git handlers ─────
@@ -692,7 +692,7 @@ function App() {
       </div>
 
       {/* Bottom bar / Mobile tab bar */}
-      {isMobile ? <MobileTabBar /> : <BottomBar />}
+      {isMobile ? <MobileTabBar /> : <BottomBar requestFileTree={requestFileTree} />}
 
       {/* Settings modal */}
       <SettingsPanel onLogout={handleLogout} />
@@ -708,7 +708,7 @@ function App() {
   );
 }
 
-function BottomBar() {
+function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => void }) {
   const cost = useChatStore((s) => s.cost);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const sdkModel = useChatStore((s) => s.model);
@@ -720,9 +720,10 @@ function BottomBar() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const cwd = activeSession?.cwd;
+  const [cwdPickerOpen, setCwdPickerOpen] = useState(false);
 
   return (
-    <footer className="h-8 bg-surface-900 border-t border-surface-800 flex items-center px-4 text-[11px] text-gray-400 gap-5 shrink-0 tabular-nums font-medium tracking-wide">
+    <footer className="h-8 bg-surface-900 border-t border-surface-800 flex items-center px-4 text-[11px] text-gray-400 gap-5 shrink-0 tabular-nums font-medium tracking-wide relative">
       <span className="flex items-center gap-2">
         {isStreaming ? (
           <><span className="w-1.5 h-1.5 rounded-full bg-primary-400 thinking-indicator shadow-[0_0_8px_rgba(167,139,250,0.8)]"></span> <span className="text-primary-300">응답 중...</span></>
@@ -732,10 +733,24 @@ function BottomBar() {
       </span>
       {model && <span className="px-2 py-0.5 rounded-full bg-surface-800 border border-surface-700 text-gray-300 flex items-center gap-1.5"><svg className="w-3 h-3 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>{model}</span>}
       {cwd && (
-        <span className="flex items-center gap-1.5 text-gray-500" title={cwd}>
+        <button
+          onClick={() => !isStreaming && setCwdPickerOpen(!cwdPickerOpen)}
+          disabled={isStreaming}
+          className={`flex items-center gap-1.5 text-gray-500 hover:text-gray-300 transition-colors ${isStreaming ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          title={isStreaming ? '스트리밍 중에는 변경할 수 없습니다' : `작업 디렉토리: ${cwd} (클릭하여 변경)`}
+        >
           <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
           <span className="truncate max-w-[400px]">{cwd.replace(/^\/home\/[^/]+/, '~')}</span>
-        </span>
+          <svg className={`w-2.5 h-2.5 transition-transform ${cwdPickerOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+        </button>
+      )}
+      {cwdPickerOpen && activeSessionId && cwd && (
+        <CwdPicker
+          currentCwd={cwd}
+          sessionId={activeSessionId}
+          onClose={() => setCwdPickerOpen(false)}
+          requestFileTree={requestFileTree}
+        />
       )}
       {cost.totalCost > 0 && (
         <div className="flex items-center gap-4 ml-auto">
@@ -748,6 +763,149 @@ function BottomBar() {
         </div>
       )}
     </footer>
+  );
+}
+
+function CwdPicker({ currentCwd, sessionId, onClose, requestFileTree }: { currentCwd: string; sessionId: string; onClose: () => void; requestFileTree: (path?: string) => void }) {
+  const [browsePath, setBrowsePath] = useState(currentCwd);
+  const [dirs, setDirs] = useState<{ name: string; path: string }[]>([]);
+  const [inputValue, setInputValue] = useState(currentCwd);
+  const [loading, setLoading] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const sessions = useSessionStore((s) => s.sessions);
+
+  // Recent unique cwds from sessions
+  const recentCwds = Array.from(new Set(sessions.map((s) => s.cwd).filter(Boolean)))
+    .filter((c) => c !== currentCwd)
+    .slice(0, 5);
+
+  // Fetch directories
+  useEffect(() => {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(`/api/directories?path=${encodeURIComponent(browsePath)}`, { headers })
+      .then((r) => r.ok ? r.json() : { entries: [] })
+      .then((data) => setDirs(data.entries || []))
+      .catch(() => setDirs([]))
+      .finally(() => setLoading(false));
+  }, [browsePath]);
+
+  // Click outside to close
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const selectCwd = async (newCwd: string) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ cwd: newCwd }),
+      });
+      if (res.ok) {
+        useSessionStore.getState().updateSessionMeta(sessionId, { cwd: newCwd });
+        requestFileTree(newCwd);
+        onClose();
+      } else {
+        const err = await res.json();
+        toastError(err.error || 'CWD 변경 실패');
+      }
+    } catch {
+      toastError('CWD 변경 실패');
+    }
+  };
+
+  const goUp = () => {
+    const parent = browsePath.replace(/\/[^/]+\/?$/, '') || '/';
+    setBrowsePath(parent);
+    setInputValue(parent);
+  };
+
+  const handleInputSubmit = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      selectCwd(inputValue.trim());
+    }
+  };
+
+  return (
+    <div ref={pickerRef} className="absolute bottom-full left-0 mb-1 w-96 bg-surface-900 border border-surface-700 rounded-lg shadow-2xl z-50 overflow-hidden">
+      {/* Manual input */}
+      <div className="p-2 border-b border-surface-800">
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleInputSubmit}
+          className="w-full bg-surface-950 border border-surface-700 rounded-md px-3 py-1.5 text-[12px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
+          placeholder="경로 입력 후 Enter"
+        />
+      </div>
+
+      {/* Recent cwds */}
+      {recentCwds.length > 0 && (
+        <div className="px-2 py-1.5 border-b border-surface-800">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 px-1">최근</div>
+          {recentCwds.map((c) => (
+            <button
+              key={c}
+              onClick={() => selectCwd(c)}
+              className="w-full text-left px-2 py-1 rounded text-[11px] text-gray-400 hover:bg-surface-800 hover:text-gray-200 truncate font-mono"
+            >
+              {c.replace(/^\/home\/[^/]+/, '~')}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Directory browser */}
+      <div className="max-h-48 overflow-y-auto">
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-surface-800">
+          <button
+            onClick={goUp}
+            disabled={browsePath === '/'}
+            className="p-1 rounded hover:bg-surface-800 text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="상위 디렉토리"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+          </button>
+          <span className="text-[11px] text-gray-500 font-mono truncate flex-1">{browsePath.replace(/^\/home\/[^/]+/, '~')}</span>
+          <button
+            onClick={() => selectCwd(browsePath)}
+            className="text-[10px] px-2 py-0.5 rounded bg-primary-600/20 border border-primary-500/30 text-primary-300 hover:bg-primary-600/30"
+          >
+            선택
+          </button>
+        </div>
+        {loading ? (
+          <div className="py-4 text-center text-[11px] text-gray-500">로딩 중...</div>
+        ) : dirs.length === 0 ? (
+          <div className="py-4 text-center text-[11px] text-gray-500">하위 디렉토리 없음</div>
+        ) : (
+          dirs.map((d) => (
+            <button
+              key={d.path}
+              onClick={() => { setBrowsePath(d.path); setInputValue(d.path); }}
+              onDoubleClick={() => selectCwd(d.path)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-800/60 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5 text-yellow-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+              <span className="text-[11px] text-gray-300 truncate">{d.name}</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 

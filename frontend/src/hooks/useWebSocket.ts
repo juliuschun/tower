@@ -55,7 +55,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
         const data = JSON.parse(event.data);
         if (data.type === 'pong') return;
         onMessageRef.current(data);
-      } catch {}
+      } catch (err) { console.warn('[ws] onmessage parse failed:', err); }
     };
 
     ws.onclose = () => {

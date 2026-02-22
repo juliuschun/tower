@@ -12,7 +12,7 @@ import { toastSuccess, toastError, toastWarning } from '../utils/toast';
 /** Debounce timer for auto-reload of externally changed files */
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
 
-/** Recover messages from DB for the active session */
+/** Recover messages from DB for the active session (full replace) */
 async function recoverMessagesFromDb(sessionId: string) {
   try {
     const tk = localStorage.getItem('token');
@@ -34,7 +34,58 @@ async function recoverMessagesFromDb(sessionId: string) {
         useChatStore.getState().setMessages(msgs);
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[recoverMessagesFromDb] failed:', err);
+  }
+}
+
+/** Merge DB messages into current UI messages (for streaming gap recovery) */
+async function mergeMessagesFromDb(sessionId: string) {
+  try {
+    const tk = localStorage.getItem('token');
+    const hdrs: Record<string, string> = {};
+    if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+    const res = await fetch(`/api/sessions/${sessionId}/messages`, { headers: hdrs });
+    if (!res.ok) return;
+    const stored = await res.json();
+    if (stored.length === 0) return;
+
+    const dbMsgs: import('../stores/chat-store').ChatMessage[] = stored.map((m: any) => ({
+      id: m.id,
+      role: m.role,
+      content: normalizeContentBlocks(
+        typeof m.content === 'string' ? JSON.parse(m.content) : m.content
+      ),
+      timestamp: new Date(m.created_at).getTime(),
+      parentToolUseId: m.parent_tool_use_id,
+    }));
+
+    const currentMsgs = useChatStore.getState().messages;
+    const currentIds = new Set(currentMsgs.map((m) => m.id));
+
+    // Build merged list: start with DB messages (authoritative order),
+    // update content for existing ones, add missing ones
+    const merged = dbMsgs.map((dbMsg) => {
+      if (currentIds.has(dbMsg.id)) {
+        // Keep UI version but update content from DB (DB may be more complete)
+        const uiMsg = currentMsgs.find((m) => m.id === dbMsg.id)!;
+        return { ...uiMsg, content: dbMsg.content };
+      }
+      return dbMsg;
+    });
+
+    // Append any UI-only messages not in DB (e.g. system messages, in-flight streaming)
+    const dbIds = new Set(dbMsgs.map((m) => m.id));
+    for (const uiMsg of currentMsgs) {
+      if (!dbIds.has(uiMsg.id)) {
+        merged.push(uiMsg);
+      }
+    }
+
+    useChatStore.getState().setMessages(merged);
+  } catch (err) {
+    console.warn('[mergeMessagesFromDb] failed:', err);
+  }
 }
 
 export function useClaudeChat() {
@@ -71,6 +122,10 @@ export function useClaudeChat() {
         if (data.status === 'streaming') {
           useChatStore.getState().setStreaming(true);
           safetyTimerFired.current = false;
+          // Merge DB messages to fill any gap from disconnection
+          if (data.sessionId) {
+            mergeMessagesFromDb(data.sessionId);
+          }
           toastSuccess('스트림 재연결됨');
         } else {
           // status === 'idle'
@@ -206,7 +261,7 @@ export function useClaudeChat() {
               ...currentAssistantMsg.current,
               content: parsed,
             };
-            useChatStore.getState().updateLastAssistant(parsed);
+            useChatStore.getState().updateAssistantById(currentAssistantMsg.current.id, parsed);
           }
           return;
         }
@@ -245,7 +300,7 @@ export function useClaudeChat() {
               method: 'PATCH',
               headers: hdrs,
               body: JSON.stringify({ claudeSessionId: data.claudeSessionId }),
-            }).catch(() => {});
+            }).catch((err) => { console.warn('[chat] persist claudeSessionId failed:', err); });
             useSessionStore.getState().updateSessionMeta(activeId, { claudeSessionId: data.claudeSessionId });
           }
         }
@@ -271,7 +326,7 @@ export function useClaudeChat() {
                   useSessionStore.getState().updateSessionMeta(activeId, { name: result.name });
                 }
               })
-              .catch(() => {});
+              .catch((err) => { console.warn('[chat] auto-name failed:', err); });
           }
         }
         break;

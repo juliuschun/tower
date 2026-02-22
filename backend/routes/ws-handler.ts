@@ -191,9 +191,8 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
   // Pure: clean old mapping, bump epoch, set new session
   switchSession(client, sessionClients, oldSessionId, newSessionId);
 
-  if (data.claudeSessionId) {
-    client.claudeSessionId = data.claudeSessionId;
-  }
+  // Always sync claudeSessionId to the new session (clear if not provided)
+  client.claudeSessionId = data.claudeSessionId || undefined;
 
   send(client.ws, { type: 'set_active_session_ack', sessionId: newSessionId });
 }
@@ -224,13 +223,14 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       role: 'user',
       content: [{ type: 'text', text: data.message }],
     });
-  } catch {}
+  } catch (err) { console.error('[ws] saveMessage (user) failed:', err); }
 
   // Increment epoch — invalidates any prior running loop for this client
   const myEpoch = ++client.activeQueryEpoch;
 
-  // Use claudeSessionId from the message (per-session) over client-level (per-connection)
-  const resumeSessionId = data.claudeSessionId || client.claudeSessionId;
+  // Use claudeSessionId from the message only — never fall back to client-level state
+  // to prevent session A's claudeSessionId leaking into session B
+  const resumeSessionId = data.claudeSessionId || undefined;
   let currentAssistantId: string | null = null;
   let currentAssistantContent: any[] = [];
   const editedFiles = new Set<string>();
@@ -288,7 +288,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
               const finalResult = structured?.stdout || structured?.stderr
                 ? [structured.stdout, structured.stderr].filter(Boolean).join('\n')
                 : resultText;
-              try { attachToolResultInDb(sessionId, block.tool_use_id, finalResult); } catch {}
+              try { attachToolResultInDb(sessionId, block.tool_use_id, finalResult); } catch (err) { console.error('[ws] attachToolResultInDb failed:', err); }
             }
           }
         }
@@ -309,13 +309,13 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
               content,
               parentToolUseId: (message as any).parent_tool_use_id,
             });
-          } catch {}
+          } catch (err) { console.error('[ws] saveMessage (assistant) failed:', err); }
         } else {
           // Streaming update
           currentAssistantContent = content;
           try {
             updateMessageContent(msgId, content);
-          } catch {}
+          } catch (err) { console.error('[ws] updateMessageContent failed:', err); }
         }
       }
 
@@ -363,7 +363,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
           modelUsed: data.model,
         });
       }
-    } catch {}
+    } catch (err) { console.error('[ws] updateSession failed:', err); }
 
     // Auto-commit edited files
     if (config.gitAutoCommit && editedFiles.size > 0) {

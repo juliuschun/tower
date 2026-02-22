@@ -34,13 +34,14 @@ describe('resolveSessionClient', () => {
     expect(sessionClients.has('s1')).toBe(true);
   });
 
-  it('returns undefined and cleans up when client is missing', () => {
+  it('returns undefined but preserves mapping when client is missing (allows reconnect)', () => {
     const sessionClients = new Map([['s1', 'c1']]);
     const clients = new Map<string, SessionClient>();
 
     const result = resolveSessionClient(sessionClients, clients, 's1');
     expect(result).toBeUndefined();
-    expect(sessionClients.has('s1')).toBe(false);
+    // Mapping is preserved so reconnecting client can take over
+    expect(sessionClients.has('s1')).toBe(true);
   });
 
   it('returns undefined and cleans up when client switched sessions', () => {

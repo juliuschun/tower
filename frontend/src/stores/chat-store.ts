@@ -69,7 +69,7 @@ interface ChatState {
   attachments: Attachment[];
 
   addMessage: (msg: ChatMessage) => void;
-  updateLastAssistant: (content: ContentBlock[]) => void;
+  updateAssistantById: (id: string, content: ContentBlock[]) => void;
   appendToLastAssistant: (block: ContentBlock) => void;
   attachToolResult: (toolUseId: string, result: string) => void;
   setStreaming: (v: boolean) => void;
@@ -99,15 +99,12 @@ export const useChatStore = create<ChatState>((set) => ({
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
-  updateLastAssistant: (content) =>
+  updateAssistantById: (id, content) =>
     set((s) => {
+      const idx = s.messages.findIndex((m) => m.id === id);
+      if (idx === -1) return s; // stale message — ignore
       const msgs = [...s.messages];
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].role === 'assistant') {
-          msgs[i] = { ...msgs[i], content };
-          break;
-        }
-      }
+      msgs[idx] = { ...msgs[idx], content };
       return { messages: msgs };
     }),
 

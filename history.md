@@ -526,3 +526,57 @@
 ### plan.md 업데이트
 - Phase 4D 완료 표시 (`✅`)
 - 세션 이름 편집 TODO 3개 항목 체크 완료
+
+## 2026-02-22: Plan Mode 렌더링 수정
+
+### 문제
+Claude가 plan mode에 진입하거나 `AskUserQuestion` 등 인터랙티브 도구를 사용할 때, 해당 응답이 렌더링되지 않고 사라짐. `tool_result` 블록이 `groupContentBlocks`에서 그룹화되지만 렌더러가 `text`, `tool_use`, `thinking`만 처리.
+
+### 수정 (`bf9600cc`)
+- `MessageBubble.tsx` — `tool_result` 타입 그룹에 대한 fallback 렌더링 추가
+- plan mode 도구(`EnterPlanMode`, `ExitPlanMode`) 시각적 표시
+
+## 2026-02-22: DB 경로 안정화 + 세션 전환 안정화
+
+### 수정 (`a6449a9b`)
+- DB 경로가 환경/PM2에 따라 달라지던 문제 수정 → 절대경로 고정
+- 세션 전환 시 race condition 완화
+
+## 2026-02-22: 세션 격리 테스트 업그레이드 (19→39개)
+
+### 배경
+기존 19개 테스트(3파일)가 모두 통과했지만 실제 버그 방어에 부족. 순수 함수 엣지 케이스 누락, ws-handler 통합 테스트 전무, InputBox 시나리오 부족.
+
+### 변경 (`abd420c1`)
+
+#### session-guards.test.ts (7→13개, +6)
+- `resolveSessionClient`: 빈 맵 조회 (undefined 반환, 삭제 시도 없음), 존재하지 않는 sessionId (다른 매핑 보존)
+- `switchSession`: 다른 client 소유 시 매핑 보호, 동일 세션 재전환 시 epoch 증가, undefined oldSessionId (첫 연결)
+- `abortCleanup`: 다른 clientId 소유 시 매핑 보존
+
+#### session-filters.test.ts (9→13개, +4)
+- `shouldDropSessionMessage`: null+undefined 조합 (false), 값+undefined (true/drop), 빈 문자열 경계값 (falsy→false)
+- `shouldAutoSendQueue`: null currentSessionId (false/전송 차단)
+
+#### InputBox.test.tsx (3→5개, +2)
+- 빠른 세션 전환 (s1→s2→s3→s4) 후 streaming 종료 → onSend 미호출
+- Escape 키로 큐 취소 → onSend 미호출
+
+#### ws-handler.test.ts (신규, 8개 통합 테스트)
+- 실제 HTTP 서버 + WebSocket 연결 (포트 0 자동 할당), 8개 외부 모듈 `vi.mock()`
+- connection: 연결 시 connected + clientId + serverEpoch 수신
+- set_active_session: 세션 전환 → ack + 이전 세션 abort / 동일 세션 재전환 → abort 미호출
+- chat + routing: sdk_message가 세션 소유 client에만 전달
+- chat + epoch: 세션 전환이 진행 중 chat 루프를 epoch으로 중단
+- reconnect: 새 client가 메시지 수신
+- abort: abort_result 반환 + epoch 증가
+- ws close: SDK idle 시 sessionClients 정리
+
+#### 기타
+- `tsconfig.backend.json` — `backend/**/*.test.ts` exclude 추가 (빌드에서 테스트 파일 제외)
+- `vitest.config.ts` (신규) — 프론트/백엔드 환경 분리 (jsdom/node)
+- `package.json` — vitest + @testing-library/react + jsdom devDependencies 추가
+
+### 총 규모
+- 신규 파일 5개, 수정 6개
+- 39개 테스트 전체 통과, 빌드 회귀 없음

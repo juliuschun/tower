@@ -1,10 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
+import { MermaidBlock } from './MermaidBlock';
+import { toastSuccess } from '../../utils/toast';
 import type { ChatMessage, ContentBlock } from '../../stores/chat-store';
+
+function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await navigator.clipboard.writeText(text);
+    toastSuccess('복사됨');
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={`p-1.5 rounded-md bg-surface-800/80 border border-surface-700/50 text-gray-400 hover:text-gray-200 hover:bg-surface-700/80 transition-all ${className}`}
+      title="복사"
+    >
+      {copied ? (
+        <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      ) : (
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+function getMessageText(content: ContentBlock[]): string {
+  return content
+    .filter((b) => b.type === 'text' && b.text)
+    .map((b) => b.text!)
+    .join('\n');
+}
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -40,13 +79,21 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
 
       <div className={`max-w-[88%] min-w-0 ${isUser ? 'order-first' : ''}`}>
         {isUser ? (
-          <div className="bg-surface-800/70 border border-surface-700/40 rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap">
+          <div className="relative bg-surface-800/70 border border-surface-700/40 rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap">
             {message.content.map((block, i) => (
               <span key={i}>{block.text}</span>
             ))}
+            <CopyButton
+              text={getMessageText(message.content)}
+              className="absolute top-2 right-2 opacity-0 group-hover/message:opacity-100"
+            />
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="relative space-y-2.5">
+            <CopyButton
+              text={getMessageText(message.content)}
+              className="absolute -top-1 -right-1 opacity-0 group-hover/message:opacity-100 z-10"
+            />
             {groups.map((group, gi) => {
               // Tool use blocks — chip layout (single or multiple)
               if (group.type === 'tool_use') {
@@ -78,6 +125,13 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
                           code({ children, className, ...props }) {
                             const isInline = !className;
                             const text = String(children).trim();
+
+                            // Mermaid diagram
+                            if (className?.includes('language-mermaid')) {
+                              return <MermaidBlock code={text} />;
+                            }
+
+                            // Inline code — file path click
                             if (isInline && text.startsWith('/') && onFileClick) {
                               return (
                                 <code
@@ -89,7 +143,30 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
                                 </code>
                               );
                             }
+
+                            // Block code — with copy button
+                            if (!isInline) {
+                              return (
+                                <code className={className} {...props}>{children}</code>
+                              );
+                            }
+
                             return <code className={className} {...props}>{children}</code>;
+                          },
+                          pre({ children }) {
+                            // Extract text from the code child for copying
+                            const codeText = extractCodeText(children);
+                            return (
+                              <pre className="relative group/code">
+                                {children}
+                                {codeText && (
+                                  <CopyButton
+                                    text={codeText}
+                                    className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100"
+                                  />
+                                )}
+                              </pre>
+                            );
                           },
                         }}
                       >
@@ -201,6 +278,20 @@ function ThinkingChipGroup({ blocks }: { blocks: ContentBlock[] }) {
       )}
     </div>
   );
+}
+
+/** Extract text content from <pre> children (the inner <code> element) */
+function extractCodeText(children: React.ReactNode): string {
+  let text = '';
+  React.Children.forEach(children, (child) => {
+    if (React.isValidElement(child) && child.props) {
+      const props = child.props as Record<string, unknown>;
+      if (props.children) {
+        text += String(props.children);
+      }
+    }
+  });
+  return text.trim();
 }
 
 /** Group consecutive blocks of the same type together */

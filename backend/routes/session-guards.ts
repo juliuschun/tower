@@ -31,8 +31,9 @@ export function resolveSessionClient<T extends SessionClient>(
 
   const client = clients.get(clientId);
   if (!client) {
-    // Client disconnected — clean up stale mapping
-    sessionClients.delete(sessionId);
+    // Client disconnected — don't delete mapping here.
+    // ws.on('close') handles cleanup with isRunning check.
+    // Deleting here would break reconnection during streaming.
     return undefined;
   }
 

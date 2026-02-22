@@ -11,6 +11,7 @@ module.exports = {
       PORT: 32354,
       HOST: "0.0.0.0",
       GIT_AUTO_COMMIT: "true",
+      WORKSPACE_ROOT: path.join(home, "workspace"),
     },
     autorestart: true,
     max_restarts: 10,
