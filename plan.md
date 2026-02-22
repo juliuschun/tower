@@ -355,7 +355,7 @@ CREATE TABLE IF NOT EXISTS pins (
 3. `~/.claude/commands/` 항목 자동 목록 포함
 4. 클릭 → ContextPanel에 미리보기, 드래그 → InputBox에 삽입
 
-#### 4D. 첨부 칩 시스템 (Attachment Chips)
+#### 4D. 첨부 칩 시스템 (Attachment Chips) ✅
 
 InputBox에 "textarea + 첨부 칩 영역" 패턴 도입. ChatGPT/Claude.ai와 동일한 UX.
 
@@ -582,9 +582,9 @@ Header의 모델 배지를 클릭하면 드롭다운으로 모델 전환 가능.
 
 현재 세션 이름 변경은 더블클릭 → input으로 가능하지만, 리스트에서의 UX가 불완전.
 
-- [ ] 세션 목록에서 이름 수정 진입이 직관적이지 않음 (더블클릭 발견성 낮음)
-- [ ] 이름 변경 시 리스트 레이아웃 깜빡임 (input 크기 전환)
-- [ ] 개선안: 우클릭 컨텍스트 메뉴 또는 호버 시 연필 아이콘 표시
+- [x] 세션 목록에서 이름 수정 진입이 직관적이지 않음 (더블클릭 발견성 낮음) — 호버 시 연필 아이콘 추가
+- [x] 이름 변경 시 리스트 레이아웃 깜빡임 (input 크기 전환) — min-h + 고정 높이 input 적용
+- [x] 개선안: 우클릭 컨텍스트 메뉴 또는 호버 시 연필 아이콘 표시 — 둘 다 구현
 - [ ] 이름 변경 후 정렬 순서 즉시 반영
 
 ### 세션 연속성 / 메시지 유실 문제
@@ -607,6 +607,35 @@ Header의 모델 배지를 클릭하면 드롭다운으로 모델 전환 가능.
 - 서버 시작 시 `boot_id` 발급 → 프론트가 reconnect 시 이전 boot_id와 비교 → 다르면 서버 재시작 감지
 - 스트리밍 중 WS 끊김 시, 재연결 후 마지막 `sdk_done` 이후의 메시지만 DB에서 복원
 - 세션 전환 시 진행 중인 query를 abort하고 상태를 확정(committed)한 후 전환
+
+### 🔴 Plan Mode + AskUserQuestion 응답 사라짐 버그
+
+**증상:** Claude가 plan mode 진입 후 사용자에게 질문(AskUserQuestion)을 던질 때 응답이 렌더링되지 않고 사라짐.
+
+**발견된 원인 3가지:**
+
+1. **`tool_result` 블록 렌더링 누락** (`MessageBubble.tsx:103`)
+   - `groupContentBlocks`가 `tool_result` 타입 그룹을 만들지만, 렌더러는 `text`, `tool_use`, `thinking` 3가지만 처리
+   - 나머지 타입은 `return null` → 해당 그룹이 통째로 사라짐
+   - SDK `user` 메시지의 tool_result는 `attachToolResult`로 기존 tool_use에 병합되지만, `assistant` 메시지 내 tool_result 블록은 독립 렌더링 불가
+
+2. **인터랙티브 도구 UI 미지원**
+   - `AskUserQuestion`: CLI에서는 옵션 선택 UI가 뜨지만, 웹 UI에는 응답 메커니즘 없음
+   - `EnterPlanMode` / `ExitPlanMode`: 동일하게 인터랙티브 도구
+   - `bypassPermissions` 모드에서 SDK가 자동 응답할 수 있지만, headless 환경에서 입력 대기로 hang → 5분 뒤 `SDK_HANG` timeout 가능성
+
+3. **`mergeConsecutiveAssistant` 블록 재정렬 시 `tool_result` 소실**
+   - thinking → tool_use → text → other 순으로 재정렬하면서 `tool_result`는 `other`로 밀림
+   - 이후 렌더러에서 `return null` 처리
+
+**수정 방향:**
+- [ ] `MessageBubble.tsx`: `tool_result` 타입 그룹을 tool_use 칩과 유사하게 렌더링 (최소한 fallback)
+- [ ] `AskUserQuestion` 전용 UI 컴포넌트: 질문 + 옵션 버튼 표시 → 사용자 선택 → SDK에 응답 전달
+- [ ] `EnterPlanMode` / `ExitPlanMode` 시각적 표시 (plan mode 진입/종료 배너)
+- [ ] 미처리 SDK 메시지 타입에 대한 fallback 렌더링 + console.warn 로깅
+- [ ] SDK headless 환경에서 AskUserQuestion 동작 확인 (자동 응답 vs hang)
+
+**우선순위:** `tool_result` 렌더링 → AskUserQuestion UI → plan mode 배너
 
 ### Mermaid 차트 렌더링
 

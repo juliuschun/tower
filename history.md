@@ -499,3 +499,30 @@
 ### 수정 파일
 - `ecosystem.config.cjs` (신규)
 - `start.sh`, `package.json`, `CLAUDE.md`, `codify.md`, `MEMORY.md`
+
+## 2026-02-22: 세션 이름 편집 UX 개선
+
+### 문제
+세션 이름 변경이 더블클릭으로만 진입 가능 → 발견성 낮음. 편집 모드 진입/종료 시 행 높이 깜빡임.
+
+### 변경 사항 (`frontend/src/components/sessions/SessionItem.tsx`)
+
+#### 1. 호버 시 연필(편집) 아이콘 추가
+- 삭제 버튼(X) 앞에 연필 아이콘 배치
+- 기존 `opacity-0 group-hover:opacity-100` 패턴 동일 적용
+- 클릭 → `startEditing()` (기존 더블클릭과 동일 로직)
+- 편집 모드(`editing=true`)일 때 연필+삭제 버튼 모두 숨김
+
+#### 2. 우클릭 컨텍스트 메뉴 (`SessionContextMenu`)
+- FileTree의 `ContextMenu` 패턴 재활용 (fixed 포지셔닝, mousedown 외부 클릭 닫기)
+- 메뉴 항목: 이름 변경 / 즐겨찾기 토글 / 구분선 / 삭제(빨간색)
+- `onContextMenu`에서 브라우저 기본 메뉴 차단 (`e.preventDefault()`)
+
+#### 3. input 레이아웃 안정화
+- 외부 div: `min-h-[44px]` 고정
+- input: `h-[20px] py-0` (기존 `py-0.5` → 높이 차이 제거)
+- 텍스트: `leading-[20px]` (input과 동일 높이)
+
+### plan.md 업데이트
+- Phase 4D 완료 표시 (`✅`)
+- 세션 이름 편집 TODO 3개 항목 체크 완료
