@@ -87,6 +87,10 @@ export function useClaudeChat() {
       }
 
       case 'sdk_message': {
+        // Ignore messages for sessions we're not currently viewing
+        const _currentSid = useChatStore.getState().sessionId;
+        if (_currentSid && _currentSid !== data.sessionId) return;
+
         const sdkMsg = data.data;
 
         // System init — may repeat each turn, only update info without resetting
@@ -208,6 +212,10 @@ export function useClaudeChat() {
       }
 
       case 'sdk_done': {
+        // Ignore done signals for sessions we're not currently viewing
+        const _doneSid = useChatStore.getState().sessionId;
+        if (_doneSid && _doneSid !== data.sessionId) return;
+
         setStreaming(false);
         currentAssistantMsg.current = null;
         const activeId = useSessionStore.getState().activeSessionId;
@@ -323,7 +331,11 @@ export function useClaudeChat() {
         break;
       }
 
-      case 'error':
+      case 'error': {
+        // Ignore session-specific errors for sessions we're not viewing
+        const _errSid = useChatStore.getState().sessionId;
+        if (_errSid && _errSid !== data.sessionId) return;
+
         setStreaming(false);
         currentAssistantMsg.current = null;
         if (data.errorCode === 'SESSION_LIMIT') {
@@ -352,6 +364,7 @@ export function useClaudeChat() {
           });
         }
         break;
+      }
     }
   }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree, setDirectoryChildren, handleFileChange]);
 
@@ -405,6 +418,13 @@ export function useClaudeChat() {
     setStreaming(false);
   }, [send, setStreaming]);
 
+  const setActiveSession = useCallback(
+    (sessionId: string, claudeSessionId?: string | null) => {
+      send({ type: 'set_active_session', sessionId, claudeSessionId: claudeSessionId || undefined });
+    },
+    [send]
+  );
+
   const requestFileTree = useCallback(
     (path?: string) => {
       send({ type: 'file_tree', path });
@@ -429,6 +449,7 @@ export function useClaudeChat() {
   return {
     sendMessage,
     abort,
+    setActiveSession,
     requestFileTree,
     requestFile,
     saveFile,

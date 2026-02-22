@@ -95,6 +95,13 @@ export async function* executeQuery(
     throw error;
   } finally {
     session.isRunning = false;
+    // Auto-cleanup after 5 minutes to prevent memory leak
+    setTimeout(() => {
+      const current = activeSessions.get(sessionId);
+      if (current === session && !current.isRunning) {
+        activeSessions.delete(sessionId);
+      }
+    }, 5 * 60 * 1000);
   }
 }
 

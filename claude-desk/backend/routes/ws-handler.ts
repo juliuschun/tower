@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { v4 as uuidv4 } from 'uuid';
-import { executeQuery, abortSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession } from '../services/claude-sdk.js';
+import { executeQuery, abortSession, cleanupSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession } from '../services/claude-sdk.js';
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken } from '../services/auth.js';
 import { saveMessage, updateMessageContent, attachToolResultInDb } from '../services/message-store.js';
@@ -30,6 +30,11 @@ function sendToSession(sessionId: string, data: any) {
   const c = clients.get(clientId);
   if (!c) {
     // Client was deleted but sessionClients not cleaned — remove stale entry
+    sessionClients.delete(sessionId);
+    return;
+  }
+  // Guard: client switched to a different session — stale mapping, drop message
+  if (c.sessionId && c.sessionId !== sessionId) {
     sessionClients.delete(sessionId);
     return;
   }
@@ -142,6 +147,9 @@ async function handleMessage(client: WsClient, data: any) {
     case 'reconnect':
       await handleReconnect(client, data);
       break;
+    case 'set_active_session':
+      handleSetActiveSession(client, data);
+      break;
     case 'ping':
       send(client.ws, { type: 'pong' });
       break;
@@ -173,6 +181,34 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
   } else {
     send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
   }
+}
+
+function handleSetActiveSession(client: WsClient, data: { sessionId: string; claudeSessionId?: string }) {
+  const oldSessionId = client.sessionId;
+  const newSessionId = data.sessionId;
+
+  if (oldSessionId && oldSessionId !== newSessionId) {
+    // Remove stale sessionClients mapping for old session
+    if (sessionClients.get(oldSessionId) === client.id) {
+      sessionClients.delete(oldSessionId);
+    }
+    // Abort old SDK query if running
+    abortSession(oldSessionId);
+    // Cleanup finished sessions
+    const sdkSession = getSDKSession(oldSessionId);
+    if (sdkSession && !sdkSession.isRunning) {
+      cleanupSession(oldSessionId);
+    }
+  }
+
+  // Update client to new session
+  client.sessionId = newSessionId;
+  if (data.claudeSessionId) {
+    client.claudeSessionId = data.claudeSessionId;
+  }
+  sessionClients.set(newSessionId, client.id);
+
+  send(client.ws, { type: 'set_active_session_ack', sessionId: newSessionId });
 }
 
 async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string }) {

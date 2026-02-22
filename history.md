@@ -440,3 +440,30 @@
 ### 총 규모
 - 새 파일 3개, 수정 9개
 - 백엔드 ~250줄, 프론트엔드 ~200줄
+
+## 2026-02-22: 세션 격리 버그 수정 + 토큰 만료 자동 로그아웃
+
+### 문제
+세션 A에서 대화 중 세션 B로 전환하면, A의 응답이 B에 표시되거나 A로 돌아왔을 때 응답이 사라짐. 또한 JWT 토큰 만료 시 401 에러만 발생하고 로그인 페이지로 이동하지 않음.
+
+### 세션 격리 수정 (4개 파일)
+
+#### `backend/routes/ws-handler.ts`
+- `cleanupSession` import 추가
+- `sendToSession`에 세션 불일치 가드: 클라이언트의 현재 sessionId와 대상 sessionId가 다르면 메시지 드랍 + stale 매핑 삭제
+- `set_active_session` WS 메시지 타입 + `handleSetActiveSession` 핸들러: old 세션 매핑 삭제, SDK abort, 새 세션 등록, ack 응답
+
+#### `backend/services/claude-sdk.ts`
+- `executeQuery`의 `finally`에 5분 후 `activeSessions` 자동 정리 타이머 (identity check로 오삭제 방지, 메모리 누수 방지)
+
+#### `frontend/src/hooks/useClaudeChat.ts`
+- 3곳의 sessionId 필터에서 `data.sessionId &&` 제거 → null/undefined sessionId도 불일치로 드랍 (sdk_message, sdk_done, error)
+- `setActiveSession` 함수 추가: 백엔드에 세션 전환 알림
+
+#### `frontend/src/App.tsx`
+- `handleSelectSession`: 스트리밍 중이면 `abort()` + `setActiveSession()` 호출
+- `handleNewSession`: 동일하게 스트리밍 abort + `setActiveSession()` 호출
+- 세션 로드 시 401 응답 → 자동 토큰 삭제 + 로그인 페이지 이동
+
+### 총 규모
+- 수정 4개, ~86줄 추가

@@ -52,7 +52,7 @@ function App() {
     localStorage.setItem('contextPanelWidth', String(width));
   }, []);
 
-  const { sendMessage, abort, requestFile, requestFileTree, saveFile, connected } = useClaudeChat();
+  const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, connected } = useClaudeChat();
   const { theme } = useTheme();
   const isMobileQuery = useMediaQuery('(max-width: 768px)');
   const isMobile = useSessionStore((s) => s.isMobile);
@@ -94,7 +94,10 @@ function App() {
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     fetch(`${API_BASE}/sessions`, { headers })
-      .then((r) => r.ok ? r.json() : [])
+      .then((r) => {
+        if (r.status === 401) { localStorage.removeItem('token'); setToken(null); return []; }
+        return r.ok ? r.json() : [];
+      })
       .then((data) => setSessions(data))
       .catch(() => {});
   }, [token, authStatus, setSessions]);
@@ -144,19 +147,29 @@ function App() {
   }, [token, addSession]);
 
   const handleNewSession = useCallback(async () => {
+    // Abort streaming if active
+    if (useChatStore.getState().isStreaming) {
+      abort();
+    }
     const session = await createSessionInDb();
     if (session) {
       setActiveSessionId(session.id);
       useChatStore.getState().setSessionId(session.id);
       useChatStore.getState().setClaudeSessionId(null);
       clearMessages();
+      setActiveSession(session.id);
     }
-  }, [createSessionInDb, setActiveSessionId, clearMessages]);
+  }, [createSessionInDb, setActiveSessionId, clearMessages, abort, setActiveSession]);
 
   const handleSelectSession = useCallback(async (session: SessionMeta) => {
     // Skip if already on this session
     const currentId = useSessionStore.getState().activeSessionId;
     if (currentId === session.id) return;
+
+    // Abort streaming if active
+    if (useChatStore.getState().isStreaming) {
+      abort();
+    }
 
     setActiveSessionId(session.id);
     clearMessages();
@@ -168,6 +181,9 @@ function App() {
     } else {
       useChatStore.getState().setClaudeSessionId(null);
     }
+
+    // Notify backend of session switch
+    setActiveSession(session.id, session.claudeSessionId);
 
     // Load persisted messages
     try {
@@ -202,7 +218,7 @@ function App() {
 
     // Auto-load session's cwd in file tree
     if (session.cwd) requestFileTree(session.cwd);
-  }, [setActiveSessionId, clearMessages, token, requestFileTree]);
+  }, [setActiveSessionId, clearMessages, token, requestFileTree, abort, setActiveSession]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
     try {

@@ -123,18 +123,32 @@ Anthropic이 제공하는 공식 웹 서비스. 네 서버가 아닌 Anthropic �
 
 리서치/분석 팀용 자체 웹 플랫폼. SDK 기반 채팅 + 파일 편집 + MD 렌더링.
 
-### 실행
+### 서버 관리 (PM2 통일)
 ```bash
 cd /home/azureuser/tunnelingcc/claude-desk
-./start.sh
-# 또는
-NO_AUTH=true DEFAULT_CWD=/home/azureuser WORKSPACE_ROOT=/home/azureuser npx tsx backend/index.ts
+
+# 시작 (빌드 포함)
+./start.sh start        # 또는 npm start
+
+# 빌드 + 재시작
+./start.sh restart      # 또는 npm run restart
+
+# 중지 / 로그 / 상태
+./start.sh stop
+./start.sh logs
+./start.sh status
 ```
+
+> **주의:** `npx tsx backend/index.ts` 직접 실행 금지.
+> PM2와 포트 충돌하여 EADDRINUSE 크래시 루프 발생.
+
+환경변수는 `ecosystem.config.cjs`에 선언되어 있음 (PORT, DEFAULT_CWD, WORKSPACE_ROOT 등).
 
 ### 접속
 ```bash
 ssh -L 32354:localhost:32354 azureuser@4.230.33.35
 # 브라우저: http://localhost:32354
+# 인증: admin / admin123
 ```
 
 ### 아키텍처
@@ -504,6 +518,43 @@ git commit -m "rollback: reverted to <hash>"
 
 ---
 
+## 세션 격리 교훈: 멀티 세션 WS 라우팅
+
+### 1. sessionClients 1:1 매핑의 stale 문제
+`sessionClients` (sessionId → clientId) 매핑은 세션 전환 시 old 매핑이 남아 메시지가 잘못된 세션으로 전달됨.
+**해결**: 두 단계 방어
+- `set_active_session` 핸들러에서 능동적으로 old 매핑 삭제
+- `sendToSession`에서 수동적으로 `c.sessionId !== sessionId` 가드 (race condition 대비)
+
+### 2. 프론트엔드 sessionId 필터 — null 허점
+```ts
+// ❌ data.sessionId가 null이면 필터 통과
+if (_currentSid && data.sessionId && _currentSid !== data.sessionId) return;
+
+// ✅ null이어도 현재 세션과 불일치면 드랍
+if (_currentSid && _currentSid !== data.sessionId) return;
+```
+
+### 3. 세션 전환 시 반드시 abort 먼저
+스트리밍 중 세션 전환하면 이전 세션의 SDK 루프가 계속 돌면서 메시지를 보냄.
+프론트에서 `abort()` → 백엔드에서 `abortSession(oldSessionId)` 순서로 정리해야 깨끗한 전환.
+
+### 4. activeSessions 메모리 누수 — 타이머 정리
+SDK query 완료 후 `activeSessions` Map에 세션이 남아 메모리 누수. 5분 후 자동 정리 타이머로 해결.
+동일 sessionId로 새 query가 시작된 경우 오삭제 방지를 위해 identity check (`current === session`) 필수.
+
+### 5. JWT 토큰 만료 — 프론트엔드 자동 로그아웃
+API 응답 401이면 localStorage 토큰 삭제 + setToken(null) → 로그인 페이지로 자동 이동:
+```ts
+fetch('/api/sessions', { headers })
+  .then((r) => {
+    if (r.status === 401) { localStorage.removeItem('token'); setToken(null); return []; }
+    return r.ok ? r.json() : [];
+  })
+```
+
+---
+
 ## 핵심 트러블슈팅
 
 ### 1. "Cannot be launched inside another Claude Code session" 에러
@@ -594,3 +645,42 @@ tmux kill-session -t session-name
 cat /tmp/claude-code-web.log
 cat /tmp/claude-code-webui.log
 ```
+
+---
+
+## 운영 트러블슈팅: 서버 실행 + 접속
+
+### NO_AUTH 누락으로 WebSocket 401 에러
+
+**증상:**
+- 브라우저에서 페이지는 로드되지만 채팅이 안 됨 (백엔드 연결 실패)
+- SSH 터널에서 `channel N: open failed: connect failed: Connection refused` 간헐 발생
+- WebSocket 핸드셰이크가 `401 Unauthorized` 반환
+
+**원인:**
+`start.sh` 대신 직접 `node dist/backend/index.js`로 실행하면 `NO_AUTH=true` 환경변수가 누락됨.
+`config.ts`의 기본값이 `authEnabled: process.env.NO_AUTH !== 'true'` → 인증 활성화 → WS 연결 시 토큰 없으면 401.
+
+**확인 방법:**
+```bash
+# 실행 중인 프로세스의 환경변수 확인
+cat /proc/$(lsof -ti:32354)/environ | tr '\0' '\n' | grep NO_AUTH
+
+# WS 핸드셰이크 직접 테스트
+curl -s -i -N --http1.1 \
+  -H "Upgrade: websocket" \
+  -H "Connection: Upgrade" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  -H "Sec-WebSocket-Version: 13" \
+  http://localhost:32354/ws
+# 정상: HTTP/1.1 101 Switching Protocols
+# 비정상: HTTP/1.1 401 Unauthorized
+```
+
+**해결:** PM2로 통일 관리하면 환경변수가 `ecosystem.config.cjs`에 선언되어 있어 누락 없음.
+```bash
+cd ~/tunnelingcc/claude-desk
+./start.sh restart    # 빌드 + PM2 재시작 (환경변수 자동 적용)
+```
+
+**교훈:** `npx tsx` 직접 실행이나 `node dist/...` 수동 실행은 환경변수 누락 + PM2와 포트 충돌 위험. PM2 ecosystem 설정 파일로 환경변수를 영속화.
