@@ -1,4 +1,32 @@
 import path from 'path';
+import { execSync } from 'child_process';
+import os from 'os';
+
+function findClaudeExecutable(): string {
+  // 1. 환경변수 우선
+  if (process.env.CLAUDE_PATH) return process.env.CLAUDE_PATH;
+
+  // 2. which로 PATH에서 탐색
+  try {
+    const result = execSync('which claude', { encoding: 'utf-8', timeout: 5000 }).trim();
+    if (result) return result;
+  } catch {}
+
+  // 3. 일반적인 설치 경로 탐색
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, '.local', 'bin', 'claude'),
+    '/usr/local/bin/claude',
+    '/usr/bin/claude',
+  ];
+  const fs = require('fs');
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+
+  // 4. 못 찾으면 기본값 (런타임 에러로 표시됨)
+  return path.join(home, '.local', 'bin', 'claude');
+}
 
 type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 
@@ -19,7 +47,7 @@ export const config = {
   host: process.env.HOST || '0.0.0.0',
 
   // Claude SDK
-  claudeExecutable: process.env.CLAUDE_PATH || '/home/azureuser/.local/bin/claude',
+  claudeExecutable: findClaudeExecutable(),
   defaultCwd: process.env.DEFAULT_CWD || process.cwd(),
   permissionMode: (process.env.PERMISSION_MODE || 'bypassPermissions') as PermissionMode,
 
@@ -32,7 +60,7 @@ export const config = {
   tokenExpiry: '24h',
 
   // File system
-  workspaceRoot: process.env.WORKSPACE_ROOT || '/home/azureuser',
+  workspaceRoot: process.env.WORKSPACE_ROOT || os.homedir(),
   hiddenPatterns: ['.git', 'node_modules', '__pycache__', '.venv', '.env', '.DS_Store'],
 
   // DB
