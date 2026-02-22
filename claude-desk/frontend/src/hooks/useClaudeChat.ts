@@ -68,11 +68,14 @@ export function useClaudeChat() {
       case 'reconnect_result': {
         if (data.status === 'streaming') {
           useChatStore.getState().setStreaming(true);
+          safetyTimerFired.current = false;
           toastSuccess('스트림 재연결됨');
         } else {
           // status === 'idle'
-          const wasStreaming = useChatStore.getState().isStreaming;
+          // Check wasStreaming OR safetyTimerFired (timer may have cleared isStreaming before reconnect)
+          const wasStreaming = useChatStore.getState().isStreaming || safetyTimerFired.current;
           useChatStore.getState().setStreaming(false);
+          safetyTimerFired.current = false;
           currentAssistantMsg.current = null;
           if (wasStreaming && data.sessionId) {
             // Was streaming but SDK finished while disconnected — recover from DB
@@ -367,7 +370,7 @@ export function useClaudeChat() {
     }
   }, []);
 
-  const { send, connected } = useWebSocket(wsUrl, handleMessage, handleReconnect);
+  const { send, connected, safetyTimerFired } = useWebSocket(wsUrl, handleMessage, handleReconnect);
   sendRef.current = send;
 
   const sendMessage = useCallback(

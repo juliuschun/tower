@@ -16,6 +16,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
   const onReconnectRef = useRef(onReconnect);
   const wasConnected = useRef(false);
   const safetyTimer = useRef<ReturnType<typeof setTimeout>>();
+  const safetyTimerFired = useRef(false);
   onMessageRef.current = onMessage;
   onReconnectRef.current = onReconnect;
 
@@ -29,7 +30,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
       setConnected(true);
       reconnectDelay.current = 2000; // Reset backoff on successful connection
 
-      // Cancel safety timer on reconnect
+      // Cancel safety timer on reconnect (keep safetyTimerFired for reconnect_result logic)
       if (safetyTimer.current) {
         clearTimeout(safetyTimer.current);
         safetyTimer.current = undefined;
@@ -66,8 +67,10 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
       // Start safety timer if streaming — force reset after 15s without reconnect
       const { isStreaming } = useChatStore.getState();
       if (isStreaming && !safetyTimer.current) {
+        safetyTimerFired.current = false;
         safetyTimer.current = setTimeout(() => {
           safetyTimer.current = undefined;
+          safetyTimerFired.current = true;
           const store = useChatStore.getState();
           if (store.isStreaming) {
             store.setStreaming(false);
@@ -101,5 +104,5 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
     }
   }, []);
 
-  return { send, connected, ws: wsRef };
+  return { send, connected, ws: wsRef, safetyTimerFired };
 }

@@ -28,7 +28,12 @@ function sendToSession(sessionId: string, data: any) {
   const clientId = sessionClients.get(sessionId);
   if (!clientId) return;
   const c = clients.get(clientId);
-  if (c && c.ws.readyState === WebSocket.OPEN) {
+  if (!c) {
+    // Client was deleted but sessionClients not cleaned — remove stale entry
+    sessionClients.delete(sessionId);
+    return;
+  }
+  if (c.ws.readyState === WebSocket.OPEN) {
     c.ws.send(JSON.stringify(data));
   }
 }
@@ -104,6 +109,12 @@ export function setupWebSocket(server: Server) {
     });
 
     ws.on('error', () => {
+      if (client.sessionId && sessionClients.get(client.sessionId) === clientId) {
+        const sdkSession = getSDKSession(client.sessionId);
+        if (!sdkSession?.isRunning) {
+          sessionClients.delete(client.sessionId);
+        }
+      }
       clients.delete(clientId);
     });
   });
