@@ -1,10 +1,11 @@
 node_modules/
 dist/
+data/
 *.db
 *.db-shm
 *.db-wal
 *.log
 .env*
-claude-desk/simple.html
-claude-desk/prompt:*
-claude-desk/permission_issue.md
+simple.html
+prompt:*
+permission_issue.md
