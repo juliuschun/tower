@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
 import {
   authenticateUser, createUser, hasUsers, generateToken, authMiddleware
 } from '../services/auth.js';
@@ -17,8 +19,19 @@ import {
 } from '../services/pin-manager.js';
 import {
   getLog, getFileDiff, manualCommit, rollbackToCommit,
+  autoCommit,
 } from '../services/git-manager.js';
 import { config, availableModels } from '../config.js';
+
+const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 10 * 1024 * 1024; // 10MB
+const DANGEROUS_EXTENSIONS = new Set([
+  '.exe', '.sh', '.bat', '.cmd', '.msi', '.ps1', '.jar',
+  '.com', '.scr', '.vbs', '.vbe', '.wsf', '.wsh', '.pif',
+]);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: UPLOAD_MAX_SIZE },
+});
 
 const router = Router();
 
@@ -220,6 +233,53 @@ router.post('/files/write', (req, res) => {
     res.json({ ok: true, path: filePath });
   } catch (error: any) {
     res.status(403).json({ error: error.message });
+  }
+});
+
+// ───── File Upload ─────
+router.post('/files/upload', upload.array('files', 20), async (req, res) => {
+  try {
+    const targetDir = req.body.targetDir as string;
+    if (!targetDir) return res.status(400).json({ error: 'targetDir required' });
+    if (!isPathSafe(targetDir)) return res.status(403).json({ error: 'Access denied: target directory outside workspace' });
+
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });
+
+    const results: { name: string; path: string; error?: string }[] = [];
+    const savedPaths: string[] = [];
+
+    for (const file of files) {
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (DANGEROUS_EXTENSIONS.has(ext)) {
+        results.push({ name: file.originalname, path: '', error: `Blocked extension: ${ext}` });
+        continue;
+      }
+      const filePath = path.join(targetDir, file.originalname);
+      if (!isPathSafe(filePath)) {
+        results.push({ name: file.originalname, path: '', error: 'Access denied' });
+        continue;
+      }
+      try {
+        writeFile(filePath, file.buffer.toString('utf-8'));
+        results.push({ name: file.originalname, path: filePath });
+        savedPaths.push(filePath);
+      } catch (err: any) {
+        results.push({ name: file.originalname, path: '', error: err.message });
+      }
+    }
+
+    // Auto-commit uploaded files
+    if (config.gitAutoCommit && savedPaths.length > 0) {
+      try {
+        const username = (req as any).user?.username || 'anonymous';
+        await autoCommit(config.workspaceRoot, username, 'upload', savedPaths);
+      } catch {}
+    }
+
+    res.json({ results });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

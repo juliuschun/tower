@@ -77,9 +77,6 @@ export function SettingsPanel({ onLogout }: SettingsPanelProps) {
                 Light
               </button>
             </div>
-            {theme === 'light' && (
-              <p className="text-[11px] text-surface-600 mt-1.5">Light mode coming soon</p>
-            )}
           </section>
 
           {/* Actions */}

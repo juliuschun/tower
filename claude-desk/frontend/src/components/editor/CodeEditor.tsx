@@ -8,6 +8,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
 import { EditorView, keymap } from '@codemirror/view';
+import { useSettingsStore } from '../../stores/settings-store';
 
 interface CodeEditorProps {
   value: string;
@@ -29,16 +30,27 @@ const languageExtensions: Record<string, () => any> = {
   css: () => css(),
 };
 
-const bgTheme = EditorView.theme({
+const darkBgTheme = EditorView.theme({
   '&': { backgroundColor: 'transparent', height: '100%' },
   '.cm-gutters': { backgroundColor: 'transparent', borderRight: '1px solid rgba(255,255,255,0.06)' },
   '.cm-activeLineGutter': { backgroundColor: 'rgba(255,255,255,0.04)' },
   '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
 });
 
+const lightBgTheme = EditorView.theme({
+  '&': { backgroundColor: 'transparent', height: '100%' },
+  '.cm-gutters': { backgroundColor: 'transparent', borderRight: '1px solid rgba(0,0,0,0.08)' },
+  '.cm-activeLineGutter': { backgroundColor: 'rgba(0,0,0,0.04)' },
+  '.cm-activeLine': { backgroundColor: 'rgba(0,0,0,0.03)' },
+  '.cm-content': { color: '#1f2937' },
+  '.cm-line': { color: '#1f2937' },
+});
+
 export function CodeEditor({ value, language, onChange, onSave, readOnly = false }: CodeEditorProps) {
+  const theme = useSettingsStore((s) => s.theme);
+
   const extensions = useMemo(() => {
-    const exts = [bgTheme];
+    const exts = [theme === 'light' ? lightBgTheme : darkBgTheme];
     const langFactory = language ? languageExtensions[language] : null;
     if (langFactory) exts.push(langFactory());
     if (onSave) {
@@ -50,12 +62,12 @@ export function CodeEditor({ value, language, onChange, onSave, readOnly = false
       );
     }
     return exts;
-  }, [language, onSave]);
+  }, [language, onSave, theme]);
 
   return (
     <CodeMirror
       value={value}
-      theme={oneDark}
+      theme={theme === 'light' ? 'light' : oneDark}
       extensions={extensions}
       onChange={onChange}
       readOnly={readOnly}

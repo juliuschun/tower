@@ -53,6 +53,8 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
         parts.push(att.content);
       } else if (att.type === 'file') {
         parts.push(`[file: ${att.content}]`);
+      } else if (att.type === 'upload') {
+        parts.push(`[uploaded file: ${att.label}]\n\`\`\`\n${att.content}\n\`\`\``);
       }
     }
 
@@ -116,7 +118,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
         return;
       }
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit();
     }
@@ -159,28 +161,63 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     dragCounter.current = 0;
     setIsDragOver(false);
 
+    // Handle internal drag (prompt/command/file tree attachments)
     const raw = e.dataTransfer.getData('application/x-attachment');
-    if (!raw) return;
-
-    try {
-      const data = JSON.parse(raw);
-      if (data.type && data.label && data.content) {
-        useChatStore.getState().addAttachment({
-          id: `${data.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          type: data.type,
-          label: data.label,
-          content: data.content,
-        });
-        textareaRef.current?.focus();
-      }
-    } catch {
-      // ignore invalid data
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        if (data.type && data.label && data.content) {
+          useChatStore.getState().addAttachment({
+            id: `${data.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            type: data.type,
+            label: data.label,
+            content: data.content,
+          });
+          textareaRef.current?.focus();
+        }
+      } catch {}
+      return;
     }
+
+    // Handle OS file drops
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      // Skip large files (>1MB for text reading)
+      if (file.size > 1024 * 1024) {
+        useChatStore.getState().addAttachment({
+          id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          type: 'upload',
+          label: `${file.name} (too large)`,
+          content: `[File "${file.name}" is too large for inline reading (${(file.size / 1024 / 1024).toFixed(1)}MB). Use file tree upload instead.]`,
+        });
+        continue;
+      }
+      try {
+        const text = await file.text();
+        useChatStore.getState().addAttachment({
+          id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          type: 'upload',
+          label: file.name,
+          content: text,
+        });
+      } catch {
+        // Binary file — just note it
+        useChatStore.getState().addAttachment({
+          id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          type: 'upload',
+          label: file.name,
+          content: `[Binary file: ${file.name} (${(file.size / 1024).toFixed(1)}KB)]`,
+        });
+      }
+    }
+    textareaRef.current?.focus();
   };
 
   return (

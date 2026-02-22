@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { FileEntry } from '../../stores/file-store';
+import { toastSuccess, toastError } from '../../utils/toast';
 
 interface FileTreeProps {
   entries: FileEntry[];
@@ -66,10 +67,62 @@ function LoadingSpinner() {
 
 const pinnableExtensions = new Set(['md', 'html', 'htm', 'txt', 'py', 'ts', 'tsx', 'js', 'jsx', 'json']);
 
+function DirectoryDropWrapper({ entry, children }: { entry: FileEntry; children: React.ReactNode }) {
+  const [dragOver, setDragOver] = useState(false);
+
+  if (!entry.isDirectory) return <>{children}</>;
+
+  const handleDirDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+
+    // Skip internal drags
+    if (e.dataTransfer.getData('application/x-attachment')) return;
+
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+
+    const formData = new FormData();
+    formData.append('targetDir', entry.path);
+    for (const file of Array.from(files)) {
+      formData.append('files', file);
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
+      const ok = data.results.filter((r: any) => !r.error);
+      const fail = data.results.filter((r: any) => r.error);
+      if (ok.length > 0) toastSuccess(`${ok.length}개 파일 업로드 완료`);
+      if (fail.length > 0) toastError(`${fail.length}개 파일 실패: ${fail.map((f: any) => f.error).join(', ')}`);
+    } catch {
+      toastError('업로드 실패');
+    }
+  };
+
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
+      onDrop={handleDirDrop}
+      className={dragOver ? 'bg-primary-900/20 ring-1 ring-primary-500/30 rounded' : ''}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, depth = 0 }: FileTreeProps) {
   return (
     <div className={depth > 0 ? 'ml-3' : ''}>
       {entries.map((entry) => (
+        <DirectoryDropWrapper key={entry.path + '-dw'} entry={entry}>
         <div key={entry.path}>
           <div className="group flex items-center">
             <button
@@ -136,6 +189,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, de
             />
           )}
         </div>
+        </DirectoryDropWrapper>
       ))}
     </div>
   );

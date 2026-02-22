@@ -19,12 +19,17 @@ export interface SessionMeta {
   filesEdited?: string[];
 }
 
+export type MobileTab = 'chat' | 'files' | 'edit' | 'pins';
+
 interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   sidebarOpen: boolean;
   sidebarTab: 'sessions' | 'files' | 'pins' | 'git';
   searchQuery: string;
+  isMobile: boolean;
+  mobileTab: MobileTab;
+  mobileContextOpen: boolean;
 
   setSessions: (sessions: SessionMeta[]) => void;
   setActiveSessionId: (id: string | null) => void;
@@ -34,6 +39,9 @@ interface SessionState {
   setSidebarOpen: (open: boolean) => void;
   setSidebarTab: (tab: 'sessions' | 'files' | 'pins' | 'git') => void;
   setSearchQuery: (query: string) => void;
+  setIsMobile: (v: boolean) => void;
+  setMobileTab: (tab: MobileTab) => void;
+  setMobileContextOpen: (v: boolean) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -42,6 +50,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   sidebarOpen: true,
   sidebarTab: 'sessions',
   searchQuery: '',
+  isMobile: false,
+  mobileTab: 'chat',
+  mobileContextOpen: false,
 
   setSessions: (sessions) => set({ sessions }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
@@ -54,4 +65,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setIsMobile: (v) => set({ isMobile: v }),
+  setMobileTab: (tab) => set({ mobileTab: tab }),
+  setMobileContextOpen: (v) => set({ mobileContextOpen: v }),
 }));

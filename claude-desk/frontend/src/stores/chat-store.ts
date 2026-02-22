@@ -51,7 +51,7 @@ export interface SlashCommandInfo {
 
 export interface Attachment {
   id: string;
-  type: 'prompt' | 'command' | 'file';
+  type: 'prompt' | 'command' | 'file' | 'upload';
   label: string;
   content: string;
 }

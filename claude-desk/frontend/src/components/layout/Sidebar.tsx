@@ -65,7 +65,7 @@ export function Sidebar({
   }, [sessions, searchQuery]);
 
   return (
-    <aside className="w-[260px] bg-surface-900 border-r border-surface-800 flex flex-col h-full shrink-0">
+    <aside className="w-full md:w-[260px] bg-surface-900 border-r border-surface-800 flex flex-col h-full shrink-0">
       {/* New session button — always visible */}
       <div className="p-4 border-b border-surface-800/50">
         <button

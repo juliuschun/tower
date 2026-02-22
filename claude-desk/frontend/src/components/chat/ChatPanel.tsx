@@ -64,7 +64,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick }: ChatPanelProps) {
           <SummaryCard session={activeSession} />
         )}
 
-        <div className="px-6">
+        <div className="px-3 md:px-6">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center mt-20">
               <div className="w-20 h-20 rounded-full bg-surface-900 border border-surface-800 shadow-2xl flex items-center justify-center mb-6 relative group">
@@ -102,7 +102,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick }: ChatPanelProps) {
       </div>
 
       {/* Input */}
-      <div className="absolute bottom-6 left-0 right-0 px-6">
+      <div className="absolute bottom-6 left-0 right-0 px-3 md:px-6">
         <InputBox onSend={onSend} onAbort={onAbort} />
       </div>
     </div>

@@ -38,7 +38,7 @@ function sendToSession(sessionId: string, data: any) {
   }
 }
 
-function broadcast(data: any) {
+export function broadcast(data: any) {
   const payload = JSON.stringify(data);
   for (const client of clients.values()) {
     if (client.ws.readyState === WebSocket.OPEN) {

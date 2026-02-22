@@ -7,9 +7,13 @@ import { ContextPanel } from './components/layout/ContextPanel';
 import { LoginPage } from './components/auth/LoginPage';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { OfflineBanner } from './components/common/OfflineBanner';
 import { PromptEditor } from './components/prompts/PromptEditor';
 import { ResizeHandle, DEFAULT_WIDTH } from './components/layout/ResizeHandle';
+import { MobileTabBar } from './components/layout/MobileTabBar';
 import { useClaudeChat } from './hooks/useClaudeChat';
+import { useTheme } from './hooks/useTheme';
+import { useMediaQuery } from './hooks/useMediaQuery';
 import { useChatStore } from './stores/chat-store';
 import { useSessionStore, type SessionMeta } from './stores/session-store';
 import { useFileStore } from './stores/file-store';
@@ -49,6 +53,19 @@ function App() {
   }, []);
 
   const { sendMessage, abort, requestFile, requestFileTree, saveFile, connected } = useClaudeChat();
+  const { theme } = useTheme();
+  const isMobileQuery = useMediaQuery('(max-width: 768px)');
+  const isMobile = useSessionStore((s) => s.isMobile);
+  const mobileContextOpen = useSessionStore((s) => s.mobileContextOpen);
+  const setMobileContextOpen = useSessionStore((s) => s.setMobileContextOpen);
+
+  // Sync media query to store
+  useEffect(() => {
+    useSessionStore.getState().setIsMobile(isMobileQuery);
+    if (isMobileQuery) {
+      useSessionStore.getState().setSidebarOpen(false);
+    }
+  }, [isMobileQuery]);
 
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const setSidebarOpen = useSessionStore((s) => s.setSidebarOpen);
@@ -182,7 +199,10 @@ function App() {
       content: [{ type: 'text', text: `세션 "${session.name}" 으로 전환됨${session.claudeSessionId ? ' (이전 대화 이어가기 가능)' : ''}` }],
       timestamp: Date.now(),
     });
-  }, [setActiveSessionId, clearMessages, token]);
+
+    // Auto-load session's cwd in file tree
+    if (session.cwd) requestFileTree(session.cwd);
+  }, [setActiveSessionId, clearMessages, token, requestFileTree]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
     try {
@@ -490,15 +510,49 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-surface-950 text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100">
-      <Toaster position="top-right" theme="dark" richColors closeButton />
+      <Toaster position="top-right" theme={theme} richColors closeButton />
+      <OfflineBanner />
       <Header
         connected={connected}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar */}
-        {sidebarOpen && (
+        {/* Left sidebar — drawer on mobile */}
+        {sidebarOpen && isMobile && (
+          <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)}>
+            <div className="absolute inset-0 bg-black/50" />
+            <div
+              className="absolute left-0 top-0 bottom-0 w-[280px] animate-slide-in-left"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Sidebar
+                onNewSession={() => { handleNewSession(); setSidebarOpen(false); }}
+                onSelectSession={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
+                onDeleteSession={handleDeleteSession}
+                onRenameSession={handleRenameSession}
+                onToggleFavorite={handleToggleFavorite}
+                onFileClick={(p) => { handleFileClick(p); setSidebarOpen(false); }}
+                onDirectoryClick={handleDirectoryClick}
+                onRequestFileTree={() => {
+                  const s = useSessionStore.getState();
+                  const sess = s.sessions.find((x) => x.id === s.activeSessionId);
+                  requestFileTree(sess?.cwd);
+                }}
+                onPinFile={handlePinFile}
+                onUnpinFile={handleUnpinFile}
+                onPinClick={(pin) => { handlePinClick(pin); setSidebarOpen(false); }}
+                onSettingsClick={handleOpenSettings}
+                onPromptClick={handlePromptClick}
+                onPromptEdit={handlePromptEdit}
+                onPromptDelete={handlePromptDelete}
+                onPromptAdd={handlePromptAdd}
+                onViewDiff={handleViewDiff}
+              />
+            </div>
+          </div>
+        )}
+        {sidebarOpen && !isMobile && (
           <Sidebar
             onNewSession={handleNewSession}
             onSelectSession={handleSelectSession}
@@ -507,7 +561,11 @@ function App() {
             onToggleFavorite={handleToggleFavorite}
             onFileClick={handleFileClick}
             onDirectoryClick={handleDirectoryClick}
-            onRequestFileTree={() => requestFileTree()}
+            onRequestFileTree={() => {
+              const s = useSessionStore.getState();
+              const sess = s.sessions.find((x) => x.id === s.activeSessionId);
+              requestFileTree(sess?.cwd);
+            }}
             onPinFile={handlePinFile}
             onUnpinFile={handleUnpinFile}
             onPinClick={handlePinClick}
@@ -522,7 +580,7 @@ function App() {
 
         {/* Center: Chat panel */}
         <main className="flex-1 min-w-0 flex justify-center">
-          <div className="w-full max-w-4xl flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20 border-x border-surface-900/50">
+          <div className={`w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20 ${isMobile ? '' : 'max-w-4xl border-x border-surface-900/50'}`}>
             <ErrorBoundary fallbackLabel="Chat error">
               <ChatPanel
                 onSend={handleSendMessage}
@@ -533,31 +591,54 @@ function App() {
           </div>
         </main>
 
-        {/* Right: Context panel */}
-        {contextPanelOpen ? (
-          <>
-            <ResizeHandle onResize={handleContextPanelResize} />
-            <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
-              <ErrorBoundary fallbackLabel="Context panel error">
-                <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
-              </ErrorBoundary>
+        {/* Right: Context panel — fullscreen modal on mobile */}
+        {isMobile ? (
+          mobileContextOpen && contextPanelOpen && (
+            <div className="fixed inset-0 z-40 bg-surface-950 flex flex-col">
+              <div className="flex items-center justify-between px-4 h-12 border-b border-surface-800 shrink-0">
+                <span className="text-sm font-medium text-gray-300">편집</span>
+                <button
+                  onClick={() => setMobileContextOpen(false)}
+                  className="p-1.5 text-gray-400 hover:text-gray-200"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <ErrorBoundary fallbackLabel="Context panel error">
+                  <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
+                </ErrorBoundary>
+              </div>
             </div>
-          </>
-        ) : lastOpenedFilePath ? (
-          <button
-            onClick={handleToggleContextPanel}
-            className="shrink-0 w-6 flex items-center justify-center bg-surface-900/60 hover:bg-surface-800/80 border-l border-surface-700/50 transition-colors text-gray-500 hover:text-gray-300"
-            title="패널 열기"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-        ) : null}
+          )
+        ) : (
+          contextPanelOpen ? (
+            <>
+              <ResizeHandle onResize={handleContextPanelResize} />
+              <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
+                <ErrorBoundary fallbackLabel="Context panel error">
+                  <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
+                </ErrorBoundary>
+              </div>
+            </>
+          ) : lastOpenedFilePath ? (
+            <button
+              onClick={handleToggleContextPanel}
+              className="shrink-0 w-6 flex items-center justify-center bg-surface-900/60 hover:bg-surface-800/80 border-l border-surface-700/50 transition-colors text-gray-500 hover:text-gray-300"
+              title="패널 열기"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          ) : null
+        )}
       </div>
 
-      {/* Bottom bar */}
-      <BottomBar />
+      {/* Bottom bar / Mobile tab bar */}
+      {isMobile ? <MobileTabBar /> : <BottomBar />}
 
       {/* Settings modal */}
       <SettingsPanel onLogout={handleLogout} />
@@ -581,6 +662,10 @@ function BottomBar() {
   const availableModels = useModelStore((s) => s.availableModels);
   const currentModelInfo = availableModels.find((m) => m.id === selectedModel);
   const model = sdkModel || currentModelInfo?.name || selectedModel;
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const sessions = useSessionStore((s) => s.sessions);
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const cwd = activeSession?.cwd;
 
   return (
     <footer className="h-8 bg-surface-900 border-t border-surface-800 flex items-center px-4 text-[11px] text-gray-400 gap-5 shrink-0 tabular-nums font-medium tracking-wide">
@@ -592,6 +677,12 @@ function BottomBar() {
         )}
       </span>
       {model && <span className="px-2 py-0.5 rounded-full bg-surface-800 border border-surface-700 text-gray-300 flex items-center gap-1.5"><svg className="w-3 h-3 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>{model}</span>}
+      {cwd && (
+        <span className="flex items-center gap-1.5 text-gray-500 max-w-[240px]" title={cwd}>
+          <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+          <span className="truncate">{cwd}</span>
+        </span>
+      )}
       {cost.totalCost > 0 && (
         <div className="flex items-center gap-4 ml-auto">
           <span className="text-primary-300/90 font-semibold px-2 py-0.5 rounded-md bg-primary-900/20 border border-primary-500/20 flex items-center gap-1">

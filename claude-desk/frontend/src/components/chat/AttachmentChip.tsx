@@ -25,6 +25,12 @@ const chipStyles: Record<Attachment['type'], { icon: string; bg: string; text: s
     text: 'text-blue-300',
     border: 'border-blue-500/30',
   },
+  upload: {
+    icon: '\uD83D\uDCCE',
+    bg: 'bg-emerald-900/30',
+    text: 'text-emerald-300',
+    border: 'border-emerald-500/30',
+  },
 };
 
 export function AttachmentChip({ attachment, onRemove }: AttachmentChipProps) {
