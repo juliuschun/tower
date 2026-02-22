@@ -38,8 +38,8 @@ export function SummaryCard({ session }: SummaryCardProps) {
   };
 
   return (
-    <div className="mx-6 mt-4 mb-2">
-      <div className="bg-surface-900/60 border border-surface-800/50 rounded-xl overflow-hidden">
+    <div className="sticky top-0 z-30 mx-6 pt-4 mb-2">
+      <div className="bg-surface-900/95 backdrop-blur-md border border-surface-800/50 rounded-xl overflow-hidden shadow-lg shadow-black/20">
         {/* Header — always visible */}
         <div className="flex items-center gap-2 px-4 py-2.5">
           <button
@@ -102,9 +102,25 @@ export function SummaryCard({ session }: SummaryCardProps) {
                 <span>요약이 오래되었습니다 (+{turnCount - summaryAtTurn}턴)</span>
               </div>
             )}
-            <p className="text-[12px] text-gray-400 leading-relaxed mt-2 whitespace-pre-wrap">
-              {session.summary}
-            </p>
+            <div className="text-[12px] text-gray-400 leading-relaxed mt-2 space-y-1">
+              {session.summary.split('\n').map((line, i) => {
+                const trimmed = line.trim();
+                if (!trimmed) return null;
+                // 화살표 흐름 라인 — 강조
+                if (trimmed.includes('→')) {
+                  return <div key={i} className="text-primary-300/90 font-medium">{trimmed}</div>;
+                }
+                // 불렛 라인
+                if (trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*')) {
+                  return <div key={i} className="pl-1">{trimmed}</div>;
+                }
+                // 현재 상태 라인
+                if (trimmed.startsWith('현재:') || trimmed.startsWith('상태:')) {
+                  return <div key={i} className="text-emerald-400/80 mt-1">{trimmed}</div>;
+                }
+                return <div key={i}>{trimmed}</div>;
+              })}
+            </div>
           </div>
         )}
       </div>

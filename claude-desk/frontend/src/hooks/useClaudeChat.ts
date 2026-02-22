@@ -7,11 +7,15 @@ import { useModelStore } from '../stores/model-store';
 import { parseSDKMessage } from '../utils/message-parser';
 import { toastSuccess, toastError } from '../utils/toast';
 
+/** Debounce timer for auto-reload of externally changed files */
+let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
+
 export function useClaudeChat() {
   const token = localStorage.getItem('token');
   const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
   const wsUrl = token ? `${wsBase}?token=${encodeURIComponent(token)}` : wsBase;
   const currentAssistantMsg = useRef<ChatMessage | null>(null);
+  const sendRef = useRef<(data: any) => void>(() => {});
 
   const {
     addMessage, setStreaming, setSessionId, setClaudeSessionId,
@@ -223,13 +227,36 @@ export function useClaudeChat() {
         });
         break;
 
-      case 'file_saved':
+      case 'file_saved': {
         toastSuccess(`${data.path.split('/').pop()} 저장됨`);
+        const fs = useFileStore.getState();
+        if (fs.openFile && fs.openFile.path === data.path) {
+          fs.markSaved();
+        }
         break;
+      }
 
-      case 'file_changed':
+      case 'file_changed': {
         handleFileChange(data.event, data.path);
+        const fState = useFileStore.getState();
+        if (fState.openFile && fState.openFile.path === data.path && data.event === 'change') {
+          if (!fState.openFile.modified) {
+            // No local edits — auto-reload with debounce
+            if (fileChangeDebounce) clearTimeout(fileChangeDebounce);
+            fileChangeDebounce = setTimeout(() => {
+              // Re-check state after debounce
+              const cur = useFileStore.getState();
+              if (cur.openFile && cur.openFile.path === data.path && !cur.openFile.modified) {
+                sendRef.current({ type: 'file_read', path: data.path });
+              }
+            }, 500);
+          } else {
+            // Local edits exist — show conflict banner
+            fState.setExternalChange({ path: data.path, detectedAt: Date.now() });
+          }
+        }
         break;
+      }
 
       case 'error':
         setStreaming(false);
@@ -264,6 +291,7 @@ export function useClaudeChat() {
   }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree, setDirectoryChildren, handleFileChange]);
 
   const { send, connected } = useWebSocket(wsUrl, handleMessage);
+  sendRef.current = send;
 
   const sendMessage = useCallback(
     (message: string, cwd?: string) => {

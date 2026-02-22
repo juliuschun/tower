@@ -339,6 +339,52 @@ case 'sdk_done':
 
 ---
 
+## Phase 4D 교훈: 드래그 앤 드롭 + 가상 경로 저장
+
+### 1. HTML5 Drag & Drop — dragCounter 패턴
+`onDragEnter`/`onDragLeave`는 자식 요소 진입/이탈마다 발생.
+단순 boolean 토글이면 자식 진입 시 false로 돌아감.
+```ts
+const dragCounter = useRef(0);
+const handleDragEnter = () => { dragCounter.current++; setIsDragOver(true); };
+const handleDragLeave = () => { dragCounter.current--; if (dragCounter.current === 0) setIsDragOver(false); };
+const handleDrop = () => { dragCounter.current = 0; setIsDragOver(false); };
+```
+
+### 2. dataTransfer 커스텀 MIME 타입
+`application/x-attachment`처럼 커스텀 MIME으로 앱 내부 데이터 전달:
+```ts
+// 드래그 소스
+e.dataTransfer.setData('application/x-attachment', JSON.stringify({ type, label, content }));
+// 드롭 타겟
+const raw = e.dataTransfer.getData('application/x-attachment');
+```
+표준 MIME(text/plain 등)과 충돌 없음.
+
+### 3. 가상 경로 저장 — `prompt:제목` 패턴 함정
+ContextPanel에서 프롬프트를 `prompt:제목` 가상 경로로 열면, "저장" 클릭 시 파일 시스템 API로 전달됨.
+`handleSaveFile`에서 가상 경로 프리픽스를 감지하여 적절한 store 업데이트 필요:
+```ts
+if (path.startsWith('prompt:')) {
+  // prompt store + API PATCH → 파일 시스템이 아닌 DB 저장
+  return;
+}
+saveFile(path, content); // 일반 파일
+```
+
+### 4. SDK customSystemPrompt — 경량 프롬프트에 필수
+auto-namer/summarizer 같은 경량 작업에서 Claude Code 기본 시스템 프롬프트("You are Claude Code...")가 포함되면 불필요한 도구 사용 시도.
+`customSystemPrompt` + `disallowedTools`로 순수 텍스트 생성 강제:
+```ts
+query({ prompt, options: {
+  customSystemPrompt: '너는 요약기다. 도구를 사용하지 마.',
+  disallowedTools: ['Bash', 'Read', 'Write', ...],
+  maxTurns: 1,
+}});
+```
+
+---
+
 ## 핵심 트러블슈팅
 
 ### 1. "Cannot be launched inside another Claude Code session" 에러

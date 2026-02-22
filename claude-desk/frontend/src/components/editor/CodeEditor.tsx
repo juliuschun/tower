@@ -7,12 +7,13 @@ import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
-import { EditorView } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
 
 interface CodeEditorProps {
   value: string;
   language?: string;
   onChange?: (value: string) => void;
+  onSave?: () => void;
   readOnly?: boolean;
 }
 
@@ -35,13 +36,21 @@ const bgTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
 });
 
-export function CodeEditor({ value, language, onChange, readOnly = false }: CodeEditorProps) {
+export function CodeEditor({ value, language, onChange, onSave, readOnly = false }: CodeEditorProps) {
   const extensions = useMemo(() => {
     const exts = [bgTheme];
     const langFactory = language ? languageExtensions[language] : null;
     if (langFactory) exts.push(langFactory());
+    if (onSave) {
+      exts.push(
+        keymap.of([{
+          key: 'Mod-s',
+          run: () => { onSave(); return true; },
+        }])
+      );
+    }
     return exts;
-  }, [language]);
+  }, [language, onSave]);
 
   return (
     <CodeMirror

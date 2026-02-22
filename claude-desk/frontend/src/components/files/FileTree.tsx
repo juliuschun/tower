@@ -81,6 +81,17 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, de
                   onFileClick(entry.path);
                 }
               }}
+              draggable={!entry.isDirectory}
+              onDragStart={(e) => {
+                if (entry.isDirectory) { e.preventDefault(); return; }
+                const data = {
+                  type: 'file',
+                  label: entry.name,
+                  content: entry.path,
+                };
+                e.dataTransfer.setData('application/x-attachment', JSON.stringify(data));
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
             >
               {entry.isDirectory ? (
                 <>

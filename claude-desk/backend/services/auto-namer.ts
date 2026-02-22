@@ -1,19 +1,18 @@
-import { query, type SDKMessage } from '@anthropic-ai/claude-code';
+import { query } from '@anthropic-ai/claude-code';
 import { config } from '../config.js';
 
 /**
  * Generate a session name using Claude Code SDK query() with Haiku model.
- * Uses a fresh session (no resume) with a lightweight prompt.
+ * Uses customSystemPrompt to override Claude Code's default coding assistant prompt.
  */
 export async function generateSessionName(
   firstUserMessage: string,
   firstAssistantResponse: string,
 ): Promise<string> {
   const snippet = firstAssistantResponse.slice(0, 200);
-  const prompt = `다음 대화의 제목을 15자 내외 한글로 한 줄만 생성해. 설명 없이 제목만:\nUser: ${firstUserMessage}\nAssistant: ${snippet}`;
+  const prompt = `아래 대화의 제목을 15자 내외 한글로 한 줄만 생성해. 설명 없이 제목만:\n\nUser: ${firstUserMessage}\nAssistant: ${snippet}\n\n제목:`;
 
   const abortController = new AbortController();
-  // Auto-abort after 30 seconds
   const timeout = setTimeout(() => abortController.abort(), 30_000);
 
   try {
@@ -28,6 +27,8 @@ export async function generateSessionName(
         cwd: config.defaultCwd,
         permissionMode: 'bypassPermissions',
         maxTurns: 1,
+        customSystemPrompt: '너는 대화 제목 생성기야. 사용자가 보내는 대화 내용을 보고 15자 내외 한글로 제목을 한 줄만 생성해. 설명 없이 제목만 출력해. 도구를 사용하지 마.',
+        disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       },
     });
 
@@ -47,7 +48,6 @@ export async function generateSessionName(
       }
     }
 
-    // Clean up: take first line, strip quotes/whitespace
     const cleaned = resultText
       .split('\n')[0]
       .replace(/^["'「」『』]+|["'「」『』]+$/g, '')

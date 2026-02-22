@@ -266,3 +266,80 @@
 ### 총 규모
 - 새 파일 5개, 수정 12개
 - 29 files changed, ~1300 insertions, ~210 deletions (Phase 4 포함)
+
+## 2026-02-22: Phase 4.5 — ContextPanel UX + 파일 편집 안정성
+
+### file-store.ts 확장
+- `lastOpenedFilePath` — 패널 닫아도 마지막 파일 경로 기억 (토글 재오픈용)
+- `originalContent` — 로드/저장 시점 내용 기억 (실제 변경 여부를 원본 비교로 판단)
+- `externalChange` — 충돌 배너 상태 (path + detectedAt)
+- 새 액션: `markSaved()`, `setExternalChange()`, `reloadFromDisk()`, `keepLocalEdits()`
+- `updateOpenFileContent` — originalContent와 비교하여 modified 정확히 판단
+
+### file_saved 버그 수정 + file_changed 충돌 감지 (useClaudeChat.ts)
+- `file_saved` 핸들러: `markSaved()` 호출 추가 (modified 리셋 + originalContent 갱신)
+- `file_changed` 핸들러 확장:
+  - 로컬 편집 없음 → 500ms 디바운스 자동 리로드
+  - 로컬 편집 있음 → 충돌 배너 표시 (`setExternalChange`)
+- `sendRef` 패턴: handleMessage 콜백 내부에서 send 접근 불가 → useRef로 우회
+
+### Ctrl+S 저장 단축키 (CodeEditor.tsx)
+- `onSave` prop 추가, CodeMirror `keymap` 확장으로 `Mod-s` 바인딩
+- App.tsx에 글로벌 `keydown` 핸들러 (에디터 포커스 아닐 때 대비)
+
+### ContextPanel UI 개선 (ContextPanel.tsx)
+- 충돌 배너: 앰버 색상 경고 바 + "다시 불러오기" / "내 편집 유지" 버튼
+- 미저장 경고: X 닫기 시 `window.confirm()` 다이얼로그
+- `onReload` prop 추가 (requestFile 전달)
+
+### 패널 토글 버튼 (App.tsx)
+- 패널 닫힌 상태 + 파일 연 적 있음 → 우측 가장자리 얇은 토글 버튼 (◀ 아이콘)
+- 클릭 시 lastOpenedFilePath로 requestFile 호출 → 패널 재오픈
+- 파일 전환 시 미저장 가드 (`window.confirm`)
+
+### 수정 파일
+- `frontend/src/stores/file-store.ts` — 상태 3개 + 액션 4개 추가
+- `frontend/src/hooks/useClaudeChat.ts` — file_saved 버그 수정, file_changed 충돌 감지
+- `frontend/src/components/editor/CodeEditor.tsx` — onSave prop, Mod-s keymap
+- `frontend/src/components/layout/ContextPanel.tsx` — 충돌 배너, 미저장 경고
+- `frontend/src/App.tsx` — 토글 버튼, 글로벌 Ctrl+S, 파일 전환 미저장 가드
+
+## 2026-02-22: Phase 5 개선 — 요약기/자동이름 프롬프트 강화 + SummaryCard 고정
+
+### 백엔드: SDK 프롬프트 최적화
+- **`backend/services/auto-namer.ts`** — `customSystemPrompt` + `disallowedTools` 추가, 도구 없이 순수 텍스트 생성
+- **`backend/services/summarizer.ts`** — 구조화 요약 포맷 (화살표 흐름 + 불렛 + 현재 상태), `customSystemPrompt` + `disallowedTools`
+- **`backend/routes/api.ts`** — 요약 API: user/assistant 필터링 강화, 디버그 로그 추가
+
+### 프론트엔드: SummaryCard 개선
+- **`frontend/src/components/sessions/SummaryCard.tsx`** — sticky top 고정 + backdrop-blur, 요약 텍스트 줄별 포매팅 (→ 흐름=보라, •불렛=들여쓰기, 현재:=에메랄드)
+
+## 2026-02-22: Phase 4D — 첨부 칩 시스템 (Attachment Chips)
+
+### 개요
+프롬프트/파일을 채팅 입력창에 드래그 앤 드롭으로 첨부하는 기능. textarea 위에 칩 영역을 추가하여 ChatGPT/Claude.ai와 동일한 "textarea + 첨부 칩" 패턴 구현.
+
+### chat-store 확장
+- **`frontend/src/stores/chat-store.ts`** — `Attachment` 인터페이스 (id, type, label, content), `attachments[]` 상태, `addAttachment`/`removeAttachment`/`clearAttachments` 액션. 기존 `draftInput`/`setDraftInput` 제거
+
+### 새 컴포넌트
+- **새 파일** `frontend/src/components/chat/AttachmentChip.tsx` — 타입별 아이콘(⚡prompt/`/`command/📄file) + 라벨 + ✕ 삭제 버튼, 타입별 색상 (amber/primary/blue)
+
+### InputBox 수정
+- **`frontend/src/components/chat/InputBox.tsx`**
+  - 칩 영역: `attachments.length > 0`일 때 textarea 위에 렌더링
+  - 드롭 존: `onDragEnter`/`onDragLeave`/`onDragOver`/`onDrop` 핸들러 (dragCounter 패턴)
+  - 드롭 시 시각 피드백: `ring-2 ring-primary-500/50` + "여기에 놓으세요" 오버레이
+  - `buildMessage()`: 타입별 전송 로직 (prompt=prepend, command=`/cmd`, file=`[file: path]`)
+  - 칩만 있어도 전송 가능 (빈 텍스트 + 칩 → 전송 허용)
+
+### 사이드바 항목 draggable
+- **`frontend/src/components/prompts/PromptItem.tsx`** — `draggable` + `onDragStart`, commands→`type:'command'`, user→`type:'prompt'`. 슬래시 중복 방지 (`title.startsWith('/')` 체크)
+- **`frontend/src/components/pinboard/PinList.tsx`** — 핀 항목 `draggable`, `type:'file'`, `content: file_path`
+- **`frontend/src/components/files/FileTree.tsx`** — 파일 항목(디렉토리 제외) `draggable`, `type:'file'`
+
+### ContextPanel 프롬프트 저장 버그 수정
+- **`frontend/src/App.tsx`** — `handleSaveFile`에서 `prompt:` 경로 감지 시 파일 시스템 대신 prompt store + API PATCH 호출. Ctrl+S도 `handleSaveFile` 경유하도록 수정
+
+### 총 규모
+- 새 파일 1개, 수정 6개, ~200줄 추가

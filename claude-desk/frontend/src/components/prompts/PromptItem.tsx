@@ -10,10 +10,23 @@ interface PromptItemProps {
 }
 
 export function PromptItem({ prompt, onClick, onInsert, onEdit, onDelete }: PromptItemProps) {
+  const handleDragStart = (e: React.DragEvent) => {
+    const isCommand = prompt.source === 'commands';
+    const data = {
+      type: isCommand ? 'command' : 'prompt',
+      label: prompt.title,
+      content: isCommand ? (prompt.title.startsWith('/') ? prompt.title : `/${prompt.title}`) : prompt.content,
+    };
+    e.dataTransfer.setData('application/x-attachment', JSON.stringify(data));
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
     <div
       className="group flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-surface-800/50 cursor-pointer transition-colors"
       onClick={() => onClick(prompt)}
+      draggable
+      onDragStart={handleDragStart}
     >
       <svg className="w-3.5 h-3.5 text-amber-400/70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />

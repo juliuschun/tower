@@ -19,12 +19,20 @@ export interface OpenFile {
   modified: boolean;
 }
 
+export interface ExternalChange {
+  path: string;
+  detectedAt: number;
+}
+
 interface FileState {
   tree: FileEntry[];
   currentPath: string;
   openFile: OpenFile | null;
   contextPanelOpen: boolean;
   contextPanelTab: 'preview' | 'editor' | 'python';
+  lastOpenedFilePath: string | null;
+  originalContent: string | null;
+  externalChange: ExternalChange | null;
 
   setTree: (entries: FileEntry[]) => void;
   setCurrentPath: (path: string) => void;
@@ -36,6 +44,10 @@ interface FileState {
   setDirectoryChildren: (dirPath: string, children: FileEntry[]) => void;
   setDirectoryLoading: (dirPath: string, loading: boolean) => void;
   handleFileChange: (event: string, filePath: string) => void;
+  markSaved: () => void;
+  setExternalChange: (change: ExternalChange | null) => void;
+  reloadFromDisk: (content: string) => void;
+  keepLocalEdits: () => void;
 }
 
 export const useFileStore = create<FileState>((set, get) => ({
@@ -44,14 +56,48 @@ export const useFileStore = create<FileState>((set, get) => ({
   openFile: null,
   contextPanelOpen: false,
   contextPanelTab: 'preview',
+  lastOpenedFilePath: null,
+  originalContent: null,
+  externalChange: null,
 
   setTree: (entries) => set({ tree: entries }),
   setCurrentPath: (path) => set({ currentPath: path }),
-  setOpenFile: (file) => set({ openFile: file, contextPanelOpen: !!file }),
+  setOpenFile: (file) => {
+    if (file) {
+      set({
+        openFile: file,
+        contextPanelOpen: true,
+        lastOpenedFilePath: file.path,
+        originalContent: file.content,
+        externalChange: null,
+      });
+    } else {
+      // Close panel but keep lastOpenedFilePath
+      set({ openFile: null, contextPanelOpen: false, originalContent: null, externalChange: null });
+    }
+  },
   updateOpenFileContent: (content) =>
-    set((s) => s.openFile ? { openFile: { ...s.openFile, content, modified: true } } : {}),
+    set((s) => {
+      if (!s.openFile) return {};
+      const modified = content !== s.originalContent;
+      return { openFile: { ...s.openFile, content, modified } };
+    }),
   setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
   setContextPanelTab: (tab) => set({ contextPanelTab: tab }),
+
+  markSaved: () =>
+    set((s) => s.openFile
+      ? { openFile: { ...s.openFile, modified: false }, originalContent: s.openFile.content }
+      : {}),
+
+  setExternalChange: (change) => set({ externalChange: change }),
+
+  reloadFromDisk: (content) =>
+    set((s) => s.openFile
+      ? { openFile: { ...s.openFile, content, modified: false }, originalContent: content, externalChange: null }
+      : {}),
+
+  keepLocalEdits: () => set({ externalChange: null }),
 
   toggleDirectory: (dirPath) =>
     set((s) => ({

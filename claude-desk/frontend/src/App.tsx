@@ -194,6 +194,11 @@ function App() {
   }, [token, removeSession]);
 
   const handleFileClick = useCallback((path: string) => {
+    const fs = useFileStore.getState();
+    // Unsaved guard when switching files
+    if (fs.openFile && fs.openFile.modified && fs.openFile.path !== path) {
+      if (!window.confirm('저장하지 않은 변경사항이 있습니다. 다른 파일을 여시겠습니까?')) return;
+    }
     requestFile(path);
   }, [requestFile]);
 
@@ -252,8 +257,30 @@ function App() {
   }, [sendMessage, createSessionInDb, setActiveSessionId]);
 
   const handleSaveFile = useCallback((path: string, content: string) => {
+    // prompt: 경로면 prompt store 업데이트
+    if (path.startsWith('prompt:')) {
+      const title = path.slice('prompt:'.length);
+      const prompts = usePromptStore.getState().prompts;
+      const match = prompts.find((p) => p.title === title);
+      if (match && typeof match.id === 'number') {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        fetch(`${API_BASE}/prompts/${match.id}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ title: match.title, content }),
+        }).then(() => {
+          usePromptStore.getState().updatePrompt(match.id, { content });
+          useFileStore.getState().setOpenFile({
+            path, content, language: 'markdown', modified: false,
+          });
+          toastSuccess('프롬프트 저장됨');
+        }).catch(() => toastError('프롬프트 저장 실패'));
+      }
+      return;
+    }
     saveFile(path, content);
-  }, [saveFile]);
+  }, [saveFile, token]);
 
   // ───── Pin handlers ─────
   const handlePinFile = useCallback(async (filePath: string) => {
@@ -372,6 +399,29 @@ function App() {
     setToken(null);
   }, []);
 
+  // Global Ctrl+S handler (fallback when CodeMirror doesn't have focus)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        const fs = useFileStore.getState();
+        if (fs.openFile && fs.openFile.modified) {
+          handleSaveFile(fs.openFile.path, fs.openFile.content);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleSaveFile]);
+
+  // Toggle panel handler — reopen last file
+  const lastOpenedFilePath = useFileStore((s) => s.lastOpenedFilePath);
+  const handleToggleContextPanel = useCallback(() => {
+    if (lastOpenedFilePath) {
+      requestFile(lastOpenedFilePath);
+    }
+  }, [lastOpenedFilePath, requestFile]);
+
   // Load pins + server config on mount
   useEffect(() => {
     if (authStatus === null) return;
@@ -466,16 +516,26 @@ function App() {
         </main>
 
         {/* Right: Context panel */}
-        {contextPanelOpen && (
+        {contextPanelOpen ? (
           <>
             <ResizeHandle onResize={handleContextPanelResize} />
             <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
               <ErrorBoundary fallbackLabel="Context panel error">
-                <ContextPanel onSave={handleSaveFile} />
+                <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
               </ErrorBoundary>
             </div>
           </>
-        )}
+        ) : lastOpenedFilePath ? (
+          <button
+            onClick={handleToggleContextPanel}
+            className="shrink-0 w-6 flex items-center justify-center bg-surface-900/60 hover:bg-surface-800/80 border-l border-surface-700/50 transition-colors text-gray-500 hover:text-gray-300"
+            title="패널 열기"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        ) : null}
       </div>
 
       {/* Bottom bar */}

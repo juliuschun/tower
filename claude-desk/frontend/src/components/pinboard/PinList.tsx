@@ -48,6 +48,16 @@ export function PinList({ onPinClick, onUnpin }: PinListProps) {
           key={pin.id}
           className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-800 transition-colors cursor-pointer"
           onClick={() => onPinClick(pin)}
+          draggable
+          onDragStart={(e) => {
+            const data = {
+              type: 'file',
+              label: pin.title,
+              content: pin.file_path,
+            };
+            e.dataTransfer.setData('application/x-attachment', JSON.stringify(data));
+            e.dataTransfer.effectAllowed = 'copy';
+          }}
         >
           <svg
             className={`w-4 h-4 shrink-0 ${fileTypeIcons[pin.file_type] || 'text-gray-500'}`}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -7,14 +7,37 @@ import { CodeEditor } from '../editor/CodeEditor';
 
 interface ContextPanelProps {
   onSave?: (path: string, content: string) => void;
+  onReload?: (path: string) => void;
 }
 
-export function ContextPanel({ onSave }: ContextPanelProps) {
+export function ContextPanel({ onSave, onReload }: ContextPanelProps) {
   const openFile = useFileStore((s) => s.openFile);
   const contextPanelTab = useFileStore((s) => s.contextPanelTab);
   const setContextPanelTab = useFileStore((s) => s.setContextPanelTab);
   const setOpenFile = useFileStore((s) => s.setOpenFile);
   const updateContent = useFileStore((s) => s.updateOpenFileContent);
+  const externalChange = useFileStore((s) => s.externalChange);
+  const reloadFromDisk = useFileStore((s) => s.reloadFromDisk);
+  const keepLocalEdits = useFileStore((s) => s.keepLocalEdits);
+
+  const handleClose = useCallback(() => {
+    if (openFile?.modified) {
+      if (!window.confirm('저장하지 않은 변경사항이 있습니다. 닫으시겠습니까?')) return;
+    }
+    setOpenFile(null);
+  }, [openFile, setOpenFile]);
+
+  const handleSave = useCallback(() => {
+    if (openFile && onSave) {
+      onSave(openFile.path, openFile.content);
+    }
+  }, [openFile, onSave]);
+
+  const handleReload = useCallback(() => {
+    if (openFile && onReload) {
+      onReload(openFile.path);
+    }
+  }, [openFile, onReload]);
 
   if (!openFile) {
     return (
@@ -59,7 +82,7 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
 
         {openFile.modified && onSave && (
           <button
-            onClick={() => onSave(openFile.path, openFile.content)}
+            onClick={handleSave}
             className="text-xs px-2 py-0.5 bg-primary-600 hover:bg-primary-700 rounded transition-colors"
           >
             저장
@@ -67,7 +90,7 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
         )}
 
         <button
-          onClick={() => setOpenFile(null)}
+          onClick={handleClose}
           className="p-0.5 hover:text-red-400 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,6 +98,28 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
           </svg>
         </button>
       </div>
+
+      {/* Conflict banner */}
+      {externalChange && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-900/40 border-b border-amber-700/50 text-sm">
+          <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <span className="text-amber-300 text-xs flex-1">이 파일이 외부에서 수정되었습니다</span>
+          <button
+            onClick={handleReload}
+            className="text-xs px-2 py-0.5 bg-amber-600 hover:bg-amber-700 rounded transition-colors text-white"
+          >
+            다시 불러오기
+          </button>
+          <button
+            onClick={keepLocalEdits}
+            className="text-xs px-2 py-0.5 bg-surface-700 hover:bg-surface-600 rounded transition-colors text-gray-300"
+          >
+            내 편집 유지
+          </button>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
@@ -96,6 +141,7 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
             value={openFile.content}
             language={openFile.language}
             onChange={updateContent}
+            onSave={handleSave}
           />
         )}
       </div>

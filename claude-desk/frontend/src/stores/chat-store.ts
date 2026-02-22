@@ -49,6 +49,13 @@ export interface SlashCommandInfo {
   source: 'sdk' | 'commands';
 }
 
+export interface Attachment {
+  id: string;
+  type: 'prompt' | 'command' | 'file';
+  label: string;
+  content: string;
+}
+
 interface ChatState {
   messages: ChatMessage[];
   isStreaming: boolean;
@@ -59,7 +66,7 @@ interface ChatState {
   model: string | null;
   cost: CostInfo;
   rateLimit: RateLimitInfo | null;
-  draftInput: string | null;
+  attachments: Attachment[];
 
   addMessage: (msg: ChatMessage) => void;
   updateLastAssistant: (content: ContentBlock[]) => void;
@@ -73,7 +80,9 @@ interface ChatState {
   setRateLimit: (info: RateLimitInfo | null) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
-  setDraftInput: (text: string | null) => void;
+  addAttachment: (att: Attachment) => void;
+  removeAttachment: (id: string) => void;
+  clearAttachments: () => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -86,7 +95,7 @@ export const useChatStore = create<ChatState>((set) => ({
   model: null,
   cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 },
   rateLimit: null,
-  draftInput: null,
+  attachments: [],
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -153,5 +162,10 @@ export const useChatStore = create<ChatState>((set) => ({
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
   clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 }, rateLimit: null }),
-  setDraftInput: (text) => set({ draftInput: text }),
+  addAttachment: (att) => set((s) => {
+    if (s.attachments.some((a) => a.id === att.id)) return s;
+    return { attachments: [...s.attachments, att] };
+  }),
+  removeAttachment: (id) => set((s) => ({ attachments: s.attachments.filter((a) => a.id !== id) })),
+  clearAttachments: () => set({ attachments: [] }),
 }));

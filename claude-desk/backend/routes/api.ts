@@ -135,11 +135,24 @@ router.post('/sessions/:id/summarize', async (req, res) => {
       }
     };
 
-    // Take last 20 messages
+    // 최근 20개 메시지, user/assistant 대화 순서 유지
     const recent = messages.slice(-20);
     const messagesText = recent
-      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${extractText(m.content).slice(0, 300)}`)
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => {
+        const text = extractText(m.content).trim();
+        if (!text) return null;
+        const label = m.role === 'user' ? 'User' : 'AI';
+        return `${label}: ${text.slice(0, 400)}`;
+      })
+      .filter(Boolean)
       .join('\n');
+
+    console.log('[summarize] sessionId:', req.params.id);
+    console.log('[summarize] messages count:', messages.length);
+    console.log('[summarize] filtered count:', recent.filter((m) => m.role === 'user' || m.role === 'assistant').length);
+    console.log('[summarize] messagesText length:', messagesText.length);
+    console.log('[summarize] messagesText preview:', messagesText.slice(0, 300));
 
     const summary = await generateSummary(messagesText);
 

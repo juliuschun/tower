@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, type SlashCommandInfo } from '../../stores/chat-store';
+import { AttachmentChip } from './AttachmentChip';
 
 interface InputBoxProps {
   onSend: (message: string) => void;
@@ -11,26 +12,12 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const [queued, setQueued] = useState<string | null>(null);
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounter = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const slashCommands = useChatStore((s) => s.slashCommands);
-  const draftInput = useChatStore((s) => s.draftInput);
-
-  // Apply draft input from external source (e.g. prompt click)
-  useEffect(() => {
-    if (draftInput !== null) {
-      setInput(draftInput);
-      useChatStore.getState().setDraftInput(null);
-      textareaRef.current?.focus();
-      // Auto-resize textarea
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
-        }
-      }, 0);
-    }
-  }, [draftInput]);
+  const attachments = useChatStore((s) => s.attachments);
 
   const filteredCommands: SlashCommandInfo[] = input.startsWith('/')
     ? slashCommands.filter((cmd) => cmd.name.toLowerCase().includes(input.slice(1).toLowerCase()))
@@ -55,19 +42,51 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     }
   }, [isStreaming, queued, onSend]);
 
+  const buildMessage = (text: string): string => {
+    if (attachments.length === 0) return text;
+
+    const parts: string[] = [];
+    for (const att of attachments) {
+      if (att.type === 'prompt') {
+        parts.push(att.content);
+      } else if (att.type === 'command') {
+        parts.push(att.content);
+      } else if (att.type === 'file') {
+        parts.push(`[file: ${att.content}]`);
+      }
+    }
+
+    // Command type: prepend as slash command prefix
+    const hasCommand = attachments.some((a) => a.type === 'command');
+    if (hasCommand) {
+      const cmdParts = attachments.filter((a) => a.type === 'command').map((a) => a.content);
+      const otherParts = attachments.filter((a) => a.type !== 'command');
+      const prefix = cmdParts.join(' ');
+      const otherContent = otherParts.map((a) => a.type === 'file' ? `[file: ${a.content}]` : a.content).join('\n\n');
+      const combined = otherContent ? `${otherContent}\n\n${text}` : text;
+      return `${prefix} ${combined}`.trim();
+    }
+
+    // Prompt/file: join with double newlines before user text
+    return `${parts.join('\n\n')}\n\n${text}`.trim();
+  };
+
   const handleSubmit = () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    const hasContent = trimmed || attachments.length > 0;
+    if (!hasContent) return;
+
+    const message = buildMessage(trimmed);
 
     if (isStreaming) {
-      // Queue the message — it will be sent when current turn finishes
-      setQueued(trimmed);
+      setQueued(message);
     } else {
-      onSend(trimmed);
+      onSend(message);
     }
 
     setInput('');
     setShowCommands(false);
+    useChatStore.getState().clearAttachments();
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -123,6 +142,47 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     textareaRef.current?.focus();
   };
 
+  // ───── Drag & Drop ─────
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current++;
+    if (dragCounter.current === 1) setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setIsDragOver(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setIsDragOver(false);
+
+    const raw = e.dataTransfer.getData('application/x-attachment');
+    if (!raw) return;
+
+    try {
+      const data = JSON.parse(raw);
+      if (data.type && data.label && data.content) {
+        useChatStore.getState().addAttachment({
+          id: `${data.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          type: data.type,
+          label: data.label,
+          content: data.content,
+        });
+        textareaRef.current?.focus();
+      }
+    } catch {
+      // ignore invalid data
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto relative">
       {/* Queued message indicator */}
@@ -142,7 +202,24 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
         </div>
       )}
 
-      <div className="rounded-2xl shadow-2xl shadow-black/40 ring-1 ring-white/10 bg-surface-800/80 backdrop-blur-2xl">
+      <div
+        className={`rounded-2xl shadow-2xl shadow-black/40 ring-1 bg-surface-800/80 backdrop-blur-2xl transition-all relative ${
+          isDragOver
+            ? 'ring-2 ring-primary-500/50 bg-primary-900/10'
+            : 'ring-white/10'
+        }`}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {/* Drop overlay */}
+        {isDragOver && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-primary-900/20 backdrop-blur-sm z-10 pointer-events-none">
+            <span className="text-[13px] text-primary-300 font-medium">여기에 놓으세요</span>
+          </div>
+        )}
+
         {/* Slash command picker */}
         {showCommands && (
           <div className="absolute bottom-full left-0 right-0 mb-2 bg-surface-800/90 backdrop-blur-xl border border-surface-700/50 rounded-xl max-h-48 overflow-y-auto shadow-xl">
@@ -172,6 +249,19 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
           </div>
         )}
 
+        {/* Attachment chips */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-0.5">
+            {attachments.map((att) => (
+              <AttachmentChip
+                key={att.id}
+                attachment={att}
+                onRemove={(id) => useChatStore.getState().removeAttachment(id)}
+              />
+            ))}
+          </div>
+        )}
+
         <div className="flex items-end gap-2 p-2 relative">
           <textarea
             ref={textareaRef}
@@ -183,17 +273,19 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                 ? '추가 메시지를 대기열에 넣을 수 있습니다...'
                 : isStreaming
                   ? '메시지를 입력하면 다음 턴에 전송됩니다...'
-                  : '메시지를 입력하세요...'
+                  : attachments.length > 0
+                    ? '추가 메시지를 입력하거나 바로 전송하세요...'
+                    : '메시지를 입력하세요...'
             }
             rows={1}
             className="flex-1 bg-transparent border-none px-4 py-3 text-[15px] text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:ring-0 min-h-[48px] max-h-[200px]"
           />
 
           <div className="absolute top-3 right-[60px] text-[11px] text-surface-700 font-medium pointer-events-none tracking-wide select-none">
-            {input.length === 0 && !isStreaming ? '(/로 명령어)' : ''}
+            {input.length === 0 && !isStreaming && attachments.length === 0 ? '(/로 명령어)' : ''}
           </div>
 
-          {isStreaming && !input.trim() ? (
+          {isStreaming && !input.trim() && attachments.length === 0 ? (
             <button
               onClick={onAbort}
               className="p-2 m-1 bg-surface-700 hover:bg-surface-600 rounded-xl transition-all shrink-0 text-red-400 hover:shadow-lg shadow-surface-900"
@@ -206,15 +298,15 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={!input.trim()}
+              disabled={!input.trim() && attachments.length === 0}
               className={`p-2 m-1 rounded-xl transition-all disabled:cursor-not-allowed shrink-0 active:scale-95 group ${
-                isStreaming && input.trim()
+                isStreaming && (input.trim() || attachments.length > 0)
                   ? 'bg-primary-900/40 hover:bg-primary-800/50 text-primary-300 border border-primary-500/30 shadow-lg shadow-primary-900/10'
                   : 'bg-primary-600 hover:bg-primary-500 disabled:bg-surface-700 disabled:text-surface-600 disabled:shadow-none text-white shadow-lg shadow-primary-900/20'
               }`}
               title={isStreaming ? '대기열에 추가' : '전송'}
             >
-              {isStreaming && input.trim() ? (
+              {isStreaming && (input.trim() || attachments.length > 0) ? (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
