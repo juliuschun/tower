@@ -6,6 +6,7 @@ import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
 import { SessionItem } from '../sessions/SessionItem';
 import { FileTree } from '../files/FileTree';
 import { PinList } from '../pinboard/PinList';
+import { GitPanel } from '../git/GitPanel';
 import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
 
 interface SidebarProps {
@@ -26,6 +27,7 @@ interface SidebarProps {
   onPromptDelete?: (id: number | string) => void;
   onPromptAdd?: () => void;
   onPromptInsert?: (prompt: PromptItem) => void;
+  onViewDiff?: (diff: string) => void;
 }
 
 export function Sidebar({
@@ -34,6 +36,7 @@ export function Sidebar({
   onFileClick, onDirectoryClick, onRequestFileTree,
   onPinFile, onUnpinFile, onPinClick, onSettingsClick,
   onPromptClick, onPromptEdit, onPromptDelete, onPromptAdd,
+  onViewDiff,
 }: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -107,6 +110,16 @@ export function Sidebar({
           }`}
         >
           핀보드
+        </button>
+        <button
+          onClick={() => setSidebarTab('git')}
+          className={`flex-1 py-2 text-[12px] font-semibold tracking-wide transition-colors ${
+            sidebarTab === 'git'
+              ? 'text-primary-400 border-b-2 border-primary-500'
+              : 'text-surface-700 hover:text-surface-600'
+          }`}
+        >
+          버전
         </button>
       </div>
 
@@ -200,11 +213,13 @@ export function Sidebar({
               />
             )}
           </div>
-        ) : (
+        ) : sidebarTab === 'pins' ? (
           <PinList
             onPinClick={(pin) => onPinClick?.(pin)}
             onUnpin={(id) => onUnpinFile?.(id)}
           />
+        ) : (
+          <GitPanel onViewDiff={onViewDiff} />
         )}
       </div>
 

@@ -23,7 +23,7 @@ interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   sidebarOpen: boolean;
-  sidebarTab: 'sessions' | 'files' | 'pins';
+  sidebarTab: 'sessions' | 'files' | 'pins' | 'git';
   searchQuery: string;
 
   setSessions: (sessions: SessionMeta[]) => void;
@@ -32,7 +32,7 @@ interface SessionState {
   removeSession: (id: string) => void;
   updateSessionMeta: (id: string, updates: Partial<SessionMeta>) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSidebarTab: (tab: 'sessions' | 'files') => void;
+  setSidebarTab: (tab: 'sessions' | 'files' | 'pins' | 'git') => void;
   setSearchQuery: (query: string) => void;
 }
 

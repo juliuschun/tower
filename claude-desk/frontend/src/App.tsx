@@ -17,6 +17,7 @@ import { usePinStore, type Pin } from './stores/pin-store';
 import { usePromptStore, type PromptItem } from './stores/prompt-store';
 import { useSettingsStore } from './stores/settings-store';
 import { useModelStore } from './stores/model-store';
+import { useGitStore } from './stores/git-store';
 import { normalizeContentBlocks } from './utils/message-parser';
 import { toastSuccess, toastError } from './utils/toast';
 
@@ -389,6 +390,17 @@ function App() {
     } catch {}
   }, [token]);
 
+  // ───── Git handlers ─────
+  const handleViewDiff = useCallback((diff: string) => {
+    useFileStore.getState().setContextPanelTab('preview');
+    useFileStore.getState().setOpenFile({
+      path: 'diff:git',
+      content: diff,
+      language: 'diff',
+      modified: false,
+    });
+  }, []);
+
   // ───── Settings handlers ─────
   const handleOpenSettings = useCallback(() => {
     useSettingsStore.getState().setOpen(true);
@@ -438,6 +450,11 @@ function App() {
     fetch(`${API_BASE}/prompts`, { headers })
       .then((r) => r.ok ? r.json() : [])
       .then((data) => usePromptStore.getState().setPrompts(data))
+      .catch(() => {});
+
+    fetch(`${API_BASE}/git/log?limit=50`, { headers })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => useGitStore.getState().setCommits(data))
       .catch(() => {});
 
     fetch(`${API_BASE}/config`, { headers })
@@ -499,6 +516,7 @@ function App() {
             onPromptEdit={handlePromptEdit}
             onPromptDelete={handlePromptDelete}
             onPromptAdd={handlePromptAdd}
+            onViewDiff={handleViewDiff}
           />
         )}
 

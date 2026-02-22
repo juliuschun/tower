@@ -89,6 +89,22 @@ function initSchema(db: Database.Database) {
     db.exec(`ALTER TABLE pins ADD COLUMN content TEXT`);
   } catch {}
 
+  // Git commits table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS git_commits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hash TEXT NOT NULL UNIQUE,
+      short_hash TEXT NOT NULL,
+      author_name TEXT NOT NULL,
+      message TEXT NOT NULL,
+      commit_type TEXT DEFAULT 'auto',
+      session_id TEXT,
+      user_id INTEGER,
+      files_changed TEXT DEFAULT '[]',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Phase 5 migrations
   const sessionMigrations = [
     `ALTER TABLE sessions ADD COLUMN model_used TEXT`,

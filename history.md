@@ -382,3 +382,61 @@
 
 ### 총 규모
 - 수정 4개, ~160줄 추가
+
+## 2026-02-22: Phase 7 — 공유 워크스페이스 Git 자동 스냅샷
+
+### 배경
+5명이 동시에 같은 VM에서 Claude Code 사용. 파일 변경 추적 없이 실수로 덮어쓰면 복구 불가. 자동 기록 + 되돌리기 기능 구현.
+
+### Phase A: 백엔드 기반
+
+#### 신규: `backend/services/git-manager.ts`
+- Git 명령어 래퍼. `child_process.execFile` 사용 (보안), promise mutex로 동시성 보호
+- 핵심 함수: `initWorkspaceRepo`, `autoCommit`, `manualCommit`, `getLog`, `getFileDiff`, `rollbackToCommit`, `getStatus`
+- `initWorkspaceRepo`: 서버 시작 시 workspace에 `.git` + `.gitignore` 자동 생성. `find` 명령으로 embedded git repo 자동 감지 → `.gitignore`에 추가
+- `autoCommit`: Claude 작업 완료 시 editedFiles만 선택적 `git add` → commit. `--author` 옵션으로 사용자별 기록
+- `manualCommit`: `git add -A --ignore-errors` → commit. embedded repo 경고 무시
+- `rollbackToCommit`: `git checkout <hash> -- .` → 새 커밋으로 히스토리 보존 (git reset --hard 절대 미사용)
+- 커밋 해시 검증: `/^[a-f0-9]{4,40}$/i` 정규식으로 injection 방지
+
+#### 수정: `backend/routes/ws-handler.ts`
+- `WsClient`에 `userId`, `username` 추가 (JWT에서 추출)
+- `sdk_done` 직전 `autoCommit()` 호출 → `broadcast({ type: 'git_commit', commit })` 전송
+
+#### 수정: `backend/db/schema.ts`
+- `git_commits` 테이블 추가 (hash, author_name, message, commit_type, files_changed 등)
+
+#### 수정: `backend/routes/api.ts`
+- Git REST API 4개: `GET /git/log`, `GET /git/diff/:hash`, `POST /git/commit`, `POST /git/rollback`
+
+#### 수정: `backend/config.ts`
+- `gitAutoCommit` 설정 추가 (기본 true, `GIT_AUTO_COMMIT=false`로 비활성화)
+
+#### 수정: `backend/index.ts`
+- 서버 시작 시 `initWorkspaceRepo(config.workspaceRoot)` 호출
+
+### Phase B+C: 프론트엔드 버전 탭
+
+#### 신규: `frontend/src/stores/git-store.ts`
+- zustand 스토어: commits, isLoading, expandedCommit
+
+#### 신규: `frontend/src/components/git/GitPanel.tsx`
+- 사이드바 "버전" 탭 내용: 스냅샷 저장 폼 + 커밋 목록 + Diff 보기 + 되돌리기 (확인 다이얼로그)
+- commit_type별 뱃지: auto=회색, manual=파랑, rollback=빨강
+- 커밋 클릭 시 변경 파일 목록 펼침
+
+#### 수정: 프론트엔드 5개 파일
+- `session-store.ts` — sidebarTab에 `'git'` 추가
+- `Sidebar.tsx` — 4번째 "버전" 탭 + GitPanel 렌더링
+- `useClaudeChat.ts` — `git_commit` WS 핸들러 + 토스트
+- `App.tsx` — git log 초기 로드 + handleViewDiff
+
+### 디버깅: 홈 디렉토리 workspace 문제
+- `/home/azureuser`에 ~10개 git repo + embedded git (최대 6레벨 깊이)
+- `.gitignore`에 `.*` (모든 hidden dirs) 추가 + `find -maxdepth 8`로 embedded repo 자동 감지
+- `git add -A` → `git add -A --ignore-errors`로 변경 (embedded repo 경고 무시)
+- mutex 데드락: `gitLock.then(fn, fn)` → `Promise resolve/reject` 패턴으로 안전한 에러 전파
+
+### 총 규모
+- 새 파일 3개, 수정 9개
+- 백엔드 ~250줄, 프론트엔드 ~200줄

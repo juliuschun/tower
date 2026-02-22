@@ -440,6 +440,70 @@ idle인데 이전에 streaming이었으면 DB에서 메시지 복구. 타이밍:
 
 ---
 
+## Phase 7 교훈: Git 자동 스냅샷 (홈 디렉토리 workspace)
+
+### 1. 홈 디렉토리를 git workspace로 쓸 때 — `.gitignore` 전략
+`/home/azureuser` 같은 홈 디렉토리를 git workspace로 쓰면 dotfiles, embedded git repos, 거대 디렉토리 문제 발생.
+```
+# 핵심: 모든 hidden 파일/디렉토리 기본 무시
+.*
+!.gitignore
+```
+그리고 `find -maxdepth 8 -name .git`으로 서브디렉토리의 embedded git repo를 자동 감지하여 `.gitignore`에 추가.
+
+### 2. `git add -A` vs `--ignore-errors`
+홈 디렉토리에 embedded git repo(submodule 아닌 일반 .git)가 있으면 `git add -A`가 fatal 에러로 실패.
+```bash
+git add -A --ignore-errors  # 에러 무시하고 가능한 파일만 stage
+```
+`--ignore-errors`는 exit 0으로 반환되므로 프로그래밍에서 안전하게 사용 가능.
+
+### 3. Promise Mutex — 에러 전파 주의
+```typescript
+// ❌ 잘못된 패턴 — fn()이 reject되면 gitLock이 rejected 상태로 남아 이후 모든 호출이 실패
+gitLock = gitLock.then(fn, fn);
+return gitLock;
+
+// ✅ 올바른 패턴 — 별도 Promise로 에러 격리
+let resolve, reject;
+const result = new Promise((res, rej) => { resolve = res; reject = rej; });
+gitLock = gitLock.then(async () => {
+  try { resolve(await fn()); }
+  catch (e) { reject(e); }
+}, async () => {
+  try { resolve(await fn()); }
+  catch (e) { reject(e); }
+});
+return result;
+```
+
+### 4. execFile vs exec — 보안
+`child_process.exec`는 shell injection 취약. `execFile`은 인자를 배열로 받아서 안전:
+```typescript
+// 위험: exec(`git log --author="${userInput}"`)  // userInput에 ; rm -rf / 가능
+// 안전: execFile('git', ['log', `--author=${userInput}`])
+```
+추가로 커밋 해시 입력은 반드시 `/^[a-f0-9]{4,40}$/i` 검증.
+
+### 5. rollback은 reset이 아닌 checkout + 새 commit
+```bash
+# ❌ 히스토리 파괴
+git reset --hard <hash>
+
+# ✅ 히스토리 보존
+git checkout <hash> -- .
+git add -A
+git commit -m "rollback: reverted to <hash>"
+```
+공유 환경에서 히스토리 보존은 필수. 누가 언제 어디로 되돌렸는지 추적 가능.
+
+### 6. autoCommit은 선택적 파일만, manualCommit은 전체
+- `autoCommit`: Claude SDK의 Write/Edit 도구가 수정한 파일만 `git add -- <file>` → 커밋
+- `manualCommit`: `git add -A --ignore-errors` → 전체 변경사항 커밋
+- 이 구분이 중요한 이유: auto-commit에서 관계없는 파일까지 커밋되면 노이즈
+
+---
+
 ## 핵심 트러블슈팅
 
 ### 1. "Cannot be launched inside another Claude Code session" 에러

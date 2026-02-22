@@ -15,6 +15,9 @@ import {
   getPins, createPin, updatePin, deletePin, reorderPins,
   createPromptPin, updatePromptPin, getPromptsWithCommands,
 } from '../services/pin-manager.js';
+import {
+  getLog, getFileDiff, manualCommit, rollbackToCommit,
+} from '../services/git-manager.js';
 import { config, availableModels } from '../config.js';
 
 const router = Router();
@@ -295,6 +298,52 @@ router.patch('/prompts/:id', (req, res) => {
 router.delete('/prompts/:id', (req, res) => {
   deletePin(parseInt(req.params.id));
   res.json({ ok: true });
+});
+
+// ───── Git ─────
+router.get('/git/log', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+    const author = req.query.author as string | undefined;
+    const commits = await getLog(config.workspaceRoot, { limit, offset, author });
+    res.json(commits);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/git/diff/:hash', async (req, res) => {
+  try {
+    const diff = await getFileDiff(config.workspaceRoot, req.params.hash);
+    res.json({ diff });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/git/commit', async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required' });
+    const username = (req as any).user?.username || 'anonymous';
+    const commit = await manualCommit(config.workspaceRoot, username, message);
+    res.json(commit);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/git/rollback', async (req, res) => {
+  try {
+    const { hash } = req.body;
+    if (!hash) return res.status(400).json({ error: 'hash required' });
+    const username = (req as any).user?.username || 'anonymous';
+    const commit = await rollbackToCommit(config.workspaceRoot, hash, username);
+    res.json(commit);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ───── Config ─────

@@ -8,6 +8,7 @@ import apiRouter from './routes/api.js';
 import { setupWebSocket } from './routes/ws-handler.js';
 import { closeDb } from './db/schema.js';
 import { stopFileWatcher } from './services/file-system.js';
+import { initWorkspaceRepo } from './services/git-manager.js';
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
 delete process.env.CLAUDECODE;
@@ -30,6 +31,11 @@ if (fs.existsSync(frontendPath)) {
 
 const server = http.createServer(app);
 setupWebSocket(server);
+
+// Initialize workspace git repo
+initWorkspaceRepo(config.workspaceRoot).catch((err) => {
+  console.error('[Git] Failed to initialize workspace repo:', err);
+});
 
 server.listen(config.port, config.host, () => {
   console.log(`
