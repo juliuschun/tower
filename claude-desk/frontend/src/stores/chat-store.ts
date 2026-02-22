@@ -64,6 +64,7 @@ interface ChatState {
   setSystemInfo: (info: { slashCommands?: string[]; tools?: string[]; model?: string }) => void;
   setCost: (cost: Partial<CostInfo>) => void;
   setRateLimit: (info: RateLimitInfo | null) => void;
+  setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
 }
 
@@ -130,5 +131,6 @@ export const useChatStore = create<ChatState>((set) => ({
     })),
   setCost: (cost) => set((s) => ({ cost: { ...s.cost, ...cost } })),
   setRateLimit: (info) => set({ rateLimit: info }),
+  setMessages: (msgs) => set({ messages: msgs }),
   clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 }, rateLimit: null }),
 }));

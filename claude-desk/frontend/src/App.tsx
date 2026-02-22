@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Toaster } from 'sonner';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { ChatPanel } from './components/chat/ChatPanel';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { LoginPage } from './components/auth/LoginPage';
+import { SettingsPanel } from './components/settings/SettingsPanel';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useClaudeChat } from './hooks/useClaudeChat';
 import { useChatStore } from './stores/chat-store';
 import { useSessionStore, type SessionMeta } from './stores/session-store';
 import { useFileStore } from './stores/file-store';
+import { usePinStore, type Pin } from './stores/pin-store';
+import { useSettingsStore } from './stores/settings-store';
+import { toastSuccess, toastError } from './utils/toast';
 
 const API_BASE = '/api';
 
@@ -115,7 +121,7 @@ function App() {
     }
   }, [createSessionInDb, setActiveSessionId, clearMessages]);
 
-  const handleSelectSession = useCallback((session: SessionMeta) => {
+  const handleSelectSession = useCallback(async (session: SessionMeta) => {
     // Skip if already on this session
     const currentId = useSessionStore.getState().activeSessionId;
     if (currentId === session.id) return;
@@ -131,14 +137,35 @@ function App() {
       useChatStore.getState().setClaudeSessionId(null);
     }
 
-    // Show switch indicator
+    // Load persisted messages
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`${API_BASE}/sessions/${session.id}/messages`, { headers });
+      if (res.ok) {
+        const stored = await res.json();
+        if (stored.length > 0) {
+          const msgs = stored.map((m: any) => ({
+            id: m.id,
+            role: m.role,
+            content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
+            timestamp: new Date(m.created_at).getTime(),
+            parentToolUseId: m.parent_tool_use_id,
+          }));
+          useChatStore.getState().setMessages(msgs);
+          return; // Skip system message if we restored messages
+        }
+      }
+    } catch {}
+
+    // Show switch indicator (only if no messages restored)
     useChatStore.getState().addMessage({
       id: crypto.randomUUID(),
       role: 'system',
       content: [{ type: 'text', text: `세션 "${session.name}" 으로 전환됨${session.claudeSessionId ? ' (이전 대화 이어가기 가능)' : ''}` }],
       timestamp: Date.now(),
     });
-  }, [setActiveSessionId, clearMessages]);
+  }, [setActiveSessionId, clearMessages, token]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
     try {
@@ -146,6 +173,7 @@ function App() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE', headers });
       removeSession(id);
+      toastSuccess('세션 삭제됨');
     } catch { }
   }, [token, removeSession]);
 
@@ -211,6 +239,74 @@ function App() {
     saveFile(path, content);
   }, [saveFile]);
 
+  // ───── Pin handlers ─────
+  const handlePinFile = useCallback(async (filePath: string) => {
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const name = filePath.split('/').pop() || filePath;
+      const ext = filePath.split('.').pop()?.toLowerCase() || '';
+      const typeMap: Record<string, string> = {
+        md: 'markdown', html: 'html', htm: 'html', txt: 'text',
+        py: 'python', ts: 'typescript', tsx: 'typescript',
+        js: 'javascript', jsx: 'javascript', json: 'json',
+      };
+      const res = await fetch(`${API_BASE}/pins`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ title: name, filePath, fileType: typeMap[ext] || 'text' }),
+      });
+      if (res.ok) {
+        const pin = await res.json();
+        usePinStore.getState().addPin(pin);
+        toastSuccess(`${name} 핀 추가됨`);
+      }
+    } catch {}
+  }, [token]);
+
+  const handleUnpinFile = useCallback(async (id: number) => {
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`${API_BASE}/pins/${id}`, { method: 'DELETE', headers });
+      usePinStore.getState().removePin(id);
+      toastSuccess('핀 해제됨');
+    } catch {}
+  }, [token]);
+
+  const handlePinClick = useCallback((pin: Pin) => {
+    requestFile(pin.file_path);
+  }, [requestFile]);
+
+  // ───── Settings handlers ─────
+  const handleOpenSettings = useCallback(() => {
+    useSettingsStore.getState().setOpen(true);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('token');
+    setToken(null);
+  }, []);
+
+  // Load pins + server config on mount
+  useEffect(() => {
+    if (authStatus === null) return;
+    if (authStatus.authEnabled && !token) return;
+
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${API_BASE}/pins`, { headers })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => usePinStore.getState().setPins(data))
+      .catch(() => {});
+
+    fetch(`${API_BASE}/config`, { headers })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) useSettingsStore.getState().setServerConfig(data); })
+      .catch(() => {});
+  }, [token, authStatus]);
+
   // Auth gate
   if (authStatus === null) {
     return (
@@ -232,6 +328,7 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-surface-950 text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100">
+      <Toaster position="top-right" theme="dark" richColors closeButton />
       <Header
         connected={connected}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -249,30 +346,41 @@ function App() {
             onFileClick={handleFileClick}
             onDirectoryClick={handleDirectoryClick}
             onRequestFileTree={() => requestFileTree()}
+            onPinFile={handlePinFile}
+            onUnpinFile={handleUnpinFile}
+            onPinClick={handlePinClick}
+            onSettingsClick={handleOpenSettings}
           />
         )}
 
         {/* Center: Chat panel */}
         <main className="flex-1 min-w-0 flex justify-center">
           <div className="w-full max-w-4xl flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20 border-x border-surface-900/50">
-            <ChatPanel
-              onSend={handleSendMessage}
-              onAbort={abort}
-              onFileClick={handleFileClick}
-            />
+            <ErrorBoundary fallbackLabel="Chat error">
+              <ChatPanel
+                onSend={handleSendMessage}
+                onAbort={abort}
+                onFileClick={handleFileClick}
+              />
+            </ErrorBoundary>
           </div>
         </main>
 
         {/* Right: Context panel */}
         {contextPanelOpen && (
           <div className="w-96 border-l border-surface-800 bg-surface-900/90 backdrop-blur-md">
-            <ContextPanel onSave={handleSaveFile} />
+            <ErrorBoundary fallbackLabel="Context panel error">
+              <ContextPanel onSave={handleSaveFile} />
+            </ErrorBoundary>
           </div>
         )}
       </div>
 
       {/* Bottom bar */}
       <BottomBar />
+
+      {/* Settings modal */}
+      <SettingsPanel onLogout={handleLogout} />
     </div>
   );
 }

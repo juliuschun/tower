@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { executeQuery, abortSession, getClaudeSessionId } from '../services/claude-sdk.js';
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken } from '../services/auth.js';
+import { saveMessage, updateMessageContent } from '../services/message-store.js';
 import { config } from '../config.js';
 
 interface WsClient {
@@ -94,12 +95,24 @@ async function handleMessage(client: WsClient, data: any) {
   }
 }
 
-async function handleChat(client: WsClient, data: { message: string; sessionId?: string; claudeSessionId?: string; cwd?: string }) {
+async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string }) {
   const sessionId = data.sessionId || client.sessionId || uuidv4();
   client.sessionId = sessionId;
 
+  // Save user message to DB
+  const userMsgId = data.messageId || uuidv4();
+  try {
+    saveMessage(sessionId, {
+      id: userMsgId,
+      role: 'user',
+      content: [{ type: 'text', text: data.message }],
+    });
+  } catch {}
+
   // Use claudeSessionId from the message (per-session) over client-level (per-connection)
   const resumeSessionId = data.claudeSessionId || client.claudeSessionId;
+  let currentAssistantId: string | null = null;
+  let currentAssistantContent: any[] = [];
 
   try {
     for await (const message of executeQuery(sessionId, data.message, {
@@ -109,6 +122,31 @@ async function handleChat(client: WsClient, data: { message: string; sessionId?:
       // Track Claude session ID for future resume
       if ('session_id' in message && message.session_id) {
         client.claudeSessionId = message.session_id;
+      }
+
+      // Save assistant messages to DB
+      if ((message as any).type === 'assistant') {
+        const msgId = (message as any).uuid || uuidv4();
+        const content = (message as any).message?.content || [];
+        if (msgId !== currentAssistantId) {
+          // New assistant message
+          currentAssistantId = msgId;
+          currentAssistantContent = content;
+          try {
+            saveMessage(sessionId, {
+              id: msgId,
+              role: 'assistant',
+              content,
+              parentToolUseId: (message as any).parent_tool_use_id,
+            });
+          } catch {}
+        } else {
+          // Streaming update
+          currentAssistantContent = content;
+          try {
+            updateMessageContent(msgId, content);
+          } catch {}
+        }
       }
 
       send(client.ws, {

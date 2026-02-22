@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { toastSuccess, toastWarning } from '../utils/toast';
 
 type MessageHandler = (data: any) => void;
 
@@ -7,6 +8,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const onMessageRef = useRef(onMessage);
+  const wasConnected = useRef(false);
   onMessageRef.current = onMessage;
 
   const connect = useCallback(() => {
@@ -17,6 +19,10 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
 
     ws.onopen = () => {
       setConnected(true);
+      if (wasConnected.current) {
+        toastSuccess('재연결됨');
+      }
+      wasConnected.current = true;
       // Start ping interval
       const pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -36,6 +42,9 @@ export function useWebSocket(url: string, onMessage: MessageHandler) {
 
     ws.onclose = () => {
       setConnected(false);
+      if (wasConnected.current) {
+        toastWarning('연결 끊김, 재연결 중...');
+      }
       // Auto-reconnect after 2s
       reconnectTimer.current = setTimeout(connect, 2000);
     };

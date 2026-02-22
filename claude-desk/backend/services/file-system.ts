@@ -12,7 +12,7 @@ export interface FileEntry {
   extension?: string;
 }
 
-function isPathSafe(targetPath: string, root?: string): boolean {
+export function isPathSafe(targetPath: string, root?: string): boolean {
   const resolvedTarget = path.resolve(targetPath);
   const resolvedRoot = path.resolve(root || config.workspaceRoot);
   return resolvedTarget.startsWith(resolvedRoot);

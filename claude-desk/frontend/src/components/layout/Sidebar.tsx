@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
 import { useSessionStore, type SessionMeta } from '../../stores/session-store';
 import { useFileStore } from '../../stores/file-store';
+import { usePinStore, type Pin } from '../../stores/pin-store';
 import { SessionItem } from '../sessions/SessionItem';
 import { FileTree } from '../files/FileTree';
+import { PinList } from '../pinboard/PinList';
 
 interface SidebarProps {
   onNewSession: () => void;
@@ -13,12 +15,17 @@ interface SidebarProps {
   onFileClick: (path: string) => void;
   onDirectoryClick: (path: string) => void;
   onRequestFileTree: () => void;
+  onPinFile?: (path: string) => void;
+  onUnpinFile?: (id: number) => void;
+  onPinClick?: (pin: Pin) => void;
+  onSettingsClick?: () => void;
 }
 
 export function Sidebar({
   onNewSession, onSelectSession, onDeleteSession,
   onRenameSession, onToggleFavorite,
   onFileClick, onDirectoryClick, onRequestFileTree,
+  onPinFile, onUnpinFile, onPinClick, onSettingsClick,
 }: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -79,6 +86,16 @@ export function Sidebar({
         >
           파일
         </button>
+        <button
+          onClick={() => setSidebarTab('pins')}
+          className={`flex-1 py-2 text-[12px] font-semibold tracking-wide transition-colors ${
+            sidebarTab === 'pins'
+              ? 'text-primary-400 border-b-2 border-primary-500'
+              : 'text-surface-700 hover:text-surface-600'
+          }`}
+        >
+          핀보드
+        </button>
       </div>
 
       {/* Tab content */}
@@ -118,7 +135,7 @@ export function Sidebar({
               ))}
             </div>
           </div>
-        ) : (
+        ) : sidebarTab === 'files' ? (
           <div className="px-2">
             {tree.length === 0 ? (
               <p className="text-[13px] text-surface-700 px-2 py-6 text-center">파일 트리 로딩 중...</p>
@@ -127,17 +144,26 @@ export function Sidebar({
                 entries={tree}
                 onFileClick={onFileClick}
                 onDirectoryClick={onDirectoryClick}
+                onPinFile={onPinFile}
               />
             )}
           </div>
+        ) : (
+          <PinList
+            onPinClick={(pin) => onPinClick?.(pin)}
+            onUnpin={(id) => onUnpinFile?.(id)}
+          />
         )}
       </div>
 
       <div className="p-4 border-t border-surface-800/50 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-surface-700 hover:text-surface-600 transition-colors cursor-default">
+        <button
+          onClick={onSettingsClick}
+          className="flex items-center gap-2 text-surface-700 hover:text-surface-500 transition-colors cursor-pointer"
+        >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           <span className="text-[11px] font-medium">Settings</span>
-        </div>
+        </button>
         <span className="text-[10px] font-semibold text-surface-800">v0.1.0</span>
       </div>
     </aside>

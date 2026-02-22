@@ -45,21 +45,21 @@ SDK 기반 + 깔끔한 UI + 파일/에디터/Python 실행을 결합한 자체 �
 │ 세션   │  [메시지 버블]           │  MD 렌더 뷰어     │
 │ 히스토리│  [도구 사용 카드]        │  코드 에디터      │
 │        │  [사고 과정 접기]        │  Python 출력      │
-│ 파일   │                         │  HTML iframe      │
-│ 트리   │                         │  파일 미리보기     │
-│        │                         │                   │
-│ 핀보드  │  ┌───────────────────┐  │                   │
+│ 프롬프트│                         │  HTML iframe      │
+│        │                         │  파일 미리보기     │
+│ 파일   │                         │  프롬프트 미리보기 │
+│ 트리   │  ┌───────────────────┐  │                   │
 │        │  │ 입력창 + / 명령어  │  │                   │
-│ Skills │  └───────────────────┘  │                   │
+│ 핀보드  │  └───────────────────┘  │                   │
 ├────────┴─────────────────────────┴───────────────────┤
 │  BOTTOM BAR: 비용 · 토큰 사용량 · 세션 상태           │
 └──────────────────────────────────────────────────────┘
 ```
 
-- **좌측 사이드바:** 접기 가능. 세션 히스토리 + 파일 트리 + 핀보드 + 스킬 목록
+- **좌측 사이드바:** 접기 가능. 세션 히스토리 (하단에 프롬프트 섹션) + 파일 트리 + 핀보드
 - **중앙 채팅:** 메인 인터랙션. Claude 응답은 마크다운 렌더링
-- **우측 컨텍스트:** 파일 클릭 시 열림. MD 렌더/에디터/HTML iframe/Python 출력
-- **모바일:** 탭 전환 (채팅 | 파일 | 에디터)
+- **우측 컨텍스트:** 파일 클릭 시 열림. MD 렌더/에디터/HTML iframe/Python 출력. 드래그 리사이즈 + 열기/닫기 토글 (너비 localStorage 저장)
+- **모바일 (≤768px):** 하단 탭바로 전환 (💬채팅 | 📁파일 | ✏️편집 | 📌핀). 파일 클릭 시 편집 탭 자동 전환. 드래그&드롭 대신 롱프레스→"채팅에 첨부"
 
 ### 비개발자를 위한 UI 원칙
 
@@ -258,10 +258,43 @@ claude-desk/
 6. 세션 자동 생성 + claudeSessionId resume ✅
 7. WS 인증 토큰 전달 ✅
 
-### Phase 2.5: 핀보드 (Pinboard) — 즐겨찾기 대시보드
+### Phase 2.5: 핀보드 + 프롬프트 패널
 
-로컬 HTML 대시보드, MD 보고서 등을 사이드바에 핀(즐겨찾기)하여 빠르게 접근.
-파일 트리에서 핀 → 사이드바 핀보드 탭에서 한 클릭으로 ContextPanel에 렌더링.
+두 가지 즐겨찾기 기능. 역할이 다르므로 위치도 분리.
+
+```
+┌──────────────────┐
+│ 세션 | 파일 | 핀  │
+├──────────────────┤
+│ [검색...]        │       ┌───────────────────┐
+│                  │       │                   │
+│ 세션 A           │       │  ContextPanel     │
+│ 세션 B           │       │  (핀 파일 렌더링)  │
+│ 세션 C           │       │                   │
+│                  │       │                   │
+│ ▼ 프롬프트 (3)   │       │                   │
+│ ⚡ 일일 리서치    │──드래그──→ 채팅 InputBox
+│ ⚡ 코드 리뷰     │       │                   │
+│ [+ 추가]         │       │                   │
+├──────────────────┤       └───────────────────┘
+│ Settings  v0.1.0 │
+└──────────────────┘
+```
+
+**A. 핀보드 (사이드바 3번째 탭 "핀") — 파일/대시보드 전용**
+
+클릭 → ContextPanel에서 렌더링. 드래그 → 채팅에 파일 컨텍스트 첨부.
+
+| 파일 타입 | ContextPanel 렌더 방식 |
+|----------|----------------------|
+| `.md` | react-markdown (미리보기/편집 토글) |
+| `.html` / `.htm` | iframe (`sandbox="allow-scripts"`, same-origin 제외) |
+| 기타 | CodeMirror (읽기 전용) |
+
+**B. 프롬프트 섹션 (세션 탭 하단, 접기 가능) — 채팅 전용**
+
+클릭 → ContextPanel에 프롬프트 미리보기 표시. 드래그 → 채팅 InputBox에 삽입.
+`~/.claude/commands/` 항목은 자동으로 목록에 포함.
 
 **DB 스키마:**
 
@@ -269,8 +302,10 @@ claude-desk/
 CREATE TABLE IF NOT EXISTS pins (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  file_type TEXT NOT NULL DEFAULT 'markdown',  -- 'markdown' | 'html' | 'code' | 'text'
+  pin_type TEXT NOT NULL DEFAULT 'file',  -- 'file' | 'prompt'
+  file_path TEXT,                          -- file: 파일 경로
+  content TEXT,                            -- prompt: 프롬프트 내용
+  file_type TEXT DEFAULT 'markdown',       -- file 렌더링용
   sort_order INTEGER DEFAULT 0,
   user_id INTEGER,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -278,34 +313,31 @@ CREATE TABLE IF NOT EXISTS pins (
 );
 ```
 
-**렌더링 규칙:**
-
-| 파일 타입 | ContextPanel 렌더 방식 |
-|----------|----------------------|
-| `.md` | 기존 react-markdown 렌더러 (미리보기/편집 토글 유지) |
-| `.html` / `.htm` | iframe (`src="/api/files/serve?path=..."`, `sandbox="allow-scripts"`) — same-origin 제외하여 부모 페이지 격리 |
-| 기타 (`.txt`, `.csv`, 코드) | CodeMirror 에디터 (읽기 전용) |
-
 **구현 항목:**
 
-1. DB: `pins` 테이블 추가 (`schema.ts`)
-2. `pin-manager.ts` — 핀 CRUD 서비스 (better-sqlite3)
+1. DB: `pins` 테이블 추가 (`schema.ts`) — file/prompt 통합
+2. `pin-manager.ts` — 핀 CRUD + `~/.claude/commands/` 자동 로드
 3. REST API (`api.ts`):
    - `GET/POST /api/pins`, `PATCH/DELETE /api/pins/:id`, `POST /api/pins/reorder`
-   - `GET /api/files/serve?path=...` — HTML iframe용 raw 파일 서빙 (Content-Type 헤더)
-4. `pin-store.ts` — zustand 스토어 (pins[], add/remove/update/reorder)
-5. 사이드바 3번째 탭 "핀보드" + `PinList` 컴포넌트
-   - 클릭 → ContextPanel에서 열기
-   - 우클릭 → 이름 변경 / 핀 해제
-   - 드래그 정렬 (sort_order 기반)
-6. ContextPanel에 HTML iframe 렌더링 모드 추가 (`sandbox="allow-scripts"`, same-origin 제외)
-7. FileTree에 핀 액션 (hover 시 📌 아이콘, 지원: `.md`, `.html`, `.htm`, `.txt`, `.csv`)
-8. App.tsx 연결: 핀 로드, 핀 클릭 → ContextPanel 열기
+   - `GET /api/files/serve?path=...` — HTML iframe용 raw 파일 서빙
+4. `pin-store.ts` — zustand 스토어
+5. 핀보드 탭: `PinList` 컴포넌트 (파일 핀 목록)
+   - 클릭 → ContextPanel 열기
+   - 드래그 → 채팅 컨텍스트 첨부
+   - FileTree에서 hover 시 📌 아이콘으로 추가
+6. 프롬프트 섹션: 세션 탭 하단 접기 가능 영역 + `+` 추가 버튼
+   - 클릭 → ContextPanel에 미리보기
+   - 드래그 → 채팅 InputBox에 삽입
+   - 우클릭 → 편집 / 삭제
+7. ContextPanel에 HTML iframe 렌더링 모드 추가
+8. App.tsx 연결: 핀/프롬프트 로드, 드래그&드롭 핸들링
 
 **설계 노트:**
-- 핀은 파일 경로만 저장, 내용은 디스크에서 실시간 읽기 (기존 `readFile()` 재사용)
-- `file_changed` WebSocket 이벤트로 핀된 파일 변경 자동 감지 (추가 WS 메시지 불필요)
-- `isPathSafe()` 재사용하여 워크스페이스 밖 파일 접근 차단
+- 파일 핀: 경로만 저장, 디스크에서 실시간 읽기 (`readFile()` 재사용)
+- 프롬프트 핀: content에 내용 직접 저장
+- `~/.claude/commands/` 항목은 서버 시작 시 프롬프트 목록에 자동 포함 (읽기 전용)
+- `file_changed` WebSocket으로 핀된 파일 변경 자동 감지
+- `isPathSafe()` 재사용하여 워크스페이스 밖 접근 차단
 
 ### Phase 3: Python 실행 + Skills + 안정성 기반 (진행 예정)
 1. python-runner.ts (node-pty, venv 관리, 실행 시간/메모리 상한)
@@ -318,12 +350,17 @@ CREATE TABLE IF NOT EXISTS pins (
 8. 동시 세션 상한 (`MAX_CONCURRENT_SESSIONS`) + 큐잉 UI
 9. 역할별 permissionMode 적용 (admin→bypass, user→acceptEdits)
 
-### Phase 4: 폴리싱 (진행 예정)
-1. 다크/라이트 테마
-2. 모바일 반응형
-3. 비용 추적 대시보드
-4. UX 에러 표시 다듬기 (요약 + "기술 상세" 접기, 로딩 스켈레톤)
-5. 비개발자 UX 다듬기
+### Phase 4: 패널 UX + 모바일 + 폴리싱 (진행 예정)
+1. ContextPanel 드래그 리사이즈 + 열기/닫기 토글 (채팅↔패널 사이 드래그 핸들, 더블클릭 시 기본 너비 리셋, 너비 localStorage 저장)
+2. 파일 드래그&드롭 → 채팅: 사이드바 파일 트리(또는 핀보드)에서 파일을 채팅 InputBox로 드래그하면 파일 내용을 컨텍스트로 첨부하여 Claude에게 전달 (채팅 메시지에 `@파일명` 태그 + 내용 자동 삽입)
+3. 모바일 반응형: 하단 탭바 UI (채팅 | 파일 | 편집 | 핀), ≤768px 브레이크포인트
+   - 파일/핀 클릭 → 편집 탭 자동 전환
+   - 드래그&드롭 → 롱프레스 "채팅에 첨부" 대체
+   - 사이드바/ContextPanel 대신 풀스크린 탭 전환
+4. 다크/라이트 테마
+5. 비용 추적 대시보드
+6. UX 에러 표시 다듬기 (요약 + "기술 상세" 접기, 로딩 스켈레톤)
+7. 비개발자 UX 다듬기
 
 ---
 
@@ -336,7 +373,8 @@ CREATE TABLE IF NOT EXISTS pins (
 5. **Python 실행:** 스크래치패드에 코드 작성 → 실행 → 출력 확인 → pip install 테스트
 6. **Skills:** `/` 입력 → 드롭다운에 prime, ralph 등 표시 → 선택 시 실행 확인 ✅
 7. **SSH 터널:** `ssh -L 32354:localhost:32354 azureuser@4.230.33.35` → 브라우저 접속 ✅
-8. **핀보드:** 파일 트리에서 .html 파일 핀 → 핀보드 탭에 표시 → 클릭 시 iframe 렌더링 확인 → .md 핀 → 마크다운 렌더링 확인 → 핀 해제 확인
+8. **핀보드:** 핀 탭에서 .html 파일 핀 → 클릭 시 iframe 렌더링 → 드래그→채팅 컨텍스트 첨부 → 핀 해제 확인
+9. **프롬프트:** 세션 탭 하단 프롬프트 섹션 → `+`로 추가 → 클릭 시 ContextPanel에 미리보기 → 드래그→채팅 InputBox 삽입 → ~/.claude/commands/ 항목 자동 표시 확인
 
 ---
 

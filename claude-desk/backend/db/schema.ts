@@ -13,6 +13,7 @@ export function getDb(): Database.Database {
     }
     db = new Database(config.dbPath);
     db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
     initSchema(db);
   }
   return db;
@@ -40,6 +41,29 @@ function initSchema(db: Database.Database) {
       total_tokens INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      parent_tool_use_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS pins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_type TEXT NOT NULL DEFAULT 'markdown',
+      sort_order INTEGER DEFAULT 0,
+      user_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
 

@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { ToolUseCard } from './ToolUseCard';
+import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingBlock } from './ThinkingBlock';
 import type { ChatMessage, ContentBlock } from '../../stores/chat-store';
 
@@ -48,35 +48,14 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
         ) : (
           <div className="space-y-3">
             {groups.map((group, gi) => {
-              // Single tool_use — full card
-              if (group.type === 'tool_use' && group.blocks.length === 1) {
-                const block = group.blocks[0];
+              // Tool use blocks — chip layout (single or multiple)
+              if (group.type === 'tool_use') {
                 return (
-                  <ToolUseCard
+                  <ToolChipGroup
                     key={gi}
-                    name={block.toolUse!.name}
-                    input={block.toolUse!.input}
-                    result={block.toolUse!.result}
+                    blocks={group.blocks}
                     onFileClick={onFileClick}
                   />
-                );
-              }
-
-              // Multiple consecutive tool_use blocks — compact grid
-              if (group.type === 'tool_use' && group.blocks.length > 1) {
-                return (
-                  <div key={gi} className="space-y-2">
-                    {group.blocks.map((block, bi) => (
-                      <ToolUseCard
-                        key={bi}
-                        name={block.toolUse!.name}
-                        input={block.toolUse!.input}
-                        result={block.toolUse!.result}
-                        onFileClick={onFileClick}
-                        compact={true}
-                      />
-                    ))}
-                  </div>
                 );
               }
 
@@ -130,6 +109,40 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
       {isUser && (
         <div className="w-8 h-8 rounded-full bg-surface-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1 ring-1 ring-surface-700/50 text-surface-400 select-none">
           U
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  return (
+    <div>
+      {/* Chip row */}
+      <div className="flex flex-wrap gap-1.5">
+        {blocks.map((block, i) => (
+          <ToolChip
+            key={i}
+            name={block.toolUse!.name}
+            input={block.toolUse!.input}
+            result={block.toolUse!.result}
+            isActive={activeIndex === i}
+            onClick={() => setActiveIndex(activeIndex === i ? null : i)}
+          />
+        ))}
+      </div>
+      {/* Expanded detail card below */}
+      {activeIndex !== null && blocks[activeIndex] && (
+        <div className="mt-2">
+          <ToolUseCard
+            name={blocks[activeIndex].toolUse!.name}
+            input={blocks[activeIndex].toolUse!.input}
+            result={blocks[activeIndex].toolUse!.result}
+            onFileClick={onFileClick}
+            defaultExpanded={true}
+          />
         </div>
       )}
     </div>

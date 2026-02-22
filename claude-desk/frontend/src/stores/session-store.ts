@@ -17,7 +17,7 @@ interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   sidebarOpen: boolean;
-  sidebarTab: 'sessions' | 'files';
+  sidebarTab: 'sessions' | 'files' | 'pins';
   searchQuery: string;
 
   setSessions: (sessions: SessionMeta[]) => void;

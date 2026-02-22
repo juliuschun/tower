@@ -5,6 +5,7 @@ interface FileTreeProps {
   entries: FileEntry[];
   onFileClick: (path: string) => void;
   onDirectoryClick: (path: string) => void;
+  onPinFile?: (path: string) => void;
   depth?: number;
 }
 
@@ -63,44 +64,63 @@ function LoadingSpinner() {
   );
 }
 
-export function FileTree({ entries, onFileClick, onDirectoryClick, depth = 0 }: FileTreeProps) {
+const pinnableExtensions = new Set(['md', 'html', 'htm', 'txt', 'py', 'ts', 'tsx', 'js', 'jsx', 'json']);
+
+export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, depth = 0 }: FileTreeProps) {
   return (
     <div className={depth > 0 ? 'ml-3' : ''}>
       {entries.map((entry) => (
         <div key={entry.path}>
-          <button
-            className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-gray-300 hover:bg-surface-800 rounded transition-colors"
-            onClick={() => {
-              if (entry.isDirectory) {
-                onDirectoryClick(entry.path);
-              } else {
-                onFileClick(entry.path);
-              }
-            }}
-          >
-            {entry.isDirectory ? (
-              <>
-                {entry.isLoading ? <LoadingSpinner /> : <ChevronIcon expanded={!!entry.isExpanded} />}
-                <FolderIcon open={!!entry.isExpanded} />
-              </>
-            ) : (
-              <>
-                <span className="w-3" />
-                <FileIcon extension={entry.extension} />
-              </>
+          <div className="group flex items-center">
+            <button
+              className="flex-1 flex items-center gap-1.5 px-2 py-1 text-xs text-gray-300 hover:bg-surface-800 rounded transition-colors"
+              onClick={() => {
+                if (entry.isDirectory) {
+                  onDirectoryClick(entry.path);
+                } else {
+                  onFileClick(entry.path);
+                }
+              }}
+            >
+              {entry.isDirectory ? (
+                <>
+                  {entry.isLoading ? <LoadingSpinner /> : <ChevronIcon expanded={!!entry.isExpanded} />}
+                  <FolderIcon open={!!entry.isExpanded} />
+                </>
+              ) : (
+                <>
+                  <span className="w-3" />
+                  <FileIcon extension={entry.extension} />
+                </>
+              )}
+              <span className="truncate">{entry.name}</span>
+              {entry.size !== undefined && !entry.isDirectory && (
+                <span className="ml-auto text-[10px] text-gray-600">
+                  {entry.size < 1024 ? `${entry.size}B` : `${(entry.size / 1024).toFixed(1)}K`}
+                </span>
+              )}
+            </button>
+            {!entry.isDirectory && onPinFile && pinnableExtensions.has(entry.extension || '') && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPinFile(entry.path);
+                }}
+                className="opacity-0 group-hover:opacity-100 p-1 text-surface-600 hover:text-primary-400 transition-all shrink-0"
+                title="핀 추가"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                </svg>
+              </button>
             )}
-            <span className="truncate">{entry.name}</span>
-            {entry.size !== undefined && !entry.isDirectory && (
-              <span className="ml-auto text-[10px] text-gray-600">
-                {entry.size < 1024 ? `${entry.size}B` : `${(entry.size / 1024).toFixed(1)}K`}
-              </span>
-            )}
-          </button>
+          </div>
           {entry.isDirectory && entry.isExpanded && entry.children && (
             <FileTree
               entries={entry.children}
               onFileClick={onFileClick}
               onDirectoryClick={onDirectoryClick}
+              onPinFile={onPinFile}
               depth={depth + 1}
             />
           )}

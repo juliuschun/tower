@@ -8,6 +8,15 @@ interface ToolUseCardProps {
   result?: string;
   onFileClick?: (path: string) => void;
   compact?: boolean;
+  defaultExpanded?: boolean;
+}
+
+interface ToolChipProps {
+  name: string;
+  input: Record<string, any>;
+  result?: string;
+  isActive: boolean;
+  onClick: () => void;
 }
 
 const toolMeta: Record<string, { icon: React.ReactNode; color: string; bg: string; border: string }> = {
@@ -54,12 +63,48 @@ const defaultMeta = {
   color: 'text-gray-400', bg: 'bg-gray-500/10', border: 'border-gray-500/20',
 };
 
-export function ToolUseCard({ name, input, result, onFileClick, compact }: ToolUseCardProps) {
+export function ToolChip({ name, input, result, isActive, onClick }: ToolChipProps) {
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isRunning = !result && isStreaming;
+  const meta = toolMeta[name] || defaultMeta;
+  const summary = getToolSummary(name, input);
+
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border cursor-pointer transition-all duration-150 text-[12px] max-w-[220px] ${
+        isActive
+          ? `${meta.bg} ${meta.border} ring-1 ring-offset-0 ${meta.border}`
+          : `bg-surface-800/60 border-surface-700/50 hover:${meta.bg} hover:${meta.border}`
+      }`}
+    >
+      <svg className={`w-3.5 h-3.5 ${meta.color} shrink-0`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {meta.icon}
+      </svg>
+      <span className={`truncate ${isActive ? meta.color : 'text-gray-400'}`}>{summary}</span>
+      {isRunning && (
+        <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse shrink-0" />
+      )}
+      {result && !isRunning && (
+        <svg className="w-3 h-3 text-emerald-400/80 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+      {isActive && (
+        <svg className="w-3 h-3 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+export function ToolUseCard({ name, input, result, onFileClick, compact, defaultExpanded }: ToolUseCardProps) {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const isRunning = !result && isStreaming;
 
-  // Collapsed by default — click to expand
-  const [expanded, setExpanded] = useState(false);
+  // Collapsed by default — click to expand (or defaultExpanded from chip)
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const [resultExpanded, setResultExpanded] = useState(true);
 
   const meta = toolMeta[name] || defaultMeta;

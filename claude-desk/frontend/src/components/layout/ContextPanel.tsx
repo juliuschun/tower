@@ -25,6 +25,8 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
   }
 
   const isMarkdown = openFile.language === 'markdown';
+  const isHtml = openFile.language === 'html';
+  const hasPreview = isMarkdown || isHtml;
   const fileName = openFile.path.split('/').pop() || '';
 
   return (
@@ -38,7 +40,7 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
           <span className="text-primary-400 text-xs">수정됨</span>
         )}
 
-        {isMarkdown && (
+        {hasPreview && (
           <div className="flex bg-surface-800 rounded-md p-0.5">
             <button
               className={`px-2 py-0.5 text-xs rounded ${contextPanelTab === 'preview' ? 'bg-surface-700 text-white' : 'text-gray-400'}`}
@@ -76,7 +78,14 @@ export function ContextPanel({ onSave }: ContextPanelProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        {isMarkdown && contextPanelTab === 'preview' ? (
+        {isHtml && contextPanelTab === 'preview' ? (
+          <iframe
+            src={`/api/files/serve?path=${encodeURIComponent(openFile.path)}`}
+            className="w-full h-full border-0 bg-white"
+            sandbox="allow-scripts"
+            title={fileName}
+          />
+        ) : isMarkdown && contextPanelTab === 'preview' ? (
           <div className="prose prose-invert prose-sm max-w-none p-4">
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {openFile.content}

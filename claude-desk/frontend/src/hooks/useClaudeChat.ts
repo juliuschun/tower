@@ -4,6 +4,7 @@ import { useChatStore, type ChatMessage, type ContentBlock } from '../stores/cha
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
 import { parseSDKMessage } from '../utils/message-parser';
+import { toastSuccess, toastError } from '../utils/toast';
 
 export function useClaudeChat() {
   const token = localStorage.getItem('token');
@@ -167,6 +168,10 @@ export function useClaudeChat() {
         });
         break;
 
+      case 'file_saved':
+        toastSuccess(`${data.path.split('/').pop()} 저장됨`);
+        break;
+
       case 'file_changed':
         handleFileChange(data.event, data.path);
         break;
@@ -174,6 +179,7 @@ export function useClaudeChat() {
       case 'error':
         setStreaming(false);
         currentAssistantMsg.current = null;
+        toastError(data.message || 'Unknown error');
         addMessage({
           id: crypto.randomUUID(),
           role: 'system',
@@ -188,9 +194,10 @@ export function useClaudeChat() {
 
   const sendMessage = useCallback(
     (message: string, cwd?: string) => {
+      const messageId = crypto.randomUUID();
       // Add user message locally
       addMessage({
-        id: crypto.randomUUID(),
+        id: messageId,
         role: 'user',
         content: [{ type: 'text', text: message }],
         timestamp: Date.now(),
@@ -202,6 +209,7 @@ export function useClaudeChat() {
       send({
         type: 'chat',
         message,
+        messageId,
         sessionId: useChatStore.getState().sessionId,
         claudeSessionId: useChatStore.getState().claudeSessionId,
         cwd,
