@@ -467,3 +467,35 @@
 
 ### 총 규모
 - 수정 4개, ~86줄 추가
+
+## 2026-02-22: PM2 통일 관리 — 이중 실행 방식 포트 충돌 해결
+
+### 문제
+`start.sh`(`npx tsx backend/index.ts` 직접 실행)와 PM2(`node dist/backend/index.js`)가 공존. 고아 node 프로세스가 포트 32354를 잡은 채 남아 PM2가 `EADDRINUSE`로 1344회 크래시 루프.
+
+### 원인 분석
+- PM2 managed PID와 실제 포트 점유 PID가 다름 (고아 프로세스)
+- `start.sh`가 `npx tsx`로 직접 실행하는 방식이라 PM2 관리 밖에서 프로세스 생성
+- 두 방식이 같은 포트를 쓰므로 어느 쪽이든 먼저 점유하면 상대방 크래시
+
+### 해결: PM2 ecosystem.config.cjs로 통일
+- **신규** `ecosystem.config.cjs` — PM2 선언형 설정 (포트, 환경변수, 재시작 정책, 로그 포맷)
+- **수정** `start.sh` — `npx tsx` 직접 실행 → PM2 래퍼 (start/stop/restart/logs/status)
+- **수정** `package.json` — `npm start` = PM2 시작, `npm run restart` = 빌드 + PM2 재시작
+- **수정** `CLAUDE.md` — PM2 관리 방법 명시, 직접 실행 금지 안내
+- **수정** `codify.md` — 방법 5 서버 관리 섹션 PM2로 통일, 운영 섹션 추가
+- **수정** `MEMORY.md` — PM2 ecosystem 기반 관리로 업데이트
+
+### 설계 결정: PM2 vs systemd
+| 기준 | PM2 (채택) | systemd |
+|------|-----------|---------|
+| sudo 불필요 | O | X (서비스 파일 등록 필요) |
+| 이미 사용 중 | O | X |
+| 환경변수 관리 | ecosystem.config.cjs | .service 파일 |
+| 오버헤드 | ~20-50MB 데몬 | 거의 0 |
+
+5인 규모 개인 도구이므로 PM2의 편의성 우선.
+
+### 수정 파일
+- `ecosystem.config.cjs` (신규)
+- `start.sh`, `package.json`, `CLAUDE.md`, `codify.md`, `MEMORY.md`

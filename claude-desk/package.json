@@ -8,7 +8,10 @@
     "dev:backend": "tsx watch backend/index.ts",
     "dev:frontend": "vite",
     "build": "vite build && tsc -p tsconfig.backend.json",
-    "start": "node dist/backend/index.js",
+    "start": "pm2 start ecosystem.config.cjs",
+    "stop": "pm2 stop claude-desk",
+    "restart": "npm run build && pm2 restart claude-desk",
+    "logs": "pm2 logs claude-desk --lines 50",
     "preview": "vite preview"
   },
   "dependencies": {

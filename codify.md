@@ -684,3 +684,65 @@ cd ~/tunnelingcc/claude-desk
 ```
 
 **교훈:** `npx tsx` 직접 실행이나 `node dist/...` 수동 실행은 환경변수 누락 + PM2와 포트 충돌 위험. PM2 ecosystem 설정 파일로 환경변수를 영속화.
+
+---
+
+## 운영: PM2 통일 관리
+
+### 근본 문제 — 이중 실행 방식의 포트 충돌
+`start.sh`(`npx tsx backend/index.ts`)와 PM2(`node dist/backend/index.js`)가 공존하면, 하나가 포트를 잡은 채 고아 프로세스로 남아 다른 쪽이 `EADDRINUSE`로 크래시 루프에 빠짐. PM2 재시작 1344회 기록.
+
+### 해결 — ecosystem.config.cjs로 선언형 관리
+```js
+// ecosystem.config.cjs
+module.exports = {
+  apps: [{
+    name: 'claude-desk',
+    script: 'dist/backend/index.js',
+    cwd: '/home/azureuser/tunnelingcc/claude-desk',
+    env: {
+      NODE_ENV: 'production',
+      PORT: 32354,
+      DEFAULT_CWD: '/home/azureuser',
+      WORKSPACE_ROOT: '/home/azureuser',
+      GIT_AUTO_COMMIT: 'true',
+    },
+    autorestart: true,
+    max_restarts: 10,
+    min_uptime: '5s',
+    restart_delay: 3000,
+  }],
+};
+```
+
+### 운영 명령어
+```bash
+cd ~/tunnelingcc/claude-desk
+
+./start.sh start      # 빌드 + PM2 시작
+./start.sh restart    # 빌드 + PM2 재시작
+./start.sh stop       # 중지
+./start.sh logs       # 로그
+./start.sh status     # 상태
+
+# 또는 npm scripts
+npm run restart       # = npm run build && pm2 restart claude-desk
+npm run logs
+```
+
+### 절대 하지 말 것
+- `npx tsx backend/index.ts` — PM2와 포트 충돌
+- `node dist/backend/index.js` — 환경변수 누락 + 포트 충돌
+- 환경변수를 커맨드라인으로 전달 — ecosystem.config.cjs에 선언된 것 사용
+
+### 고아 프로세스 발생 시 복구
+```bash
+# 1. 포트 점유 프로세스 확인
+lsof -i :32354
+# 2. PM2 PID와 비교
+pm2 pid claude-desk
+# 3. 고아 프로세스 kill
+kill <orphan-pid>
+# 4. PM2 재시작
+pm2 restart claude-desk
+```
