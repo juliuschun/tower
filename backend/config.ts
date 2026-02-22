@@ -1,7 +1,12 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import os from 'os';
 import fs from 'fs';
+
+// Resolve project root from source file location (not process.cwd())
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
 function findClaudeExecutable(): string {
   if (process.env.CLAUDE_PATH) return process.env.CLAUDE_PATH;
@@ -59,14 +64,14 @@ export const config = {
   workspaceRoot: process.env.WORKSPACE_ROOT || os.homedir(),
   hiddenPatterns: ['.git', 'node_modules', '__pycache__', '.venv', '.env', '.DS_Store'],
 
-  // DB
-  dbPath: process.env.DB_PATH || path.join(process.cwd(), 'data', 'claude-desk.db'),
+  // DB — use PROJECT_ROOT so path is stable regardless of cwd
+  dbPath: process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'claude-desk.db'),
 
   // Git auto-commit
   gitAutoCommit: process.env.GIT_AUTO_COMMIT !== 'false',
 
   // Frontend (for production)
-  frontendDir: path.join(process.cwd(), 'dist', 'frontend'),
+  frontendDir: path.join(PROJECT_ROOT, 'dist', 'frontend'),
 
   // Server epoch — changes on each restart, used to detect server restarts
   serverEpoch: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),

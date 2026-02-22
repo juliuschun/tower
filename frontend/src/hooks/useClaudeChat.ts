@@ -41,6 +41,7 @@ export function useClaudeChat() {
   const wsBase = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
   const wsUrl = token ? `${wsBase}?token=${encodeURIComponent(token)}` : wsBase;
   const currentAssistantMsg = useRef<ChatMessage | null>(null);
+  const currentAssistantSessionRef = useRef<string | null>(null);
   const sendRef = useRef<(data: any) => void>(() => {});
   const serverEpochRef = useRef<string | null>(null);
 
@@ -95,9 +96,9 @@ export function useClaudeChat() {
 
         // System init — may repeat each turn, only update info without resetting
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'init') {
-          // Only update session IDs if we're still on the same session
+          // Only update session IDs if we're still on the same session (or first init)
           const curSid = useChatStore.getState().sessionId;
-          if (!curSid || curSid === data.sessionId) {
+          if (curSid === data.sessionId) {
             setSessionId(data.sessionId);
             setClaudeSessionId(sdkMsg.session_id);
           } else {
@@ -180,6 +181,12 @@ export function useClaudeChat() {
         if (sdkMsg.type === 'assistant') {
           const parsed = parseSDKMessage(sdkMsg);
           const msgId = sdkMsg.uuid || crypto.randomUUID();
+
+          // Reset ref if session changed since last assistant message
+          if (currentAssistantSessionRef.current && currentAssistantSessionRef.current !== data.sessionId) {
+            currentAssistantMsg.current = null;
+          }
+          currentAssistantSessionRef.current = data.sessionId;
 
           if (!currentAssistantMsg.current || currentAssistantMsg.current.id !== msgId) {
             // New assistant message (new turn or new UUID)

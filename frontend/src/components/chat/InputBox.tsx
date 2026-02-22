@@ -9,15 +9,21 @@ interface InputBoxProps {
 
 export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const [input, setInput] = useState('');
-  const [queued, setQueued] = useState<string | null>(null);
+  const [queued, setQueued] = useState<{ message: string; sessionId: string } | null>(null);
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounter = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const currentSessionId = useChatStore((s) => s.sessionId);
   const slashCommands = useChatStore((s) => s.slashCommands);
   const attachments = useChatStore((s) => s.attachments);
+
+  // Clear queued message when session changes
+  useEffect(() => {
+    setQueued(null);
+  }, [currentSessionId]);
 
   const filteredCommands: SlashCommandInfo[] = input.startsWith('/')
     ? slashCommands.filter((cmd) => cmd.name.toLowerCase().includes(input.slice(1).toLowerCase()))
@@ -34,10 +40,13 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     setSelectedIndex(0);
   }, [filteredCommands.length]);
 
-  // Auto-send queued message when streaming stops
+  // Auto-send queued message when streaming stops (only if session matches)
   useEffect(() => {
     if (!isStreaming && queued) {
-      onSend(queued);
+      const nowSid = useChatStore.getState().sessionId;
+      if (nowSid === queued.sessionId) {
+        onSend(queued.message);
+      }
       setQueued(null);
     }
   }, [isStreaming, queued, onSend]);
@@ -81,7 +90,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     const message = buildMessage(trimmed);
 
     if (isStreaming) {
-      setQueued(message);
+      setQueued({ message, sessionId: useChatStore.getState().sessionId || '' });
     } else {
       onSend(message);
     }
@@ -226,7 +235,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       {queued && (
         <div className="mb-2 flex items-center gap-2 px-4 py-2 bg-primary-900/20 border border-primary-500/20 rounded-xl text-[13px] text-primary-300 backdrop-blur-sm">
           <div className="w-4 h-4 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin shrink-0" />
-          <span className="truncate flex-1">대기 중: {queued}</span>
+          <span className="truncate flex-1">대기 중: {queued.message}</span>
           <button
             onClick={handleCancelQueue}
             className="text-primary-400/60 hover:text-primary-300 p-0.5 transition-colors shrink-0"

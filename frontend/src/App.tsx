@@ -157,6 +157,7 @@ function App() {
     if (useChatStore.getState().isStreaming) {
       abort();
     }
+    useChatStore.getState().clearAttachments();
     const session = await createSessionInDb();
     if (session) {
       setActiveSessionId(session.id);
@@ -202,6 +203,7 @@ function App() {
       abort();
     }
 
+    useChatStore.getState().clearAttachments();
     setActiveSessionId(session.id);
     clearMessages();
     useChatStore.getState().setSessionId(session.id);

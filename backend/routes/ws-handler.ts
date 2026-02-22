@@ -17,6 +17,7 @@ interface WsClient {
   userRole?: string;        // role from JWT (admin/user)
   userId?: number;          // user ID from JWT
   username?: string;        // username from JWT
+  activeQueryEpoch: number; // incremented on each new query / session switch
 }
 
 const SDK_HANG_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -70,7 +71,7 @@ export function setupWebSocket(server: Server) {
 
   wss.on('connection', (ws, req) => {
     const clientId = uuidv4();
-    const client: WsClient = { id: clientId, ws };
+    const client: WsClient = { id: clientId, ws, activeQueryEpoch: 0 };
 
     // Extract user role from JWT token
     if (config.authEnabled) {
@@ -200,6 +201,9 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
     }
   }
 
+  // Invalidate any running query loop for this client
+  client.activeQueryEpoch++;
+
   // Update client to new session
   client.sessionId = newSessionId;
   if (data.claudeSessionId) {
@@ -238,6 +242,9 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
   } catch {}
 
+  // Increment epoch — invalidates any prior running loop for this client
+  const myEpoch = ++client.activeQueryEpoch;
+
   // Use claudeSessionId from the message (per-session) over client-level (per-connection)
   const resumeSessionId = data.claudeSessionId || client.claudeSessionId;
   let currentAssistantId: string | null = null;
@@ -269,8 +276,8 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       permissionMode,
       model: data.model,
     })) {
-      // GUARD: Client switched to a different session — stop this loop immediately
-      if (client.sessionId !== sessionId) {
+      // GUARD: Client switched session or started a new query — stop this stale loop
+      if (client.activeQueryEpoch !== myEpoch) {
         abortSession(sessionId);
         break;
       }
@@ -351,7 +358,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     }
 
     // Client switched away during streaming — don't send sdk_done to wrong session
-    if (client.sessionId !== sessionId) return;
+    if (client.activeQueryEpoch !== myEpoch) return;
 
     // Get final Claude session ID
     const claudeId = getClaudeSessionId(sessionId);
@@ -410,7 +417,13 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
 function handleAbort(client: WsClient, data: { sessionId?: string }) {
   const sessionId = data.sessionId || client.sessionId;
   if (sessionId) {
+    // Invalidate running query loop for this client
+    client.activeQueryEpoch++;
     const aborted = abortSession(sessionId);
+    // Clean up session routing so stale messages aren't delivered
+    if (sessionClients.get(sessionId) === client.id) {
+      sessionClients.delete(sessionId);
+    }
     send(client.ws, { type: 'abort_result', aborted, sessionId });
   }
 }
