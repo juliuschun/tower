@@ -25,7 +25,7 @@ interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   sidebarOpen: boolean;
-  sidebarTab: 'sessions' | 'files' | 'pins' | 'git';
+  sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git';
   searchQuery: string;
   isMobile: boolean;
   mobileTab: MobileTab;
@@ -37,7 +37,7 @@ interface SessionState {
   removeSession: (id: string) => void;
   updateSessionMeta: (id: string, updates: Partial<SessionMeta>) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSidebarTab: (tab: 'sessions' | 'files' | 'pins' | 'git') => void;
+  setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git') => void;
   setSearchQuery: (query: string) => void;
   setIsMobile: (v: boolean) => void;
   setMobileTab: (tab: MobileTab) => void;

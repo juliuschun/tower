@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useSessionStore, type SessionMeta } from '../../stores/session-store';
 import { useFileStore } from '../../stores/file-store';
 import { usePinStore, type Pin } from '../../stores/pin-store';
@@ -8,6 +8,7 @@ import { FileTree } from '../files/FileTree';
 import { PinList } from '../pinboard/PinList';
 import { GitPanel } from '../git/GitPanel';
 import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
+import { toastError } from '../../utils/toast';
 
 interface SidebarProps {
   onNewSession: () => void;
@@ -49,8 +50,13 @@ export function Sidebar({
   const tree = useFileStore((s) => s.tree);
 
   const prompts = usePromptStore((s) => s.prompts);
-  const promptsExpanded = usePromptStore((s) => s.expanded);
-  const setPromptsExpanded = usePromptStore((s) => s.setExpanded);
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const cwd = activeSession?.cwd || '';
+  const projectName = cwd ? cwd.split('/').filter(Boolean).pop() || '/' : '';
+  const displayPath = cwd.replace(/^\/home\/[^/]+/, '~');
+
+  const [cwdPickerOpen, setCwdPickerOpen] = useState(false);
 
   // Filter and sort sessions: favorites first, then by updatedAt
   const filteredSessions = useMemo(() => {
@@ -65,9 +71,47 @@ export function Sidebar({
     });
   }, [sessions, searchQuery]);
 
+  const tabClass = (tab: string) =>
+    `flex-1 py-2 text-[11px] font-semibold tracking-wide transition-colors ${
+      sidebarTab === tab
+        ? 'text-primary-400 border-b-2 border-primary-500'
+        : 'text-surface-700 hover:text-surface-600'
+    }`;
+
   return (
     <aside className="w-full md:w-[260px] bg-surface-900 border-r border-surface-800 flex flex-col h-full shrink-0">
-      {/* New session button — always visible */}
+      {/* Project header */}
+      {cwd && (
+        <div className="px-4 pt-3 pb-2 border-b border-surface-800/50 relative">
+          <button
+            onClick={() => setCwdPickerOpen(!cwdPickerOpen)}
+            className="w-full text-left group"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-yellow-500/70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+              </svg>
+              <span className="text-[13px] font-bold text-gray-200 truncate group-hover:text-primary-300 transition-colors">
+                {projectName}
+              </span>
+              <svg className={`w-3 h-3 text-surface-600 ml-auto shrink-0 transition-transform ${cwdPickerOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+            <p className="text-[10px] text-surface-600 mt-0.5 truncate pl-6">{displayPath}</p>
+          </button>
+          {cwdPickerOpen && activeSessionId && (
+            <SidebarCwdPicker
+              currentCwd={cwd}
+              sessionId={activeSessionId}
+              onClose={() => setCwdPickerOpen(false)}
+              onRequestFileTree={onRequestFileTree}
+            />
+          )}
+        </div>
+      )}
+
+      {/* New session button */}
       <div className="p-4 border-b border-surface-800/50">
         <button
           onClick={onNewSession}
@@ -80,48 +124,13 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Tab switcher */}
+      {/* Tab switcher — 5 tabs */}
       <div className="flex border-b border-surface-800/50">
-        <button
-          onClick={() => setSidebarTab('sessions')}
-          className={`flex-1 py-2 text-[12px] font-semibold tracking-wide transition-colors ${
-            sidebarTab === 'sessions'
-              ? 'text-primary-400 border-b-2 border-primary-500'
-              : 'text-surface-700 hover:text-surface-600'
-          }`}
-        >
-          세션
-        </button>
-        <button
-          onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }}
-          className={`flex-1 py-2 text-[12px] font-semibold tracking-wide transition-colors ${
-            sidebarTab === 'files'
-              ? 'text-primary-400 border-b-2 border-primary-500'
-              : 'text-surface-700 hover:text-surface-600'
-          }`}
-        >
-          파일
-        </button>
-        <button
-          onClick={() => setSidebarTab('pins')}
-          className={`flex-1 py-2 text-[12px] font-semibold tracking-wide transition-colors ${
-            sidebarTab === 'pins'
-              ? 'text-primary-400 border-b-2 border-primary-500'
-              : 'text-surface-700 hover:text-surface-600'
-          }`}
-        >
-          핀보드
-        </button>
-        <button
-          onClick={() => setSidebarTab('git')}
-          className={`flex-1 py-2 text-[12px] font-semibold tracking-wide transition-colors ${
-            sidebarTab === 'git'
-              ? 'text-primary-400 border-b-2 border-primary-500'
-              : 'text-surface-700 hover:text-surface-600'
-          }`}
-        >
-          버전
-        </button>
+        <button onClick={() => setSidebarTab('sessions')} className={tabClass('sessions')}>세션</button>
+        <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>파일</button>
+        <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>프롬프트</button>
+        <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>핀보드</button>
+        <button onClick={() => setSidebarTab('git')} className={tabClass('git')}>버전</button>
       </div>
 
       {/* Tab content */}
@@ -160,46 +169,6 @@ export function Sidebar({
                 />
               ))}
             </div>
-
-            {/* Collapsible prompt section */}
-            <div className="mt-3 border-t border-surface-800/50 pt-2">
-              <button
-                onClick={() => setPromptsExpanded(!promptsExpanded)}
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold text-surface-600 hover:text-surface-400 transition-colors"
-              >
-                <svg className={`w-3 h-3 transition-transform ${promptsExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                프롬프트 ({prompts.length})
-                {onPromptAdd && (
-                  <span
-                    onClick={(e) => { e.stopPropagation(); onPromptAdd(); }}
-                    className="ml-auto text-surface-700 hover:text-primary-400 transition-colors"
-                    title="프롬프트 추가"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </span>
-                )}
-              </button>
-              {promptsExpanded && (
-                <div className="mt-1 space-y-0.5">
-                  {prompts.map((prompt) => (
-                    <PromptItemComponent
-                      key={prompt.id}
-                      prompt={prompt}
-                      onClick={(p) => onPromptClick?.(p)}
-                      onEdit={(p) => onPromptEdit?.(p)}
-                      onDelete={(id) => onPromptDelete?.(id)}
-                    />
-                  ))}
-                  {prompts.length === 0 && (
-                    <p className="text-[11px] text-surface-700 px-3 py-2">프롬프트가 없습니다</p>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         ) : sidebarTab === 'files' ? (
           <div className="px-2">
@@ -213,6 +182,37 @@ export function Sidebar({
                 onPinFile={onPinFile}
                 onNewSessionInFolder={onNewSessionInFolder}
               />
+            )}
+          </div>
+        ) : sidebarTab === 'prompts' ? (
+          <div className="px-3">
+            {onPromptAdd && (
+              <button
+                onClick={onPromptAdd}
+                className="w-full flex items-center justify-center gap-1.5 py-2 mb-2 rounded-md border border-dashed border-surface-700 text-[11px] text-surface-600 hover:text-primary-400 hover:border-primary-500/50 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                프롬프트 추가
+              </button>
+            )}
+            {prompts.length === 0 ? (
+              <p className="text-[12px] text-surface-700 px-2 py-6 text-center">
+                저장된 프롬프트가 없습니다
+              </p>
+            ) : (
+              <div className="space-y-0.5">
+                {prompts.map((prompt) => (
+                  <PromptItemComponent
+                    key={prompt.id}
+                    prompt={prompt}
+                    onClick={(p) => onPromptClick?.(p)}
+                    onEdit={(p) => onPromptEdit?.(p)}
+                    onDelete={(id) => onPromptDelete?.(id)}
+                  />
+                ))}
+              </div>
             )}
           </div>
         ) : sidebarTab === 'pins' ? (
@@ -236,5 +236,151 @@ export function Sidebar({
         <span className="text-[10px] font-semibold text-surface-800">v0.1.0</span>
       </div>
     </aside>
+  );
+}
+
+/** Inline CWD picker for the project header */
+function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }: {
+  currentCwd: string;
+  sessionId: string;
+  onClose: () => void;
+  onRequestFileTree: () => void;
+}) {
+  const [browsePath, setBrowsePath] = useState(currentCwd);
+  const [dirs, setDirs] = useState<{ name: string; path: string }[]>([]);
+  const [inputValue, setInputValue] = useState(currentCwd);
+  const [loading, setLoading] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const sessions = useSessionStore((s) => s.sessions);
+
+  const recentCwds = Array.from(new Set(sessions.map((s) => s.cwd).filter(Boolean)))
+    .filter((c) => c !== currentCwd)
+    .slice(0, 5);
+
+  useEffect(() => {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(`/api/directories?path=${encodeURIComponent(browsePath)}`, { headers })
+      .then((r) => r.ok ? r.json() : { entries: [] })
+      .then((data) => setDirs(data.entries || []))
+      .catch(() => setDirs([]))
+      .finally(() => setLoading(false));
+  }, [browsePath]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const selectCwd = async (newCwd: string) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ cwd: newCwd }),
+      });
+      if (res.ok) {
+        useSessionStore.getState().updateSessionMeta(sessionId, { cwd: newCwd });
+        onRequestFileTree();
+        onClose();
+      } else {
+        const err = await res.json();
+        toastError(err.error || 'CWD 변경 실패');
+      }
+    } catch {
+      toastError('CWD 변경 실패');
+    }
+  };
+
+  const goUp = () => {
+    const parent = browsePath.replace(/\/[^/]+\/?$/, '') || '/';
+    setBrowsePath(parent);
+    setInputValue(parent);
+  };
+
+  const handleInputSubmit = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      selectCwd(inputValue.trim());
+    }
+  };
+
+  return (
+    <div ref={pickerRef} className="absolute top-full left-0 right-0 mt-1 mx-2 bg-surface-900 border border-surface-700 rounded-lg shadow-2xl z-50 overflow-hidden">
+      {/* Manual input */}
+      <div className="p-2 border-b border-surface-800">
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleInputSubmit}
+          className="w-full bg-surface-950 border border-surface-700 rounded-md px-3 py-1.5 text-[12px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
+          placeholder="경로 입력 후 Enter"
+        />
+      </div>
+
+      {/* Recent cwds */}
+      {recentCwds.length > 0 && (
+        <div className="px-2 py-1.5 border-b border-surface-800">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 px-1">최근</div>
+          {recentCwds.map((c) => (
+            <button
+              key={c}
+              onClick={() => selectCwd(c)}
+              className="w-full text-left px-2 py-1 rounded text-[11px] text-gray-400 hover:bg-surface-800 hover:text-gray-200 truncate font-mono"
+            >
+              {c.replace(/^\/home\/[^/]+/, '~')}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Directory browser */}
+      <div className="max-h-48 overflow-y-auto">
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-surface-800">
+          <button
+            onClick={goUp}
+            disabled={browsePath === '/'}
+            className="p-1 rounded hover:bg-surface-800 text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="상위 디렉토리"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+          </button>
+          <span className="text-[11px] text-gray-500 font-mono truncate flex-1">{browsePath.replace(/^\/home\/[^/]+/, '~')}</span>
+          <button
+            onClick={() => selectCwd(browsePath)}
+            className="text-[10px] px-2 py-0.5 rounded bg-primary-600/20 border border-primary-500/30 text-primary-300 hover:bg-primary-600/30"
+          >
+            선택
+          </button>
+        </div>
+        {loading ? (
+          <div className="py-4 text-center text-[11px] text-gray-500">로딩 중...</div>
+        ) : dirs.length === 0 ? (
+          <div className="py-4 text-center text-[11px] text-gray-500">하위 디렉토리 없음</div>
+        ) : (
+          dirs.map((d) => (
+            <button
+              key={d.path}
+              onClick={() => { setBrowsePath(d.path); setInputValue(d.path); }}
+              onDoubleClick={() => selectCwd(d.path)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-800/60 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5 text-yellow-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+              <span className="text-[11px] text-gray-300 truncate">{d.name}</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
