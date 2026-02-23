@@ -1,9 +1,10 @@
-import React, { useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
-import { useChatStore, type ChatMessage } from '../../stores/chat-store';
+import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { useChatStore, type ChatMessage, type PendingQuestion } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { normalizeContentBlocks } from '../../utils/message-parser';
 import { MessageBubble } from './MessageBubble';
 import { InputBox } from './InputBox';
+import { FloatingQuestionCard } from './FloatingQuestionCard';
 import { SummaryCard } from '../sessions/SummaryCard';
 
 /**
@@ -38,14 +39,49 @@ interface ChatPanelProps {
 export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: ChatPanelProps) {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const pendingQuestion = useChatStore((s) => s.pendingQuestion);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const isMobile = useSessionStore((s) => s.isMobile);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+
+  // Track answered state: keep question data + answer briefly after answering
+  const [answeredState, setAnsweredState] = useState<{
+    question: PendingQuestion;
+    answer: string;
+  } | null>(null);
+
+  // Clear answered state after brief display
+  useEffect(() => {
+    if (answeredState) {
+      const timer = setTimeout(() => setAnsweredState(null), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [answeredState]);
+
+  // Clear answered state when a new pendingQuestion arrives (new question from SDK)
+  useEffect(() => {
+    if (pendingQuestion) {
+      setAnsweredState(null);
+    }
+  }, [pendingQuestion]);
+
+  const handleAnswerFromCard = useCallback((questionId: string, answer: string) => {
+    const currentQ = useChatStore.getState().pendingQuestion;
+    if (currentQ) {
+      setAnsweredState({ question: currentQ, answer });
+    }
+    onAnswerQuestion?.(questionId, answer);
+  }, [onAnswerQuestion]);
+
+  // Show floating card: live pending > recently answered (brief)
+  const floatingQuestion = pendingQuestion || answeredState?.question || null;
+  const floatingAnswered = (answeredState && !pendingQuestion)
+    ? { questionId: answeredState.question.questionId, answer: answeredState.answer }
+    : null;
+
   const mergedMessages = useMemo(() => {
     const merged = mergeConsecutiveAssistant(messages);
-    // Safety net: re-normalize blocks to extract <thinking> tags from text blocks
-    // that may have been stored before the extraction logic was added
     return merged.map((msg) =>
       msg.role === 'assistant'
         ? { ...msg, content: normalizeContentBlocks(msg.content) }
@@ -56,14 +92,12 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
 
-  // Track whether user is near bottom (within 150px)
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
     isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
   }, []);
 
-  // Auto-scroll: set scrollTop before browser paint — no visible animation
   useLayoutEffect(() => {
     if (!isNearBottom.current) return;
     const el = scrollContainerRef.current;
@@ -98,7 +132,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
           )}
 
           {mergedMessages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onAnswerQuestion={onAnswerQuestion} onRetry={onSend} />
+            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} />
           ))}
 
           {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant' && (
@@ -118,8 +152,15 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
         </div>
       </div>
 
-      {/* Input */}
+      {/* Input + Floating Question */}
       <div className={`absolute left-0 right-0 px-3 md:px-6 ${isMobile ? 'bottom-[4.5rem]' : 'bottom-6'}`}>
+        {floatingQuestion && (
+          <FloatingQuestionCard
+            question={floatingQuestion}
+            onAnswer={handleAnswerFromCard}
+            answered={floatingAnswered}
+          />
+        )}
         <InputBox onSend={onSend} onAbort={onAbort} />
       </div>
     </div>

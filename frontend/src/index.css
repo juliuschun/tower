@@ -35,6 +35,28 @@
   --th-prose-hr: #1e2638;
   --th-scrollbar-thumb: #2e3a50;
   --th-scrollbar-thumb-hover: #3e4c64;
+  /* Question card — pending (muted slate-amber) */
+  --th-q-pending-accent: #a0abc0;
+  --th-q-pending-heading: #c5cdd8;
+  --th-q-pending-border: rgba(160, 171, 192, 0.25);
+  --th-q-pending-bg: rgba(160, 171, 192, 0.04);
+  --th-q-pending-btn-bg: rgba(139, 92, 246, 0.08);
+  --th-q-pending-btn-border: rgba(139, 92, 246, 0.25);
+  --th-q-pending-btn-text: #c4b5fd;
+  --th-q-pending-btn-hover-bg: rgba(139, 92, 246, 0.15);
+  --th-q-pending-btn-hover-border: rgba(139, 92, 246, 0.40);
+  --th-q-pending-desc: rgba(196, 181, 253, 0.50);
+  --th-q-pending-spinner-track: rgba(160, 171, 192, 0.20);
+  --th-q-pending-spinner-head: #a0abc0;
+  --th-q-pending-muted: rgba(160, 171, 192, 0.60);
+  /* Question card — done (muted slate-green) */
+  --th-q-done-accent: #86d4b0;
+  --th-q-done-heading: #a0c4b4;
+  --th-q-done-border: rgba(134, 212, 176, 0.20);
+  --th-q-done-bg: rgba(134, 212, 176, 0.04);
+  --th-q-done-selected-bg: rgba(134, 212, 176, 0.10);
+  --th-q-done-selected-border: rgba(134, 212, 176, 0.25);
+  --th-q-done-selected-text: #a0c4b4;
   /* Gray text scale (light-on-dark, slate) */
   --th-gray-100: #edf0f5;
   --th-gray-200: #dce2ea;
@@ -76,6 +98,28 @@
   --th-prose-hr: #e5e7eb;
   --th-scrollbar-thumb: #cbd5e1;
   --th-scrollbar-thumb-hover: #94a3b8;
+  /* Question card — pending (muted slate for light bg) */
+  --th-q-pending-accent: #6b7280;
+  --th-q-pending-heading: #4b5563;
+  --th-q-pending-border: rgba(107, 114, 128, 0.25);
+  --th-q-pending-bg: rgba(107, 114, 128, 0.04);
+  --th-q-pending-btn-bg: rgba(124, 58, 237, 0.06);
+  --th-q-pending-btn-border: rgba(124, 58, 237, 0.25);
+  --th-q-pending-btn-text: #6d28d9;
+  --th-q-pending-btn-hover-bg: rgba(124, 58, 237, 0.12);
+  --th-q-pending-btn-hover-border: rgba(124, 58, 237, 0.40);
+  --th-q-pending-desc: rgba(109, 40, 217, 0.50);
+  --th-q-pending-spinner-track: rgba(107, 114, 128, 0.20);
+  --th-q-pending-spinner-head: #6b7280;
+  --th-q-pending-muted: rgba(107, 114, 128, 0.60);
+  /* Question card — done (muted green for light bg) */
+  --th-q-done-accent: #3d8b6e;
+  --th-q-done-heading: #2d6b54;
+  --th-q-done-border: rgba(61, 139, 110, 0.25);
+  --th-q-done-bg: rgba(61, 139, 110, 0.04);
+  --th-q-done-selected-bg: rgba(61, 139, 110, 0.08);
+  --th-q-done-selected-border: rgba(61, 139, 110, 0.25);
+  --th-q-done-selected-text: #2d6b54;
   /* Gray text scale (dark-on-light) */
   --th-gray-100: #111827;
   --th-gray-200: #1f2937;
@@ -325,6 +369,18 @@ code, pre, .font-mono {
 
 .thinking-indicator {
   animation: thinking-pulse 1.5s ease-in-out infinite;
+}
+
+/* ─── Floating question card button hover ─── */
+.floating-q-btn:hover {
+  background: var(--th-q-pending-btn-hover-bg) !important;
+  border-color: var(--th-q-pending-btn-hover-border) !important;
+}
+
+/* ─── Floating card slide-up ─── */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ─── Mobile slide-in animation ─── */

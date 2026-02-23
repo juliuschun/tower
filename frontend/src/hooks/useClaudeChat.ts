@@ -113,6 +113,7 @@ export function useClaudeChat() {
           toastWarning('서버가 재시작되었습니다');
           useChatStore.getState().setStreaming(false);
           useChatStore.getState().markPendingFailed();
+          useChatStore.getState().setPendingQuestion(null);
           currentAssistantMsg.current = null;
         }
         serverEpochRef.current = newEpoch || null;
@@ -126,6 +127,14 @@ export function useClaudeChat() {
           // Merge DB messages to fill any gap from disconnection
           if (data.sessionId) {
             mergeMessagesFromDb(data.sessionId);
+          }
+          // Restore pending question if backend has one
+          if (data.pendingQuestion) {
+            useChatStore.getState().setPendingQuestion({
+              questionId: data.pendingQuestion.questionId,
+              sessionId: data.sessionId,
+              questions: data.pendingQuestion.questions,
+            });
           }
           toastSuccess('스트림 재연결됨');
         } else {
@@ -152,6 +161,14 @@ export function useClaudeChat() {
           if (data.sessionId) {
             mergeMessagesFromDb(data.sessionId);
           }
+        }
+        // Restore pending question if backend has one
+        if (data.pendingQuestion) {
+          useChatStore.getState().setPendingQuestion({
+            questionId: data.pendingQuestion.questionId,
+            sessionId: data.sessionId,
+            questions: data.pendingQuestion.questions,
+          });
         }
         break;
       }
@@ -311,6 +328,7 @@ export function useClaudeChat() {
         if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
 
         setStreaming(false);
+        useChatStore.getState().setPendingQuestion(null);
         currentAssistantMsg.current = null;
         const activeId = useSessionStore.getState().activeSessionId;
         if (data.claudeSessionId) {

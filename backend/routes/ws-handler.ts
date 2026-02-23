@@ -273,20 +273,23 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
 
   // Check if SDK is still running for this session
   const sdkSession = getSDKSession(sessionId);
-  if (sdkSession?.isRunning) {
-    send(client.ws, { type: 'reconnect_result', status: 'streaming', sessionId });
 
-    // Re-send any pending questions for this session
-    for (const pq of pendingQuestions.values()) {
-      if (pq.sessionId === sessionId) {
-        send(client.ws, {
-          type: 'ask_user',
-          sessionId,
-          questionId: pq.questionId,
-          questions: pq.questions,
-        });
-      }
+  // Find pending question for this session
+  let pendingQ: { questionId: string; questions: any[] } | undefined;
+  for (const pq of pendingQuestions.values()) {
+    if (pq.sessionId === sessionId) {
+      pendingQ = { questionId: pq.questionId, questions: pq.questions };
+      break;
     }
+  }
+
+  if (sdkSession?.isRunning) {
+    send(client.ws, {
+      type: 'reconnect_result',
+      status: 'streaming',
+      sessionId,
+      pendingQuestion: pendingQ || null,
+    });
   } else {
     send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
   }
@@ -320,12 +323,23 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
   // Always sync claudeSessionId to the new session (clear if not provided)
   client.claudeSessionId = data.claudeSessionId || undefined;
 
-  // Include streaming status so frontend can show indicator when switching TO a streaming session
+  // Include streaming status + any pending questions in the ack
   const targetSdkSession = getSDKSession(newSessionId);
+
+  // Find pending question for this session
+  let pendingQ: { questionId: string; questions: any[] } | undefined;
+  for (const pq of pendingQuestions.values()) {
+    if (pq.sessionId === newSessionId) {
+      pendingQ = { questionId: pq.questionId, questions: pq.questions };
+      break;
+    }
+  }
+
   send(client.ws, {
     type: 'set_active_session_ack',
     sessionId: newSessionId,
     isStreaming: !!targetSdkSession?.isRunning,
+    pendingQuestion: pendingQ || null,
   });
 }
 
@@ -546,10 +560,23 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   }
 }
 
-function handleAnswerQuestion(_client: WsClient, data: { questionId: string; answer: string }) {
+function handleAnswerQuestion(client: WsClient, data: { questionId: string; answer: string; sessionId?: string }) {
+  // Try exact match first
   const pq = pendingQuestions.get(data.questionId);
   if (pq) {
     pq.resolve(data.answer);
+    return;
+  }
+
+  // Fallback: find any pending question for this session (orphaned question recovery)
+  const sessionId = data.sessionId || client.sessionId;
+  if (sessionId) {
+    for (const [, entry] of pendingQuestions) {
+      if (entry.sessionId === sessionId) {
+        entry.resolve(data.answer);
+        return;
+      }
+    }
   }
 }
 
