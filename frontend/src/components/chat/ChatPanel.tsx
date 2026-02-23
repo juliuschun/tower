@@ -7,8 +7,7 @@ import { SummaryCard } from '../sessions/SummaryCard';
 
 /**
  * Merge consecutive assistant messages into one visual message.
- * Within each merged message, reorder blocks: thinking → tool_use → text
- * so that all tool_use chips render as one horizontal group.
+ * Preserves the original SDK block order (text → tool → text → tool).
  */
 function mergeConsecutiveAssistant(messages: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = [];
@@ -25,15 +24,7 @@ function mergeConsecutiveAssistant(messages: ChatMessage[]): ChatMessage[] {
     }
   }
 
-  // Reorder merged assistant blocks: thinking → tool_use → text
-  return result.map((msg) => {
-    if (msg.role !== 'assistant' || msg.content.length <= 1) return msg;
-    const thinking = msg.content.filter((b) => b.type === 'thinking');
-    const toolUse = msg.content.filter((b) => b.type === 'tool_use');
-    const text = msg.content.filter((b) => b.type === 'text');
-    const other = msg.content.filter((b) => !['thinking', 'tool_use', 'text'].includes(b.type));
-    return { ...msg, content: [...thinking, ...toolUse, ...text, ...other] };
-  });
+  return result;
 }
 
 interface ChatPanelProps {

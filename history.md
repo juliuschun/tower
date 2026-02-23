@@ -687,3 +687,61 @@ Claude가 plan mode에 진입하거나 `AskUserQuestion` 등 인터랙티브 도
 | `frontend/src/components/chat/MermaidBlock.tsx` | 줌/팬 라이트박스, 패딩 증가, maxHeight 제거 |
 | `frontend/src/components/chat/MessageBubble.tsx` | mermaid 분리 렌더링, flex-1, splitMermaidBlocks |
 | `frontend/src/components/sessions/SessionItem.tsx` | UTC 타임스탬프 정규화 |
+
+## 2026-02-23: 공유 워크스페이스 문서 체계 구축
+
+### 배경
+5명 팀이 AI와 협업하며 결정과 지식을 체계적으로 축적할 구조 필요. Business OS 아이디어를 참고하되 Day 1 최소 구조로 시작.
+
+### 결정 (decisions/2026-02-22-workspace-structure.md)
+- **선택지**: A) 최소 구조 / B) 부서별 10개 폴더+DB / C) 외부 도구(노션 등)
+- **채택**: A — 마크다운 파일 기반 최소 구조
+- **이유**: "파일이 진실이다. 도구가 바뀌어도 파일은 남는다."
+
+### 구조 (`/home/enterpriseai/workspace/`)
+```
+workspace/
+├── principles.md          # 다섯 가지 원칙
+├── memory/MEMORY.md       # 팀 맥락 (항상 최신 유지)
+├── decisions/             # 결정 기록 (불변, 파일 하나 = 결정 하나)
+├── docs/                  # 정리된 문서 (프로세스, 가이드)
+└── notes/                 # 임시 메모, 아이디어
+```
+
+### CLAUDE.md 행동 규칙 추가
+- 대화 시작 시 `workspace/memory/MEMORY.md` 읽기
+- 결정 발생 시 기록 여부 제안 → `decisions/YYYY-MM-DD-제목.md`
+- `decisions/` 파일은 삭제 금지 (결정 변경 시 새 파일 생성)
+- 과거 결정 질문 시 `decisions/`, `docs/` 검색
+
+### 정리 리듬
+- 주 1회: `notes/` 훑기 → 중요한 건 승격
+- 월 1회: `docs/` 훑기 → 유효성 확인
+- 분기 1회: `MEMORY.md` 업데이트
+
+### 재검토 조건
+문서 50개 초과 또는 팀 10명 초과 시 구조 재검토.
+
+## 2026-02-23: Superpowers 플러그인 설치
+
+### 배경
+obra/superpowers — AI 코딩 에이전트를 위한 스킬 프레임워크 (GitHub 56.5k+ stars, MIT). TDD, 체계적 디버깅, 브레인스토밍, 코드 리뷰를 자동 워크플로우로 강제.
+
+### 설치 (수동 — CLI 세션 내 `/plugin install` 불가)
+1. 마켓플레이스 클론 → `~/.claude/plugins/marketplaces/superpowers-marketplace/`
+2. 플러그인 본체 클론 → `~/.claude/plugins/installed/superpowers/`
+3. `known_marketplaces.json`에 마켓플레이스 등록
+4. `settings.json`에 SessionStart hook 추가
+5. 스킬 14개 → `~/.claude/skills/`에 심링크
+6. 커맨드 3개 → `~/.claude/commands/`에 심링크
+
+### 설치된 스킬 (14개)
+brainstorming, writing-plans, executing-plans, test-driven-development, systematic-debugging, subagent-driven-development, requesting-code-review, receiving-code-review, using-git-worktrees, dispatching-parallel-agents, finishing-a-development-branch, verification-before-completion, using-superpowers, writing-skills
+
+### 슬래시 커맨드 (3개)
+`/brainstorm`, `/write-plan`, `/execute-plan`
+
+### 작동 방식
+- 세션 시작 시 hook이 `using-superpowers` 스킬을 컨텍스트에 자동 주입
+- 모든 작업에서 관련 스킬 자동 체크/활성화
+- 설치 가이드: `workspace/docs/superpowers-setup.md`

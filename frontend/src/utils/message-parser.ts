@@ -18,13 +18,17 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
         thinking: { text: item.thinking || '' },
       });
     } else if (item.type === 'text') {
-      // Extract <thinking> tags embedded in text content
       const raw = item.text || '';
-      const thinkingMatch = raw.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
-      if (thinkingMatch) {
-        blocks.push({ type: 'thinking', thinking: { text: thinkingMatch[1] } });
-        const rest = raw.slice(thinkingMatch[0].length).trim();
+      // Complete thinking block — <thinking>...</thinking> followed by optional text
+      const completeMatch = raw.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
+      if (completeMatch) {
+        blocks.push({ type: 'thinking', thinking: { text: completeMatch[1] } });
+        const rest = raw.slice(completeMatch[0].length).trim();
         if (rest) blocks.push({ type: 'text', text: rest });
+      // Streaming — opening tag present but no closing tag yet
+      } else if (/^\s*<(?:antml_)?thinking>/.test(raw)) {
+        const content = raw.replace(/^\s*<(?:antml_)?thinking>\n?/, '');
+        blocks.push({ type: 'thinking', thinking: { text: content } });
       } else {
         blocks.push({ type: 'text', text: raw });
       }
@@ -71,12 +75,17 @@ export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
     if (item.type === 'thinking' && item.thinking?.text) return item;
     // Extract <thinking> tags from text blocks (DB stores them embedded)
     if (item.type === 'text' && item.text) {
-      const m = item.text.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
-      if (m) {
-        const result: ContentBlock[] = [{ type: 'thinking', thinking: { text: m[1] } }];
-        const rest = item.text.slice(m[0].length).trim();
+      const complete = item.text.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
+      if (complete) {
+        const result: ContentBlock[] = [{ type: 'thinking', thinking: { text: complete[1] } }];
+        const rest = item.text.slice(complete[0].length).trim();
         if (rest) result.push({ type: 'text', text: rest });
         return result;
+      }
+      // Partial (streaming) — opening tag but no closing tag
+      if (/^\s*<(?:antml_)?thinking>/.test(item.text)) {
+        const content = item.text.replace(/^\s*<(?:antml_)?thinking>\n?/, '');
+        return [{ type: 'thinking', thinking: { text: content } }];
       }
       return item;
     }

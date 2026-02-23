@@ -273,10 +273,6 @@ function App() {
       if (!window.confirm('저장하지 않은 변경사항이 있습니다. 다른 파일을 여시겠습니까?')) return;
     }
     requestFile(path);
-    if (useSessionStore.getState().isMobile) {
-      useSessionStore.getState().setMobileContextOpen(true);
-      useSessionStore.getState().setMobileTab('edit');
-    }
   }, [requestFile]);
 
   const handleDirectoryClick = useCallback((dirPath: string) => {

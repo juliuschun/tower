@@ -387,6 +387,10 @@ export function useClaudeChat() {
           language: data.language,
           modified: false,
         });
+        if (useSessionStore.getState().isMobile) {
+          useSessionStore.getState().setMobileContextOpen(true);
+          useSessionStore.getState().setMobileTab('edit');
+        }
         break;
 
       case 'file_saved': {

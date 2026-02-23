@@ -96,23 +96,6 @@ export function Header({ connected, onToggleSidebar, onNewSession }: HeaderProps
 
       <div
         className="flex items-center gap-2"
-        onClick={() => {
-          const now = Date.now();
-          const last = (window as any).__lastLogoTap || 0;
-          (window as any).__lastLogoTap = now;
-          if (now - last < 400) {
-            // Unregister service workers then hard reload
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.getRegistrations().then((regs) => {
-                regs.forEach((r) => r.unregister());
-              });
-              caches.keys().then((keys) => {
-                keys.forEach((k) => caches.delete(k));
-              });
-            }
-            setTimeout(() => location.reload(), 100);
-          }
-        }}
       >
         <div className="w-6 h-6 rounded bg-primary-600/20 border border-primary-500/30 flex items-center justify-center">
           <span className="text-primary-400 font-bold text-xs uppercase tracking-wider">C</span>
