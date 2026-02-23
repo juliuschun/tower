@@ -3,7 +3,8 @@ import type { Server } from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import { executeQuery, abortSession, cleanupSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession } from '../services/claude-sdk.js';
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
-import { verifyWsToken } from '../services/auth.js';
+import { verifyWsToken, getUserAllowedPath } from '../services/auth.js';
+import { isPathSafe } from '../services/file-system.js';
 import { saveMessage, updateMessageContent, attachToolResultInDb } from '../services/message-store.js';
 import { getSession, updateSession } from '../services/session-manager.js';
 import { config, getPermissionMode } from '../config.js';
@@ -19,6 +20,7 @@ interface WsClient {
   userId?: number;          // user ID from JWT
   username?: string;        // username from JWT
   activeQueryEpoch: number; // incremented on each new query / session switch
+  allowedPath?: string;     // per-user workspace path restriction
 }
 
 interface PendingQuestion {
@@ -181,6 +183,9 @@ export function setupWebSocket(server: Server) {
         client.userRole = (payload as any).role;
         client.userId = (payload as any).userId;
         client.username = (payload as any).username;
+        if (client.userId) {
+          client.allowedPath = getUserAllowedPath(client.userId);
+        }
       }
     }
 
@@ -399,7 +404,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     const canUseTool = createCanUseTool(sessionId);
 
     for await (const message of executeQuery(sessionId, data.message, {
-      cwd: data.cwd || config.defaultCwd,
+      cwd: data.cwd || client.allowedPath || config.defaultCwd,
       resumeSessionId,
       permissionMode,
       model: data.model,
@@ -561,6 +566,10 @@ function handleAbort(client: WsClient, data: { sessionId?: string }) {
 
 function handleFileRead(client: WsClient, data: { path: string }) {
   try {
+    if (client.allowedPath && !isPathSafe(data.path, client.allowedPath)) {
+      send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
+      return;
+    }
     const result = readFile(data.path);
     send(client.ws, {
       type: 'file_content',
@@ -575,6 +584,10 @@ function handleFileRead(client: WsClient, data: { path: string }) {
 
 function handleFileWrite(client: WsClient, data: { path: string; content: string }) {
   try {
+    if (client.allowedPath && !isPathSafe(data.path, client.allowedPath)) {
+      send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
+      return;
+    }
     writeFile(data.path, data.content);
     send(client.ws, {
       type: 'file_saved',
@@ -587,10 +600,16 @@ function handleFileWrite(client: WsClient, data: { path: string; content: string
 
 function handleFileTree(client: WsClient, data: { path?: string }) {
   try {
-    const entries = getFileTree(data.path || config.workspaceRoot);
+    const root = client.allowedPath || config.workspaceRoot;
+    const targetPath = data.path || root;
+    if (!isPathSafe(targetPath, root)) {
+      send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
+      return;
+    }
+    const entries = getFileTree(targetPath);
     send(client.ws, {
       type: 'file_tree',
-      path: data.path || config.workspaceRoot,
+      path: targetPath,
       entries,
     });
   } catch (error: any) {

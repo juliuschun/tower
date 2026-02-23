@@ -129,6 +129,7 @@ function App() {
         return;
       }
       localStorage.setItem('token', data.token);
+      if (data.user?.role) localStorage.setItem('userRole', data.user.role);
       setToken(data.token);
       if (isSetup) {
         setAuthStatus({ ...authStatus!, hasUsers: true });
@@ -484,6 +485,7 @@ function App() {
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
     setToken(null);
   }, []);
 
@@ -688,7 +690,7 @@ function App() {
       {isMobile ? <MobileTabBar /> : <BottomBar requestFileTree={requestFileTree} />}
 
       {/* Settings modal */}
-      <SettingsPanel onLogout={handleLogout} />
+      <SettingsPanel onLogout={handleLogout} token={token} />
 
       {/* Prompt editor modal */}
       <PromptEditor

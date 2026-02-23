@@ -2,7 +2,9 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import {
-  authenticateUser, createUser, hasUsers, generateToken, authMiddleware
+  authenticateUser, createUser, hasUsers, generateToken, authMiddleware,
+  adminMiddleware, listUsers, updateUserRole, updateUserPath,
+  resetUserPassword, disableUser, getUserAllowedPath,
 } from '../services/auth.js';
 import {
   createSession, getSessions, getSession, updateSession, deleteSession,
@@ -63,6 +65,52 @@ router.use(authMiddleware);
 
 router.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: '0.1.0' });
+});
+
+// ───── Admin: User Management ─────
+router.get('/admin/users', adminMiddleware, (_req, res) => {
+  res.json(listUsers());
+});
+
+router.post('/admin/users', adminMiddleware, (req, res) => {
+  const { username, password, role, allowed_path } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+  try {
+    const user = createUser(username, password, role || 'user');
+    if (allowed_path !== undefined) updateUserPath(user.id, allowed_path);
+    res.json({ ...user, allowed_path: allowed_path || '' });
+  } catch (error: any) {
+    if (error.message?.includes('UNIQUE')) return res.status(409).json({ error: 'Username already exists' });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/admin/users/:id', adminMiddleware, (req, res) => {
+  const userId = parseInt(req.params.id);
+  const currentUser = (req as any).user;
+  const { role, allowed_path } = req.body;
+  if (role !== undefined) {
+    if (currentUser.userId === userId) return res.status(403).json({ error: 'Cannot change own role' });
+    updateUserRole(userId, role);
+  }
+  if (allowed_path !== undefined) updateUserPath(userId, allowed_path);
+  res.json({ ok: true });
+});
+
+router.patch('/admin/users/:id/password', adminMiddleware, (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'password required' });
+  resetUserPassword(userId, password);
+  res.json({ ok: true });
+});
+
+router.delete('/admin/users/:id', adminMiddleware, (req, res) => {
+  const userId = parseInt(req.params.id);
+  const currentUser = (req as any).user;
+  if (currentUser.userId === userId) return res.status(403).json({ error: 'Cannot delete yourself' });
+  disableUser(userId);
+  res.json({ ok: true });
 });
 
 // ───── Sessions ─────
@@ -233,7 +281,10 @@ router.get('/directories', (req, res) => {
 // ───── Files ─────
 router.get('/files/tree', (req, res) => {
   try {
-    const dirPath = (req.query.path as string) || config.workspaceRoot;
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const dirPath = (req.query.path as string) || userRoot;
+    if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied: outside allowed path' });
     const entries = getFileTree(dirPath);
     res.json({ path: dirPath, entries });
   } catch (error: any) {
@@ -245,6 +296,9 @@ router.get('/files/read', (req, res) => {
   try {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied: outside allowed path' });
     const result = readFile(filePath);
     res.json({ path: filePath, ...result });
   } catch (error: any) {
@@ -268,7 +322,9 @@ router.post('/files/upload', upload.array('files', 20), async (req, res) => {
   try {
     const targetDir = req.body.targetDir as string;
     if (!targetDir) return res.status(400).json({ error: 'targetDir required' });
-    if (!isPathSafe(targetDir)) return res.status(403).json({ error: 'Access denied: target directory outside workspace' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(targetDir, userRoot)) return res.status(403).json({ error: 'Access denied: target directory outside allowed path' });
 
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });

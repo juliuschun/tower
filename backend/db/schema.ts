@@ -105,6 +105,10 @@ function initSchema(db: Database.Database) {
     );
   `);
 
+  // User management migrations
+  try { db.exec(`ALTER TABLE users ADD COLUMN disabled INTEGER DEFAULT 0`); } catch {}
+  try { db.exec(`ALTER TABLE users ADD COLUMN allowed_path TEXT DEFAULT ''`); } catch {}
+
   // Phase 5 migrations
   const sessionMigrations = [
     `ALTER TABLE sessions ADD COLUMN model_used TEXT`,

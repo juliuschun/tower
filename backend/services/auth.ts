@@ -39,14 +39,14 @@ export function createUser(username: string, password: string, role = 'user') {
 
 export function authenticateUser(username: string, password: string): JwtPayload | null {
   const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as any;
+  const user = db.prepare('SELECT * FROM users WHERE username = ? AND disabled = 0').get(username) as any;
   if (!user || !verifyPassword(password, user.password_hash)) return null;
   return { userId: user.id, username: user.username, role: user.role };
 }
 
 export function hasUsers(): boolean {
   const db = getDb();
-  const row = db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
+  const row = db.prepare('SELECT COUNT(*) as count FROM users WHERE disabled = 0').get() as any;
   return row.count > 0;
 }
 
@@ -69,6 +69,50 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   }
 
   (req as any).user = payload;
+  next();
+}
+
+// ───── Admin user management ─────
+
+export function listUsers() {
+  const db = getDb();
+  return db.prepare(
+    'SELECT id, username, role, allowed_path, created_at FROM users WHERE disabled = 0 ORDER BY id'
+  ).all();
+}
+
+export function updateUserRole(userId: number, role: string) {
+  const db = getDb();
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+}
+
+export function updateUserPath(userId: number, allowedPath: string) {
+  const db = getDb();
+  db.prepare('UPDATE users SET allowed_path = ? WHERE id = ?').run(allowedPath, userId);
+}
+
+export function resetUserPassword(userId: number, newPassword: string) {
+  const db = getDb();
+  const hash = hashPassword(newPassword);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
+}
+
+export function disableUser(userId: number) {
+  const db = getDb();
+  db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(userId);
+}
+
+export function getUserAllowedPath(userId: number): string {
+  const db = getDb();
+  const row = db.prepare('SELECT allowed_path FROM users WHERE id = ?').get(userId) as any;
+  return row?.allowed_path || config.workspaceRoot;
+}
+
+export function adminMiddleware(req: Request, res: Response, next: NextFunction) {
+  const user = (req as any).user;
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
   next();
 }
 
