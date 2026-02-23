@@ -188,6 +188,9 @@ system/init → assistant(tool_use) → rate_limit_event → user(tool_result) �
 
 ### 3. SDK query() 옵션
 ```ts
+// 신 SDK: @anthropic-ai/claude-agent-sdk (v0.2.50+)
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
 const response = query({
   prompt: processedPrompt,
   options: {
@@ -197,12 +200,14 @@ const response = query({
     pathToClaudeCodeExecutable: '/home/azureuser/.local/bin/claude',
     cwd: '/home/azureuser',
     permissionMode: 'bypassPermissions',
+    settingSources: ['user', 'project'],  // Skills + CLAUDE.md 로딩에 필수!
     resume: sessionId, // 세션 이어하기
   },
 });
 ```
 - `resume`에 `session_id` (system init 메시지에서 획득)를 넣으면 세션 이어하기
 - 슬래시 명령어: 앞의 `/`를 떼고 prompt로 전달하면 SDK가 처리
+- `settingSources`: 미설정 시 `~/.claude/skills/`, `.claude/settings.json`, `CLAUDE.md` 로드 안 됨 (SDK 격리 모드)
 
 ### 4. WebSocket 프로토콜 설계 팁
 - 클라이언트→서버: `{ type, ...payload }` 패턴
@@ -386,16 +391,20 @@ if (path.startsWith('prompt:')) {
 saveFile(path, content); // 일반 파일
 ```
 
-### 4. SDK customSystemPrompt — 경량 프롬프트에 필수
+### 4. SDK systemPrompt — 경량 프롬프트에 필수
 auto-namer/summarizer 같은 경량 작업에서 Claude Code 기본 시스템 프롬프트("You are Claude Code...")가 포함되면 불필요한 도구 사용 시도.
-`customSystemPrompt` + `disallowedTools`로 순수 텍스트 생성 강제:
+`systemPrompt` + `disallowedTools`로 순수 텍스트 생성 강제:
 ```ts
+// 신 SDK (@anthropic-ai/claude-agent-sdk)
 query({ prompt, options: {
-  customSystemPrompt: '너는 요약기다. 도구를 사용하지 마.',
+  systemPrompt: '너는 요약기다. 도구를 사용하지 마.',
   disallowedTools: ['Bash', 'Read', 'Write', ...],
   maxTurns: 1,
+  permissionMode: 'bypassPermissions',
+  allowDangerouslySkipPermissions: true,  // 신 SDK에서 필수
 }});
 ```
+**주의**: 구 SDK(`@anthropic-ai/claude-code`)의 `customSystemPrompt`는 신 SDK에서 `systemPrompt`로 변경됨.
 
 ---
 
@@ -832,3 +841,38 @@ az vm open-port --resource-group <RG> --name <VM> --port 32354 --priority 1010
    - prod (dist): `dist/backend/config.js` → `../..` = `claude-desk/`
    - 코드에서 `__dirname.includes('dist')` 분기로 처리됨
 6. **Dev Mode 환경변수**: `ecosystem.config.cjs`의 env를 `package.json` dev:backend 스크립트에도 동일하게 선언해야 함 (PORT, HOST, GIT_AUTO_COMMIT, WORKSPACE_ROOT)
+
+---
+
+## SDK 마이그레이션: claude-code → claude-agent-sdk
+
+### 패키지 차이
+| | `@anthropic-ai/claude-code` (구) | `@anthropic-ai/claude-agent-sdk` (신) |
+|---|---|---|
+| 버전 체계 | v1.0.x ~ v2.1.x | v0.2.x |
+| `settingSources` | 없음 | `['user', 'project', 'local']` |
+| `Skill` 도구 | 비활성 (로드 안 됨) | `settingSources` 설정 시 활성 |
+| `customSystemPrompt` | 있음 | **제거** → `systemPrompt` 사용 |
+| `bypassPermissions` | 단독 사용 가능 | `allowDangerouslySkipPermissions: true` 필수 |
+| `agents` 옵션 | 없음 | 커스텀 서브에이전트 정의 가능 |
+| `tools` 옵션 | 없음 | 빌트인 도구 제한 가능 |
+| `outputFormat` | 없음 | JSON 스키마 구조화 응답 |
+| `effort` | 없음 | `'low' \| 'medium' \| 'high' \| 'max'` |
+
+### settingSources가 제어하는 것
+- `'user'` → `~/.claude/settings.json` + `~/.claude/skills/`
+- `'project'` → `.claude/settings.json` + `.claude/skills/` + `CLAUDE.md`
+- `'local'` → `.claude/settings.local.json`
+- 미설정(기본값) → **아무것도 로드 안 됨** (SDK 격리 모드)
+
+### 마이그레이션 체크리스트
+1. `package.json`: `@anthropic-ai/claude-code` → `@anthropic-ai/claude-agent-sdk`
+2. 모든 import 경로 변경
+3. `customSystemPrompt` → `systemPrompt`
+4. `bypassPermissions` 사용 시 `allowDangerouslySkipPermissions: true` 추가
+5. 메인 query에 `settingSources: ['user', 'project']` 추가
+6. `npm install` 후 타입 체크 (`npx tsc --noEmit`)
+
+### 참고
+- 공식 문서: https://platform.claude.com/docs/en/agent-sdk/skills
+- Skills는 `SKILL.md` frontmatter의 `allowed-tools`가 SDK에서는 무시됨 → `allowedTools` 옵션으로 제어

@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-code';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 
 /**
@@ -42,8 +42,9 @@ ${messagesText}
         pathToClaudeCodeExecutable: config.claudeExecutable,
         cwd: config.defaultCwd,
         permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         maxTurns: 1,
-        customSystemPrompt: '너는 대화 요약기다. 인사하지 마. 도구를 사용하지 마. 지시된 형식(화살표 흐름 + 불렛 포인트 + 현재 상태)으로만 출력해.',
+        systemPrompt: '너는 대화 요약기다. 인사하지 마. 도구를 사용하지 마. 지시된 형식(화살표 흐름 + 불렛 포인트 + 현재 상태)으로만 출력해.',
         disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       },
     });

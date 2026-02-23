@@ -745,3 +745,36 @@ brainstorming, writing-plans, executing-plans, test-driven-development, systemat
 - 세션 시작 시 hook이 `using-superpowers` 스킬을 컨텍스트에 자동 주입
 - 모든 작업에서 관련 스킬 자동 체크/활성화
 - 설치 가이드: `workspace/docs/superpowers-setup.md`
+
+## 2026-02-23: SDK 마이그레이션 — Skills 도구 활성화
+
+### 배경
+Superpowers 플러그인이 설치되었지만, claude-desk(SDK 환경)에서 `Skill` 도구가 없어 스킬을 사용할 수 없었음.
+CLI에는 `Skill` 도구가 있지만, SDK에서는 비활성.
+
+### 원인 분석
+- 구 패키지 `@anthropic-ai/claude-code` (v1.0.128)에는 `settingSources` 옵션이 없음
+- 이 옵션 없이는 `~/.claude/skills/`가 로드되지 않아 `Skill` 도구가 비활성
+- 새 패키지 `@anthropic-ai/claude-agent-sdk` (v0.2.50)에 `settingSources` 옵션 추가됨
+
+### API 변경점 (Breaking Changes)
+| 구 SDK (`claude-code`) | 신 SDK (`claude-agent-sdk`) |
+|---|---|
+| `customSystemPrompt: string` | `systemPrompt: string \| { type, preset, append }` |
+| `bypassPermissions` 단독 사용 | `+ allowDangerouslySkipPermissions: true` 필수 |
+| `settingSources` 없음 | `settingSources: ['user', 'project']` |
+| `Skill` 도구 비활성 | 활성화 가능 |
+
+### 변경 파일 (4개)
+1. **`package.json`** — `@anthropic-ai/claude-code` → `@anthropic-ai/claude-agent-sdk`
+2. **`backend/services/claude-sdk.ts`** — import 변경, `settingSources: ['user', 'project']` 추가
+3. **`backend/services/auto-namer.ts`** — import 변경, `customSystemPrompt` → `systemPrompt`, `allowDangerouslySkipPermissions` 추가
+4. **`backend/services/summarizer.ts`** — 동일
+
+### 검증 결과
+SDK `query()` init 메시지에서 확인:
+- **이전**: 16개 도구 (`Task, Bash, Glob, ... SlashCommand`)
+- **이후**: 29개+ 도구 (`Task, Bash, Glob, ... **Skill**, EnterPlanMode, EnterWorktree, ToolSearch` + MCP 도구들)
+
+### 참고 문서
+- 공식 가이드: https://platform.claude.com/docs/en/agent-sdk/skills

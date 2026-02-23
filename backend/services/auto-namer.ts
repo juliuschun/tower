@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-code';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 
 /**
@@ -26,8 +26,9 @@ export async function generateSessionName(
         pathToClaudeCodeExecutable: config.claudeExecutable,
         cwd: config.defaultCwd,
         permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         maxTurns: 1,
-        customSystemPrompt: '너는 대화 제목 생성기야. 사용자가 보내는 대화 내용을 보고 15자 내외 한글로 제목을 한 줄만 생성해. 설명 없이 제목만 출력해. 도구를 사용하지 마.',
+        systemPrompt: '너는 대화 제목 생성기야. 사용자가 보내는 대화 내용을 보고 15자 내외 한글로 제목을 한 줄만 생성해. 설명 없이 제목만 출력해. 도구를 사용하지 마.',
         disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       },
     });

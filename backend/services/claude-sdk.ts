@@ -1,4 +1,4 @@
-import { query, type SDKMessage, type Query, type Options, type CanUseTool } from '@anthropic-ai/claude-code';
+import { query, type SDKMessage, type Query, type Options, type CanUseTool } from '@anthropic-ai/claude-agent-sdk';
 import { config } from '../config.js';
 
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
@@ -62,6 +62,7 @@ export async function* executeQuery(
     pathToClaudeCodeExecutable: config.claudeExecutable,
     cwd: options.cwd || config.defaultCwd,
     permissionMode: options.permissionMode || config.permissionMode,
+    settingSources: ['user', 'project'],
     ...(options.model ? { model: options.model } : {}),
     ...(options.canUseTool ? { canUseTool: options.canUseTool } : {}),
   };
