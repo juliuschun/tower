@@ -580,3 +580,55 @@ Claude가 plan mode에 진입하거나 `AskUserQuestion` 등 인터랙티브 도
 ### 총 규모
 - 신규 파일 5개, 수정 6개
 - 39개 테스트 전체 통과, 빌드 회귀 없음
+
+## 2026-02-23: UX 개선 — 메시지 복사 버튼 + Mermaid 다이어그램 렌더링
+
+### 배경
+실사용 중 가장 자주 느끼는 불편 2가지 해결:
+1. Claude 응답 복사 시 드래그 선택 필요 → 클릭 한 번 복사
+2. Mermaid 코드블록이 텍스트로만 표시 → SVG 다이어그램 렌더링
+
+### Feature 1: 복사 버튼 (메시지 + 코드블록)
+
+#### 신규: `CopyButton` 내부 컴포넌트 (`MessageBubble.tsx`)
+- `navigator.clipboard.writeText()` + `toastSuccess('복사됨')` (기존 sonner 재사용)
+- 복사 후 1.5초간 체크마크 아이콘으로 전환 피드백
+- `e.stopPropagation()`으로 버블링 방지
+
+#### 메시지 복사 (user + assistant)
+- 기존 `group/message` 클래스 활용: `opacity-0 group-hover/message:opacity-100`
+- user 버블: `absolute top-2 right-2` (bubble 내부)
+- assistant 영역: `absolute -top-1 -right-1 z-10` (prose 영역 위)
+- `getMessageText()` 헬퍼: text 블록만 필터링하여 `\n` 조인
+
+#### 코드블록 복사
+- `pre()` 커스텀 렌더러 추가: `group/code` hover 패턴으로 복사 버튼 배치
+- `extractCodeText()` 헬퍼: `<pre>` 자식의 `<code>` 텍스트 추출
+- `absolute top-2 right-2 opacity-0 group-hover/code:opacity-100`
+
+### Feature 2: Mermaid 다이어그램 렌더링
+
+#### 의존성
+- `mermaid` npm 패키지 추가
+
+#### 신규: `frontend/src/components/chat/MermaidBlock.tsx`
+- `mermaid.initialize({ theme: 'dark', startOnLoad: false, securityLevel: 'loose' })` — 앱 레벨 1회 초기화
+- `mermaid.render(id, code)` → SVG 문자열 → `dangerouslySetInnerHTML`
+- 에러 시 원본 코드 `<pre><code>` fallback + DOM 잔여물 cleanup
+- 고유 ID: `mermaid-${counter++}` 패턴으로 다중 인스턴스 충돌 방지
+- `useEffect` cleanup: `cancelled` 플래그로 unmount 후 setState 방지
+
+#### MessageBubble.tsx 코드 렌더러 수정
+- `code()` 커스텀 렌더러에서 `className?.includes('language-mermaid')` 분기
+- rehype-highlight보다 먼저 실행되어 mermaid 코드가 syntax highlight 처리되지 않음
+
+### 파일 변경
+| 파일 | 작업 |
+|------|------|
+| `package.json` | `mermaid` 의존성 추가 |
+| `frontend/src/components/chat/MessageBubble.tsx` | CopyButton, 코드블록 복사, mermaid 분기 |
+| `frontend/src/components/chat/MermaidBlock.tsx` | **신규** — mermaid 렌더링 컴포넌트 |
+
+### 검증
+- 39개 기존 테스트 통과 (회귀 없음)
+- vite 빌드 성공 (mermaid 다이어그램 타입별 chunk 자동 code-split)

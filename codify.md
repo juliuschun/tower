@@ -499,7 +499,37 @@ return result;
 ```
 추가로 커밋 해시 입력은 반드시 `/^[a-f0-9]{4,40}$/i` 검증.
 
-### 5. rollback은 reset이 아닌 checkout + 새 commit
+### 5. Mermaid 렌더링 — 코드블록 커스텀 렌더러 분기 패턴
+ReactMarkdown의 `components.code()` 커스텀 렌더러에서 `className` 기반 분기로 특수 코드블록 처리:
+```tsx
+code({ children, className, ...props }) {
+  const text = String(children).trim();
+  if (className?.includes('language-mermaid')) {
+    return <MermaidBlock code={text} />;  // rehype-highlight보다 먼저 실행
+  }
+  // ... 기타 처리
+}
+```
+`pre()` 커스텀 렌더러도 함께 사용하면 코드블록 wrapper에 복사 버튼 등 부가 UI 배치 가능.
+- mermaid 초기화: `startOnLoad: false` 필수 (수동 render 호출)
+- `securityLevel: 'loose'` — click 이벤트 등 인터랙션 허용
+- 고유 ID 필수: 여러 다이어그램이 동시에 있으면 ID 충돌 → `counter++` 패턴
+
+### 6. group hover 패턴 — Tailwind CSS 중첩 hover
+`group/{name}` + `group-hover/{name}:` 패턴으로 중첩 hover 영역 구현:
+```tsx
+// 외부 메시지 영역
+<div className="group/message">
+  <CopyButton className="opacity-0 group-hover/message:opacity-100" />
+  // 내부 코드블록 영역
+  <pre className="group/code">
+    <CopyButton className="opacity-0 group-hover/code:opacity-100" />
+  </pre>
+</div>
+```
+이름이 다르므로 내부 hover가 외부 hover와 독립적으로 동작.
+
+### 7. rollback은 reset이 아닌 checkout + 새 commit
 ```bash
 # ❌ 히스토리 파괴
 git reset --hard <hash>
