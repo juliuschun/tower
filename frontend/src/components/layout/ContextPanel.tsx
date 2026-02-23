@@ -1,9 +1,32 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useFileStore } from '../../stores/file-store';
 import { CodeEditor } from '../editor/CodeEditor';
+
+function HtmlPreview({ content }: { content: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const blob = new Blob([content], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [content]);
+
+  if (!blobUrl) return null;
+  return (
+    <div className="absolute inset-0">
+      <iframe
+        src={blobUrl}
+        className="w-full h-full border-0 bg-white"
+        sandbox="allow-scripts allow-same-origin"
+        title="html-preview"
+      />
+    </div>
+  );
+}
 
 interface ContextPanelProps {
   onSave?: (path: string, content: string) => void;
@@ -19,6 +42,12 @@ export function ContextPanel({ onSave, onReload }: ContextPanelProps) {
   const externalChange = useFileStore((s) => s.externalChange);
   const reloadFromDisk = useFileStore((s) => s.reloadFromDisk);
   const keepLocalEdits = useFileStore((s) => s.keepLocalEdits);
+
+  useEffect(() => {
+    if (openFile && (openFile.language === 'html' || openFile.language === 'markdown')) {
+      setContextPanelTab('preview');
+    }
+  }, [openFile?.path]);
 
   const handleClose = useCallback(() => {
     if (openFile?.modified) {
@@ -122,29 +151,28 @@ export function ContextPanel({ onSave, onReload }: ContextPanelProps) {
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-auto">
-        {isHtml && contextPanelTab === 'preview' ? (
-          <iframe
-            src={`/api/files/serve?path=${encodeURIComponent(openFile.path)}`}
-            className="w-full h-full border-0 bg-white"
-            sandbox="allow-scripts"
-            title={fileName}
-          />
-        ) : isMarkdown && contextPanelTab === 'preview' ? (
-          <div className="prose prose-invert prose-sm max-w-none p-4">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {openFile.content}
-            </ReactMarkdown>
-          </div>
-        ) : (
-          <CodeEditor
-            value={openFile.content}
-            language={openFile.language}
-            onChange={updateContent}
-            onSave={handleSave}
-          />
-        )}
-      </div>
+      {isHtml && contextPanelTab === 'preview' ? (
+        <div className="flex-1 min-h-0 relative">
+          <HtmlPreview content={openFile.content} />
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-auto">
+          {isMarkdown && contextPanelTab === 'preview' ? (
+            <div className="prose prose-invert prose-sm max-w-none p-4">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                {openFile.content}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <CodeEditor
+              value={openFile.content}
+              language={openFile.language}
+              onChange={updateContent}
+              onSave={handleSave}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
