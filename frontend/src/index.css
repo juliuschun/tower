@@ -3,44 +3,45 @@
 /* ─── Theme CSS Variables ─── */
 :root,
 :root[data-theme="dark"] {
-  --th-bg-primary: #09090b;
-  --th-bg-secondary: #18181b;
-  --th-bg-tertiary: #1f1f22;
-  --th-bg-surface: #27272a;
-  --th-border: #5a5a64;
-  --th-border-subtle: #3a3a42;
-  --th-text-primary: #f4f4f5;
-  --th-text-secondary: #b4b4bc;
-  --th-text-muted: #8a8a95;
-  --th-prose-body: #e2e8f0;
-  --th-prose-heading: #f1f5f9;
-  --th-prose-muted: #94a3b8;
+  /* Slate-tinted dark palette */
+  --th-bg-primary: #0b0d12;
+  --th-bg-secondary: #13161e;
+  --th-bg-tertiary: #1a1e27;
+  --th-bg-surface: #242832;
+  --th-border: #545c6c;
+  --th-border-subtle: #343a48;
+  --th-text-primary: #f0f2f5;
+  --th-text-secondary: #b0b7c4;
+  --th-text-muted: #848c9a;
+  --th-prose-body: #dce2ec;
+  --th-prose-heading: #edf0f5;
+  --th-prose-muted: #8fa0b8;
   --th-prose-link: #a78bfa;
-  --th-prose-code-bg: #1e293b;
-  --th-prose-code-border: #334155;
+  --th-prose-code-bg: #1a2234;
+  --th-prose-code-border: #2e3a50;
   --th-prose-code-text: #e0d4ff;
-  --th-prose-pre-bg: #0f172a;
-  --th-prose-pre-border: #1e293b;
-  --th-prose-pre-text: #e2e8f0;
-  --th-prose-table-border: #1e293b;
-  --th-prose-th-bg: #0f172a;
-  --th-prose-th-text: #cbd5e1;
-  --th-prose-td-text: #cbd5e1;
-  --th-prose-tr-even: rgba(15, 23, 42, 0.25);
-  --th-prose-marker: #64748b;
-  --th-prose-blockquote-bg: rgba(124, 58, 237, 0.03);
-  --th-prose-strong: #f1f5f9;
-  --th-prose-img-border: #1e293b;
-  --th-prose-hr: #1e293b;
-  --th-scrollbar-thumb: #334155;
-  --th-scrollbar-thumb-hover: #475569;
-  /* Gray text scale (light-on-dark) */
-  --th-gray-100: #f1f5f9;
-  --th-gray-200: #e2e8f0;
-  --th-gray-300: #d0d8e4;
-  --th-gray-400: #a8b5c7;
-  --th-gray-500: #7a8a9e;
-  --th-gray-600: #5a6b7d;
+  --th-prose-pre-bg: #0e1320;
+  --th-prose-pre-border: #1e2638;
+  --th-prose-pre-text: #dce2ec;
+  --th-prose-table-border: #1e2638;
+  --th-prose-th-bg: #0e1320;
+  --th-prose-th-text: #c0cad8;
+  --th-prose-td-text: #c0cad8;
+  --th-prose-tr-even: rgba(14, 19, 32, 0.3);
+  --th-prose-marker: #5e7090;
+  --th-prose-blockquote-bg: rgba(124, 58, 237, 0.04);
+  --th-prose-strong: #edf0f5;
+  --th-prose-img-border: #1e2638;
+  --th-prose-hr: #1e2638;
+  --th-scrollbar-thumb: #2e3a50;
+  --th-scrollbar-thumb-hover: #3e4c64;
+  /* Gray text scale (light-on-dark, slate) */
+  --th-gray-100: #edf0f5;
+  --th-gray-200: #dce2ea;
+  --th-gray-300: #c5cdd8;
+  --th-gray-400: #a0abc0;
+  --th-gray-500: #7888a0;
+  --th-gray-600: #566478;
 }
 
 :root[data-theme="light"] {
