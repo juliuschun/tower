@@ -8,7 +8,7 @@ import { FileTree } from '../files/FileTree';
 import { PinList } from '../pinboard/PinList';
 import { GitPanel } from '../git/GitPanel';
 import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
-import { toastError } from '../../utils/toast';
+import { toastError, toastSuccess } from '../../utils/toast';
 
 interface SidebarProps {
   onNewSession: () => void;
@@ -52,6 +52,43 @@ export function Sidebar({
 
   const prompts = usePromptStore((s) => s.prompts);
 
+  const [fileTreeDragOver, setFileTreeDragOver] = useState(false);
+  const fileTreeDragCounter = useRef(0);
+
+  const handleFileTreeDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    fileTreeDragCounter.current = 0;
+    setFileTreeDragOver(false);
+    if (e.dataTransfer.getData('application/x-attachment')) return;
+    const files = e.dataTransfer.files;
+    if (files.length === 0 || !treeRoot) return;
+    const formData = new FormData();
+    formData.append('targetDir', treeRoot);
+    for (const file of Array.from(files)) formData.append('files', file);
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || '업로드 실패'); return; }
+      const ok = data.results.filter((r: { error?: string }) => !r.error);
+      const fail = data.results.filter((r: { error?: string }) => r.error);
+      if (ok.length > 0) toastSuccess(`${ok.length}개 파일 업로드 완료`);
+      if (fail.length > 0) toastError(`${fail.length}개 파일 실패`);
+      onRequestFileTree();
+    } catch {
+      toastError('업로드 실패');
+    }
+  };
+
+  useEffect(() => {
+    if (sidebarTab === 'files') {
+      onRequestFileTree();
+    }
+  }, [sidebarTab]);
+
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const cwd = activeSession?.cwd || '';
   const projectName = cwd ? cwd.split('/').filter(Boolean).pop() || '/' : '';
@@ -76,7 +113,7 @@ export function Sidebar({
     `flex-1 py-2 text-[11px] font-semibold tracking-wide transition-colors ${
       sidebarTab === tab
         ? 'text-primary-400 border-b-2 border-primary-500'
-        : 'text-surface-700 hover:text-surface-600'
+        : 'text-gray-500 hover:text-gray-300'
     }`;
 
   return (
@@ -128,7 +165,7 @@ export function Sidebar({
       {/* Tab switcher — 5 tabs */}
       <div className="flex border-b border-surface-800/50">
         <button onClick={() => setSidebarTab('sessions')} className={tabClass('sessions')}>세션</button>
-        <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>파일</button>
+        <button onClick={() => { setSidebarTab('files'); onRequestFileTree(); }} className={tabClass('files')}>파일</button>
         <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>프롬프트</button>
         <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>핀보드</button>
         <button onClick={() => setSidebarTab('git')} className={tabClass('git')}>버전</button>
@@ -172,11 +209,26 @@ export function Sidebar({
             </div>
           </div>
         ) : sidebarTab === 'files' ? (
-          <div className="px-2">
+          <div
+            className={`px-2 min-h-full ${fileTreeDragOver ? 'bg-primary-900/10 ring-1 ring-inset ring-primary-500/30 rounded' : ''}`}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); fileTreeDragCounter.current++; if (fileTreeDragCounter.current === 1) setFileTreeDragOver(true); }}
+            onDragLeave={(e) => { e.stopPropagation(); fileTreeDragCounter.current--; if (fileTreeDragCounter.current === 0) setFileTreeDragOver(false); }}
+            onDrop={handleFileTreeDrop}
+          >
             <Breadcrumb treeRoot={treeRoot} onNavigate={onRequestFileTree} />
-            {tree.length === 0 ? (
-              <p className="text-[13px] text-surface-700 px-2 py-6 text-center">파일 트리 로딩 중...</p>
-            ) : (
+            {fileTreeDragOver && (
+              <div className="flex items-center justify-center py-4 text-[12px] text-primary-400 gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                {treeRoot ? treeRoot.replace(/^\/home\/[^/]+/, '~') : '루트'}에 업로드
+              </div>
+            )}
+            {!fileTreeDragOver && tree.length === 0 && (
+              <p className="text-[13px] text-gray-500 px-2 py-6 text-center">파일 트리 로딩 중...</p>
+            )}
+            {!fileTreeDragOver && tree.length > 0 && (
               <FileTree
                 entries={tree}
                 onFileClick={onFileClick}

@@ -36,6 +36,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,
@@ -56,11 +57,13 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 32354,
+    host: '0.0.0.0',
+    allowedHosts: true,
     proxy: {
-      '/api': 'http://localhost:32354',
+      '/api': 'http://localhost:32355',
       '/ws': {
-        target: 'ws://localhost:32354',
+        target: 'ws://localhost:32355',
         ws: true,
       },
     },

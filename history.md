@@ -632,3 +632,58 @@ Claude가 plan mode에 진입하거나 `AskUserQuestion` 등 인터랙티브 도
 ### 검증
 - 39개 기존 테스트 통과 (회귀 없음)
 - vite 빌드 성공 (mermaid 다이어그램 타입별 chunk 자동 code-split)
+
+---
+## 2026-02-23: Dev Mode 워크플로우 + 테마 리파인
+
+### 변경사항
+1. **Breadcrumb 네비게이션** — 파일 트리에서 CWD 바깥 상위 폴더 탐색 가능 (`file-store.ts`, `Sidebar.tsx`, `useClaudeChat.ts`, `App.tsx`)
+2. **테마 대비 개선** — 다크/라이트 모드 모두 텍스트 가독성 향상 (CSS 변수 조정)
+3. **다크 모드 slate 리파인** — zinc 회색 → 블루 틴트 slate 팔레트로 전환 (세련된 느낌)
+4. **Dev Mode 설정** — `npm run dev`로 HMR 즉시 반영 (빌드 40초 → 즉시), 같은 포트(32354) 원격 접속 유지
+
+### 핵심 파일
+- `package.json` — dev:backend PORT=32355, dev:frontend --host 0.0.0.0 --port 32354
+- `vite.config.ts` — server port/host/proxy 변경
+- `frontend/src/index.css` — 다크/라이트 테마 변수 전면 조정
+
+## 2026-02-23: 버그 수정 + Mermaid 뷰어 강화 + 서버 타임존
+
+### 버그 수정
+
+#### Chat Error: "Cannot read properties of undefined (reading 'length')"
+- **원인**: `message-parser.ts`의 `parseSDKMessage()`에서 `text` 타입 블록을 `thinking` 블록으로 잘못 변환. `item.thinking`이 undefined → ThinkingBlock에서 `.length` 접근 시 크래시
+- **수정**: `text` 타입과 `thinking` 타입을 별도 분기로 분리. `thinking` 처리 추가, `text`는 `{ type: 'text', text: item.text }` 로 올바르게 변환
+
+#### 사이드바 타임스탬프 9시간 오차
+- **원인**: SQLite `CURRENT_TIMESTAMP`가 `YYYY-MM-DD HH:MM:SS` 형식(UTC이지만 Z 접미사 없음) → 브라우저가 KST 로컬 시간으로 해석 → 9시간 차이
+- **수정**: `SessionItem.tsx`의 `relativeTime()`에서 타임스탬프 정규화 — `T` 없으면 공백→`T` 치환 + `Z` 접미사 추가
+
+#### 서버 타임존 UTC → KST 변경
+- `timedatectl set-timezone Asia/Seoul` — 서버 시간 KST로 통일
+
+### Mermaid 다이어그램 개선
+
+#### 전체 너비 렌더링
+- **문제**: Mermaid가 ReactMarkdown의 `<pre>` + `prose` 스타일 안에서 렌더링되어 너비 제한
+- **해결**: `splitMermaidBlocks()` 함수로 텍스트에서 mermaid 코드블록을 정규식 추출 → prose div 바깥에서 독립 렌더링
+- 어시스턴트 메시지 컨테이너: `max-w-[88%]` → `flex-1` (아바타 제외한 전체 너비 사용)
+
+#### 글자 짤림 해결
+- flowchart padding: 16 → 24, nodeSpacing: 30 → 40, rankSpacing: 40 → 50
+- viewBox 패딩: 8px → 16px
+
+#### 줌/팬 라이트박스 (`MermaidLightbox` 컴포넌트)
+- 마우스 휠: 커서 위치 기준 확대/축소 (0.25x ~ 5x)
+- 드래그: 포인터 캡처 기반 팬 이동
+- 더블클릭: 해당 위치 1.8x 확대
+- 툴바: +/- 버튼, 퍼센트 표시, 원래 크기 리셋, 닫기
+- 하단 힌트: "스크롤: 확대/축소 · 드래그: 이동 · 더블클릭: 확대"
+
+### 파일 변경
+| 파일 | 작업 |
+|------|------|
+| `frontend/src/utils/message-parser.ts` | text/thinking 파싱 버그 수정 |
+| `frontend/src/components/chat/MermaidBlock.tsx` | 줌/팬 라이트박스, 패딩 증가, maxHeight 제거 |
+| `frontend/src/components/chat/MessageBubble.tsx` | mermaid 분리 렌더링, flex-1, splitMermaidBlocks |
+| `frontend/src/components/sessions/SessionItem.tsx` | UTC 타임스탬프 정규화 |

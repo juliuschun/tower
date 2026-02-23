@@ -41,12 +41,12 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
         onReconnectRef.current?.();
       }
       wasConnected.current = true;
-      // Start ping interval
+      // Start ping interval (15s for mobile stability)
       const pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'ping' }));
         }
-      }, 30000);
+      }, 15000);
       ws.addEventListener('close', () => clearInterval(pingInterval), { once: true });
     };
 
@@ -91,7 +91,20 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
 
   useEffect(() => {
     connect();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          clearTimeout(reconnectTimer.current);
+          connect();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearTimeout(reconnectTimer.current);
       clearTimeout(safetyTimer.current);
       wsRef.current?.close();

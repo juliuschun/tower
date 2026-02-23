@@ -59,6 +59,17 @@ function App() {
   const mobileContextOpen = useSessionStore((s) => s.mobileContextOpen);
   const setMobileContextOpen = useSessionStore((s) => s.setMobileContextOpen);
 
+  // Prevent browser from opening dropped files globally
+  useEffect(() => {
+    const prevent = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', prevent);
+    window.addEventListener('drop', prevent);
+    return () => {
+      window.removeEventListener('dragover', prevent);
+      window.removeEventListener('drop', prevent);
+    };
+  }, []);
+
   // Sync media query to store
   useEffect(() => {
     useSessionStore.getState().setIsMobile(isMobileQuery);
@@ -185,10 +196,9 @@ function App() {
         useChatStore.getState().setClaudeSessionId(null);
         clearMessages();
         setActiveSession(session.id);
-        requestFileTree(cwd);
       }
     } catch (err) { console.warn('[app] handleNewSessionInFolder failed:', err); }
-  }, [token, addSession, setActiveSessionId, clearMessages, setActiveSession, requestFileTree]);
+  }, [token, addSession, setActiveSessionId, clearMessages, setActiveSession]);
 
   const handleSelectSession = useCallback(async (session: SessionMeta) => {
     // Skip if already on this session
@@ -245,9 +255,7 @@ function App() {
       timestamp: Date.now(),
     });
 
-    // Auto-load session's cwd in file tree
-    if (session.cwd) requestFileTree(session.cwd);
-  }, [setActiveSessionId, clearMessages, token, requestFileTree, setActiveSession]);
+  }, [setActiveSessionId, clearMessages, token, setActiveSession]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
     try {
@@ -261,11 +269,14 @@ function App() {
 
   const handleFileClick = useCallback((path: string) => {
     const fs = useFileStore.getState();
-    // Unsaved guard when switching files
     if (fs.openFile && fs.openFile.modified && fs.openFile.path !== path) {
       if (!window.confirm('저장하지 않은 변경사항이 있습니다. 다른 파일을 여시겠습니까?')) return;
     }
     requestFile(path);
+    if (useSessionStore.getState().isMobile) {
+      useSessionStore.getState().setMobileContextOpen(true);
+      useSessionStore.getState().setMobileTab('edit');
+    }
   }, [requestFile]);
 
   const handleDirectoryClick = useCallback((dirPath: string) => {
@@ -558,12 +569,13 @@ function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-surface-950 text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100">
+    <div className="h-screen flex flex-col app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100">
       <Toaster position="top-right" theme={theme} richColors closeButton />
       <OfflineBanner />
       <Header
         connected={connected}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onNewSession={handleNewSession}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -576,22 +588,14 @@ function App() {
               onClick={(e) => e.stopPropagation()}
             >
               <Sidebar
-                onNewSession={() => { handleNewSession(); setSidebarOpen(false); }}
-                onSelectSession={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
+                onNewSession={() => { handleNewSession(); setSidebarOpen(false); useSessionStore.getState().setMobileTab('chat'); }}
+                onSelectSession={(s) => { handleSelectSession(s); setSidebarOpen(false); useSessionStore.getState().setMobileTab('chat'); }}
                 onDeleteSession={handleDeleteSession}
                 onRenameSession={handleRenameSession}
                 onToggleFavorite={handleToggleFavorite}
                 onFileClick={(p) => { handleFileClick(p); setSidebarOpen(false); }}
                 onDirectoryClick={handleDirectoryClick}
-                onRequestFileTree={(path) => {
-                  if (path) {
-                    requestFileTree(path);
-                  } else {
-                    const s = useSessionStore.getState();
-                    const sess = s.sessions.find((x) => x.id === s.activeSessionId);
-                    requestFileTree(sess?.cwd);
-                  }
-                }}
+                onRequestFileTree={(path) => requestFileTree(path)}
                 onPinFile={handlePinFile}
                 onUnpinFile={handleUnpinFile}
                 onPinClick={(pin) => { handlePinClick(pin); setSidebarOpen(false); }}
@@ -615,15 +619,7 @@ function App() {
             onToggleFavorite={handleToggleFavorite}
             onFileClick={handleFileClick}
             onDirectoryClick={handleDirectoryClick}
-            onRequestFileTree={(path) => {
-              if (path) {
-                requestFileTree(path);
-              } else {
-                const s = useSessionStore.getState();
-                const sess = s.sessions.find((x) => x.id === s.activeSessionId);
-                requestFileTree(sess?.cwd);
-              }
-            }}
+            onRequestFileTree={(path) => requestFileTree(path)}
             onPinFile={handlePinFile}
             onUnpinFile={handleUnpinFile}
             onPinClick={handlePinClick}
@@ -652,22 +648,18 @@ function App() {
 
         {/* Right: Context panel — fullscreen modal on mobile */}
         {isMobile ? (
-          mobileContextOpen && contextPanelOpen && (
+          mobileContextOpen && (
             <div className="fixed inset-0 z-40 bg-surface-950 flex flex-col">
-              <div className="flex items-center justify-between px-4 h-12 border-b border-surface-800 shrink-0">
-                <span className="text-sm font-medium text-gray-300">편집</span>
-                <button
-                  onClick={() => setMobileContextOpen(false)}
-                  className="p-1.5 text-gray-400 hover:text-gray-200"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
               <div className="flex-1 overflow-hidden">
                 <ErrorBoundary fallbackLabel="Context panel error">
-                  <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
+                  <ContextPanel
+                    onSave={handleSaveFile}
+                    onReload={requestFile}
+                    onMobileClose={() => {
+                      setMobileContextOpen(false);
+                      useSessionStore.getState().setMobileTab('chat');
+                    }}
+                  />
                 </ErrorBoundary>
               </div>
             </div>

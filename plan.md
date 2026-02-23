@@ -88,10 +88,84 @@ SDK 기반 + 깔끔한 UI + 파일/에디터를 결합한 자체 플랫폼.
 | - | Plan mode 렌더링 수정 | ✅ |
 | - | PM2 통일 관리 | ✅ |
 | - | 세션 이름 편집 UX (연필 아이콘, 컨텍스트 메뉴) | ✅ |
+| - | 동시 세션 스트리밍 + 사이드바 상태 표시 | ✅ |
+| - | 실패 메시지 감지 + 재전송 (orphan detection) | ✅ |
+| - | Mermaid 무한 루프 수정 + 메시지 복사 버튼 | ✅ |
+
+---
+
+## 최근 완료 (2026-02-23)
+
+- [x] Mermaid 리-렌더 무한 루프 — `useMemo` 메모이제이션으로 해결
+- [x] 대화 내용 부분 복사 — CopyButton (메시지 + 코드블록)
+- [x] 동시 세션 스트리밍 — abort 제거, epoch guard 정리
+- [x] 사이드바 스트리밍 표시 — 녹색 펄스 인디케이터 + `session_status` broadcast
+- [x] 실패 메시지 감지 + 재전송 — orphan message detection (pending→delivered/failed)
+- [x] 에러 로깅 강화 — 빈 catch 블록에 console.error/warn 추가
 
 ---
 
 ## TODO / 백로그
+
+### 🔴 Admin Dashboard
+
+**목적:** 관리자가 시스템 상태와 사용량을 한눈에 파악. 데모에서 핵심 보여주기용.
+
+**구성:**
+- **시스템 상태** — SDK 연결, DB 크기, 서버 uptime, 활성 WS 연결 수
+- **활성 세션** — 누가 어떤 세션에서 작업 중인지, 스트리밍 상태 (실시간)
+- **사용량 통계** — 세션별 토큰/비용, 일별/주별 사용 차트
+- **사용자 관리** — 계정 목록, 역할(admin/user), 마지막 접속
+- **워크스페이스 현황** — 파일 수, Git 커밋 수, 최근 변경
+
+**구현 범위:**
+- [ ] `/admin` 라우트 (admin 역할만 접근)
+- [ ] `GET /api/admin/stats` — 시스템 통계 API
+- [ ] `GET /api/admin/sessions` — 실시간 세션 현황 API
+- [ ] AdminDashboard 컴포넌트 (카드 그리드 레이아웃)
+- [ ] 비용 차트 (일별 누적, 세션별 비교)
+- [ ] 사용자 관리 테이블
+
+### 🔴 데모 콘텐츠 (Sample Workspace)
+
+**목적:** 처음 접속한 사용자가 바로 체험할 수 있는 샘플 워크스페이스.
+business_ai 프로젝트 구조에서 착안.
+
+**샘플 워크스페이스 구조:**
+```
+/workspace/demo/
+├── CLAUDE.md              ← 워크스페이스 안내 (Claude가 읽는 컨텍스트)
+├── principles/
+│   ├── core-values.md     ← 조직 핵심 가치
+│   └── business-guide.md  ← 비즈니스 원칙
+├── departments/
+│   ├── marketing/
+│   │   ├── guidelines.md
+│   │   └── sops/social-media-campaign.md
+│   ├── finance/
+│   │   ├── guidelines.md
+│   │   └── policies/expense-approval.md
+│   └── product/
+│       ├── guidelines.md
+│       └── sops/feature-launch-checklist.md
+├── templates/
+│   ├── sop.md             ← SOP 양식
+│   ├── policy.md          ← 정책 양식
+│   └── report.md          ← 보고서 양식
+└── reports/
+    └── weekly-summary.md  ← 주간 요약 샘플
+```
+
+**슬래시 명령어 샘플:**
+- `/generate-report` — 부서별 보고서 생성
+- `/analyze` — 데이터 파일 분석 + 인사이트
+- `/summarize-docs` — 폴더 내 문서 요약
+
+**구현 범위:**
+- [ ] 샘플 워크스페이스 파일 생성 (위 구조)
+- [ ] 슬래시 명령어 3개 작성 (`~/.claude/commands/`)
+- [ ] 세션 CWD를 데모 워크스페이스로 기본 설정 가능하게
+- [ ] 첫 접속 시 가이드 메시지 or 온보딩 세션
 
 ### 🔴 세션 CWD (작업 디렉토리) 설계
 
@@ -125,40 +199,16 @@ BottomBar: 🟢 대기 │ 📁 ~/tunnelingcc/claude-desk [▼]
 - [ ] 미처리 SDK 메시지 fallback 렌더링 + console.warn
 - [ ] SDK headless 환경에서 AskUserQuestion 동작 확인
 
-### 세션 이름 인라인 편집 잔여
+### 🟡 세션 UX 잔여
 - [ ] 이름 변경 후 정렬 순서 즉시 반영
+- [ ] 세션 마지막 대화 시간 표시 (상대 시간, 정렬)
 
-### 세션 연속성 잔여
+### 🟡 세션 연속성 잔여
 - [ ] SDK `resume` 시 미완료 턴 처리 방식 확인
 - [ ] 스트리밍 중 WS 끊김 → 재연결 후 미완료 응답 복구 가능성
 - [ ] DB 메시지와 SDK 세션 상태 일관성 보장
 
-### 🔴 Mermaid 차트 리-렌더 무한 루프 (UI 흔들림)
-
-**증상:** Mermaid 다이어그램이 포함된 메시지에서 2~3초마다 화면 흔들림. API 요청/콘솔 에러 없음.
-
-**근본 원인:** ReactMarkdown의 `components` prop이 매 렌더마다 새 객체로 생성됨 → MermaidBlock이 반복 unmount/remount → `useEffect` 재실행 → `mermaid.render()` DOM 조작 → 리-렌더 루프
-
-**관련 파일:**
-- `MessageBubble.tsx:126-133` — `components` 객체가 inline으로 매번 새로 생성
-- `MermaidBlock.tsx:26` — `counter++`가 매 인스턴스마다 증가, unmount/remount 시 새 ID 할당
-- `MermaidBlock.tsx:37` — `setError(null)` 호출이 불필요한 상태 업데이트 유발 가능
-
-**수정 방향:**
-- [ ] `components` prop을 `useMemo`로 메모이제이션 (의존성: `onFileClick`)
-- [ ] `MermaidBlock`을 `React.memo`로 래핑 (code prop 미변경 시 리렌더 방지)
-- [ ] `mermaid.render()` ID를 content hash 기반으로 변경 (counter++ 제거)
-- [ ] useEffect cleanup에서 이전 SVG 정리
-- [ ] `setError(null)` 가드 추가 (이미 null이면 skip)
-
-### 대화 내용 부분 복사
-- 메시지 버블 hover 시 📋 복사 아이콘, 코드블록 별도 복사 버튼
-- `navigator.clipboard.writeText()` + 토스트
-
-### 세션 마지막 대화 시간 표시
-- 상대 시간 ("방금 전", "3시간 전"), 마지막 대화 시간 기준 정렬
-
-### 전체 대화 내용 공유
+### 🟢 전체 대화 내용 공유
 - A) 마크다운 내보내기 (우선), B) 공유 링크 (확장)
 
 ---
@@ -296,3 +346,31 @@ claude-desk/
 7. 프롬프트: 추가 → 미리보기 → 드래그→InputBox
 8. 테스트: `npm run test` → 39개 통과 ✅
 9. 빌드: `npm run build` → 회귀 없음 ✅
+
+---
+
+## Dev Mode (HMR 개발 워크플로우)
+
+### 배경
+`npm run restart` (production build) 는 매번 ~40초 소요. 개발 중 빈번한 수정에 비효율적.
+
+### 해결
+Vite dev server + tsx watch 조합으로 즉시 반영:
+- Frontend: Vite HMR → CSS/컴포넌트 변경 즉시 반영
+- Backend: tsx watch → 파일 변경 시 ~2초 자동 재시작
+- 같은 포트(32354)로 원격 접속 가능
+
+### 사용법
+```bash
+# 개발 모드 시작
+pm2 stop claude-desk
+npm run dev
+
+# 프로덕션 복귀
+Ctrl+C
+npm run restart
+```
+
+### 포트 구조
+- :32354 — Vite dev server (브라우저 접속)
+- :32355 — Backend (Vite가 /api, /ws 프록시)

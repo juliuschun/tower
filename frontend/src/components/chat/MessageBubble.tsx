@@ -77,11 +77,6 @@ export function MessageBubble({ message, onFileClick, onAnswerQuestion, onRetry 
       const isInline = !className;
       const text = String(children).trim();
 
-      // Mermaid diagram
-      if (className?.includes('language-mermaid')) {
-        return <MermaidBlock code={text} />;
-      }
-
       // Inline code — file path click
       if (isInline && text.startsWith('/') && onFileClick) {
         return (
@@ -129,7 +124,7 @@ export function MessageBubble({ message, onFileClick, onAnswerQuestion, onRetry 
         </div>
       )}
 
-      <div className={`max-w-[88%] min-w-0 ${isUser ? 'order-first' : ''}`}>
+      <div className={`min-w-0 ${isUser ? 'max-w-[88%] order-first' : 'flex-1'}`}>
         {isUser ? (
           <div>
             <div className={`relative bg-surface-800/70 border rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
@@ -191,21 +186,28 @@ export function MessageBubble({ message, onFileClick, onAnswerQuestion, onRetry 
                 );
               }
 
-              // Text
+              // Text — extract mermaid blocks and render them outside prose
               if (group.type === 'text') {
-                return group.blocks.map((block, bi) => (
-                  block.text ? (
-                    <div key={`${gi}-${bi}`} className="prose prose-invert prose-sm max-w-none">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeHighlight]}
-                        components={mdComponents}
-                      >
-                        {block.text}
-                      </ReactMarkdown>
-                    </div>
-                  ) : null
-                ));
+                return group.blocks.map((block, bi) => {
+                  if (!block.text) return null;
+                  const segments = splitMermaidBlocks(block.text);
+                  return segments.map((seg, si) => {
+                    if (seg.type === 'mermaid') {
+                      return <MermaidBlock key={`${gi}-${bi}-m${si}`} code={seg.content} />;
+                    }
+                    return (
+                      <div key={`${gi}-${bi}-t${si}`} className="prose prose-invert prose-sm max-w-none overflow-hidden">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                          components={mdComponents}
+                        >
+                          {seg.content}
+                        </ReactMarkdown>
+                      </div>
+                    );
+                  });
+                });
               }
 
               // Tool results — usually already merged into tool_use via attachToolResult
@@ -258,8 +260,8 @@ function ToolChipGroup({ blocks, onFileClick, onAnswerQuestion }: { blocks: Cont
 
   return (
     <div>
-      {/* Chip row */}
-      <div className="flex flex-wrap gap-1.5">
+      {/* Chip row — horizontal scroll on mobile */}
+      <div className="flex flex-wrap gap-1.5 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1">
         {validBlocks.map((block, i) => (
           <ToolChip
             key={i}
@@ -324,6 +326,30 @@ function extractCodeText(children: React.ReactNode): string {
     }
   });
   return text.trim();
+}
+
+/** Split markdown text into regular text and mermaid code blocks */
+function splitMermaidBlocks(text: string): Array<{ type: 'text' | 'mermaid'; content: string }> {
+  const segments: Array<{ type: 'text' | 'mermaid'; content: string }> = [];
+  const regex = /```mermaid\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const before = text.slice(lastIndex, match.index).trim();
+      if (before) segments.push({ type: 'text', content: before });
+    }
+    segments.push({ type: 'mermaid', content: match[1].trim() });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    const rest = text.slice(lastIndex).trim();
+    if (rest) segments.push({ type: 'text', content: rest });
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', content: text }];
 }
 
 /** Group consecutive blocks of the same type together */

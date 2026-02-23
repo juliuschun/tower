@@ -31,9 +31,10 @@ function HtmlPreview({ content }: { content: string }) {
 interface ContextPanelProps {
   onSave?: (path: string, content: string) => void;
   onReload?: (path: string) => void;
+  onMobileClose?: () => void;
 }
 
-export function ContextPanel({ onSave, onReload }: ContextPanelProps) {
+export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelProps) {
   const openFile = useFileStore((s) => s.openFile);
   const contextPanelTab = useFileStore((s) => s.contextPanelTab);
   const setContextPanelTab = useFileStore((s) => s.setContextPanelTab);
@@ -70,8 +71,20 @@ export function ContextPanel({ onSave, onReload }: ContextPanelProps) {
 
   if (!openFile) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-        파일을 선택하면 여기에 표시됩니다
+      <div className="h-full flex flex-col bg-surface-900">
+        {onMobileClose && (
+          <div className="flex items-center justify-between px-4 h-12 border-b border-surface-800 shrink-0">
+            <span className="text-sm font-medium text-gray-400">파일 없음</span>
+            <button onClick={onMobileClose} className="p-1.5 text-gray-400 hover:text-gray-200">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          </div>
+        )}
+        <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+          파일을 선택하면 여기에 표시됩니다
+        </div>
       </div>
     );
   }
@@ -85,6 +98,13 @@ export function ContextPanel({ onSave, onReload }: ContextPanelProps) {
     <div className="h-full flex flex-col bg-surface-900">
       {/* File header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-surface-700 text-sm">
+        {onMobileClose && (
+          <button onClick={onMobileClose} className="p-0.5 text-gray-400 hover:text-gray-200 shrink-0">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
         <span className="text-gray-400 truncate flex-1" title={openFile.path}>
           {fileName}
         </span>

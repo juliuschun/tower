@@ -14,7 +14,13 @@ export interface FileEntry {
 
 export function isPathSafe(targetPath: string, root?: string): boolean {
   const resolvedTarget = path.resolve(targetPath);
-  const resolvedRoot = path.resolve(root || config.workspaceRoot);
+  const resolvedRoot = path.resolve(root || '/');
+  return resolvedTarget.startsWith(resolvedRoot);
+}
+
+export function isPathWritable(targetPath: string): boolean {
+  const resolvedTarget = path.resolve(targetPath);
+  const resolvedRoot = path.resolve(config.workspaceRoot);
   return resolvedTarget.startsWith(resolvedRoot);
 }
 
@@ -79,7 +85,7 @@ export function readFile(filePath: string): { content: string; language: string 
 }
 
 export function writeFile(filePath: string, content: string): void {
-  if (!isPathSafe(filePath)) {
+  if (!isPathWritable(filePath)) {
     throw new Error('Access denied: path outside workspace');
   }
 

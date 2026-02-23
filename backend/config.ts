@@ -6,7 +6,10 @@ import fs from 'fs';
 
 // Resolve project root from source file location (not process.cwd())
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+// dev: backend/config.ts → ..  |  prod: dist/backend/config.js → ../..
+const PROJECT_ROOT = __dirname.includes('dist')
+  ? path.resolve(__dirname, '..', '..')
+  : path.resolve(__dirname, '..');
 
 function findClaudeExecutable(): string {
   if (process.env.CLAUDE_PATH) return process.env.CLAUDE_PATH;

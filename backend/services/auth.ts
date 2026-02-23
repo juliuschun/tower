@@ -54,11 +54,16 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   if (!config.authEnabled) return next();
 
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+  const queryToken = req.query?.token as string | undefined;
+  const rawToken = authHeader?.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : queryToken || null;
+
+  if (!rawToken) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
-  const payload = verifyToken(authHeader.slice(7));
+  const payload = verifyToken(rawToken);
   if (!payload) {
     return res.status(401).json({ error: 'Invalid token' });
   }

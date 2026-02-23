@@ -12,13 +12,22 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
   const blocks: ContentBlock[] = [];
 
   for (const item of sdkMsg.message.content) {
-    if (item.type === 'text') {
-      blocks.push({ type: 'text', text: item.text });
-    } else if (item.type === 'thinking') {
+    if (item.type === 'thinking') {
       blocks.push({
         type: 'thinking',
-        thinking: { text: item.thinking },
+        thinking: { text: item.thinking || '' },
       });
+    } else if (item.type === 'text') {
+      // Extract <thinking> tags embedded in text content
+      const raw = item.text || '';
+      const thinkingMatch = raw.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
+      if (thinkingMatch) {
+        blocks.push({ type: 'thinking', thinking: { text: thinkingMatch[1] } });
+        const rest = raw.slice(thinkingMatch[0].length).trim();
+        if (rest) blocks.push({ type: 'text', text: rest });
+      } else {
+        blocks.push({ type: 'text', text: raw });
+      }
     } else if (item.type === 'tool_use') {
       blocks.push({
         type: 'tool_use',
@@ -56,11 +65,21 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
  */
 export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
   if (!Array.isArray(blocks)) return [];
-  return blocks.map((item) => {
+  return blocks.flatMap((item) => {
     // Already in ContentBlock format (has toolUse/thinking wrapper)
     if (item.type === 'tool_use' && item.toolUse) return item;
     if (item.type === 'thinking' && item.thinking?.text) return item;
-    if (item.type === 'text') return item;
+    // Extract <thinking> tags from text blocks (DB stores them embedded)
+    if (item.type === 'text' && item.text) {
+      const m = item.text.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
+      if (m) {
+        const result: ContentBlock[] = [{ type: 'thinking', thinking: { text: m[1] } }];
+        const rest = item.text.slice(m[0].length).trim();
+        if (rest) result.push({ type: 'text', text: rest });
+        return result;
+      }
+      return item;
+    }
 
     // Raw SDK format — convert
     if (item.type === 'tool_use') {

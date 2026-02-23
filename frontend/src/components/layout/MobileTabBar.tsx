@@ -3,6 +3,15 @@ import { useSessionStore, type MobileTab } from '../../stores/session-store';
 
 const tabs: { id: MobileTab; label: string; icon: JSX.Element }[] = [
   {
+    id: 'sessions',
+    label: '세션',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+      </svg>
+    ),
+  },
+  {
     id: 'chat',
     label: '채팅',
     icon: (
@@ -49,7 +58,11 @@ export function MobileTabBar() {
 
   const handleTabClick = (tab: MobileTab) => {
     setMobileTab(tab);
-    if (tab === 'chat') {
+    if (tab === 'sessions') {
+      setSidebarOpen(true);
+      setSidebarTab('sessions');
+      setMobileContextOpen(false);
+    } else if (tab === 'chat') {
       setSidebarOpen(false);
       setMobileContextOpen(false);
     } else if (tab === 'files') {

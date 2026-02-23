@@ -19,12 +19,13 @@ export interface SessionMeta {
   filesEdited?: string[];
 }
 
-export type MobileTab = 'chat' | 'files' | 'edit' | 'pins';
+export type MobileTab = 'sessions' | 'chat' | 'files' | 'edit' | 'pins';
 
 interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   streamingSessions: Set<string>;
+  unreadSessions: Set<string>;
   sidebarOpen: boolean;
   sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git';
   searchQuery: string;
@@ -38,6 +39,7 @@ interface SessionState {
   removeSession: (id: string) => void;
   updateSessionMeta: (id: string, updates: Partial<SessionMeta>) => void;
   setSessionStreaming: (id: string, streaming: boolean) => void;
+  markSessionRead: (id: string) => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git') => void;
   setSearchQuery: (query: string) => void;
@@ -50,6 +52,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
   activeSessionId: null,
   streamingSessions: new Set(),
+  unreadSessions: new Set(),
   sidebarOpen: true,
   sidebarTab: 'sessions',
   searchQuery: '',
@@ -68,8 +71,25 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSessionStreaming: (id, streaming) =>
     set((s) => {
       const next = new Set(s.streamingSessions);
-      if (streaming) next.add(id); else next.delete(id);
-      return { streamingSessions: next };
+      if (streaming) {
+        next.add(id);
+        return { streamingSessions: next };
+      } else {
+        next.delete(id);
+        if (s.activeSessionId !== id) {
+          const unread = new Set(s.unreadSessions);
+          unread.add(id);
+          return { streamingSessions: next, unreadSessions: unread };
+        }
+        return { streamingSessions: next };
+      }
+    }),
+  markSessionRead: (id) =>
+    set((s) => {
+      if (!s.unreadSessions.has(id)) return s;
+      const unread = new Set(s.unreadSessions);
+      unread.delete(id);
+      return { unreadSessions: unread };
     }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),

@@ -3,7 +3,9 @@ import type { SessionMeta } from '../../stores/session-store';
 import { useSessionStore } from '../../stores/session-store';
 
 function relativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+  // SQLite CURRENT_TIMESTAMP returns UTC without 'Z' suffix — normalize to avoid local-time misparse
+  const normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T') + 'Z';
+  const diff = Date.now() - new Date(normalized).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return '방금 전';
   if (mins < 60) return `${mins}분 전`;
@@ -80,6 +82,8 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
+  const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
+  const markSessionRead = useSessionStore((s) => s.markSessionRead);
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
@@ -117,7 +121,7 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
             ? 'bg-surface-800 text-gray-100 shadow-sm ring-1 ring-surface-700/50'
             : 'text-gray-400 hover:bg-surface-850 hover:text-gray-200'
         }`}
-        onClick={() => onSelect(session)}
+        onClick={() => { markSessionRead(session.id); onSelect(session); }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       >
@@ -134,10 +138,14 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           </svg>
         </button>
 
-        {/* Chat icon / streaming indicator */}
+        {/* Chat icon / streaming indicator / unread dot */}
         {isStreaming ? (
           <div className="w-4 h-4 shrink-0 flex items-center justify-center">
             <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
+          </div>
+        ) : isUnread ? (
+          <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+            <div className="w-2 h-2 rounded-full bg-primary-400" />
           </div>
         ) : (
           <svg className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-primary-500' : 'text-surface-700 group-hover:text-surface-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">

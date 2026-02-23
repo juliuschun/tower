@@ -780,16 +780,15 @@ npm run build
 mkdir -p data
 ```
 
-### 3단계: PM2로 서비스 시작
+### 3단계: 서비스 시작 (Dev Mode)
 ```bash
 cd ~/claude-desk
-pm2 start ecosystem.config.cjs
-pm2 save
-pm2 startup  # 부팅 시 자동 시작
+npm run dev
 ```
-- 기본 포트: 32354
+- Vite HMR(:32354) + tsx watch backend(:32355) 동시 실행
+- 코드 수정 → 즉시 반영 (빌드 불필요)
+- 원격 접속 OK (0.0.0.0 바인딩)
 - 기본 인증: admin / admin123
-- config.ts가 자동으로 claude 바이너리와 홈 디렉토리를 탐지함
 
 ### 4단계: 외부 접속 (택 1)
 
@@ -828,3 +827,8 @@ az vm open-port --resource-group <RG> --name <VM> --port 32354 --priority 1010
 2. **파일 권한**: Docker 등으로 `~/.claude/` 소유자가 바뀌면 `sudo chown -R $(whoami) ~/.claude/`
 3. **DB 복사 금지**: 다른 서버의 SQLite DB를 복사하면 경로 불일치 에러 발생. 항상 빈 DB로 시작
 4. **ESM 모듈**: package.json에 `"type": "module"` → CommonJS 문법(require) 사용 불가
+5. **PROJECT_ROOT dev/prod 차이**: `backend/config.ts`의 `__dirname` 기준 경로가 다름
+   - dev (tsx): `backend/config.ts` → `..` = `claude-desk/`
+   - prod (dist): `dist/backend/config.js` → `../..` = `claude-desk/`
+   - 코드에서 `__dirname.includes('dist')` 분기로 처리됨
+6. **Dev Mode 환경변수**: `ecosystem.config.cjs`의 env를 `package.json` dev:backend 스크립트에도 동일하게 선언해야 함 (PORT, HOST, GIT_AUTO_COMMIT, WORKSPACE_ROOT)

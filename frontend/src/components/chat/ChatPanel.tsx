@@ -48,6 +48,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
   const isStreaming = useChatStore((s) => s.isStreaming);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
+  const isMobile = useSessionStore((s) => s.isMobile);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const mergedMessages = useMemo(() => mergeConsecutiveAssistant(messages), [messages]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -71,9 +72,9 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative overflow-x-hidden">
       {/* Messages area */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-32">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className={`flex-1 overflow-y-auto overflow-x-hidden ${isMobile ? 'pb-44' : 'pb-32'}`}>
         {/* Summary card — shown when session has messages */}
         {activeSession && messages.length > 0 && (
           <SummaryCard session={activeSession} />
@@ -117,7 +118,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
       </div>
 
       {/* Input */}
-      <div className="absolute bottom-6 left-0 right-0 px-3 md:px-6">
+      <div className={`absolute left-0 right-0 px-3 md:px-6 ${isMobile ? 'bottom-[4.5rem]' : 'bottom-6'}`}>
         <InputBox onSend={onSend} onAbort={onAbort} />
       </div>
     </div>
