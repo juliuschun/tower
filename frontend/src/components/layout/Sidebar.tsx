@@ -18,7 +18,7 @@ interface SidebarProps {
   onToggleFavorite: (id: string, favorite: boolean) => void;
   onFileClick: (path: string) => void;
   onDirectoryClick: (path: string) => void;
-  onRequestFileTree: () => void;
+  onRequestFileTree: (path?: string) => void;
   onPinFile?: (path: string) => void;
   onUnpinFile?: (id: number) => void;
   onPinClick?: (pin: Pin) => void;
@@ -48,6 +48,7 @@ export function Sidebar({
   const setSearchQuery = useSessionStore((s) => s.setSearchQuery);
 
   const tree = useFileStore((s) => s.tree);
+  const treeRoot = useFileStore((s) => s.treeRoot);
 
   const prompts = usePromptStore((s) => s.prompts);
 
@@ -172,6 +173,7 @@ export function Sidebar({
           </div>
         ) : sidebarTab === 'files' ? (
           <div className="px-2">
+            <Breadcrumb treeRoot={treeRoot} onNavigate={onRequestFileTree} />
             {tree.length === 0 ? (
               <p className="text-[13px] text-surface-700 px-2 py-6 text-center">파일 트리 로딩 중...</p>
             ) : (
@@ -239,12 +241,74 @@ export function Sidebar({
   );
 }
 
+/** Breadcrumb navigation for file tree root */
+function Breadcrumb({ treeRoot, onNavigate }: { treeRoot: string; onNavigate: (path?: string) => void }) {
+  if (!treeRoot) return null;
+
+  // Replace /home/<user> with ~
+  const display = treeRoot.replace(/^\/home\/[^/]+/, '~');
+  const segments = display.split('/').filter(Boolean);
+
+  // Build absolute path for each segment click
+  const buildPath = (index: number): string => {
+    // Reconstruct from original treeRoot segments
+    const originalSegments = treeRoot.split('/').filter(Boolean);
+    // If display starts with ~, first segment maps to /home/<user>
+    if (display.startsWith('~')) {
+      // index 0 = ~ = /home/<user>
+      if (index === 0) {
+        const homeMatch = treeRoot.match(/^\/home\/[^/]+/);
+        return homeMatch ? homeMatch[0] : '/';
+      }
+      // index 1+ maps to originalSegments after the home dir parts
+      const homeMatch = treeRoot.match(/^\/home\/[^/]+/);
+      const homePrefix = homeMatch ? homeMatch[0] : '';
+      const rest = treeRoot.slice(homePrefix.length).split('/').filter(Boolean);
+      return homePrefix + '/' + rest.slice(0, index).join('/');
+    }
+    return '/' + originalSegments.slice(0, index + 1).join('/');
+  };
+
+  const parentPath = treeRoot.replace(/\/[^/]+\/?$/, '') || '/';
+
+  return (
+    <div className="flex items-center gap-0.5 px-1 py-1.5 mb-1 text-[11px] font-mono overflow-x-auto scrollbar-none">
+      {segments.map((seg, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <span className="text-surface-700 mx-0.5">/</span>}
+          {i < segments.length - 1 ? (
+            <button
+              onClick={() => onNavigate(buildPath(i))}
+              className="text-surface-600 hover:text-primary-400 transition-colors truncate max-w-[80px] shrink-0"
+              title={buildPath(i)}
+            >
+              {seg}
+            </button>
+          ) : (
+            <span className="text-gray-300 truncate max-w-[100px]">{seg}</span>
+          )}
+        </React.Fragment>
+      ))}
+      <button
+        onClick={() => onNavigate(parentPath)}
+        disabled={treeRoot === '/'}
+        className="ml-1 p-0.5 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+        title="상위 디렉토리"
+      >
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 /** Inline CWD picker for the project header */
 function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }: {
   currentCwd: string;
   sessionId: string;
   onClose: () => void;
-  onRequestFileTree: () => void;
+  onRequestFileTree: (path?: string) => void;
 }) {
   const [browsePath, setBrowsePath] = useState(currentCwd);
   const [dirs, setDirs] = useState<{ name: string; path: string }[]>([]);

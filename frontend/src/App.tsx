@@ -153,10 +153,8 @@ function App() {
   }, [token, addSession]);
 
   const handleNewSession = useCallback(async () => {
-    // Abort streaming if active
-    if (useChatStore.getState().isStreaming) {
-      abort();
-    }
+    // Don't abort streaming — let the SDK query run in background and save to DB
+    useChatStore.getState().setStreaming(false);
     useChatStore.getState().clearAttachments();
     const session = await createSessionInDb();
     if (session) {
@@ -166,12 +164,11 @@ function App() {
       clearMessages();
       setActiveSession(session.id);
     }
-  }, [createSessionInDb, setActiveSessionId, clearMessages, abort, setActiveSession]);
+  }, [createSessionInDb, setActiveSessionId, clearMessages, setActiveSession]);
 
   const handleNewSessionInFolder = useCallback(async (cwd: string) => {
-    if (useChatStore.getState().isStreaming) {
-      abort();
-    }
+    // Don't abort streaming — let the SDK query run in background and save to DB
+    useChatStore.getState().setStreaming(false);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -191,17 +188,16 @@ function App() {
         requestFileTree(cwd);
       }
     } catch (err) { console.warn('[app] handleNewSessionInFolder failed:', err); }
-  }, [token, addSession, setActiveSessionId, clearMessages, abort, setActiveSession, requestFileTree]);
+  }, [token, addSession, setActiveSessionId, clearMessages, setActiveSession, requestFileTree]);
 
   const handleSelectSession = useCallback(async (session: SessionMeta) => {
     // Skip if already on this session
     const currentId = useSessionStore.getState().activeSessionId;
     if (currentId === session.id) return;
 
-    // Abort streaming if active
-    if (useChatStore.getState().isStreaming) {
-      abort();
-    }
+    // DON'T abort streaming — let the SDK query run in the background and save to DB.
+    // When user switches back, messages are loaded from DB.
+    useChatStore.getState().setStreaming(false);
 
     useChatStore.getState().clearAttachments();
     setActiveSessionId(session.id);
@@ -251,7 +247,7 @@ function App() {
 
     // Auto-load session's cwd in file tree
     if (session.cwd) requestFileTree(session.cwd);
-  }, [setActiveSessionId, clearMessages, token, requestFileTree, abort, setActiveSession]);
+  }, [setActiveSessionId, clearMessages, token, requestFileTree, setActiveSession]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
     try {
@@ -587,10 +583,14 @@ function App() {
                 onToggleFavorite={handleToggleFavorite}
                 onFileClick={(p) => { handleFileClick(p); setSidebarOpen(false); }}
                 onDirectoryClick={handleDirectoryClick}
-                onRequestFileTree={() => {
-                  const s = useSessionStore.getState();
-                  const sess = s.sessions.find((x) => x.id === s.activeSessionId);
-                  requestFileTree(sess?.cwd);
+                onRequestFileTree={(path) => {
+                  if (path) {
+                    requestFileTree(path);
+                  } else {
+                    const s = useSessionStore.getState();
+                    const sess = s.sessions.find((x) => x.id === s.activeSessionId);
+                    requestFileTree(sess?.cwd);
+                  }
                 }}
                 onPinFile={handlePinFile}
                 onUnpinFile={handleUnpinFile}
@@ -615,10 +615,14 @@ function App() {
             onToggleFavorite={handleToggleFavorite}
             onFileClick={handleFileClick}
             onDirectoryClick={handleDirectoryClick}
-            onRequestFileTree={() => {
-              const s = useSessionStore.getState();
-              const sess = s.sessions.find((x) => x.id === s.activeSessionId);
-              requestFileTree(sess?.cwd);
+            onRequestFileTree={(path) => {
+              if (path) {
+                requestFileTree(path);
+              } else {
+                const s = useSessionStore.getState();
+                const sess = s.sessions.find((x) => x.id === s.activeSessionId);
+                requestFileTree(sess?.cwd);
+              }
             }}
             onPinFile={handlePinFile}
             onUnpinFile={handleUnpinFile}
@@ -753,8 +757,16 @@ function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => vo
           requestFileTree={requestFileTree}
         />
       )}
+      <div className="flex items-center gap-4 ml-auto">
+      {activeSessionId && (
+        <span
+          className="text-gray-600 cursor-pointer hover:text-gray-400 transition-colors"
+          title={`Session: ${activeSessionId}`}
+          onClick={() => { navigator.clipboard.writeText(activeSessionId); }}
+        >{activeSessionId.slice(0, 8)}</span>
+      )}
       {cost.totalCost > 0 && (
-        <div className="flex items-center gap-4 ml-auto">
+        <div className="flex items-center gap-4">
           <span className="text-primary-300/90 font-semibold px-2 py-0.5 rounded-md bg-primary-900/20 border border-primary-500/20 flex items-center gap-1">
             <span className="text-primary-400">$</span>{cost.totalCost.toFixed(4)}
           </span>
@@ -763,6 +775,7 @@ function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => vo
           {cost.duration && <span className="flex items-center gap-1.5" title="Duration"><svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{(cost.duration / 1000).toFixed(1)}s</span>}
         </div>
       )}
+      </div>
     </footer>
   );
 }

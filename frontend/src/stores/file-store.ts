@@ -26,7 +26,7 @@ export interface ExternalChange {
 
 interface FileState {
   tree: FileEntry[];
-  currentPath: string;
+  treeRoot: string;
   openFile: OpenFile | null;
   contextPanelOpen: boolean;
   contextPanelTab: 'preview' | 'editor' | 'python';
@@ -35,7 +35,7 @@ interface FileState {
   externalChange: ExternalChange | null;
 
   setTree: (entries: FileEntry[]) => void;
-  setCurrentPath: (path: string) => void;
+  setTreeRoot: (path: string) => void;
   setOpenFile: (file: OpenFile | null) => void;
   updateOpenFileContent: (content: string) => void;
   setContextPanelOpen: (open: boolean) => void;
@@ -52,7 +52,7 @@ interface FileState {
 
 export const useFileStore = create<FileState>((set, get) => ({
   tree: [],
-  currentPath: '',
+  treeRoot: '',
   openFile: null,
   contextPanelOpen: false,
   contextPanelTab: 'preview',
@@ -61,7 +61,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   externalChange: null,
 
   setTree: (entries) => set({ tree: entries }),
-  setCurrentPath: (path) => set({ currentPath: path }),
+  setTreeRoot: (path) => set({ treeRoot: path }),
   setOpenFile: (file) => {
     if (file) {
       set({

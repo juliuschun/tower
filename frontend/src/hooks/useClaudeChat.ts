@@ -143,6 +143,18 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'set_active_session_ack': {
+        // When switching TO a session that has active streaming, restore streaming state
+        if (data.isStreaming) {
+          useChatStore.getState().setStreaming(true);
+          currentAssistantMsg.current = null;
+          if (data.sessionId) {
+            mergeMessagesFromDb(data.sessionId);
+          }
+        }
+        break;
+      }
+
       case 'sdk_message': {
         // Ignore messages for sessions we're not currently viewing
         const _currentSid = useChatStore.getState().sessionId;
@@ -350,6 +362,9 @@ export function useClaudeChat() {
           }
         }
         setTree(data.entries);
+        if (data.path) {
+          useFileStore.getState().setTreeRoot(data.path);
+        }
         break;
       }
 
