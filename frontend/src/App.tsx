@@ -6,6 +6,7 @@ import { ChatPanel } from './components/chat/ChatPanel';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { LoginPage } from './components/auth/LoginPage';
 import { SettingsPanel } from './components/settings/SettingsPanel';
+import { AdminPanel } from './components/admin/AdminPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OfflineBanner } from './components/common/OfflineBanner';
 import { PromptEditor } from './components/prompts/PromptEditor';
@@ -483,6 +484,10 @@ function App() {
     useSettingsStore.getState().setOpen(true);
   }, []);
 
+  const [adminOpen, setAdminOpen] = useState(false);
+  const isAdmin = localStorage.getItem('userRole') === 'admin';
+  const handleOpenAdmin = useCallback(() => setAdminOpen(true), []);
+
   const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
@@ -574,6 +579,7 @@ function App() {
         connected={connected}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onNewSession={handleNewSession}
+        onAdminClick={isAdmin ? handleOpenAdmin : undefined}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -690,7 +696,8 @@ function App() {
       {isMobile ? <MobileTabBar /> : <BottomBar requestFileTree={requestFileTree} />}
 
       {/* Settings modal */}
-      <SettingsPanel onLogout={handleLogout} token={token} />
+      <SettingsPanel onLogout={handleLogout} />
+      <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
 
       {/* Prompt editor modal */}
       <PromptEditor
