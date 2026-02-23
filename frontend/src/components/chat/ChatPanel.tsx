@@ -40,9 +40,10 @@ interface ChatPanelProps {
   onSend: (message: string) => void;
   onAbort: () => void;
   onFileClick?: (path: string) => void;
+  onAnswerQuestion?: (questionId: string, answer: string) => void;
 }
 
-export function ChatPanel({ onSend, onAbort, onFileClick }: ChatPanelProps) {
+export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: ChatPanelProps) {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -81,7 +82,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick }: ChatPanelProps) {
           )}
 
           {mergedMessages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} />
+            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onAnswerQuestion={onAnswerQuestion} />
           ))}
 
           {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant' && (

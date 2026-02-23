@@ -1,4 +1,4 @@
-import { query, type SDKMessage, type Query, type Options } from '@anthropic-ai/claude-code';
+import { query, type SDKMessage, type Query, type Options, type CanUseTool } from '@anthropic-ai/claude-code';
 import { config } from '../config.js';
 
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
@@ -30,6 +30,7 @@ export async function* executeQuery(
     resumeSessionId?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
     model?: string;
+    canUseTool?: CanUseTool;
   } = {}
 ): AsyncGenerator<SDKMessage> {
   // Abort any existing query for this session
@@ -61,6 +62,7 @@ export async function* executeQuery(
     cwd: options.cwd || config.defaultCwd,
     permissionMode: options.permissionMode || config.permissionMode,
     ...(options.model ? { model: options.model } : {}),
+    ...(options.canUseTool ? { canUseTool: options.canUseTool } : {}),
   };
 
   if (options.resumeSessionId) {

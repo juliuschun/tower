@@ -56,6 +56,17 @@ export interface Attachment {
   content: string;
 }
 
+export interface PendingQuestion {
+  questionId: string;
+  sessionId: string;
+  questions: Array<{
+    question: string;
+    header?: string;
+    options: Array<{ label: string; description?: string }>;
+    multiSelect?: boolean;
+  }>;
+}
+
 interface ChatState {
   messages: ChatMessage[];
   isStreaming: boolean;
@@ -67,6 +78,7 @@ interface ChatState {
   cost: CostInfo;
   rateLimit: RateLimitInfo | null;
   attachments: Attachment[];
+  pendingQuestion: PendingQuestion | null;
 
   addMessage: (msg: ChatMessage) => void;
   updateAssistantById: (id: string, content: ContentBlock[]) => void;
@@ -83,6 +95,7 @@ interface ChatState {
   addAttachment: (att: Attachment) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
+  setPendingQuestion: (pq: PendingQuestion | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -96,6 +109,7 @@ export const useChatStore = create<ChatState>((set) => ({
   cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 },
   rateLimit: null,
   attachments: [],
+  pendingQuestion: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -158,11 +172,12 @@ export const useChatStore = create<ChatState>((set) => ({
   setCost: (cost) => set((s) => ({ cost: { ...s.cost, ...cost } })),
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
-  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 }, rateLimit: null }),
+  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 }, rateLimit: null, pendingQuestion: null }),
   addAttachment: (att) => set((s) => {
     if (s.attachments.some((a) => a.id === att.id)) return s;
     return { attachments: [...s.attachments, att] };
   }),
   removeAttachment: (id) => set((s) => ({ attachments: s.attachments.filter((a) => a.id !== id) })),
   clearAttachments: () => set({ attachments: [] }),
+  setPendingQuestion: (pq) => set({ pendingQuestion: pq }),
 }));

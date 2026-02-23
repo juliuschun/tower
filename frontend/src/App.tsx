@@ -52,7 +52,7 @@ function App() {
     localStorage.setItem('contextPanelWidth', String(width));
   }, []);
 
-  const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, connected } = useClaudeChat();
+  const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, answerQuestion, connected } = useClaudeChat();
   const { theme } = useTheme();
   const isMobileQuery = useMediaQuery('(max-width: 768px)');
   const isMobile = useSessionStore((s) => s.isMobile);
@@ -640,6 +640,7 @@ function App() {
                 onSend={handleSendMessage}
                 onAbort={abort}
                 onFileClick={handleFileClick}
+                onAnswerQuestion={answerQuestion}
               />
             </ErrorBoundary>
           </div>

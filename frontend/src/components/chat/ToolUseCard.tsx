@@ -7,6 +7,7 @@ interface ToolUseCardProps {
   input: Record<string, any>;
   result?: string;
   onFileClick?: (path: string) => void;
+  onAnswerQuestion?: (questionId: string, answer: string) => void;
   compact?: boolean;
   defaultExpanded?: boolean;
 }
@@ -106,7 +107,7 @@ export function ToolChip({ name, input, result, isActive, onClick }: ToolChipPro
   );
 }
 
-export function ToolUseCard({ name, input, result, onFileClick, compact, defaultExpanded }: ToolUseCardProps) {
+export function ToolUseCard({ name, input, result, onFileClick, onAnswerQuestion, compact, defaultExpanded }: ToolUseCardProps) {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const isRunning = !result && isStreaming;
 
@@ -245,26 +246,11 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
 
           {/* === AskUserQuestion === */}
           {name === 'AskUserQuestion' && input.questions && (
-            <div className="space-y-3">
-              {(input.questions as any[]).map((q: any, qi: number) => (
-                <div key={qi} className="space-y-2">
-                  <div className="text-[13px] text-yellow-300 font-medium">{q.question}</div>
-                  {q.options && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {(q.options as any[]).map((opt: any, oi: number) => (
-                        <span
-                          key={oi}
-                          className="inline-flex items-center px-2.5 py-1 rounded-md bg-yellow-500/10 border border-yellow-500/20 text-[11px] text-yellow-300/80"
-                        >
-                          {opt.label}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div className="text-[10px] text-gray-500 italic">읽기 전용 — SDK가 자동 응답</div>
-            </div>
+            <AskUserQuestionUI
+              questions={input.questions as any[]}
+              result={result}
+              onAnswerQuestion={onAnswerQuestion}
+            />
           )}
 
           {/* === EnterPlanMode / ExitPlanMode === */}
@@ -306,13 +292,94 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
           )}
 
           {/* Running indicator */}
-          {isRunning && !result && (
+          {isRunning && !result && name !== 'AskUserQuestion' && (
             <div className="flex items-center gap-2 text-[11px] text-primary-400/70 pt-1">
               <div className="w-3 h-3 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin" />
               실행 중...
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function AskUserQuestionUI({
+  questions,
+  result,
+  onAnswerQuestion,
+}: {
+  questions: any[];
+  result?: string;
+  onAnswerQuestion?: (questionId: string, answer: string) => void;
+}) {
+  const pendingQuestion = useChatStore((s) => s.pendingQuestion);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+
+  const isPending = !!pendingQuestion;
+  const isAnswered = !!selectedAnswer || !!result;
+
+  const handleSelect = (label: string) => {
+    if (!pendingQuestion || !onAnswerQuestion) return;
+    setSelectedAnswer(label);
+    onAnswerQuestion(pendingQuestion.questionId, label);
+  };
+
+  return (
+    <div className="space-y-3">
+      {questions.map((q: any, qi: number) => (
+        <div key={qi} className="space-y-2">
+          <div className="text-[13px] text-yellow-300 font-medium">{q.question}</div>
+          {q.options && (
+            <div className="flex flex-wrap gap-1.5">
+              {(q.options as any[]).map((opt: any, oi: number) => {
+                const isSelected = selectedAnswer === opt.label;
+                if (isPending && !isAnswered) {
+                  // Interactive — clickable buttons
+                  return (
+                    <button
+                      key={oi}
+                      onClick={() => handleSelect(opt.label)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-[12px] text-yellow-200 hover:bg-yellow-500/20 hover:border-yellow-400/50 transition-all cursor-pointer"
+                    >
+                      {opt.label}
+                      {opt.description && (
+                        <span className="text-yellow-400/50 text-[10px]">({opt.description})</span>
+                      )}
+                    </button>
+                  );
+                }
+                // Already answered or read-only
+                return (
+                  <span
+                    key={oi}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] transition-all ${
+                      isSelected
+                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                        : 'bg-yellow-500/5 border-yellow-500/10 text-yellow-400/40'
+                    }`}
+                  >
+                    {isSelected && (
+                      <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                    {opt.label}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+      {isPending && !isAnswered && (
+        <div className="flex items-center gap-2 text-[11px] text-yellow-400/70 pt-1">
+          <div className="w-3 h-3 border-2 border-yellow-500/30 border-t-yellow-400 rounded-full animate-spin" />
+          응답 대기 중...
+        </div>
+      )}
+      {!isPending && !isAnswered && !result && (
+        <div className="text-[10px] text-gray-500 italic">읽기 전용 — SDK가 자동 응답</div>
       )}
     </div>
   );

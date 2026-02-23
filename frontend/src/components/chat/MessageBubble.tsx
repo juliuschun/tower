@@ -48,9 +48,10 @@ function getMessageText(content: ContentBlock[]): string {
 interface MessageBubbleProps {
   message: ChatMessage;
   onFileClick?: (path: string) => void;
+  onAnswerQuestion?: (questionId: string, answer: string) => void;
 }
 
-export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
+export function MessageBubble({ message, onFileClick, onAnswerQuestion }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -102,6 +103,7 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
                     key={gi}
                     blocks={group.blocks}
                     onFileClick={onFileClick}
+                    onAnswerQuestion={onAnswerQuestion}
                   />
                 );
               }
@@ -218,7 +220,7 @@ export function MessageBubble({ message, onFileClick }: MessageBubbleProps) {
   );
 }
 
-function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void }) {
+function ToolChipGroup({ blocks, onFileClick, onAnswerQuestion }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void; onAnswerQuestion?: (questionId: string, answer: string) => void }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   // Filter out blocks without valid toolUse data
   const validBlocks = blocks.filter((b) => b.toolUse?.name);
@@ -248,6 +250,7 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
             input={validBlocks[activeIndex].toolUse!.input}
             result={validBlocks[activeIndex].toolUse!.result}
             onFileClick={onFileClick}
+            onAnswerQuestion={onAnswerQuestion}
             defaultExpanded={true}
           />
         </div>

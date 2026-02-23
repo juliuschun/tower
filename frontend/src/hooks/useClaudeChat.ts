@@ -401,6 +401,26 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'ask_user': {
+        const curSid = useChatStore.getState().sessionId;
+        if (shouldDropSessionMessage(curSid, data.sessionId)) return;
+        useChatStore.getState().setPendingQuestion({
+          questionId: data.questionId,
+          sessionId: data.sessionId,
+          questions: data.questions,
+        });
+        break;
+      }
+
+      case 'ask_user_timeout': {
+        const pq = useChatStore.getState().pendingQuestion;
+        if (pq && pq.questionId === data.questionId) {
+          useChatStore.getState().setPendingQuestion(null);
+          toastWarning('응답 시간 초과 — 기본 옵션이 자동 선택되었습니다');
+        }
+        break;
+      }
+
       case 'error': {
         // Ignore session-specific errors for sessions we're not viewing
         const _errSid = useChatStore.getState().sessionId;
@@ -516,6 +536,15 @@ export function useClaudeChat() {
     [send]
   );
 
+  const answerQuestion = useCallback(
+    (questionId: string, answer: string) => {
+      const sessionId = useChatStore.getState().sessionId;
+      send({ type: 'answer_question', sessionId, questionId, answer });
+      useChatStore.getState().setPendingQuestion(null);
+    },
+    [send]
+  );
+
   return {
     sendMessage,
     abort,
@@ -523,6 +552,7 @@ export function useClaudeChat() {
     requestFileTree,
     requestFile,
     saveFile,
+    answerQuestion,
     connected,
   };
 }
