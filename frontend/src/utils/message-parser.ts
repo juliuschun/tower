@@ -13,9 +13,11 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
 
   for (const item of sdkMsg.message.content) {
     if (item.type === 'thinking') {
+      // SDK may send thinking as item.thinking (string) or item.text
+      const thinkingText = typeof item.thinking === 'string' ? item.thinking : (item.text || '');
       blocks.push({
         type: 'thinking',
-        thinking: { text: item.thinking || '' },
+        thinking: { text: thinkingText },
       });
     } else if (item.type === 'text') {
       const raw = item.text || '';

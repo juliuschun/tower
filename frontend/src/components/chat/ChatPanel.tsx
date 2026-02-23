@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useChatStore, type ChatMessage } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
+import { normalizeContentBlocks } from '../../utils/message-parser';
 import { MessageBubble } from './MessageBubble';
 import { InputBox } from './InputBox';
 import { SummaryCard } from '../sessions/SummaryCard';
@@ -41,7 +42,16 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
   const sessions = useSessionStore((s) => s.sessions);
   const isMobile = useSessionStore((s) => s.isMobile);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
-  const mergedMessages = useMemo(() => mergeConsecutiveAssistant(messages), [messages]);
+  const mergedMessages = useMemo(() => {
+    const merged = mergeConsecutiveAssistant(messages);
+    // Safety net: re-normalize blocks to extract <thinking> tags from text blocks
+    // that may have been stored before the extraction logic was added
+    return merged.map((msg) =>
+      msg.role === 'assistant'
+        ? { ...msg, content: normalizeContentBlocks(msg.content) }
+        : msg
+    );
+  }, [messages]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
