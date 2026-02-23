@@ -112,6 +112,7 @@ export function useClaudeChat() {
           // Server restarted — epoch changed
           toastWarning('서버가 재시작되었습니다');
           useChatStore.getState().setStreaming(false);
+          useChatStore.getState().markPendingFailed();
           currentAssistantMsg.current = null;
         }
         serverEpochRef.current = newEpoch || null;
@@ -167,6 +168,9 @@ export function useClaudeChat() {
         // Ignore messages for sessions we're not currently viewing
         const _currentSid = useChatStore.getState().sessionId;
         if (shouldDropSessionMessage(_currentSid, data.sessionId)) return;
+
+        // First sdk_message confirms the backend received our chat — mark pending messages as delivered
+        useChatStore.getState().markPendingDelivered();
 
         const sdkMsg = data.data;
 
@@ -502,12 +506,13 @@ export function useClaudeChat() {
   const sendMessage = useCallback(
     (message: string, cwd?: string) => {
       const messageId = crypto.randomUUID();
-      // Add user message locally
+      // Add user message locally with pending status
       addMessage({
         id: messageId,
         role: 'user',
         content: [{ type: 'text', text: message }],
         timestamp: Date.now(),
+        sendStatus: 'pending',
       });
 
       setStreaming(true);

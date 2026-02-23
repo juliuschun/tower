@@ -96,7 +96,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
           )}
 
           {mergedMessages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onAnswerQuestion={onAnswerQuestion} />
+            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onAnswerQuestion={onAnswerQuestion} onRetry={onSend} />
           ))}
 
           {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant' && (

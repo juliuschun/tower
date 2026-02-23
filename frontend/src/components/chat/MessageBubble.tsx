@@ -6,7 +6,7 @@ import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
 import { MermaidBlock } from './MermaidBlock';
 import { toastSuccess } from '../../utils/toast';
-import type { ChatMessage, ContentBlock } from '../../stores/chat-store';
+import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -49,9 +49,10 @@ interface MessageBubbleProps {
   message: ChatMessage;
   onFileClick?: (path: string) => void;
   onAnswerQuestion?: (questionId: string, answer: string) => void;
+  onRetry?: (text: string) => void;
 }
 
-export function MessageBubble({ message, onFileClick, onAnswerQuestion }: MessageBubbleProps) {
+export function MessageBubble({ message, onFileClick, onAnswerQuestion, onRetry }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -130,14 +131,39 @@ export function MessageBubble({ message, onFileClick, onAnswerQuestion }: Messag
 
       <div className={`max-w-[88%] min-w-0 ${isUser ? 'order-first' : ''}`}>
         {isUser ? (
-          <div className="relative bg-surface-800/70 border border-surface-700/40 rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap">
-            {message.content.map((block, i) => (
-              <span key={i}>{block.text}</span>
-            ))}
-            <CopyButton
-              text={getMessageText(message.content)}
-              className="absolute top-2 right-2 opacity-0 group-hover/message:opacity-100"
-            />
+          <div>
+            <div className={`relative bg-surface-800/70 border rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+              message.sendStatus === 'failed'
+                ? 'border-red-500/40 bg-red-950/20'
+                : 'border-surface-700/40'
+            }`}>
+              {message.content.map((block, i) => (
+                <span key={i}>{block.text}</span>
+              ))}
+              <CopyButton
+                text={getMessageText(message.content)}
+                className="absolute top-2 right-2 opacity-0 group-hover/message:opacity-100"
+              />
+            </div>
+            {message.sendStatus === 'failed' && (
+              <div className="flex items-center gap-2 mt-1.5 text-[12px] text-red-400/80">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <span>전송 실패</span>
+                {onRetry && (
+                  <button
+                    onClick={() => {
+                      const text = useChatStore.getState().retryMessage(message.id);
+                      if (text) onRetry(text);
+                    }}
+                    className="text-primary-400 hover:text-primary-300 underline underline-offset-2 transition-colors"
+                  >
+                    재전송
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="relative space-y-2.5">

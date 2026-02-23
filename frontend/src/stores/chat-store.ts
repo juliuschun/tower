@@ -26,6 +26,7 @@ export interface ChatMessage {
   content: ContentBlock[];
   timestamp: number;
   parentToolUseId?: string | null;
+  sendStatus?: 'pending' | 'delivered' | 'failed';
 }
 
 export interface CostInfo {
@@ -92,6 +93,9 @@ interface ChatState {
   setRateLimit: (info: RateLimitInfo | null) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
+  markPendingDelivered: () => void;
+  markPendingFailed: () => void;
+  retryMessage: (id: string) => string | null;
   addAttachment: (att: Attachment) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
@@ -173,6 +177,28 @@ export const useChatStore = create<ChatState>((set) => ({
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
   clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 }, rateLimit: null, pendingQuestion: null }),
+  markPendingDelivered: () =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.sendStatus === 'pending' ? { ...m, sendStatus: 'delivered' as const } : m
+      ),
+    })),
+  markPendingFailed: () =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.sendStatus === 'pending' ? { ...m, sendStatus: 'failed' as const } : m
+      ),
+    })),
+  retryMessage: (id) => {
+    const state = useChatStore.getState();
+    const msg = state.messages.find((m) => m.id === id);
+    if (!msg || msg.role !== 'user') return null;
+    const text = msg.content.find((b) => b.type === 'text')?.text;
+    if (!text) return null;
+    // Remove the failed message
+    set((s) => ({ messages: s.messages.filter((m) => m.id !== id) }));
+    return text;
+  },
   addAttachment: (att) => set((s) => {
     if (s.attachments.some((a) => a.id === att.id)) return s;
     return { attachments: [...s.attachments, att] };
