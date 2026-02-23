@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { SessionMeta } from '../../stores/session-store';
+import { useSessionStore } from '../../stores/session-store';
 
 function relativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -78,6 +79,7 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
@@ -132,11 +134,17 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           </svg>
         </button>
 
-        {/* Chat icon */}
-        <svg className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-primary-500' : 'text-surface-700 group-hover:text-surface-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
+        {/* Chat icon / streaming indicator */}
+        {isStreaming ? (
+          <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+            <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
+          </div>
+        ) : (
+          <svg className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-primary-500' : 'text-surface-700 group-hover:text-surface-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        )}
 
         {/* Name + subtext */}
         {editing ? (

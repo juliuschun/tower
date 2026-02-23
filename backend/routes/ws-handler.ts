@@ -37,6 +37,19 @@ const sessionClients = new Map<string, Set<string>>(); // sessionId → Set<clie
 const pendingQuestions = new Map<string, PendingQuestion>(); // questionId → PendingQuestion
 
 /**
+ * Broadcast a message to ALL connected clients (regardless of session).
+ * Used for session status updates that affect the sidebar.
+ */
+function broadcastToAll(data: any) {
+  const payload = JSON.stringify(data);
+  for (const client of clients.values()) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+/**
  * Broadcast a message to ALL clients viewing a session.
  * Used for streaming messages (sdk_message, sdk_done, ask_user, errors).
  */
@@ -375,6 +388,9 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     }, SDK_HANG_TIMEOUT);
   };
 
+  // Notify all clients that this session started streaming (for sidebar indicators)
+  broadcastToAll({ type: 'session_status', sessionId, status: 'streaming' });
+
   try {
     const permissionMode = getPermissionMode(client.userRole);
     resetHangTimer();
@@ -520,6 +536,8 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   } finally {
     console.log(`[ws] handleChat END session=${sessionId} client=${client.id}`);
     if (hangTimer) clearTimeout(hangTimer);
+    // Notify all clients that this session stopped streaming
+    broadcastToAll({ type: 'session_status', sessionId, status: 'idle' });
   }
 }
 

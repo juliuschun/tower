@@ -24,6 +24,7 @@ export type MobileTab = 'chat' | 'files' | 'edit' | 'pins';
 interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
+  streamingSessions: Set<string>;
   sidebarOpen: boolean;
   sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git';
   searchQuery: string;
@@ -36,6 +37,7 @@ interface SessionState {
   addSession: (session: SessionMeta) => void;
   removeSession: (id: string) => void;
   updateSessionMeta: (id: string, updates: Partial<SessionMeta>) => void;
+  setSessionStreaming: (id: string, streaming: boolean) => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git') => void;
   setSearchQuery: (query: string) => void;
@@ -47,6 +49,7 @@ interface SessionState {
 export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
   activeSessionId: null,
+  streamingSessions: new Set(),
   sidebarOpen: true,
   sidebarTab: 'sessions',
   searchQuery: '',
@@ -62,6 +65,12 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((s) => ({
       sessions: s.sessions.map((ss) => (ss.id === id ? { ...ss, ...updates } : ss)),
     })),
+  setSessionStreaming: (id, streaming) =>
+    set((s) => {
+      const next = new Set(s.streamingSessions);
+      if (streaming) next.add(id); else next.delete(id);
+      return { streamingSessions: next };
+    }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
   setSearchQuery: (query) => set({ searchQuery: query }),

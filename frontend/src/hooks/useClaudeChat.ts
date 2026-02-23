@@ -155,6 +155,14 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'session_status': {
+        // Update sidebar streaming indicators
+        if (data.sessionId) {
+          useSessionStore.getState().setSessionStreaming(data.sessionId, data.status === 'streaming');
+        }
+        break;
+      }
+
       case 'sdk_message': {
         // Ignore messages for sessions we're not currently viewing
         const _currentSid = useChatStore.getState().sessionId;
