@@ -8,7 +8,7 @@ import { saveMessage, updateMessageContent, attachToolResultInDb } from '../serv
 import { getSession, updateSession } from '../services/session-manager.js';
 import { config, getPermissionMode } from '../config.js';
 import { autoCommit } from '../services/git-manager.js';
-import { isEpochStale, resolveSessionClient, switchSession, abortCleanup, type SessionClient } from './session-guards.js';
+import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient, type SessionClient } from './session-guards.js';
 
 interface WsClient {
   id: string;
@@ -33,33 +33,40 @@ const SDK_HANG_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const ASK_USER_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 const clients = new Map<string, WsClient>();
-const sessionClients = new Map<string, string>(); // sessionId → clientId
+const sessionClients = new Map<string, Set<string>>(); // sessionId → Set<clientId> (1:many)
 const pendingQuestions = new Map<string, PendingQuestion>(); // questionId → PendingQuestion
 
-function sendToSession(sessionId: string, data: any) {
-  const c = resolveSessionClient(sessionClients, clients, sessionId);
-  if (!c) return;
-  if (c.ws.readyState === WebSocket.OPEN) {
-    c.ws.send(JSON.stringify(data));
+/**
+ * Broadcast a message to ALL clients viewing a session.
+ * Used for streaming messages (sdk_message, sdk_done, ask_user, errors).
+ */
+function broadcastToSession(sessionId: string, data: any) {
+  const clientIds = sessionClients.get(sessionId);
+  if (!clientIds) return;
+  const payload = JSON.stringify(data);
+  for (const clientId of clientIds) {
+    const client = clients.get(clientId);
+    if (client?.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
   }
 }
 
 /**
- * Send directly to the client that started the streaming.
- * Falls back to session routing only when the originating WS is dead (reconnection case).
- * This prevents other tabs from "stealing" streaming messages via the session map.
+ * Send directly to a specific client.
+ * Falls back to any session viewer when the originating WS is dead (reconnection).
+ * Used for client-specific messages (SESSION_BUSY, SESSION_LIMIT).
  */
 function sendToClient(client: WsClient, sessionId: string, data: any) {
   const payload = JSON.stringify(data);
   if (client.ws.readyState === WebSocket.OPEN) {
     client.ws.send(payload);
   } else {
-    // Client disconnected — try reconnected client via session map
-    const reconnected = resolveSessionClient(sessionClients, clients, sessionId);
-    if (reconnected && reconnected.ws.readyState === WebSocket.OPEN) {
-      reconnected.ws.send(payload);
+    // Client disconnected — try any client still viewing this session
+    const fallback = findSessionClient(sessionClients, clients, sessionId);
+    if (fallback && fallback.ws.readyState === WebSocket.OPEN) {
+      fallback.ws.send(payload);
     }
-    // If no reconnected client, message is saved to DB anyway
   }
 }
 
@@ -84,7 +91,7 @@ function createCanUseTool(sessionId: string) {
             const firstOpt = q.options?.[0]?.label || 'No response';
             return `${q.question}: ${firstOpt}`;
           }).join('\n');
-          sendToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
+          broadcastToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
           resolve({ behavior: 'deny', message: `User did not respond in time. Auto-selected: ${defaultAnswer}` });
         }
       }, ASK_USER_TIMEOUT);
@@ -111,8 +118,8 @@ function createCanUseTool(sessionId: string) {
         }
       }, { once: true });
 
-      // Send question to frontend
-      sendToSession(sessionId, {
+      // Broadcast question to ALL tabs viewing this session — first answer wins
+      broadcastToSession(sessionId, {
         type: 'ask_user',
         sessionId,
         questionId,
@@ -179,25 +186,15 @@ export function setupWebSocket(server: Server) {
 
     ws.on('close', () => {
       clients.delete(clientId);
-      // Only remove from sessionClients if SDK is NOT running (allow reconnect to take over)
+      // Remove from session viewer set — other tabs keep their entries
       if (client.sessionId) {
-        const sdkSession = getSDKSession(client.sessionId);
-        if (!sdkSession?.isRunning) {
-          // SDK idle — clean up session mapping
-          if (sessionClients.get(client.sessionId) === clientId) {
-            sessionClients.delete(client.sessionId);
-          }
-        }
-        // If SDK is running, keep sessionClients entry — reconnecting client will replace it
+        removeSessionClient(sessionClients, client.sessionId, clientId);
       }
     });
 
     ws.on('error', () => {
-      if (client.sessionId && sessionClients.get(client.sessionId) === clientId) {
-        const sdkSession = getSDKSession(client.sessionId);
-        if (!sdkSession?.isRunning) {
-          sessionClients.delete(client.sessionId);
-        }
+      if (client.sessionId) {
+        removeSessionClient(sessionClients, client.sessionId, clientId);
       }
       clients.delete(clientId);
     });
@@ -253,8 +250,8 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
     client.claudeSessionId = data.claudeSessionId;
   }
 
-  // Register new client for this session
-  sessionClients.set(sessionId, client.id);
+  // Add to session's viewer set (1:many — doesn't evict other tabs)
+  addSessionClient(sessionClients, sessionId, client.id);
 
   // Check if SDK is still running for this session
   const sdkSession = getSDKSession(sessionId);
@@ -280,32 +277,59 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
 function handleSetActiveSession(client: WsClient, data: { sessionId: string; claudeSessionId?: string }) {
   const oldSessionId = client.sessionId;
   const newSessionId = data.sessionId;
+  console.log(`[ws] setActiveSession old=${oldSessionId} new=${newSessionId} client=${client.id}`);
 
   if (oldSessionId && oldSessionId !== newSessionId) {
-    // Don't abort running sessions here — another tab might own the streaming.
-    // The streaming loop's epoch guard will abort when THIS client's epoch bumps.
-    // Only cleanup finished (idle) sessions to free resources.
+    // Cleanup idle SDK sessions (only if no other viewers)
     const sdkSession = getSDKSession(oldSessionId);
     if (sdkSession && !sdkSession.isRunning) {
-      cleanupSession(oldSessionId);
+      const viewers = sessionClients.get(oldSessionId);
+      const otherViewers = viewers ? [...viewers].filter((id) => id !== client.id) : [];
+      if (otherViewers.length === 0) {
+        cleanupSession(oldSessionId);
+      }
     }
+    // Remove from old session's viewer set
+    removeSessionClient(sessionClients, oldSessionId, client.id);
   }
 
-  // Pure: clean old mapping, bump epoch, set new session
-  switchSession(client, sessionClients, oldSessionId, newSessionId);
+  // Update client to new session and add to viewer set.
+  // DON'T bump epoch — let any running streaming loop continue in background.
+  // The loop saves to DB and broadcasts to viewers. When user returns, messages load from DB.
+  client.sessionId = newSessionId;
+  addSessionClient(sessionClients, newSessionId, client.id);
 
   // Always sync claudeSessionId to the new session (clear if not provided)
   client.claudeSessionId = data.claudeSessionId || undefined;
 
-  send(client.ws, { type: 'set_active_session_ack', sessionId: newSessionId });
+  // Include streaming status so frontend can show indicator when switching TO a streaming session
+  const targetSdkSession = getSDKSession(newSessionId);
+  send(client.ws, {
+    type: 'set_active_session_ack',
+    sessionId: newSessionId,
+    isStreaming: !!targetSdkSession?.isRunning,
+  });
 }
 
 async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string }) {
   const sessionId = data.sessionId || client.sessionId || uuidv4();
   client.sessionId = sessionId;
+  console.log(`[ws] handleChat START session=${sessionId} client=${client.id} activeSDK=${getActiveSessionCount()}`);
 
-  // Register this client as the active sender for this session
-  sessionClients.set(sessionId, client.id);
+  // Add this client to the session's viewer set
+  addSessionClient(sessionClients, sessionId, client.id);
+
+  // Guard: reject if SDK is already running for this session
+  const sdkSession = getSDKSession(sessionId);
+  if (sdkSession?.isRunning) {
+    sendToClient(client, sessionId, {
+      type: 'error',
+      message: '이 세션에서 이미 대화가 진행 중입니다. 완료될 때까지 기다려주세요.',
+      errorCode: 'SESSION_BUSY',
+      sessionId,
+    });
+    return;
+  }
 
   // Check concurrent session limit
   if (getActiveSessionCount() >= config.maxConcurrentSessions) {
@@ -328,12 +352,10 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
   } catch (err) { console.error('[ws] saveMessage (user) failed:', err); }
 
-  // Increment epoch — invalidates any prior running loop for this client
-  const myEpoch = ++client.activeQueryEpoch;
-
   // Use claudeSessionId from the message only — never fall back to client-level state
   // to prevent session A's claudeSessionId leaking into session B
   const resumeSessionId = data.claudeSessionId || undefined;
+  let loopClaudeSessionId: string | undefined; // track locally — client may switch sessions mid-stream
   let currentAssistantId: string | null = null;
   let currentAssistantContent: any[] = [];
   const editedFiles = new Set<string>();
@@ -344,7 +366,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     if (hangTimer) clearTimeout(hangTimer);
     hangTimer = setTimeout(() => {
       abortSession(sessionId);
-      sendToClient(client, sessionId, {
+      broadcastToSession(sessionId, {
         type: 'error',
         message: 'SDK 응답 시간 초과 (5분). 세션을 중단했습니다.',
         errorCode: 'SDK_HANG',
@@ -367,17 +389,11 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       model: data.model,
       canUseTool,
     })) {
-      // GUARD: Client switched session or started a new query — stop this stale loop
-      if (isEpochStale(client, myEpoch)) {
-        abortSession(sessionId);
-        break;
-      }
-
       // Reset hang timer on each message
       resetHangTimer();
-      // Track Claude session ID for future resume
+      // Track Claude session ID locally (NOT on client — client may have switched sessions)
       if ('session_id' in message && message.session_id) {
-        client.claudeSessionId = message.session_id;
+        loopClaudeSessionId = message.session_id;
       }
 
       // Save tool results to DB (from SDK user messages)
@@ -441,20 +457,19 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         }
       }
 
-      sendToClient(client, sessionId, {
+      // Broadcast to ALL tabs viewing this session
+      broadcastToSession(sessionId, {
         type: 'sdk_message',
         sessionId,
         data: message,
       });
     }
 
-    // Client switched away during streaming — don't send sdk_done to wrong session
-    if (isEpochStale(client, myEpoch)) return;
-
-    // Get final Claude session ID
-    const claudeId = getClaudeSessionId(sessionId);
-    if (claudeId) {
-      client.claudeSessionId = claudeId;
+    // Get final Claude session ID (prefer SDK's value, fall back to loop-tracked value)
+    const finalClaudeSessionId = getClaudeSessionId(sessionId) || loopClaudeSessionId;
+    // Only update client if still on the same session (avoid cross-contamination)
+    if (client.sessionId === sessionId && finalClaudeSessionId) {
+      client.claudeSessionId = finalClaudeSessionId;
     }
 
     // Update turn_count and files_edited in DB
@@ -489,18 +504,21 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       }
     }
 
-    sendToClient(client, sessionId, {
+    // Broadcast done to ALL tabs viewing this session
+    broadcastToSession(sessionId, {
       type: 'sdk_done',
       sessionId,
-      claudeSessionId: client.claudeSessionId,
+      claudeSessionId: finalClaudeSessionId,
     });
   } catch (error: any) {
-    sendToClient(client, sessionId, {
+    console.error(`[ws] handleChat ERROR session=${sessionId}:`, error.message || error);
+    broadcastToSession(sessionId, {
       type: 'error',
       message: error.message || 'Claude query failed',
       sessionId,
     });
   } finally {
+    console.log(`[ws] handleChat END session=${sessionId} client=${client.id}`);
     if (hangTimer) clearTimeout(hangTimer);
   }
 }
@@ -515,8 +533,9 @@ function handleAnswerQuestion(_client: WsClient, data: { questionId: string; ans
 function handleAbort(client: WsClient, data: { sessionId?: string }) {
   const sessionId = data.sessionId || client.sessionId;
   if (sessionId) {
+    console.log(`[ws] handleAbort session=${sessionId} client=${client.id}`);
     const aborted = abortSession(sessionId);
-    // Pure: bump epoch + clean up session routing
+    // Pure: bump epoch + remove this client from session routing
     abortCleanup(client, sessionClients, sessionId);
     send(client.ws, { type: 'abort_result', aborted, sessionId });
   }

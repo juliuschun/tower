@@ -10,8 +10,8 @@
   --th-border: #3f3f46;
   --th-border-subtle: #27272a;
   --th-text-primary: #f4f4f5;
-  --th-text-secondary: #a1a1aa;
-  --th-text-muted: #71717a;
+  --th-text-secondary: #b4b4bc;
+  --th-text-muted: #8a8a95;
   --th-prose-body: #e2e8f0;
   --th-prose-heading: #f1f5f9;
   --th-prose-muted: #94a3b8;
@@ -37,10 +37,10 @@
   /* Gray text scale (light-on-dark) */
   --th-gray-100: #f1f5f9;
   --th-gray-200: #e2e8f0;
-  --th-gray-300: #cbd5e1;
-  --th-gray-400: #94a3b8;
-  --th-gray-500: #64748b;
-  --th-gray-600: #475569;
+  --th-gray-300: #d0d8e4;
+  --th-gray-400: #a8b5c7;
+  --th-gray-500: #7a8a9e;
+  --th-gray-600: #5a6b7d;
 }
 
 :root[data-theme="light"] {
@@ -51,24 +51,24 @@
   --th-border: #d1d5db;
   --th-border-subtle: #e5e7eb;
   --th-text-primary: #111827;
-  --th-text-secondary: #6b7280;
-  --th-text-muted: #9ca3af;
-  --th-prose-body: #374151;
-  --th-prose-heading: #111827;
-  --th-prose-muted: #6b7280;
+  --th-text-secondary: #4b5563;
+  --th-text-muted: #6b7280;
+  --th-prose-body: #1f2937;
+  --th-prose-heading: #0f172a;
+  --th-prose-muted: #4b5563;
   --th-prose-link: #7c3aed;
   --th-prose-code-bg: #f1f5f9;
   --th-prose-code-border: #e2e8f0;
   --th-prose-code-text: #6d28d9;
   --th-prose-pre-bg: #f8fafc;
   --th-prose-pre-border: #e2e8f0;
-  --th-prose-pre-text: #334155;
+  --th-prose-pre-text: #1e293b;
   --th-prose-table-border: #e2e8f0;
   --th-prose-th-bg: #f1f5f9;
-  --th-prose-th-text: #475569;
-  --th-prose-td-text: #475569;
+  --th-prose-th-text: #374151;
+  --th-prose-td-text: #374151;
   --th-prose-tr-even: rgba(241, 245, 249, 0.5);
-  --th-prose-marker: #9ca3af;
+  --th-prose-marker: #6b7280;
   --th-prose-blockquote-bg: rgba(124, 58, 237, 0.05);
   --th-prose-strong: #111827;
   --th-prose-img-border: #e2e8f0;
@@ -78,10 +78,10 @@
   /* Gray text scale (dark-on-light) */
   --th-gray-100: #111827;
   --th-gray-200: #1f2937;
-  --th-gray-300: #374151;
-  --th-gray-400: #6b7280;
-  --th-gray-500: #9ca3af;
-  --th-gray-600: #d1d5db;
+  --th-gray-300: #2d3748;
+  --th-gray-400: #4b5563;
+  --th-gray-500: #6b7280;
+  --th-gray-600: #9ca3af;
 }
 
 @theme {

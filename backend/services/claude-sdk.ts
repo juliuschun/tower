@@ -36,6 +36,7 @@ export async function* executeQuery(
   // Abort any existing query for this session
   const existing = activeSessions.get(sessionId);
   if (existing?.isRunning) {
+    console.log(`[sdk] executeQuery aborting EXISTING running session=${sessionId}`);
     existing.abortController.abort();
   }
 
@@ -110,6 +111,7 @@ export async function* executeQuery(
 export function abortSession(sessionId: string): boolean {
   const session = activeSessions.get(sessionId);
   if (session?.isRunning) {
+    console.log(`[sdk] abortSession session=${sessionId}`, new Error().stack?.split('\n').slice(1, 4).join(' ← '));
     session.abortController.abort();
     session.isRunning = false;
     return true;
@@ -128,6 +130,7 @@ export function getClaudeSessionId(sessionId: string): string | undefined {
 export function cleanupSession(sessionId: string) {
   const session = activeSessions.get(sessionId);
   if (session?.isRunning) {
+    console.log(`[sdk] cleanupSession (running!) session=${sessionId}`, new Error().stack?.split('\n').slice(1, 4).join(' ← '));
     session.abortController.abort();
   }
   activeSessions.delete(sessionId);

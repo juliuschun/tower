@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 
 let initialized = false;
-let counter = 0;
 
 function ensureInit() {
   if (!initialized) {
@@ -16,14 +15,21 @@ function ensureInit() {
   }
 }
 
+/** djb2 hash — stable ID for mermaid render targets */
+function hashCode(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 interface MermaidBlockProps {
   code: string;
 }
 
-export function MermaidBlock({ code }: MermaidBlockProps) {
+export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const idRef = useRef(`mermaid-${counter++}`);
+  const idRef = useRef(`mermaid-${hashCode(code)}-${Date.now()}`);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,7 +40,7 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
         const { svg } = await mermaid.render(idRef.current, code);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
-          setError(null);
+          if (error !== null) setError(null);
         }
       } catch (e) {
         if (!cancelled) {
@@ -47,7 +53,10 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
     }
 
     render();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (containerRef.current) containerRef.current.innerHTML = '';
+    };
   }, [code]);
 
   if (error) {
@@ -64,4 +73,4 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
       className="my-2 flex justify-center [&_svg]:max-w-full"
     />
   );
-}
+});

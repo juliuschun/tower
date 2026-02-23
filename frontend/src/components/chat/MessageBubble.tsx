@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -68,7 +68,57 @@ export function MessageBubble({ message, onFileClick, onAnswerQuestion }: Messag
   }
 
   // Group content blocks: consecutive tool_use blocks become a group
-  const groups = groupContentBlocks(message.content);
+  const groups = useMemo(() => groupContentBlocks(message.content), [message.content]);
+
+  // Memoize ReactMarkdown components to prevent MermaidBlock unmount/remount loop
+  const mdComponents = useMemo(() => ({
+    code({ children, className, ...props }: { children?: React.ReactNode; className?: string; [key: string]: unknown }) {
+      const isInline = !className;
+      const text = String(children).trim();
+
+      // Mermaid diagram
+      if (className?.includes('language-mermaid')) {
+        return <MermaidBlock code={text} />;
+      }
+
+      // Inline code — file path click
+      if (isInline && text.startsWith('/') && onFileClick) {
+        return (
+          <code
+            {...props}
+            className="cursor-pointer hover:text-primary-400 transition-colors"
+            onClick={() => onFileClick(text)}
+          >
+            {children}
+          </code>
+        );
+      }
+
+      // Block code — with copy button
+      if (!isInline) {
+        return (
+          <code className={className} {...props}>{children}</code>
+        );
+      }
+
+      return <code className={className} {...props}>{children}</code>;
+    },
+    pre({ children }: { children?: React.ReactNode }) {
+      // Extract text from the code child for copying
+      const codeText = extractCodeText(children);
+      return (
+        <pre className="relative group/code">
+          {children}
+          {codeText && (
+            <CopyButton
+              text={codeText}
+              className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100"
+            />
+          )}
+        </pre>
+      );
+    },
+  }), [onFileClick]);
 
   return (
     <div className={`flex gap-3 my-5 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>
@@ -123,54 +173,7 @@ export function MessageBubble({ message, onFileClick, onAnswerQuestion }: Messag
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeHighlight]}
-                        components={{
-                          code({ children, className, ...props }) {
-                            const isInline = !className;
-                            const text = String(children).trim();
-
-                            // Mermaid diagram
-                            if (className?.includes('language-mermaid')) {
-                              return <MermaidBlock code={text} />;
-                            }
-
-                            // Inline code — file path click
-                            if (isInline && text.startsWith('/') && onFileClick) {
-                              return (
-                                <code
-                                  {...props}
-                                  className="cursor-pointer hover:text-primary-400 transition-colors"
-                                  onClick={() => onFileClick(text)}
-                                >
-                                  {children}
-                                </code>
-                              );
-                            }
-
-                            // Block code — with copy button
-                            if (!isInline) {
-                              return (
-                                <code className={className} {...props}>{children}</code>
-                              );
-                            }
-
-                            return <code className={className} {...props}>{children}</code>;
-                          },
-                          pre({ children }) {
-                            // Extract text from the code child for copying
-                            const codeText = extractCodeText(children);
-                            return (
-                              <pre className="relative group/code">
-                                {children}
-                                {codeText && (
-                                  <CopyButton
-                                    text={codeText}
-                                    className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100"
-                                  />
-                                )}
-                              </pre>
-                            );
-                          },
-                        }}
+                        components={mdComponents}
                       >
                         {block.text}
                       </ReactMarkdown>

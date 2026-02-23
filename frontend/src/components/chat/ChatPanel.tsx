@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useChatStore, type ChatMessage } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { MessageBubble } from './MessageBubble';
@@ -50,16 +50,30 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const mergedMessages = useMemo(() => mergeConsecutiveAssistant(messages), [messages]);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const isNearBottom = useRef(true);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Track whether user is near bottom (within 150px)
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+  }, []);
+
+  // Auto-scroll: set scrollTop before browser paint — no visible animation
+  useLayoutEffect(() => {
+    if (!isNearBottom.current) return;
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages]);
 
   return (
     <div className="flex flex-col h-full relative">
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto pb-32">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-32">
         {/* Summary card — shown when session has messages */}
         {activeSession && messages.length > 0 && (
           <SummaryCard session={activeSession} />

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   isEpochStale,
-  resolveSessionClient,
+  findSessionClient,
+  addSessionClient,
+  removeSessionClient,
   switchSession,
   abortCleanup,
   type SessionClient,
@@ -23,134 +25,162 @@ describe('isEpochStale', () => {
   });
 });
 
-describe('resolveSessionClient', () => {
-  it('returns client when mapping is valid', () => {
-    const sessionClients = new Map([['s1', 'c1']]);
+describe('addSessionClient / removeSessionClient', () => {
+  it('adds client to a new session set', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
+    expect(sc.get('s1')?.has('c1')).toBe(true);
+  });
+
+  it('adds multiple clients to the same session', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
+    addSessionClient(sc, 's1', 'c2');
+    expect(sc.get('s1')?.size).toBe(2);
+  });
+
+  it('removes client and cleans up empty set', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
+    removeSessionClient(sc, 's1', 'c1');
+    expect(sc.has('s1')).toBe(false);
+  });
+
+  it('keeps set when other clients remain', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
+    addSessionClient(sc, 's1', 'c2');
+    removeSessionClient(sc, 's1', 'c1');
+    expect(sc.get('s1')?.size).toBe(1);
+    expect(sc.get('s1')?.has('c2')).toBe(true);
+  });
+});
+
+describe('findSessionClient', () => {
+  it('returns client when found in session set', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
     const client = makeClient({ id: 'c1', sessionId: 's1' });
     const clients = new Map([['c1', client]]);
 
-    const result = resolveSessionClient(sessionClients, clients, 's1');
+    const result = findSessionClient(sc, clients, 's1');
     expect(result).toBe(client);
-    expect(sessionClients.has('s1')).toBe(true);
   });
 
-  it('returns undefined but preserves mapping when client is missing (allows reconnect)', () => {
-    const sessionClients = new Map([['s1', 'c1']]);
+  it('returns first live client from multiple viewers', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
+    addSessionClient(sc, 's1', 'c2');
+    const c1 = makeClient({ id: 'c1', sessionId: 's1' });
+    const c2 = makeClient({ id: 'c2', sessionId: 's1' });
+    const clients = new Map([['c1', c1], ['c2', c2]]);
+
+    const result = findSessionClient(sc, clients, 's1');
+    expect(result).toBeDefined();
+    expect(result!.sessionId).toBe('s1');
+  });
+
+  it('returns undefined when no clients exist', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
     const clients = new Map<string, SessionClient>();
 
-    const result = resolveSessionClient(sessionClients, clients, 's1');
+    const result = findSessionClient(sc, clients, 's1');
     expect(result).toBeUndefined();
-    // Mapping is preserved so reconnecting client can take over
-    expect(sessionClients.has('s1')).toBe(true);
   });
 
-  it('returns undefined and cleans up when client switched sessions', () => {
-    const sessionClients = new Map([['s1', 'c1']]);
-    const client = makeClient({ id: 'c1', sessionId: 's2' }); // client now on s2
-    const clients = new Map([['c1', client]]);
-
-    const result = resolveSessionClient(sessionClients, clients, 's1');
-    expect(result).toBeUndefined();
-    expect(sessionClients.has('s1')).toBe(false);
-  });
-
-  it('returns undefined from empty maps without deletion attempt', () => {
-    const sessionClients = new Map<string, string>();
+  it('returns undefined for unmapped session', () => {
+    const sc = new Map<string, Set<string>>();
     const clients = new Map<string, SessionClient>();
 
-    const result = resolveSessionClient(sessionClients, clients, 's1');
+    const result = findSessionClient(sc, clients, 's1');
     expect(result).toBeUndefined();
-    expect(sessionClients.size).toBe(0);
   });
 
-  it('returns undefined for missing sessionId while preserving other mappings', () => {
-    const sessionClients = new Map([['s1', 'c1']]);
-    const client = makeClient({ id: 'c1', sessionId: 's1' });
+  it('skips clients that switched to a different session', () => {
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
+    const client = makeClient({ id: 'c1', sessionId: 's2' }); // switched away
     const clients = new Map([['c1', client]]);
 
-    const result = resolveSessionClient(sessionClients, clients, 's-unknown');
+    const result = findSessionClient(sc, clients, 's1');
     expect(result).toBeUndefined();
-    // s1→c1 mapping must be preserved
-    expect(sessionClients.get('s1')).toBe('c1');
   });
 });
 
 describe('switchSession', () => {
-  it('cleans old mapping, bumps epoch, sets new mapping', () => {
+  it('removes from old set, bumps epoch, adds to new set', () => {
     const client = makeClient({ id: 'c1', sessionId: 'old-s', activeQueryEpoch: 3 });
-    const sessionClients = new Map([['old-s', 'c1']]);
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 'old-s', 'c1');
 
-    const newEpoch = switchSession(client, sessionClients, 'old-s', 'new-s');
+    const newEpoch = switchSession(client, sc, 'old-s', 'new-s');
 
-    // Old mapping removed
-    expect(sessionClients.has('old-s')).toBe(false);
-    // New mapping set
-    expect(sessionClients.get('new-s')).toBe('c1');
-    // Epoch incremented
+    expect(sc.has('old-s')).toBe(false);
+    expect(sc.get('new-s')?.has('c1')).toBe(true);
     expect(newEpoch).toBe(4);
-    expect(client.activeQueryEpoch).toBe(4);
-    // Client sessionId updated
     expect(client.sessionId).toBe('new-s');
   });
 
-  it('does not delete old mapping owned by a different client', () => {
+  it('preserves other clients in old session set', () => {
     const client = makeClient({ id: 'c1', sessionId: 'old-s', activeQueryEpoch: 1 });
-    // old-s is owned by c2, not c1
-    const sessionClients = new Map([['old-s', 'c2']]);
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 'old-s', 'c1');
+    addSessionClient(sc, 'old-s', 'c2'); // another tab viewing old-s
 
-    switchSession(client, sessionClients, 'old-s', 'new-s');
+    switchSession(client, sc, 'old-s', 'new-s');
 
-    // c2's mapping must be preserved
-    expect(sessionClients.get('old-s')).toBe('c2');
-    // new mapping for c1
-    expect(sessionClients.get('new-s')).toBe('c1');
+    // c2 still in old-s
+    expect(sc.get('old-s')?.has('c2')).toBe(true);
+    expect(sc.get('old-s')?.has('c1')).toBe(false);
+    // c1 in new-s
+    expect(sc.get('new-s')?.has('c1')).toBe(true);
   });
 
   it('still bumps epoch when oldSessionId === newSessionId', () => {
     const client = makeClient({ id: 'c1', sessionId: 's1', activeQueryEpoch: 5 });
-    const sessionClients = new Map([['s1', 'c1']]);
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
 
-    const newEpoch = switchSession(client, sessionClients, 's1', 's1');
+    const newEpoch = switchSession(client, sc, 's1', 's1');
 
     expect(newEpoch).toBe(6);
-    expect(client.activeQueryEpoch).toBe(6);
-    expect(sessionClients.get('s1')).toBe('c1');
+    expect(sc.get('s1')?.has('c1')).toBe(true);
   });
 
   it('handles undefined oldSessionId (first connection)', () => {
     const client = makeClient({ id: 'c1', activeQueryEpoch: 0 });
-    const sessionClients = new Map<string, string>();
+    const sc = new Map<string, Set<string>>();
 
-    const newEpoch = switchSession(client, sessionClients, undefined, 'new-s');
+    const newEpoch = switchSession(client, sc, undefined, 'new-s');
 
     expect(newEpoch).toBe(1);
     expect(client.sessionId).toBe('new-s');
-    expect(sessionClients.get('new-s')).toBe('c1');
+    expect(sc.get('new-s')?.has('c1')).toBe(true);
   });
 });
 
 describe('abortCleanup', () => {
-  it('bumps epoch and removes session mapping', () => {
+  it('bumps epoch and removes from session set', () => {
     const client = makeClient({ id: 'c1', activeQueryEpoch: 2 });
-    const sessionClients = new Map([['s1', 'c1']]);
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
 
-    const newEpoch = abortCleanup(client, sessionClients, 's1');
+    const newEpoch = abortCleanup(client, sc, 's1');
 
     expect(newEpoch).toBe(3);
-    expect(client.activeQueryEpoch).toBe(3);
-    expect(sessionClients.has('s1')).toBe(false);
+    expect(sc.has('s1')).toBe(false);
   });
 
-  it('preserves mapping when session is owned by a different client', () => {
+  it('preserves other clients in session set', () => {
     const client = makeClient({ id: 'c1', activeQueryEpoch: 2 });
-    // s1 is owned by c2
-    const sessionClients = new Map([['s1', 'c2']]);
+    const sc = new Map<string, Set<string>>();
+    addSessionClient(sc, 's1', 'c1');
+    addSessionClient(sc, 's1', 'c2');
 
-    const newEpoch = abortCleanup(client, sessionClients, 's1');
+    abortCleanup(client, sc, 's1');
 
-    // epoch still bumps for c1
-    expect(newEpoch).toBe(3);
-    // c2's mapping must be preserved
-    expect(sessionClients.get('s1')).toBe('c2');
+    expect(sc.get('s1')?.has('c2')).toBe(true);
+    expect(sc.get('s1')?.has('c1')).toBe(false);
   });
 });

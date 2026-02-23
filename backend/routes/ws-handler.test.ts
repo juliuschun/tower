@@ -173,13 +173,11 @@ describe('ws-handler integration', () => {
       await waitForMessage(messages, 'set_active_session_ack');
 
       // Switch to second session → old idle session should be cleaned up but NOT aborted
-      // (abort is now handled by the streaming loop's epoch guard to prevent multi-tab interference)
       mockGetSDKSession.mockReturnValueOnce({ isRunning: false });
       sendJson(ws, { type: 'set_active_session', sessionId: 's2' });
       const ack = await waitForMessages(messages, 'set_active_session_ack', 2);
 
       expect(ack[1].sessionId).toBe('s2');
-      // abortSession should NOT be called — only cleanup of idle sessions
       expect(mockAbortSession).not.toHaveBeenCalled();
 
       ws.close();
@@ -204,14 +202,14 @@ describe('ws-handler integration', () => {
   });
 
   describe('chat + routing', () => {
-    it('routes sdk_message only to the session-owning client', async () => {
-      // Client A owns session s1
+    it('does NOT route sdk_message to clients on a different session', async () => {
+      // Client A on session s1
       const clientA = await createWsClient();
       await waitForMessage(clientA.messages, 'connected');
       sendJson(clientA.ws, { type: 'set_active_session', sessionId: 's1' });
       await waitForMessage(clientA.messages, 'set_active_session_ack');
 
-      // Client B owns session s2
+      // Client B on session s2
       const clientB = await createWsClient();
       await waitForMessage(clientB.messages, 'connected');
       sendJson(clientB.ws, { type: 'set_active_session', sessionId: 's2' });
@@ -227,7 +225,7 @@ describe('ws-handler integration', () => {
       // Client A should get sdk_message
       await waitForMessage(clientA.messages, 'sdk_message');
 
-      // Wait a bit then check client B did NOT get sdk_message
+      // Wait a bit then check client B did NOT get sdk_message (different session)
       await delay(200);
       const bSdkMsgs = clientB.messages.filter((m) => m.type === 'sdk_message');
       expect(bSdkMsgs.length).toBe(0);
@@ -235,48 +233,102 @@ describe('ws-handler integration', () => {
       clientA.ws.close();
       clientB.ws.close();
     });
+
+    it('broadcasts sdk_message to ALL clients viewing the same session', async () => {
+      // Client A on session s1
+      const clientA = await createWsClient();
+      await waitForMessage(clientA.messages, 'connected');
+      sendJson(clientA.ws, { type: 'set_active_session', sessionId: 's1' });
+      await waitForMessage(clientA.messages, 'set_active_session_ack');
+
+      // Client B also on session s1 (second tab)
+      const clientB = await createWsClient();
+      await waitForMessage(clientB.messages, 'connected');
+      sendJson(clientB.ws, { type: 'set_active_session', sessionId: 's1' });
+      await waitForMessage(clientB.messages, 'set_active_session_ack');
+
+      // Mock executeQuery to yield one message
+      mockExecuteQuery.mockImplementationOnce(async function* () {
+        yield { type: 'assistant', uuid: 'a1', message: { content: [{ type: 'text', text: 'hi' }] } };
+      });
+
+      sendJson(clientA.ws, { type: 'chat', message: 'hello', sessionId: 's1' });
+
+      // BOTH clients should get sdk_message
+      await waitForMessage(clientA.messages, 'sdk_message');
+      await waitForMessage(clientB.messages, 'sdk_message');
+
+      // Both should also get sdk_done
+      await waitForMessage(clientA.messages, 'sdk_done');
+      await waitForMessage(clientB.messages, 'sdk_done');
+
+      clientA.ws.close();
+      clientB.ws.close();
+    });
   });
 
-  describe('chat + epoch', () => {
-    it('stops stale query loop when session switches mid-stream', async () => {
-      const { ws, messages } = await createWsClient();
-      await waitForMessage(messages, 'connected');
+  describe('session switch mid-stream', () => {
+    it('streaming continues in background when client switches sessions', async () => {
+      // Client A starts chat on s1, then switches to s2
+      const clientA = await createWsClient();
+      await waitForMessage(clientA.messages, 'connected');
+      sendJson(clientA.ws, { type: 'set_active_session', sessionId: 's1' });
+      await waitForMessage(clientA.messages, 'set_active_session_ack');
 
-      sendJson(ws, { type: 'set_active_session', sessionId: 's1' });
-      await waitForMessage(messages, 'set_active_session_ack');
+      // Client B stays on s1 to verify messages keep arriving
+      const clientB = await createWsClient();
+      await waitForMessage(clientB.messages, 'connected');
+      sendJson(clientB.ws, { type: 'set_active_session', sessionId: 's1' });
+      await waitForMessage(clientB.messages, 'set_active_session_ack');
 
-      // Mock a slow generator that yields multiple messages with delay
+      // Mock a slow generator that yields multiple messages
       let yielded = 0;
       mockExecuteQuery.mockImplementationOnce(async function* () {
         yield { type: 'assistant', uuid: 'a1', message: { content: [{ type: 'text', text: 'first' }] } };
         yielded++;
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 100));
         yield { type: 'assistant', uuid: 'a2', message: { content: [{ type: 'text', text: 'second' }] } };
         yielded++;
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 100));
         yield { type: 'assistant', uuid: 'a3', message: { content: [{ type: 'text', text: 'third' }] } };
         yielded++;
       });
 
-      sendJson(ws, { type: 'chat', message: 'start long query', sessionId: 's1' });
+      sendJson(clientA.ws, { type: 'chat', message: 'start long query', sessionId: 's1' });
 
-      // Wait for first sdk_message
-      await waitForMessage(messages, 'sdk_message');
+      // Wait for first sdk_message on client A
+      await waitForMessage(clientA.messages, 'sdk_message');
 
-      // Session switch mid-stream → epoch change should stop the loop
+      // Client A switches session mid-stream — streaming should NOT be aborted
       mockGetSDKSession.mockReturnValueOnce({ isRunning: false });
-      sendJson(ws, { type: 'set_active_session', sessionId: 's2' });
-      await waitForMessage(messages, 'set_active_session_ack');
+      sendJson(clientA.ws, { type: 'set_active_session', sessionId: 's2' });
+      await waitForMessage(clientA.messages, 'set_active_session_ack');
 
-      // Wait enough for remaining yields
-      await delay(600);
+      // Client B (still on s1) should receive all 3 messages + sdk_done
+      await waitForMessages(clientB.messages, 'sdk_message', 3, 3000);
+      await waitForMessage(clientB.messages, 'sdk_done');
 
-      // The stale loop should have been stopped — we should NOT get sdk_done for s1
-      const sdkDones = messages.filter((m) => m.type === 'sdk_done' && m.sessionId === 's1');
-      expect(sdkDones.length).toBe(0);
+      // Generator should have completed all yields
+      expect(yielded).toBe(3);
 
-      // abortSession should have been called for s1 (from set_active_session + epoch guard)
-      expect(mockAbortSession).toHaveBeenCalledWith('s1');
+      // abortSession should NOT have been called
+      expect(mockAbortSession).not.toHaveBeenCalled();
+
+      clientA.ws.close();
+      clientB.ws.close();
+    });
+
+    it('set_active_session_ack includes isStreaming flag', async () => {
+      const { ws, messages } = await createWsClient();
+      await waitForMessage(messages, 'connected');
+
+      // Switch to a session with active SDK
+      mockGetSDKSession.mockReturnValueOnce({ isRunning: true });
+      sendJson(ws, { type: 'set_active_session', sessionId: 's-streaming' });
+      const ack = await waitForMessage(messages, 'set_active_session_ack');
+
+      expect(ack.sessionId).toBe('s-streaming');
+      expect(ack.isStreaming).toBe(true);
 
       ws.close();
     });
@@ -339,7 +391,7 @@ describe('ws-handler integration', () => {
   });
 
   describe('ws close', () => {
-    it('cleans up sessionClients mapping when SDK is idle on disconnect', async () => {
+    it('cleans up and allows new client to take over session', async () => {
       const { ws, messages } = await createWsClient();
       const connected = await waitForMessage(messages, 'connected');
 
@@ -352,7 +404,7 @@ describe('ws-handler integration', () => {
       ws.close();
       await delay(100);
 
-      // Verify: a new client sending to s1 should work (mapping was cleaned up)
+      // Verify: a new client sending to s1 should work
       const clientB = await createWsClient();
       await waitForMessage(clientB.messages, 'connected');
 

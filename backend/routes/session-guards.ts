@@ -1,6 +1,6 @@
 /**
- * Pure functions extracted from ws-handler.ts for session isolation logic.
- * These have no side effects and are directly unit-testable.
+ * Pure functions for session isolation logic.
+ * sessionClients is 1:many — a session can have multiple viewing clients (tabs).
  */
 
 export interface SessionClient {
@@ -17,76 +17,90 @@ export function isEpochStale(client: SessionClient, myEpoch: number): boolean {
   return client.activeQueryEpoch !== myEpoch;
 }
 
-/**
- * Resolve the active client for a given sessionId.
- * Returns the client if the mapping is valid, otherwise cleans up stale entries.
- */
-export function resolveSessionClient<T extends SessionClient>(
-  sessionClients: Map<string, string>,
-  clients: Map<string, T>,
+/** Add a client to a session's viewer set. */
+export function addSessionClient(
+  sessionClients: Map<string, Set<string>>,
   sessionId: string,
-): T | undefined {
-  const clientId = sessionClients.get(sessionId);
-  if (!clientId) return undefined;
-
-  const client = clients.get(clientId);
-  if (!client) {
-    // Client disconnected — don't delete mapping here.
-    // ws.on('close') handles cleanup with isRunning check.
-    // Deleting here would break reconnection during streaming.
-    return undefined;
+  clientId: string,
+): void {
+  let set = sessionClients.get(sessionId);
+  if (!set) {
+    set = new Set();
+    sessionClients.set(sessionId, set);
   }
+  set.add(clientId);
+}
 
-  // Client switched to a different session — stale mapping
-  if (client.sessionId !== sessionId) {
-    sessionClients.delete(sessionId);
-    return undefined;
+/** Remove a client from a session's viewer set. Cleans up empty sets. */
+export function removeSessionClient(
+  sessionClients: Map<string, Set<string>>,
+  sessionId: string,
+  clientId: string,
+): void {
+  const set = sessionClients.get(sessionId);
+  if (set) {
+    set.delete(clientId);
+    if (set.size === 0) sessionClients.delete(sessionId);
   }
-
-  return client;
 }
 
 /**
- * Handle session switch: clean up old session mapping, bump epoch, set new session.
+ * Find any live client viewing a given session.
+ * Used as fallback when the originating client disconnects (reconnection).
+ */
+export function findSessionClient<T extends SessionClient>(
+  sessionClients: Map<string, Set<string>>,
+  clients: Map<string, T>,
+  sessionId: string,
+): T | undefined {
+  const clientIds = sessionClients.get(sessionId);
+  if (!clientIds) return undefined;
+
+  for (const clientId of clientIds) {
+    const client = clients.get(clientId);
+    if (client && client.sessionId === sessionId) {
+      return client;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Handle session switch: remove from old set, add to new set, bump epoch.
  * Returns the new epoch value.
  */
 export function switchSession(
   client: SessionClient,
-  sessionClients: Map<string, string>,
+  sessionClients: Map<string, Set<string>>,
   oldSessionId: string | undefined,
   newSessionId: string,
 ): number {
-  // Remove stale mapping for old session
+  // Remove from old session's viewer set
   if (oldSessionId && oldSessionId !== newSessionId) {
-    if (sessionClients.get(oldSessionId) === client.id) {
-      sessionClients.delete(oldSessionId);
-    }
+    removeSessionClient(sessionClients, oldSessionId, client.id);
   }
 
   // Invalidate any running query loop
   client.activeQueryEpoch++;
 
-  // Update client to new session
+  // Update client to new session and add to viewer set
   client.sessionId = newSessionId;
-  sessionClients.set(newSessionId, client.id);
+  addSessionClient(sessionClients, newSessionId, client.id);
 
   return client.activeQueryEpoch;
 }
 
 /**
- * Handle abort cleanup: bump epoch and remove session routing.
+ * Handle abort cleanup: bump epoch and remove from session viewer set.
  * Returns the new epoch value.
  */
 export function abortCleanup(
   client: SessionClient,
-  sessionClients: Map<string, string>,
+  sessionClients: Map<string, Set<string>>,
   sessionId: string,
 ): number {
   client.activeQueryEpoch++;
-
-  if (sessionClients.get(sessionId) === client.id) {
-    sessionClients.delete(sessionId);
-  }
-
+  removeSessionClient(sessionClients, sessionId, client.id);
   return client.activeQueryEpoch;
 }
