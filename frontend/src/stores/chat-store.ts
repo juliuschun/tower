@@ -102,7 +102,7 @@ interface ChatState {
   setPendingQuestion: (pq: PendingQuestion | null) => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
   sessionId: null,
@@ -190,7 +190,7 @@ export const useChatStore = create<ChatState>((set) => ({
       ),
     })),
   retryMessage: (id) => {
-    const state = useChatStore.getState();
+    const state = get();
     const msg = state.messages.find((m) => m.id === id);
     if (!msg || msg.role !== 'user') return null;
     const text = msg.content.find((b) => b.type === 'text')?.text;

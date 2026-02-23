@@ -72,7 +72,7 @@ export function MessageBubble({ message, onFileClick, onRetry }: MessageBubblePr
 
   // Memoize ReactMarkdown components to prevent MermaidBlock unmount/remount loop
   const mdComponents = useMemo(() => ({
-    code({ children, className, ...props }: { children?: React.ReactNode; className?: string; [key: string]: unknown }) {
+    code({ children, className, ...props }: Record<string, any>) {
       const isInline = !className;
       const text = String(children).trim();
 

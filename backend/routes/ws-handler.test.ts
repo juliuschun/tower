@@ -9,15 +9,15 @@ const mockAbortSession = vi.fn(() => true);
 const mockCleanupSession = vi.fn();
 const mockGetClaudeSessionId = vi.fn();
 const mockGetActiveSessionCount = vi.fn(() => 0);
-const mockGetSDKSession = vi.fn(() => undefined);
+const mockGetSDKSession = vi.fn((): { isRunning: boolean } | undefined => undefined);
 
 vi.mock('../services/claude-sdk.js', () => ({
-  executeQuery: (...args: any[]) => mockExecuteQuery(...args),
-  abortSession: (...args: any[]) => mockAbortSession(...args),
-  cleanupSession: (...args: any[]) => mockCleanupSession(...args),
-  getClaudeSessionId: (...args: any[]) => mockGetClaudeSessionId(...args),
-  getActiveSessionCount: (...args: any[]) => mockGetActiveSessionCount(...args),
-  getSession: (...args: any[]) => mockGetSDKSession(...args),
+  executeQuery: mockExecuteQuery,
+  abortSession: mockAbortSession,
+  cleanupSession: mockCleanupSession,
+  getClaudeSessionId: mockGetClaudeSessionId,
+  getActiveSessionCount: mockGetActiveSessionCount,
+  getSession: mockGetSDKSession,
 }));
 
 vi.mock('../services/message-store.js', () => ({
