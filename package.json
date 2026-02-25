@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "PORT=32355 HOST=0.0.0.0 GIT_AUTO_COMMIT=true WORKSPACE_ROOT=$HOME/workspace tsx watch backend/index.ts",
+    "dev:backend": "PORT=32355 HOST=0.0.0.0 GIT_AUTO_COMMIT=true WORKSPACE_ROOT=$HOME/workspace DEFAULT_CWD=$HOME/workspace tsx watch backend/index.ts",
     "dev:frontend": "vite --host 0.0.0.0 --port 32354",
     "build": "vite build && tsc -p tsconfig.backend.json",
     "start": "pm2 start ecosystem.config.cjs",
@@ -23,6 +23,9 @@
     "@codemirror/lang-markdown": "^6.3.0",
     "@codemirror/lang-python": "^6.1.0",
     "@codemirror/theme-one-dark": "^6.1.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@uiw/react-codemirror": "^4.23.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.0.0",
