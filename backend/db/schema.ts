@@ -121,6 +121,28 @@ function initSchema(db: Database.Database) {
   for (const sql of sessionMigrations) {
     try { db.exec(sql); } catch {}
   }
+
+  // Kanban tasks table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      cwd TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      session_id TEXT,
+      sort_order INTEGER DEFAULT 0,
+      progress_summary TEXT DEFAULT '[]',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME,
+      user_id INTEGER,
+      FOREIGN KEY (session_id) REFERENCES sessions(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);
+  `);
 }
 
 export function closeDb() {
