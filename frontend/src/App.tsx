@@ -722,7 +722,7 @@ function App() {
             <HorizontalResizeHandle onResize={handleExpandedPanelResize} />
             {/* Bottom: ChatPanel or KanbanBoard — compact */}
             <main className="flex-1 min-h-0 flex justify-center">
-              <div className="w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20">
+              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'kanban' ? 'bg-surface-950' : 'bg-surface-950/50 backdrop-blur-3xl'}`}>
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
@@ -742,7 +742,7 @@ function App() {
           <>
             {/* Normal mode: horizontal split (left: chat/kanban, right: context) */}
             <main className="flex-1 min-w-0 flex justify-center">
-              <div className={`w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20 ${activeView === 'kanban' ? '' : 'max-w-4xl'} border-x border-surface-900/50`}>
+              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 border-x border-surface-900/50 ${activeView === 'kanban' ? 'bg-surface-950' : 'max-w-4xl bg-surface-950/50 backdrop-blur-3xl'}`}>
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
@@ -782,7 +782,7 @@ function App() {
         ) : (
           /* Mobile: normal chat panel or kanban */
           <main className="flex-1 min-w-0 flex justify-center">
-            <div className="w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20">
+            <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'kanban' ? 'bg-surface-950' : 'bg-surface-950/50 backdrop-blur-3xl'}`}>
               <ErrorBoundary fallbackLabel="Chat error">
                 {activeView === 'kanban' ? (
                   <KanbanBoard />
