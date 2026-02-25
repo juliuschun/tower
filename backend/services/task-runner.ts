@@ -57,6 +57,18 @@ export async function spawnTask(
     status: 'in_progress',
     sessionId,
     progressSummary: ['Starting task...'],
+    // Include full session data so frontend can add to session store
+    session: {
+      id: session.id,
+      name: session.name,
+      cwd: session.cwd,
+      tags: [],
+      favorite: false,
+      totalCost: 0,
+      totalTokens: 0,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    },
   });
 
   runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll)
@@ -78,6 +90,13 @@ async function runTaskAgent(
   let claudeSessionId: string | undefined;
   let turnCount = 0;
   let lastSummary = '';
+
+  // Save user prompt to DB so it's visible when viewing the session
+  saveMessage(sessionId, {
+    id: uuidv4(),
+    role: 'user',
+    content: JSON.stringify([{ type: 'text', text: prompt }]),
+  });
 
   try {
     const generator = executeQuery(sessionId, prompt, {

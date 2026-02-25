@@ -508,12 +508,19 @@ export function useClaudeChat() {
       }
 
       case 'task_update': {
-        const { taskId, status, sessionId: taskSessionId, progressSummary } = data;
+        const { taskId, status, sessionId: taskSessionId, progressSummary, session: taskSession } = data;
         useKanbanStore.getState().updateTask(taskId, {
           ...(status && { status }),
           ...(taskSessionId && { sessionId: taskSessionId }),
           ...(progressSummary && { progressSummary }),
         });
+        // Add task's session to session store so card click → chat navigation works
+        if (taskSession && taskSessionId) {
+          const existing = useSessionStore.getState().sessions.find((s) => s.id === taskSessionId);
+          if (!existing) {
+            useSessionStore.getState().addSession(taskSession);
+          }
+        }
         break;
       }
 

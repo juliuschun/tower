@@ -519,16 +519,28 @@ function App() {
 
   // Kanban: navigate to session when card is clicked
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = async (e: Event) => {
       const { sessionId } = (e as CustomEvent).detail;
-      if (sessionId) {
-        const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
-        if (session) handleSelectSession(session);
+      if (!sessionId) return;
+      let session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+      // Fallback: fetch from API if not in store (e.g. task session not yet added)
+      if (!session) {
+        try {
+          const headers: Record<string, string> = {};
+          const t = localStorage.getItem('token');
+          if (t) headers['Authorization'] = `Bearer ${t}`;
+          const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { headers });
+          if (res.ok) {
+            session = await res.json();
+            if (session) addSession(session);
+          }
+        } catch {}
       }
+      if (session) handleSelectSession(session);
     };
     window.addEventListener('kanban-select-session', handler);
     return () => window.removeEventListener('kanban-select-session', handler);
-  }, [handleSelectSession]);
+  }, [handleSelectSession, addSession]);
 
   const activeView = useSessionStore((s) => s.activeView);
 
