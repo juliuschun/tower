@@ -83,6 +83,7 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
+  const isKanbanTask = session.name.startsWith('\u{1F7E2}'); // 🟢
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
 
   useEffect(() => {
@@ -138,15 +139,17 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           </svg>
         </button>
 
-        {/* Chat icon / streaming indicator / unread dot */}
+        {/* Chat icon / kanban task icon / streaming indicator / unread dot */}
         {isStreaming ? (
           <div className="w-4 h-4 shrink-0 flex items-center justify-center">
-            <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
+            <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${isKanbanTask ? 'bg-blue-400' : 'bg-green-400'}`} />
           </div>
         ) : isUnread ? (
           <div className="w-4 h-4 shrink-0 flex items-center justify-center">
             <div className="w-2 h-2 rounded-full bg-primary-400" />
           </div>
+        ) : isKanbanTask ? (
+          <span className={`w-4 h-4 shrink-0 flex items-center justify-center text-xs ${isActive ? 'text-green-400' : 'text-green-600 group-hover:text-green-500'}`}>&#9643;</span>
         ) : (
           <svg className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-primary-500' : 'text-surface-700 group-hover:text-surface-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
