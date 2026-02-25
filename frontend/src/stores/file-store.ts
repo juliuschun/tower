@@ -25,12 +25,21 @@ export interface ExternalChange {
   detectedAt: number;
 }
 
-// ─── Expanded paths persistence ───
-const EXPANDED_KEY = 'fileTree:expandedPaths';
+// ─── Expanded paths persistence (per-user) ───
+function getUserKey(): string {
+  try {
+    const token = localStorage.getItem('token');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.username) return `fileTree:expandedPaths:${payload.username}`;
+    }
+  } catch {}
+  return 'fileTree:expandedPaths';
+}
 
 function loadExpandedPaths(): Set<string> {
   try {
-    const raw = localStorage.getItem(EXPANDED_KEY);
+    const raw = localStorage.getItem(getUserKey());
     if (raw) return new Set(JSON.parse(raw));
   } catch {}
   return new Set();
@@ -38,7 +47,7 @@ function loadExpandedPaths(): Set<string> {
 
 function saveExpandedPaths(paths: Set<string>): void {
   try {
-    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...paths]));
+    localStorage.setItem(getUserKey(), JSON.stringify([...paths]));
   } catch {}
 }
 

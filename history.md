@@ -778,3 +778,243 @@ SDK `query()` init 메시지에서 확인:
 
 ### 참고 문서
 - 공식 가이드: https://platform.claude.com/docs/en/agent-sdk/skills
+
+## 2026-02-23: 커스텀 메모리 훅 시스템 구축
+
+### 배경
+claude-brain 플러그인을 실측 테스트한 결과 3가지 blocking issue 발견:
+1. Free tier 50MB 제한 — 100개 메모리에서 초과, 사실상 유료
+2. 동시 프로세스 쓰기에서 데이터 무음 유실
+3. SDK `hits`/`frames` 반환값 불일치로 search 깨짐
+
+### 결정
+claude-brain의 훅 패턴은 유지하되, `@memvid/sdk`를 **SQLite FTS5**로 교체하여 자체 구축.
+
+### 아키텍처
+```
+~/.claude/
+├── memory.db                  ← SQLite FTS5 (WAL 모드)
+├── commands/memory.md         ← /memory 슬래시 명령어
+└── hooks/memory/
+    ├── db.mjs                 ← DB 연결 + 스키마 + 검색
+    ├── session-start.mjs      ← 최근 메모리 주입 (동기)
+    ├── post-tool-use.mjs      ← 관찰 자동 캡처 (비동기)
+    ├── stop.mjs               ← 세션 요약 저장 (동기)
+    └── search.mjs             ← 수동 검색 유틸리티
+```
+
+### 동작 흐름
+- **SessionStart** — memory.db에서 최근 세션 요약 3개 + 중요 메모리 10개 + 에러 5개 → `<memory-context>` XML로 Claude에 주입
+- **PostToolUse** (비동기) — Edit/Write/Bash/NotebookEdit 관찰을 자동 캡처. 노이즈 필터링 + 60초 중복 방지
+- **Stop** — 세션 활동을 집계하여 요약 UPSERT
+
+### DB 설계
+- **memories 테이블** — session_id, tool_name, type, project, file_path, content, tags, importance, created_at
+- **FTS5 이중 인덱스** — unicode61 (영어 단어 경계) + trigram (한국어 부분 문자열)
+- **session_summaries 테이블** — 세션별 집계 (파일, 명령어, 에러, 시간)
+- **검색 3-tier fallback** — unicode61 FTS → trigram FTS → LIKE
+
+### claude-brain 대비 개선
+| | claude-brain | 자체 구현 |
+|--|-------------|----------|
+| 스토리지 | .mv2 바이너리 (50MB 제한) | SQLite (무제한) |
+| 비용 | 유료 API 키 | 완전 무료 |
+| 검색 | BM25 (버그) | FTS5 이중 인덱스 (영어+한국어) |
+| 동시성 | 데이터 유실 | WAL + busy_timeout |
+| 쓰기 속도 | ~800ms/op | ~1ms/op |
+
+### Tech Lead 리뷰 후 수정 (7건)
+- exit code만으로 에러 판단 (stderr 오분류 수정)
+- 파일 마커 기반 cleanup 1일 1회 스로틀링
+- readStdin timeout `unref()` 추가
+- XML escape 함수 추가
+- prepared statement 캐싱
+- stderr 에러 로깅 추가
+- session_id 'unknown' 시 early return
+
+### 메모리 시스템 3-Layer 정리
+| Layer | 시스템 | 역할 |
+|-------|--------|------|
+| 1 | Auto Memory (`MEMORY.md`) | "이건 기억해" — 안정적 패턴, 매 대화 자동 로딩 |
+| 2 | Workspace (`/workspace/`) | "이건 팀 결정이야" — decisions/ 불변 기록 |
+| 3 | Memory Hooks (`memory.db`) | "이전 세션에서 뭐 했지?" — 자동 활동 로그 |
+
+### 상세 구현 문서
+`memory_implementation.md` 참조
+
+## 2026-02-23: Floating Question Card + TS 에러 전체 수정
+
+### 배경
+Claude SDK의 `AskUserQuestion` 도구가 ToolChip 내부에 숨겨져 있어 사용자가 질문을 놓침. InputBox 위에 플로팅 카드로 질문을 표시하는 기능 구현.
+
+### 구현 내용
+
+**FloatingQuestionCard 컴포넌트** (`frontend/src/components/chat/FloatingQuestionCard.tsx`)
+- InputBox 바로 위에 플로팅 카드 표시 (slideUp 애니메이션)
+- 대기 상태: 질문 텍스트 + 옵션 버튼 + 스피너
+- 답변 완료: 체크마크 + 선택된 옵션 표시 → 1.5초 후 자동 소멸
+- CSS 변수 기반 다크/라이트 테마 대응 (`--th-q-pending-*`, `--th-q-done-*`)
+
+**데이터 흐름**
+```
+SDK canUseTool(AskUserQuestion) → backend pendingQuestions Map
+  → WS ask_user → store pendingQuestion → FloatingQuestionCard 렌더
+  → 사용자 클릭 → WS answer_question → backend resolve → SDK 계속
+  → sdk_done → setPendingQuestion(null)
+```
+
+**ToolUseCard 변경**
+- 인라인 `AskUserQuestionUI` (~80줄) 삭제
+- `AskUserQuestionBadge` 배지로 대체 (답변 완료/입력창 위에서 응답 가능)
+
+**reconnect 시 pendingQuestion 복원**
+- `reconnect_result`, `set_active_session_ack`에 pendingQuestion 포함
+- 페이지 새로고침해도 진행 중인 질문 유지
+
+### 버그 수정 이력 (5회 반복)
+
+| 문제 | 원인 | 수정 |
+|------|------|------|
+| 라이트 모드 색상 안보임 | 하드코딩된 Tailwind yellow/emerald | CSS 변수로 테마별 분리 |
+| 두번째 질문 응답 불가 | answeredState가 새 질문 차단 | pendingQuestion 변경 시 answeredState 클리어 |
+| 새로고침 후 카드 안나옴 | store pendingQuestion이 null | backend ack에서 복원 |
+| "답변 완료" 무한 대기 | isStreaming 종료까지 기다림 | 1.5초 timeout으로 변경 |
+| **답변 후 카드 재출현** | `findOrphanedQuestion`이 result 없는 tool_use를 계속 재감지 | **orphan 감지 전체 삭제** — store pendingQuestion이 유일한 source of truth |
+
+### 핵심 교훈
+- `canUseTool`이 `deny` 반환 시 tool_result가 프론트엔드 메시지에 즉시/확실히 붙지 않음
+- 메시지 스캔 기반 상태 추론(`findOrphanedQuestion`)은 타이밍 갭으로 인해 불안정
+- **서버 상태(pendingQuestions Map) → WS → store가 유일한 신뢰 경로**
+
+### TypeScript 에러 전체 수정 (49개 → 0개)
+
+| 원인 | 수량 | 수정 |
+|------|------|------|
+| `chat-store.ts` 순환 참조 | ~42개 | `useChatStore.getState()` → `get()` (Zustand `create` 두번째 인자) |
+| react-markdown `Components` 타입 | 1개 | code props `{ [key: string]: unknown }` → `Record<string, any>` |
+| `ws-handler.test.ts` mock 타입 | 8개 | 래퍼 함수 제거 + `mockGetSDKSession` 반환 타입 명시 |
+
+## 2026-02-23: 모바일 반응형 UI + 파일 트리 최적화
+
+### 모바일 레이아웃 (`59a33aca`)
+- **미디어 쿼리 분기** — `(max-width: 768px)` 감지, `isMobile` 상태를 session-store에서 전역 관리
+- **MobileTabBar** — 하단 고정 탭 바 (채팅/파일/편집), BottomBar 대체
+- **Drawer Sidebar** — 모바일에서 사이드바를 오버레이 drawer로 표시 (좌측 슬라이드인)
+- **풀스크린 ContextPanel** — 모바일에서 편집기가 전체 화면 오버레이로 표시, 뒤로가기 버튼
+- **Header 모바일 최적화** — MobileModelSelector (약어: S4.6, O4.6), 새 채팅 + 버튼
+
+### 파일 트리 로딩 최적화
+- 세션별 cwd 기준 로딩 → **워크스페이스 루트 기준 1회 로딩**으로 변경 (세션 전환 시 재로드 방지)
+- 파일 탭 전환 시 `onRequestFileTree()` 호출로 fresh 데이터 보장
+
+### 기타
+- 브라우저 기본 drag/drop 방지 (글로벌 이벤트 핸들러)
+- Sidebar 파일 탭에 드래그 앤 드롭 업로드 지원 (FormData → `/api/files/upload`)
+- 더블탭 로고 → 서비스워커 해제 + 하드 리로드 (캐시 문제 대응)
+
+### 파일 변경
+- 23개 파일, +913/-172줄
+
+## 2026-02-23: Thinking 블록 추출 + 콘텐츠 블록 순서 보존
+
+### 수정 (`feb30956`)
+- **`<thinking>` 태그 추출** — SDK text 블록에 `<antml_thinking>...</antml_thinking>` 포함된 경우 thinking chip으로 분리 렌더링 (완료/스트리밍 모두)
+- **블록 순서 보존** — `mergeConsecutiveAssistant`에서 강제 재정렬 제거 → SDK 원본 순서 유지 (text → tool → text → tool 인라인)
+- 모바일 컨텍스트 패널 열기 로직 App.tsx → useClaudeChat 이동
+- Header 더블탭 리로드 핸들러 제거
+
+### content block 순서 re-normalize (`7dbe9027`)
+- merge 후 `normalizeContentBlocks()` 재적용으로 DB에서 복원된 thinking 태그도 확실히 추출
+
+## 2026-02-23: Admin 사용자 관리 + 폴더 접근 제한
+
+### 사용자 관리 (`90e65394`)
+- **백엔드 API** — 사용자 CRUD (`GET /users`, `POST /users`, `PATCH /users/:id`, `DELETE /users/:id`)
+- **역할 시스템** — admin/user 역할, admin만 사용자 관리 가능
+- **폴더 제한** — `allowed_path` 컬럼 추가, 사용자별 파일/워크스페이스 접근 경로 제한
+- **비밀번호 리셋** — admin이 사용자 비밀번호 초기화 가능
+- **소프트 삭제** — `is_active` 플래그로 비활성화 (데이터 보존)
+- **SettingsPanel 확장** — 사용자 목록 + 생성/편집/삭제 UI (admin 전용)
+
+### Admin 패널 분리 (`58380c21`)
+- SettingsPanel에서 사용자 관리 + 서버 정보를 **AdminPanel**로 분리
+- 탭 UI: 사용자 관리 / 시스템 정보
+- Header에 방패 아이콘 (admin 전용) → AdminPanel 모달 열기
+- SettingsPanel은 테마 + 로그아웃만 남김
+
+
+## 2026-02-25: VM 인프라 정비 + 16GB 업그레이드
+
+### VM 트러블슈팅
+- claude 인스턴스 9개 동시 실행으로 메모리 폭주 (7.2G/7.7G, swap 풀, load avg 41+)
+- SSH/mosh 접속 불가 → `az vm run-command`로 원격 진단
+- VM 재시작으로 복구
+
+### openclaw 완전 삭제
+- openclaw-gateway 프로세스, 바이너리(`/usr/bin/openclaw`), node modules, 설정(`.openclaw/`), 로그 제거
+- wiki(Outline) + wiki-postgres 컨테이너는 유지
+
+### 외부 접속 구성 (desk.moatai.app)
+- **nginx 설치** — 리버스 프록시 (`:80` → `localhost:32354`)
+- **Cloudflare DNS** — A레코드 `desk.moatai.app` → `20.41.99.18` (Proxy ON)
+- **NSG 규칙** — TCP 80 포트 개방 (Allow-HTTP, priority 1020)
+- SSL은 Cloudflare Proxy가 처리 (VM에서 별도 설정 불필요)
+
+### Azure CLI + Managed Identity
+- Azure CLI v2.83.0 설치
+- System Managed Identity 할당 + 역할 부여 (VM Contributor, Reader)
+- VM 내부에서 `az login --identity`로 다른 VM 관리 가능
+
+### VM 업그레이드
+- **Standard_B2ms** (2 vCPU, 8GB) → **Standard_B4ms** (4 vCPU, 16GB)
+- Public IP: Static 유지 (20.41.99.18)
+- deallocate → resize → start 절차
+
+### PM2 startup 설정
+- `pm2 startup systemd` 실행 (pm2-enterpriseai.service enabled)
+- 단, 개발 환경에서는 `npm run dev` 사용 (PM2는 production 전용)
+
+### 문서 작성
+- `/home/enterpriseai/connection/README.md` — 외부 접속 구조
+- `/home/enterpriseai/connection/restart.md` — 재시작 체크리스트 + 복구 가이드
+- `/home/enterpriseai/workspace/azurevm/README.md` — Azure VM 관리 가이드
+
+### dist 빌드 캐시 문제 발견
+- `@anthropic-ai/claude-code` → `@anthropic-ai/claude-agent-sdk` 마이그레이션 완료 (소스)
+- dist/ 폴더만 리빌드 안 되어 `ERR_MODULE_NOT_FOUND` 에러 → `npm run build` 필요
+
+## 2026-02-26: 파일 관리 + 업로드 수정 + 트리 상태 유지
+
+### 바이너리 업로드 수정
+- **문제**: `file.buffer.toString('utf-8')`로 파일을 쓰면 PDF/이미지 등 바이너리 파일이 깨짐
+- **수정**: `writeFileBinary(filePath, file.buffer)` — raw Buffer 직접 쓰기 (`backend/routes/api.ts`, `backend/services/file-system.ts`)
+
+### 파일 관리 기능 추가
+
+#### 백엔드 API 4개 (`backend/routes/api.ts`, `backend/services/file-system.ts`)
+- `POST /api/files/create` — 새 파일 생성
+- `POST /api/files/mkdir` — 새 폴더 생성
+- `POST /api/files/delete` — 파일/폴더 삭제 (recursive)
+- `POST /api/files/rename` — 이름 변경/이동
+- 모든 엔드포인트에 `isPathSafe` + `getUserAllowedPath` 보안 검증
+
+#### 프론트엔드 컨텍스트 메뉴 (`frontend/src/components/files/FileTree.tsx`)
+- 우클릭 컨텍스트 메뉴: 새 파일, 새 폴더, 이름 변경, 삭제, 새 세션
+- 인라인 입력: rename/new file/new folder 시 트리 내부에서 직접 입력
+- 삭제 시 confirm 다이얼로그
+
+#### 파일 트리 툴바 (`frontend/src/components/layout/Sidebar.tsx`)
+- 파일 탭 상단에 4버튼: 새 파일, 새 폴더, 업로드(네이티브 파일 피커), 새로고침
+
+### 트리 expanded 상태 유지 (`frontend/src/stores/file-store.ts`, `frontend/src/hooks/useClaudeChat.ts`)
+- **문제**: 탭 전환할 때마다 서버에 트리 재요청 → 전체 교체 → 열어둔 폴더가 하나씩 워터폴 로딩
+- `expandedPaths: Set<string>` — 열린 폴더 경로를 localStorage에 persist
+- `setTree()` — 새 트리 도착 시 저장된 expanded 상태 자동 복원
+- `setDirectoryChildren()` — 하위 트리에도 expanded 상태 재적용
+- 재귀적 auto-expand: 트리 도착 → expanded 마킹된 하위 폴더의 children 자동 요청
+- **탭 전환 최적화**: `tree.length > 0`이면 서버 요청 스킵 → 즉시 표시 (서버 왕복 0회)
+
+### 유저별 트리 상태 분리 (`frontend/src/stores/file-store.ts`)
+- localStorage 키: `fileTree:expandedPaths` → `fileTree:expandedPaths:{username}`
+- JWT 토큰에서 username 추출하여 유저별 독립 상태 관리
+- 미인증 시 기본 키 fallback
