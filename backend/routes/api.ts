@@ -86,7 +86,7 @@ router.post('/admin/users', adminMiddleware, (req, res) => {
 });
 
 router.patch('/admin/users/:id', adminMiddleware, (req, res) => {
-  const userId = parseInt(req.params.id);
+  const userId = parseInt(req.params.id as string);
   const currentUser = (req as any).user;
   const { role, allowed_path } = req.body;
   if (role !== undefined) {
@@ -98,7 +98,7 @@ router.patch('/admin/users/:id', adminMiddleware, (req, res) => {
 });
 
 router.patch('/admin/users/:id/password', adminMiddleware, (req, res) => {
-  const userId = parseInt(req.params.id);
+  const userId = parseInt(req.params.id as string);
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'password required' });
   resetUserPassword(userId, password);
@@ -106,7 +106,7 @@ router.patch('/admin/users/:id/password', adminMiddleware, (req, res) => {
 });
 
 router.delete('/admin/users/:id', adminMiddleware, (req, res) => {
-  const userId = parseInt(req.params.id);
+  const userId = parseInt(req.params.id as string);
   const currentUser = (req as any).user;
   if (currentUser.userId === userId) return res.status(403).json({ error: 'Cannot delete yourself' });
   disableUser(userId);
@@ -382,12 +382,12 @@ router.post('/pins', (req, res) => {
 
 router.patch('/pins/:id', (req, res) => {
   const { title, sortOrder } = req.body;
-  updatePin(parseInt(req.params.id), { title, sortOrder });
+  updatePin(parseInt(req.params.id as string), { title, sortOrder });
   res.json({ ok: true });
 });
 
 router.delete('/pins/:id', (req, res) => {
-  deletePin(parseInt(req.params.id));
+  deletePin(parseInt(req.params.id as string));
   res.json({ ok: true });
 });
 
@@ -404,8 +404,30 @@ router.get('/files/serve', (req, res) => {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
     if (!isPathSafe(filePath)) return res.status(403).json({ error: 'Access denied' });
-    const result = readFile(filePath);
+
     const ext = filePath.split('.').pop()?.toLowerCase();
+    const binaryTypes: Record<string, string> = {
+      pdf: 'application/pdf',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      bmp: 'image/bmp',
+      ico: 'image/x-icon',
+      svg: 'image/svg+xml',
+    };
+
+    if (ext && binaryTypes[ext]) {
+      res.setHeader('Content-Type', binaryTypes[ext]);
+      res.setHeader('Content-Disposition', 'inline');
+      const stream = fs.createReadStream(filePath);
+      stream.pipe(res);
+      stream.on('error', () => res.status(404).json({ error: 'File not found' }));
+      return;
+    }
+
+    const result = readFile(filePath);
     if (ext === 'html' || ext === 'htm') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(result.content);
@@ -434,12 +456,12 @@ router.post('/prompts', (req, res) => {
 
 router.patch('/prompts/:id', (req, res) => {
   const { title, content } = req.body;
-  updatePromptPin(parseInt(req.params.id), { title, content });
+  updatePromptPin(parseInt(req.params.id as string), { title, content });
   res.json({ ok: true });
 });
 
 router.delete('/prompts/:id', (req, res) => {
-  deletePin(parseInt(req.params.id));
+  deletePin(parseInt(req.params.id as string));
   res.json({ ok: true });
 });
 

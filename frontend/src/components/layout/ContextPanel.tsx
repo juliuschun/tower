@@ -28,26 +28,13 @@ function HtmlPreview({ content }: { content: string }) {
   );
 }
 
-function PdfPreview({ base64Content }: { base64Content: string }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    const binary = atob(base64Content);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const blob = new Blob([bytes], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    setBlobUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [base64Content]);
-
-  if (!blobUrl) return null;
+function PdfPreview({ filePath }: { filePath: string }) {
+  const token = localStorage.getItem('token') || '';
+  const src = `/api/files/serve?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
   return (
     <div className="absolute inset-0">
       <iframe
-        src={blobUrl}
+        src={src}
         className="w-full h-full border-0 bg-white"
         title="pdf-preview"
       />
@@ -122,7 +109,19 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
   const isHtml = openFile.language === 'html';
   const isPdf = openFile.language === 'pdf';
   const hasPreview = isMarkdown || isHtml || isPdf;
-  const fileName = openFile.path.split('/').pop() || '';
+  const rawName = openFile.path.split('/').pop() || '';
+  // Fix double-encoded Korean filenames (latin1→utf8 + NFD→NFC)
+  let fileName = rawName;
+  try {
+    if (/[\u00c0-\u00ff][\u0080-\u00bf]/.test(rawName)) {
+      const bytes = new Uint8Array([...rawName].map(c => c.charCodeAt(0)));
+      fileName = new TextDecoder('utf-8').decode(bytes).normalize('NFC');
+    } else {
+      fileName = rawName.normalize('NFC');
+    }
+  } catch {
+    fileName = rawName.normalize('NFC');
+  }
 
   return (
     <div className="h-full flex flex-col bg-surface-900">
@@ -222,7 +221,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
       {(isHtml || isPdf) && contextPanelTab === 'preview' ? (
         <div className="flex-1 min-h-0 relative">
           {isPdf ? (
-            <PdfPreview base64Content={openFile.content} />
+            <PdfPreview filePath={openFile.path} />
           ) : (
             <HtmlPreview content={openFile.content} />
           )}

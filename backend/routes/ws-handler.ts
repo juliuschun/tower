@@ -605,13 +605,23 @@ function handleFileRead(client: WsClient, data: { path: string }) {
       return;
     }
     const result = readFile(data.path);
-    send(client.ws, {
-      type: 'file_content',
-      path: data.path,
-      content: result.content,
-      language: result.language,
-      ...(result.encoding && { encoding: result.encoding }),
-    });
+    // For binary files (PDF, images), send minimal metadata — frontend fetches via HTTP
+    if (result.encoding === 'base64') {
+      send(client.ws, {
+        type: 'file_content',
+        path: data.path,
+        content: '',
+        language: result.language,
+        encoding: 'binary',
+      });
+    } else {
+      send(client.ws, {
+        type: 'file_content',
+        path: data.path,
+        content: result.content,
+        language: result.language,
+      });
+    }
   } catch (error: any) {
     send(client.ws, { type: 'error', message: error.message });
   }

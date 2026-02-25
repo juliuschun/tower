@@ -3,6 +3,17 @@ import path from 'path';
 import { watch, type FSWatcher } from 'chokidar';
 import { config } from '../config.js';
 
+function fixKoreanFilename(name: string): string {
+  // Detect double-encoded UTF-8: latin1 bytes re-encoded as UTF-8
+  // e.g. 도 (E1 84 83 E1 85 A9) stored as (C3A1 C284 C283 C3A1 C285 C2A9)
+  if (/[\u00c0-\u00ff][\u0080-\u00bf]/.test(name)) {
+    try {
+      return Buffer.from(name, 'latin1').toString('utf-8').normalize('NFC');
+    } catch { /* fall through */ }
+  }
+  return name.normalize('NFC');
+}
+
 export interface FileEntry {
   name: string;
   path: string;
@@ -38,9 +49,11 @@ export function getFileTree(dirPath: string, depth = 2): FileEntry[] {
         continue;
       }
 
+      // Fix Korean filenames: double-encoded UTF-8 (latin1→utf8) + NFD→NFC normalize
+      const displayName = fixKoreanFilename(item.name);
       const fullPath = path.join(dirPath, item.name);
       const entry: FileEntry = {
-        name: item.name,
+        name: displayName,
         path: fullPath,
         isDirectory: item.isDirectory(),
       };
