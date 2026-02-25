@@ -66,21 +66,29 @@ export function getFileTree(dirPath: string, depth = 2): FileEntry[] {
   }
 }
 
-export function readFile(filePath: string): { content: string; language: string } {
+const BINARY_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg']);
+
+export function readFile(filePath: string): { content: string; language: string; encoding?: string } {
   if (!isPathSafe(filePath)) {
     throw new Error('Access denied: path outside workspace');
   }
 
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const ext = path.extname(filePath).slice(1);
+  const ext = path.extname(filePath).slice(1).toLowerCase();
   const languageMap: Record<string, string> = {
     ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
     py: 'python', md: 'markdown', json: 'json', yaml: 'yaml', yml: 'yaml',
     html: 'html', css: 'css', sh: 'shell', bash: 'shell',
     sql: 'sql', rs: 'rust', go: 'go', java: 'java',
     txt: 'text', csv: 'text', log: 'text',
+    pdf: 'pdf',
   };
 
+  if (BINARY_EXTENSIONS.has(ext)) {
+    const content = fs.readFileSync(filePath).toString('base64');
+    return { content, language: languageMap[ext] || 'binary', encoding: 'base64' };
+  }
+
+  const content = fs.readFileSync(filePath, 'utf-8');
   return { content, language: languageMap[ext] || 'text' };
 }
 

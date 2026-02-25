@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { v4 as uuidv4 } from 'uuid';
+import os from 'os';
 import { executeQuery, abortSession, cleanupSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession } from '../services/claude-sdk.js';
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken, getUserAllowedPath } from '../services/auth.js';
@@ -184,7 +185,9 @@ export function setupWebSocket(server: Server) {
         client.userId = (payload as any).userId;
         client.username = (payload as any).username;
         if (client.userId) {
-          client.allowedPath = getUserAllowedPath(client.userId);
+          client.allowedPath = client.userRole === 'admin'
+            ? os.homedir()
+            : getUserAllowedPath(client.userId);
         }
       }
     }
@@ -346,7 +349,7 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
 async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string }) {
   const sessionId = data.sessionId || client.sessionId || uuidv4();
   client.sessionId = sessionId;
-  console.log(`[ws] handleChat START session=${sessionId} client=${client.id} activeSDK=${getActiveSessionCount()}`);
+  console.log(`[ws] handleChat START session=${sessionId.slice(0, 8)} client=${client.id.slice(0, 8)} resume=${data.claudeSessionId?.slice(0, 12) || 'none'} activeSDK=${getActiveSessionCount()}`);
 
   // Add this client to the session's viewer set
   addSessionClient(sessionClients, sessionId, client.id);
@@ -507,7 +510,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       client.claudeSessionId = finalClaudeSessionId;
     }
 
-    // Update turn_count and files_edited in DB
+    // Update turn_count, files_edited, and claudeSessionId in DB
     try {
       const currentSession = getSession(sessionId);
       if (currentSession) {
@@ -518,7 +521,11 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
           turnCount: newTurnCount,
           filesEdited: mergedFiles,
           modelUsed: data.model,
+          ...(finalClaudeSessionId ? { claudeSessionId: finalClaudeSessionId } : {}),
         });
+        if (finalClaudeSessionId) {
+          console.log(`[ws] persisted claudeSessionId=${finalClaudeSessionId.slice(0, 12)}… for session=${sessionId.slice(0, 8)}`);
+        }
       }
     } catch (err) { console.error('[ws] updateSession failed:', err); }
 
@@ -553,7 +560,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       sessionId,
     });
   } finally {
-    console.log(`[ws] handleChat END session=${sessionId} client=${client.id}`);
+    console.log(`[ws] handleChat END session=${sessionId.slice(0, 8)} claudeSid=${finalClaudeSessionId?.slice(0, 12) || 'none'}`);
     if (hangTimer) clearTimeout(hangTimer);
     // Notify all clients that this session stopped streaming
     broadcastToAll({ type: 'session_status', sessionId, status: 'idle' });
@@ -603,6 +610,7 @@ function handleFileRead(client: WsClient, data: { path: string }) {
       path: data.path,
       content: result.content,
       language: result.language,
+      ...(result.encoding && { encoding: result.encoding }),
     });
   } catch (error: any) {
     send(client.ws, { type: 'error', message: error.message });

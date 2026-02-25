@@ -404,6 +404,7 @@ export function useClaudeChat() {
           content: data.content,
           language: data.language,
           modified: false,
+          ...(data.encoding && { encoding: data.encoding }),
         });
         if (useSessionStore.getState().isMobile) {
           useSessionStore.getState().setMobileContextOpen(true);

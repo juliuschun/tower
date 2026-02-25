@@ -28,6 +28,33 @@ function HtmlPreview({ content }: { content: string }) {
   );
 }
 
+function PdfPreview({ base64Content }: { base64Content: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const binary = atob(base64Content);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [base64Content]);
+
+  if (!blobUrl) return null;
+  return (
+    <div className="absolute inset-0">
+      <iframe
+        src={blobUrl}
+        className="w-full h-full border-0 bg-white"
+        title="pdf-preview"
+      />
+    </div>
+  );
+}
+
 interface ContextPanelProps {
   onSave?: (path: string, content: string) => void;
   onReload?: (path: string) => void;
@@ -43,9 +70,11 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
   const externalChange = useFileStore((s) => s.externalChange);
   const reloadFromDisk = useFileStore((s) => s.reloadFromDisk);
   const keepLocalEdits = useFileStore((s) => s.keepLocalEdits);
+  const contextPanelExpanded = useFileStore((s) => s.contextPanelExpanded);
+  const setContextPanelExpanded = useFileStore((s) => s.setContextPanelExpanded);
 
   useEffect(() => {
-    if (openFile && (openFile.language === 'html' || openFile.language === 'markdown')) {
+    if (openFile && (openFile.language === 'html' || openFile.language === 'markdown' || openFile.language === 'pdf')) {
       setContextPanelTab('preview');
     }
   }, [openFile?.path]);
@@ -91,7 +120,8 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
 
   const isMarkdown = openFile.language === 'markdown';
   const isHtml = openFile.language === 'html';
-  const hasPreview = isMarkdown || isHtml;
+  const isPdf = openFile.language === 'pdf';
+  const hasPreview = isMarkdown || isHtml || isPdf;
   const fileName = openFile.path.split('/').pop() || '';
 
   return (
@@ -138,6 +168,24 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           </button>
         )}
 
+        {!onMobileClose && (
+          <button
+            onClick={() => setContextPanelExpanded(!contextPanelExpanded)}
+            className="p-0.5 hover:text-primary-400 transition-colors text-gray-400"
+            title={contextPanelExpanded ? '사이드 패널로' : '확장'}
+          >
+            {contextPanelExpanded ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+              </svg>
+            )}
+          </button>
+        )}
+
         <button
           onClick={handleClose}
           className="p-0.5 hover:text-red-400 transition-colors"
@@ -171,9 +219,13 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
       )}
 
       {/* Content */}
-      {isHtml && contextPanelTab === 'preview' ? (
+      {(isHtml || isPdf) && contextPanelTab === 'preview' ? (
         <div className="flex-1 min-h-0 relative">
-          <HtmlPreview content={openFile.content} />
+          {isPdf ? (
+            <PdfPreview base64Content={openFile.content} />
+          ) : (
+            <HtmlPreview content={openFile.content} />
+          )}
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto">
@@ -182,6 +234,10 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                 {openFile.content}
               </ReactMarkdown>
+            </div>
+          ) : isPdf ? (
+            <div className="flex-1 flex items-center justify-center text-gray-400 text-sm p-4">
+              PDF 파일은 미리보기 탭에서 확인하세요
             </div>
           ) : (
             <CodeEditor

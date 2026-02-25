@@ -17,6 +17,7 @@ export interface OpenFile {
   content: string;
   language: string;
   modified: boolean;
+  encoding?: string;
 }
 
 export interface ExternalChange {
@@ -29,6 +30,7 @@ interface FileState {
   treeRoot: string;
   openFile: OpenFile | null;
   contextPanelOpen: boolean;
+  contextPanelExpanded: boolean;
   contextPanelTab: 'preview' | 'editor' | 'python';
   lastOpenedFilePath: string | null;
   originalContent: string | null;
@@ -39,6 +41,7 @@ interface FileState {
   setOpenFile: (file: OpenFile | null) => void;
   updateOpenFileContent: (content: string) => void;
   setContextPanelOpen: (open: boolean) => void;
+  setContextPanelExpanded: (expanded: boolean) => void;
   setContextPanelTab: (tab: 'preview' | 'editor' | 'python') => void;
   toggleDirectory: (path: string) => void;
   setDirectoryChildren: (dirPath: string, children: FileEntry[]) => void;
@@ -55,6 +58,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   treeRoot: '',
   openFile: null,
   contextPanelOpen: false,
+  contextPanelExpanded: false,
   contextPanelTab: 'preview',
   lastOpenedFilePath: null,
   originalContent: null,
@@ -64,16 +68,18 @@ export const useFileStore = create<FileState>((set, get) => ({
   setTreeRoot: (path) => set({ treeRoot: path }),
   setOpenFile: (file) => {
     if (file) {
+      const shouldExpand = file.language === 'html' || file.language === 'pdf';
       set({
         openFile: file,
         contextPanelOpen: true,
+        contextPanelExpanded: shouldExpand,
         lastOpenedFilePath: file.path,
         originalContent: file.content,
         externalChange: null,
       });
     } else {
       // Close panel but keep lastOpenedFilePath
-      set({ openFile: null, contextPanelOpen: false, originalContent: null, externalChange: null });
+      set({ openFile: null, contextPanelOpen: false, contextPanelExpanded: false, originalContent: null, externalChange: null });
     }
   },
   updateOpenFileContent: (content) =>
@@ -83,6 +89,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       return { openFile: { ...s.openFile, content, modified } };
     }),
   setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
+  setContextPanelExpanded: (expanded) => set({ contextPanelExpanded: expanded }),
   setContextPanelTab: (tab) => set({ contextPanelTab: tab }),
 
   markSaved: () =>
