@@ -72,6 +72,36 @@ function MobileModelSelector({ currentModel, availableModels, selectedModel, onS
   );
 }
 
+function ViewToggle() {
+  const activeView = useSessionStore((s) => s.activeView);
+  const setActiveView = useSessionStore((s) => s.setActiveView);
+
+  return (
+    <div className="flex items-center gap-0.5 bg-surface-800/60 rounded-lg p-0.5">
+      <button
+        onClick={() => setActiveView('chat')}
+        className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+          activeView === 'chat'
+            ? 'bg-surface-700 text-white shadow-sm'
+            : 'text-gray-500 hover:text-gray-300'
+        }`}
+      >
+        Chat
+      </button>
+      <button
+        onClick={() => setActiveView('kanban')}
+        className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+          activeView === 'kanban'
+            ? 'bg-surface-700 text-white shadow-sm'
+            : 'text-gray-500 hover:text-gray-300'
+        }`}
+      >
+        Board
+      </button>
+    </div>
+  );
+}
+
 export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick }: HeaderProps) {
   const cost = useChatStore((s) => s.cost);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -103,6 +133,9 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick 
         </div>
         {!isMobile && <span className="text-gray-100 font-bold text-[15px] tracking-tight">Claude Desk</span>}
       </div>
+
+      {/* Chat / Board view toggle */}
+      <ViewToggle />
 
       {activeSession && (
         <>

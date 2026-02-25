@@ -10,7 +10,8 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OfflineBanner } from './components/common/OfflineBanner';
 import { PromptEditor } from './components/prompts/PromptEditor';
-import { ResizeHandle, DEFAULT_WIDTH } from './components/layout/ResizeHandle';
+import { ResizeHandle, SidebarResizeHandle, DEFAULT_WIDTH, SIDEBAR_DEFAULT_WIDTH } from './components/layout/ResizeHandle';
+import { HorizontalResizeHandle } from './components/layout/HorizontalResizeHandle';
 import { MobileTabBar } from './components/layout/MobileTabBar';
 import { useClaudeChat } from './hooks/useClaudeChat';
 import { useTheme } from './hooks/useTheme';
@@ -25,6 +26,7 @@ import { useModelStore } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
 import { normalizeContentBlocks } from './utils/message-parser';
 import { toastSuccess, toastError } from './utils/toast';
+import { KanbanBoard } from './components/kanban/KanbanBoard';
 
 const API_BASE = '/api';
 
@@ -51,6 +53,26 @@ function App() {
   const handleContextPanelResize = useCallback((width: number) => {
     setContextPanelWidth(width);
     localStorage.setItem('contextPanelWidth', String(width));
+  }, []);
+
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebarWidth');
+    return saved ? parseInt(saved) : SIDEBAR_DEFAULT_WIDTH;
+  });
+
+  const handleSidebarResize = useCallback((width: number) => {
+    setSidebarWidth(width);
+    localStorage.setItem('sidebarWidth', String(width));
+  }, []);
+
+  const [expandedPanelHeight, setExpandedPanelHeight] = useState(() => {
+    const saved = localStorage.getItem('expandedPanelHeight');
+    return saved ? parseInt(saved) : Math.round(window.innerHeight * 0.65);
+  });
+
+  const handleExpandedPanelResize = useCallback((height: number) => {
+    setExpandedPanelHeight(height);
+    localStorage.setItem('expandedPanelHeight', String(height));
   }, []);
 
   const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, answerQuestion, connected } = useClaudeChat();
@@ -82,6 +104,7 @@ function App() {
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const setSidebarOpen = useSessionStore((s) => s.setSidebarOpen);
   const contextPanelOpen = useFileStore((s) => s.contextPanelOpen);
+  const contextPanelExpanded = useFileStore((s) => s.contextPanelExpanded);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -494,6 +517,21 @@ function App() {
     setToken(null);
   }, []);
 
+  // Kanban: navigate to session when card is clicked
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { sessionId } = (e as CustomEvent).detail;
+      if (sessionId) {
+        const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
+        if (session) handleSelectSession(session);
+      }
+    };
+    window.addEventListener('kanban-select-session', handler);
+    return () => window.removeEventListener('kanban-select-session', handler);
+  }, [handleSelectSession]);
+
+  const activeView = useSessionStore((s) => s.activeView);
+
   // Global Ctrl+S handler (fallback when CodeMirror doesn't have focus)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -615,80 +653,138 @@ function App() {
           </div>
         )}
         {sidebarOpen && !isMobile && (
-          <Sidebar
-            onNewSession={handleNewSession}
-            onSelectSession={handleSelectSession}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={handleRenameSession}
-            onToggleFavorite={handleToggleFavorite}
-            onFileClick={handleFileClick}
-            onDirectoryClick={handleDirectoryClick}
-            onRequestFileTree={(path) => requestFileTree(path)}
-            onPinFile={handlePinFile}
-            onUnpinFile={handleUnpinFile}
-            onPinClick={handlePinClick}
-            onSettingsClick={handleOpenSettings}
-            onPromptClick={handlePromptClick}
-            onPromptEdit={handlePromptEdit}
-            onPromptDelete={handlePromptDelete}
-            onPromptAdd={handlePromptAdd}
-            onViewDiff={handleViewDiff}
-          />
+          <>
+            <div className="shrink-0" style={{ width: sidebarWidth }}>
+              <Sidebar
+                onNewSession={handleNewSession}
+                onSelectSession={handleSelectSession}
+                onDeleteSession={handleDeleteSession}
+                onRenameSession={handleRenameSession}
+                onToggleFavorite={handleToggleFavorite}
+                onFileClick={handleFileClick}
+                onDirectoryClick={handleDirectoryClick}
+                onRequestFileTree={(path) => requestFileTree(path)}
+                onPinFile={handlePinFile}
+                onUnpinFile={handleUnpinFile}
+                onPinClick={handlePinClick}
+                onSettingsClick={handleOpenSettings}
+                onPromptClick={handlePromptClick}
+                onPromptEdit={handlePromptEdit}
+                onPromptDelete={handlePromptDelete}
+                onPromptAdd={handlePromptAdd}
+                onViewDiff={handleViewDiff}
+              />
+            </div>
+            <SidebarResizeHandle onResize={handleSidebarResize} />
+          </>
         )}
 
-        {/* Center: Chat panel */}
-        <main className="flex-1 min-w-0 flex justify-center">
-          <div className={`w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20 ${isMobile ? '' : 'max-w-4xl border-x border-surface-900/50'}`}>
-            <ErrorBoundary fallbackLabel="Chat error">
-              <ChatPanel
-                onSend={handleSendMessage}
-                onAbort={abort}
-                onFileClick={handleFileClick}
-                onAnswerQuestion={answerQuestion}
-              />
-            </ErrorBoundary>
-          </div>
-        </main>
-
-        {/* Right: Context panel — fullscreen modal on mobile */}
-        {isMobile ? (
-          mobileContextOpen && (
-            <div className="fixed inset-0 z-40 bg-surface-950 flex flex-col">
-              <div className="flex-1 overflow-hidden">
-                <ErrorBoundary fallbackLabel="Context panel error">
-                  <ContextPanel
-                    onSave={handleSaveFile}
-                    onReload={requestFile}
-                    onMobileClose={() => {
-                      setMobileContextOpen(false);
-                      useSessionStore.getState().setMobileTab('chat');
-                    }}
-                  />
-                </ErrorBoundary>
-              </div>
+        {/* Mobile: fullscreen context panel modal */}
+        {isMobile && mobileContextOpen && (
+          <div className="fixed inset-0 z-40 bg-surface-950 flex flex-col">
+            <div className="flex-1 overflow-hidden">
+              <ErrorBoundary fallbackLabel="Context panel error">
+                <ContextPanel
+                  onSave={handleSaveFile}
+                  onReload={requestFile}
+                  onMobileClose={() => {
+                    setMobileContextOpen(false);
+                    useSessionStore.getState().setMobileTab('chat');
+                  }}
+                />
+              </ErrorBoundary>
             </div>
-          )
-        ) : (
-          contextPanelOpen ? (
-            <>
-              <ResizeHandle onResize={handleContextPanelResize} />
-              <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
-                <ErrorBoundary fallbackLabel="Context panel error">
-                  <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
+          </div>
+        )}
+
+        {/* Desktop: expanded mode — vertical split (top: context, bottom: chat) */}
+        {!isMobile && contextPanelExpanded && contextPanelOpen ? (
+          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {/* Top: ContextPanel — takes most space */}
+            <div className="shrink-0 bg-surface-900/90 backdrop-blur-md overflow-hidden" style={{ height: expandedPanelHeight }}>
+              <ErrorBoundary fallbackLabel="Context panel error">
+                <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
+              </ErrorBoundary>
+            </div>
+            {/* Horizontal resize handle */}
+            <HorizontalResizeHandle onResize={handleExpandedPanelResize} />
+            {/* Bottom: ChatPanel or KanbanBoard — compact */}
+            <main className="flex-1 min-h-0 flex justify-center">
+              <div className="w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20">
+                <ErrorBoundary fallbackLabel="Chat error">
+                  {activeView === 'kanban' ? (
+                    <KanbanBoard />
+                  ) : (
+                    <ChatPanel
+                      onSend={handleSendMessage}
+                      onAbort={abort}
+                      onFileClick={handleFileClick}
+                      onAnswerQuestion={answerQuestion}
+                    />
+                  )}
                 </ErrorBoundary>
               </div>
-            </>
-          ) : lastOpenedFilePath ? (
-            <button
-              onClick={handleToggleContextPanel}
-              className="shrink-0 w-6 flex items-center justify-center bg-surface-900/60 hover:bg-surface-800/80 border-l border-surface-700/50 transition-colors text-gray-500 hover:text-gray-300"
-              title="패널 열기"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-          ) : null
+            </main>
+          </div>
+        ) : !isMobile ? (
+          <>
+            {/* Normal mode: horizontal split (left: chat/kanban, right: context) */}
+            <main className="flex-1 min-w-0 flex justify-center">
+              <div className={`w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20 ${activeView === 'kanban' ? '' : 'max-w-4xl'} border-x border-surface-900/50`}>
+                <ErrorBoundary fallbackLabel="Chat error">
+                  {activeView === 'kanban' ? (
+                    <KanbanBoard />
+                  ) : (
+                    <ChatPanel
+                      onSend={handleSendMessage}
+                      onAbort={abort}
+                      onFileClick={handleFileClick}
+                      onAnswerQuestion={answerQuestion}
+                    />
+                  )}
+                </ErrorBoundary>
+              </div>
+            </main>
+
+            {contextPanelOpen ? (
+              <>
+                <ResizeHandle onResize={handleContextPanelResize} />
+                <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
+                  <ErrorBoundary fallbackLabel="Context panel error">
+                    <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
+                  </ErrorBoundary>
+                </div>
+              </>
+            ) : lastOpenedFilePath ? (
+              <button
+                onClick={handleToggleContextPanel}
+                className="shrink-0 w-6 flex items-center justify-center bg-surface-900/60 hover:bg-surface-800/80 border-l border-surface-700/50 transition-colors text-gray-500 hover:text-gray-300"
+                title="패널 열기"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            ) : null}
+          </>
+        ) : (
+          /* Mobile: normal chat panel or kanban */
+          <main className="flex-1 min-w-0 flex justify-center">
+            <div className="w-full flex flex-col h-full bg-surface-950/50 backdrop-blur-3xl shadow-xl shadow-black/20">
+              <ErrorBoundary fallbackLabel="Chat error">
+                {activeView === 'kanban' ? (
+                  <KanbanBoard />
+                ) : (
+                  <ChatPanel
+                    onSend={handleSendMessage}
+                    onAbort={abort}
+                    onFileClick={handleFileClick}
+                    onAnswerQuestion={answerQuestion}
+                  />
+                )}
+              </ErrorBoundary>
+            </div>
+          </main>
         )}
       </div>
 

@@ -32,6 +32,7 @@ interface SessionState {
   isMobile: boolean;
   mobileTab: MobileTab;
   mobileContextOpen: boolean;
+  activeView: 'chat' | 'kanban';
 
   setSessions: (sessions: SessionMeta[]) => void;
   setActiveSessionId: (id: string | null) => void;
@@ -46,6 +47,7 @@ interface SessionState {
   setIsMobile: (v: boolean) => void;
   setMobileTab: (tab: MobileTab) => void;
   setMobileContextOpen: (v: boolean) => void;
+  setActiveView: (view: 'chat' | 'kanban') => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -59,6 +61,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   isMobile: false,
   mobileTab: 'chat',
   mobileContextOpen: false,
+  activeView: 'chat',
 
   setSessions: (sessions) => set({ sessions }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
@@ -97,4 +100,5 @@ export const useSessionStore = create<SessionState>((set) => ({
   setIsMobile: (v) => set({ isMobile: v }),
   setMobileTab: (tab) => set({ mobileTab: tab }),
   setMobileContextOpen: (v) => set({ mobileContextOpen: v }),
+  setActiveView: (view) => set({ activeView: view }),
 }));
