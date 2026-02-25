@@ -25,6 +25,7 @@ import {
   autoCommit,
 } from '../services/git-manager.js';
 import { config, availableModels } from '../config.js';
+import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks } from '../services/task-manager.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 10 * 1024 * 1024; // 10MB
 const DANGEROUS_EXTENSIONS = new Set([
@@ -526,6 +527,58 @@ router.get('/config', (_req, res) => {
 // ───── Commands ─────
 router.get('/commands', (_req, res) => {
   res.json(loadCommands());
+});
+
+// ───── Kanban Tasks ─────
+router.get('/tasks', (req, res) => {
+  try {
+    const tasks = getTasks((req as any).user?.id);
+    res.json(tasks);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/tasks', (req, res) => {
+  try {
+    const { title, description, cwd } = req.body;
+    if (!title || !cwd) return res.status(400).json({ error: 'title and cwd required' });
+    const task = createTask(title, description || '', cwd, (req as any).user?.id);
+    res.json(task);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/tasks/:id', (req, res) => {
+  try {
+    const task = updateTask(req.params.id, req.body);
+    if (!task) return res.status(404).json({ error: 'task not found' });
+    res.json(task);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/tasks/:id', (req, res) => {
+  try {
+    const ok = deleteTask(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'task not found' });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/tasks/reorder', (req, res) => {
+  try {
+    const { taskIds, status } = req.body;
+    if (!taskIds || !status) return res.status(400).json({ error: 'taskIds and status required' });
+    reorderTasks(taskIds, status);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
