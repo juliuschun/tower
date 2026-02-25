@@ -11,6 +11,8 @@ import { getSession, updateSession } from '../services/session-manager.js';
 import { config, getPermissionMode } from '../config.js';
 import { autoCommit } from '../services/git-manager.js';
 import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient, type SessionClient } from './session-guards.js';
+import { spawnTask, abortTask } from '../services/task-runner.js';
+import { getTasks } from '../services/task-manager.js';
 
 interface WsClient {
   id: string;
@@ -253,6 +255,28 @@ async function handleMessage(client: WsClient, data: any) {
     case 'ping':
       send(client.ws, { type: 'pong' });
       break;
+    case 'task_spawn': {
+      const { taskId } = data;
+      try {
+        await spawnTask(taskId, (type, payload) => broadcastToAll({ type, ...payload }), client.userId);
+      } catch (err: any) {
+        send(client.ws, { type: 'error', message: err.message });
+      }
+      break;
+    }
+    case 'task_abort': {
+      const { taskId } = data;
+      const ok = abortTask(taskId);
+      if (!ok) {
+        send(client.ws, { type: 'error', message: 'Task not running' });
+      }
+      break;
+    }
+    case 'task_list': {
+      const tasks = getTasks(client.userId);
+      send(client.ws, { type: 'task_list', tasks });
+      break;
+    }
     default:
       send(client.ws, { type: 'error', message: `Unknown message type: ${data.type}` });
   }
@@ -604,24 +628,28 @@ function handleFileRead(client: WsClient, data: { path: string }) {
       send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
       return;
     }
-    const result = readFile(data.path);
-    // For binary files (PDF, images), send minimal metadata — frontend fetches via HTTP
-    if (result.encoding === 'base64') {
+    // Binary files (PDF, images): send metadata only — frontend fetches via HTTP API
+    const ext = data.path.split('.').pop()?.toLowerCase() || '';
+    const binaryExts = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico']);
+    if (binaryExts.has(ext)) {
+      const langMap: Record<string, string> = { pdf: 'pdf', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', ico: 'image' };
+      console.log(`[ws] binary file detected: ${data.path} (${ext})`);
       send(client.ws, {
         type: 'file_content',
         path: data.path,
         content: '',
-        language: result.language,
+        language: langMap[ext] || 'binary',
         encoding: 'binary',
       });
-    } else {
-      send(client.ws, {
-        type: 'file_content',
-        path: data.path,
-        content: result.content,
-        language: result.language,
-      });
+      return;
     }
+    const result = readFile(data.path);
+    send(client.ws, {
+      type: 'file_content',
+      path: data.path,
+      content: result.content,
+      language: result.language,
+    });
   } catch (error: any) {
     send(client.ws, { type: 'error', message: error.message });
   }
