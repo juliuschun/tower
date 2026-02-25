@@ -8,6 +8,7 @@ import { useGitStore } from '../stores/git-store';
 import { parseSDKMessage, normalizeContentBlocks } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef } from '../utils/session-filters';
 import { toastSuccess, toastError, toastWarning } from '../utils/toast';
+import { useKanbanStore } from '../stores/kanban-store';
 
 /** Debounce timer for auto-reload of externally changed files */
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -505,6 +506,21 @@ export function useClaudeChat() {
         }
         break;
       }
+
+      case 'task_update': {
+        const { taskId, status, sessionId: taskSessionId, progressSummary } = data;
+        useKanbanStore.getState().updateTask(taskId, {
+          ...(status && { status }),
+          ...(taskSessionId && { sessionId: taskSessionId }),
+          ...(progressSummary && { progressSummary }),
+        });
+        break;
+      }
+
+      case 'task_list': {
+        useKanbanStore.getState().setTasks(data.tasks || []);
+        break;
+      }
     }
   }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree, setDirectoryChildren, handleFileChange]);
 
@@ -523,8 +539,13 @@ export function useClaudeChat() {
     }
   }, []);
 
-  const { send, connected, safetyTimerFired } = useWebSocket(wsUrl, handleMessage, handleReconnect);
+  const { send, connected, ws: wsRef2, safetyTimerFired } = useWebSocket(wsUrl, handleMessage, handleReconnect);
   sendRef.current = send;
+
+  // Expose WS reference globally for KanbanBoard to send task_spawn/abort messages
+  if (wsRef2.current) {
+    (window as any).__claudeWs = wsRef2.current;
+  }
 
   const sendMessage = useCallback(
     (message: string, cwd?: string) => {
