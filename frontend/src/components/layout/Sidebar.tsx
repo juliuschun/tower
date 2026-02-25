@@ -84,7 +84,8 @@ export function Sidebar({
   };
 
   useEffect(() => {
-    if (sidebarTab === 'files') {
+    // 트리가 비어있을 때만 서버에 요청 (이미 있으면 스킵)
+    if (sidebarTab === 'files' && tree.length === 0) {
       onRequestFileTree();
     }
   }, [sidebarTab]);
@@ -117,7 +118,7 @@ export function Sidebar({
     }`;
 
   return (
-    <aside className="w-full md:w-[260px] bg-surface-900 border-r border-surface-800 flex flex-col h-full shrink-0">
+    <aside className="w-full bg-surface-900 border-r border-surface-800 flex flex-col h-full shrink-0">
       {/* Project header */}
       {cwd && (
         <div className="px-4 pt-3 pb-2 border-b border-surface-800/50 relative">
@@ -165,7 +166,7 @@ export function Sidebar({
       {/* Tab switcher — 5 tabs */}
       <div className="flex border-b border-surface-800/50">
         <button onClick={() => setSidebarTab('sessions')} className={tabClass('sessions')}>세션</button>
-        <button onClick={() => { setSidebarTab('files'); onRequestFileTree(); }} className={tabClass('files')}>파일</button>
+        <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>파일</button>
         <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>프롬프트</button>
         <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>핀보드</button>
         <button onClick={() => setSidebarTab('git')} className={tabClass('git')}>버전</button>
@@ -216,6 +217,7 @@ export function Sidebar({
             onDragLeave={(e) => { e.stopPropagation(); fileTreeDragCounter.current--; if (fileTreeDragCounter.current === 0) setFileTreeDragOver(false); }}
             onDrop={handleFileTreeDrop}
           >
+            <FileTreeToolbar treeRoot={treeRoot} onRefresh={() => onRequestFileTree()} />
             <Breadcrumb treeRoot={treeRoot} onNavigate={onRequestFileTree} />
             {fileTreeDragOver && (
               <div className="flex items-center justify-center py-4 text-[12px] text-primary-400 gap-2">
@@ -235,6 +237,7 @@ export function Sidebar({
                 onDirectoryClick={onDirectoryClick}
                 onPinFile={onPinFile}
                 onNewSessionInFolder={onNewSessionInFolder}
+                onRefreshTree={() => onRequestFileTree()}
               />
             )}
           </div>
@@ -351,6 +354,109 @@ function Breadcrumb({ treeRoot, onNavigate }: { treeRoot: string; onNavigate: (p
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
         </svg>
       </button>
+    </div>
+  );
+}
+
+/** File tree toolbar: new file, new folder, upload, refresh */
+function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh: () => void }) {
+  const [showInput, setShowInput] = useState<'file' | 'folder' | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showInput) inputRef.current?.focus();
+  }, [showInput]);
+
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem('token');
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) h['Authorization'] = `Bearer ${token}`;
+    return h;
+  };
+
+  const handleSubmit = async (value: string) => {
+    if (!value.trim()) { setShowInput(null); return; }
+    const endpoint = showInput === 'folder' ? '/api/files/mkdir' : '/api/files/create';
+    const fullPath = `${treeRoot}/${value.trim()}`;
+    try {
+      const res = await fetch(endpoint, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify({ path: fullPath }) });
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || '생성 실패'); return; }
+      toastSuccess(`${value.trim()} 생성 완료`);
+      onRefresh();
+    } catch { toastError('생성 실패'); }
+    setShowInput(null);
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const formData = new FormData();
+    formData.append('targetDir', treeRoot);
+    for (const file of Array.from(files)) formData.append('files', file);
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || '업로드 실패'); return; }
+      const ok = data.results.filter((r: { error?: string }) => !r.error);
+      const fail = data.results.filter((r: { error?: string }) => r.error);
+      if (ok.length > 0) toastSuccess(`${ok.length}개 파일 업로드 완료`);
+      if (fail.length > 0) toastError(`${fail.length}개 파일 실패`);
+      onRefresh();
+    } catch { toastError('업로드 실패'); }
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  if (!treeRoot) return null;
+
+  const btnClass = 'p-1 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-800 transition-colors';
+
+  return (
+    <div className="px-1 pt-1">
+      <div className="flex items-center gap-0.5">
+        <button onClick={() => setShowInput(showInput === 'file' ? null : 'file')} className={btnClass} title="새 파일">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </button>
+        <button onClick={() => setShowInput(showInput === 'folder' ? null : 'folder')} className={btnClass} title="새 폴더">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+          </svg>
+        </button>
+        <button onClick={() => fileInputRef.current?.click()} className={btnClass} title="파일 업로드">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+        </button>
+        <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
+        <div className="flex-1" />
+        <button onClick={onRefresh} className={btnClass} title="새로고침">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
+      {showInput && (
+        <div className="mt-1 px-0.5">
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder={showInput === 'file' ? '파일명 입력...' : '폴더명 입력...'}
+            className="w-full bg-surface-950 border border-primary-500/50 rounded px-2 py-1 text-[11px] text-gray-200 outline-none placeholder-surface-700"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit((e.target as HTMLInputElement).value);
+              if (e.key === 'Escape') setShowInput(null);
+            }}
+            onBlur={() => setShowInput(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }

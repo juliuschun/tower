@@ -117,6 +117,56 @@ export function writeFile(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
+export function writeFileBinary(filePath: string, buffer: Buffer): void {
+  if (!isPathWritable(filePath)) {
+    throw new Error('Access denied: path outside workspace');
+  }
+
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(filePath, buffer);
+}
+
+export function createDirectory(dirPath: string): void {
+  if (!isPathWritable(dirPath)) {
+    throw new Error('Access denied: path outside workspace');
+  }
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+export function deleteEntry(targetPath: string): void {
+  if (!isPathWritable(targetPath)) {
+    throw new Error('Access denied: path outside workspace');
+  }
+  if (!fs.existsSync(targetPath)) {
+    throw new Error('Path does not exist');
+  }
+  const stat = fs.statSync(targetPath);
+  if (stat.isDirectory()) {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+  } else {
+    fs.unlinkSync(targetPath);
+  }
+}
+
+export function renameEntry(oldPath: string, newPath: string): void {
+  if (!isPathWritable(oldPath)) {
+    throw new Error('Access denied: source path outside workspace');
+  }
+  if (!isPathWritable(newPath)) {
+    throw new Error('Access denied: target path outside workspace');
+  }
+  if (!fs.existsSync(oldPath)) {
+    throw new Error('Source path does not exist');
+  }
+  if (fs.existsSync(newPath)) {
+    throw new Error('Target path already exists');
+  }
+  fs.renameSync(oldPath, newPath);
+}
+
 // ───── File Watcher (chokidar) ─────
 
 let watcher: FSWatcher | null = null;

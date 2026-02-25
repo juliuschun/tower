@@ -25,9 +25,49 @@ export interface ExternalChange {
   detectedAt: number;
 }
 
+// ─── Expanded paths persistence ───
+const EXPANDED_KEY = 'fileTree:expandedPaths';
+
+function loadExpandedPaths(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+function saveExpandedPaths(paths: Set<string>): void {
+  try {
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...paths]));
+  } catch {}
+}
+
+/** Apply persisted expanded state to a flat entry list (top-level only) */
+function applyExpandedState(entries: FileEntry[], expandedPaths: Set<string>): FileEntry[] {
+  return entries.map((e) => {
+    if (e.isDirectory && expandedPaths.has(e.path)) {
+      return { ...e, isExpanded: true };
+    }
+    return e;
+  });
+}
+
+/** Collect all expanded directory paths from the tree recursively */
+function collectExpandedPaths(entries: FileEntry[], result: Set<string>): void {
+  for (const e of entries) {
+    if (e.isDirectory && e.isExpanded) {
+      result.add(e.path);
+    }
+    if (e.children) {
+      collectExpandedPaths(e.children, result);
+    }
+  }
+}
+
 interface FileState {
   tree: FileEntry[];
   treeRoot: string;
+  expandedPaths: Set<string>;
   openFile: OpenFile | null;
   contextPanelOpen: boolean;
   contextPanelExpanded: boolean;
@@ -56,6 +96,7 @@ interface FileState {
 export const useFileStore = create<FileState>((set, get) => ({
   tree: [],
   treeRoot: '',
+  expandedPaths: loadExpandedPaths(),
   openFile: null,
   contextPanelOpen: false,
   contextPanelExpanded: false,
@@ -64,7 +105,13 @@ export const useFileStore = create<FileState>((set, get) => ({
   originalContent: null,
   externalChange: null,
 
-  setTree: (entries) => set({ tree: entries }),
+  setTree: (entries) => {
+    const { expandedPaths } = get();
+    // Restore expanded state from persisted set
+    const restored = applyExpandedState(entries, expandedPaths);
+    set({ tree: restored });
+  },
+
   setTreeRoot: (path) => set({ treeRoot: path }),
   setOpenFile: (file) => {
     if (file) {
@@ -107,14 +154,30 @@ export const useFileStore = create<FileState>((set, get) => ({
   keepLocalEdits: () => set({ externalChange: null }),
 
   toggleDirectory: (dirPath) =>
-    set((s) => ({
-      tree: toggleDir(s.tree, dirPath),
-    })),
+    set((s) => {
+      const newTree = toggleDir(s.tree, dirPath);
+      // Update persisted expanded paths
+      const newExpanded = new Set(s.expandedPaths);
+      if (newExpanded.has(dirPath)) {
+        newExpanded.delete(dirPath);
+      } else {
+        newExpanded.add(dirPath);
+      }
+      saveExpandedPaths(newExpanded);
+      return { tree: newTree, expandedPaths: newExpanded };
+    }),
 
   setDirectoryChildren: (dirPath, children) =>
-    set((s) => ({
-      tree: setChildren(s.tree, dirPath, children),
-    })),
+    set((s) => {
+      // Apply expanded state to children as well
+      const restoredChildren = applyExpandedState(children, s.expandedPaths);
+      const newTree = setChildren(s.tree, dirPath, restoredChildren);
+      // Ensure this dir is marked expanded
+      const newExpanded = new Set(s.expandedPaths);
+      newExpanded.add(dirPath);
+      saveExpandedPaths(newExpanded);
+      return { tree: newTree, expandedPaths: newExpanded };
+    }),
 
   setDirectoryLoading: (dirPath, loading) =>
     set((s) => ({
@@ -123,17 +186,13 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   handleFileChange: (event, filePath) => {
     const state = get();
-    // Find parent directory of the changed file
-    const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
-
-    // If the change is in a currently expanded directory, we need a refresh
-    // The tree will be refreshed via requestFileTree from the hook
-    // For now, mark the tree as needing refresh by triggering a re-render
     if (event === 'unlink' || event === 'unlinkDir') {
-      // Remove from tree
-      set({ tree: removeFromTree(state.tree, filePath) });
+      // Remove from tree and expanded paths
+      const newExpanded = new Set(state.expandedPaths);
+      newExpanded.delete(filePath);
+      saveExpandedPaths(newExpanded);
+      set({ tree: removeFromTree(state.tree, filePath), expandedPaths: newExpanded });
     }
-    // For 'add', 'addDir', 'change' — the parent will be re-fetched
   },
 }));
 

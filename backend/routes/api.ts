@@ -10,7 +10,7 @@ import {
   createSession, getSessions, getSession, updateSession, deleteSession,
   scanClaudeNativeSessions
 } from '../services/session-manager.js';
-import { getFileTree, readFile, writeFile, isPathSafe } from '../services/file-system.js';
+import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
 import { loadCommands } from '../services/command-loader.js';
 import { getMessages } from '../services/message-store.js';
@@ -345,7 +345,8 @@ router.post('/files/upload', upload.array('files', 20), async (req, res) => {
         continue;
       }
       try {
-        writeFile(filePath, file.buffer.toString('utf-8'));
+        // Use binary write for all uploads — preserves PDFs, images, etc.
+        writeFileBinary(filePath, file.buffer);
         results.push({ name: file.originalname, path: filePath });
         savedPaths.push(filePath);
       } catch (err: any) {
@@ -362,6 +363,66 @@ router.post('/files/upload', upload.array('files', 20), async (req, res) => {
     }
 
     res.json({ results });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ───── File Management (create / mkdir / delete / rename) ─────
+router.post('/files/create', (req, res) => {
+  try {
+    const { path: filePath, content } = req.body;
+    if (!filePath) return res.status(400).json({ error: 'path required' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (fs.existsSync(filePath)) return res.status(409).json({ error: 'File already exists' });
+    writeFile(filePath, content || '');
+    res.json({ ok: true, path: filePath });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/files/mkdir', (req, res) => {
+  try {
+    const { path: dirPath } = req.body;
+    if (!dirPath) return res.status(400).json({ error: 'path required' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (fs.existsSync(dirPath)) return res.status(409).json({ error: 'Directory already exists' });
+    createDirectory(dirPath);
+    res.json({ ok: true, path: dirPath });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/files/delete', (req, res) => {
+  try {
+    const { path: targetPath } = req.body;
+    if (!targetPath) return res.status(400).json({ error: 'path required' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(targetPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    deleteEntry(targetPath);
+    res.json({ ok: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/files/rename', (req, res) => {
+  try {
+    const { oldPath, newPath } = req.body;
+    if (!oldPath || !newPath) return res.status(400).json({ error: 'oldPath and newPath required' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(oldPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (!isPathSafe(newPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    renameEntry(oldPath, newPath);
+    res.json({ ok: true, path: newPath });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

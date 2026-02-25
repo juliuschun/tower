@@ -389,12 +389,28 @@ export function useClaudeChat() {
           };
           if (findInTree(currentTree, data.path)) {
             setDirectoryChildren(data.path, data.entries);
+            // Recursively re-expand children that were previously expanded
+            const { expandedPaths: ep } = useFileStore.getState();
+            for (const child of data.entries as any[]) {
+              if (child.isDirectory && ep.has(child.path)) {
+                send({ type: 'file_tree', path: child.path });
+              }
+            }
             break;
           }
         }
         setTree(data.entries);
         if (data.path) {
           useFileStore.getState().setTreeRoot(data.path);
+        }
+        // Auto-expand previously expanded directories:
+        // setTree restores isExpanded flags; now fetch children for those
+        const { expandedPaths } = useFileStore.getState();
+        const expandedInThisLevel = (data.entries as any[])
+          .filter((e: any) => e.isDirectory && expandedPaths.has(e.path))
+          .map((e: any) => e.path);
+        for (const dirPath of expandedInThisLevel) {
+          send({ type: 'file_tree', path: dirPath });
         }
         break;
       }
