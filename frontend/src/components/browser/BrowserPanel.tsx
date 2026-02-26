@@ -2,7 +2,13 @@ import { useState } from 'react';
 
 type ViewTab = 'text' | 'snapshot' | 'screenshot';
 
-export function BrowserPanel() {
+interface BrowserPanelProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function BrowserPanel({ open, onClose }: BrowserPanelProps) {
+  if (!open) return null;
   const [url, setUrl] = useState('https://example.com');
   const [activeTab, setActiveTab] = useState<ViewTab>('text');
   const [output, setOutput] = useState('');
@@ -90,8 +96,24 @@ export function BrowserPanel() {
   );
 
   return (
-    <div className="flex flex-col h-full bg-neutral-950 text-gray-100 p-4 gap-3">
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Browser</p>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-[720px] h-[560px] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800 shrink-0">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Browser</p>
+          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-300 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+    <div className="flex flex-col flex-1 overflow-hidden bg-neutral-950 text-gray-100 p-4 gap-3">
+      <p className="sr-only">Browser Panel</p>
 
       {/* URL bar */}
       <div className="flex gap-2">
@@ -136,6 +158,8 @@ export function BrowserPanel() {
             {output || (loading ? 'Loading…' : 'Navigate to a URL to begin.')}
           </pre>
         )}
+      </div>
+    </div>
       </div>
     </div>
   );

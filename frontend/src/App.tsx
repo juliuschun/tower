@@ -7,6 +7,7 @@ import { ContextPanel } from './components/layout/ContextPanel';
 import { LoginPage } from './components/auth/LoginPage';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { AdminPanel } from './components/admin/AdminPanel';
+import { BrowserPanel } from './components/browser/BrowserPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OfflineBanner } from './components/common/OfflineBanner';
 import { PromptEditor } from './components/prompts/PromptEditor';
@@ -522,6 +523,7 @@ function App() {
   }, []);
 
   const [adminOpen, setAdminOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const isAdmin = localStorage.getItem('userRole') === 'admin';
   const handleOpenAdmin = useCallback(() => setAdminOpen(true), []);
 
@@ -822,8 +824,9 @@ function App() {
       {isMobile ? <MobileTabBar /> : <BottomBar requestFileTree={requestFileTree} />}
 
       {/* Settings modal */}
-      <SettingsPanel onLogout={handleLogout} />
+      <SettingsPanel onLogout={handleLogout} onBrowserOpen={() => setBrowserOpen(true)} />
       <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
+      <BrowserPanel open={browserOpen} onClose={() => setBrowserOpen(false)} />
 
       {/* Prompt editor modal */}
       <PromptEditor
