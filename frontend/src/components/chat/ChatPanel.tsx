@@ -107,7 +107,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-full overflow-x-hidden">
+    <div className="flex flex-col h-full">
       {/* Messages area */}
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
         {/* Summary card — shown when session has messages */}
