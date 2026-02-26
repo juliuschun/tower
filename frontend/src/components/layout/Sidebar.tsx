@@ -55,6 +55,19 @@ export function Sidebar({
   const [fileTreeDragOver, setFileTreeDragOver] = useState(false);
   const fileTreeDragCounter = useRef(0);
 
+  const [sharedWithMe, setSharedWithMe] = useState<{ id: string; file_path: string; owner_username: string }[]>([]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    fetch('/api/shares/with-me', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setSharedWithMe(data); })
+      .catch(() => {});
+  }, []);
+
   const handleFileTreeDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -239,6 +252,28 @@ export function Sidebar({
                 onNewSessionInFolder={onNewSessionInFolder}
                 onRefreshTree={() => onRequestFileTree()}
               />
+            )}
+            {sharedWithMe.length > 0 && (
+              <div className="mt-3 px-2">
+                <div className="text-[10px] text-gray-600 uppercase tracking-wide font-medium mb-1.5 px-1">
+                  나와 공유됨
+                </div>
+                <div className="space-y-0.5">
+                  {sharedWithMe.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => onFileClick(s.file_path)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-gray-400 hover:text-white hover:bg-surface-700/50 transition-colors text-left"
+                    >
+                      <svg className="w-3.5 h-3.5 text-green-500/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                      </svg>
+                      <span className="truncate flex-1">{s.file_path.split('/').pop()}</span>
+                      <span className="text-[10px] text-gray-600 shrink-0">@{s.owner_username}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         ) : sidebarTab === 'prompts' ? (
