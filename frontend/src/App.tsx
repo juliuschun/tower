@@ -28,6 +28,7 @@ import { normalizeContentBlocks } from './utils/message-parser';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
+import { SharedViewer } from './components/shared/SharedViewer';
 
 const API_BASE = '/api';
 
@@ -614,6 +615,11 @@ function App() {
       })
       .catch(() => {});
   }, [token, authStatus]);
+
+  // Public shared file viewer — no login required
+  if (window.location.pathname.startsWith('/shared/')) {
+    return <SharedViewer />;
+  }
 
   // Auth gate
   if (authStatus === null) {
