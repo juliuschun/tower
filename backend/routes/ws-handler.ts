@@ -34,8 +34,8 @@ interface PendingQuestion {
   timer: ReturnType<typeof setTimeout>;
 }
 
-const SDK_HANG_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-const ASK_USER_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const SDK_HANG_TIMEOUT = 60 * 60 * 1000; // 60 minutes
+const ASK_USER_TIMEOUT = 60 * 60 * 1000; // 60 minutes
 
 const clients = new Map<string, WsClient>();
 const sessionClients = new Map<string, Set<string>>(); // sessionId → Set<clientId> (1:many)
@@ -383,7 +383,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   if (sdkSession?.isRunning) {
     sendToClient(client, sessionId, {
       type: 'error',
-      message: '이 세션에서 이미 대화가 진행 중입니다. 완료될 때까지 기다려주세요.',
+      message: 'A conversation is already in progress for this session. Please wait until it finishes.',
       errorCode: 'SESSION_BUSY',
       sessionId,
     });
@@ -394,7 +394,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   if (getActiveSessionCount() >= config.maxConcurrentSessions) {
     sendToClient(client, sessionId, {
       type: 'error',
-      message: `동시 세션 한도 초과 (최대 ${config.maxConcurrentSessions}개)`,
+      message: `Concurrent session limit exceeded (max ${config.maxConcurrentSessions})`,
       errorCode: 'SESSION_LIMIT',
       sessionId,
     });
@@ -411,9 +411,18 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
   } catch (err) { console.error('[ws] saveMessage (user) failed:', err); }
 
-  // Use claudeSessionId from the message only — never fall back to client-level state
-  // to prevent session A's claudeSessionId leaking into session B
-  const resumeSessionId = data.claudeSessionId || undefined;
+  // Use claudeSessionId from the message, with DB fallback for resilience.
+  // This prevents context loss when frontend loses claudeSessionId (e.g. server restart, HMR).
+  let resumeSessionId = data.claudeSessionId || undefined;
+  if (!resumeSessionId) {
+    try {
+      const dbSession = getSession(sessionId);
+      if (dbSession?.claudeSessionId) {
+        resumeSessionId = dbSession.claudeSessionId;
+        console.log(`[ws] resume fallback from DB: claudeSid=${resumeSessionId!.slice(0, 12)}… for session=${sessionId.slice(0, 8)}`);
+      }
+    } catch {}
+  }
   let loopClaudeSessionId: string | undefined; // track locally — client may switch sessions mid-stream
   let currentAssistantId: string | null = null;
   let currentAssistantContent: any[] = [];
@@ -427,7 +436,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       abortSession(sessionId);
       broadcastToSession(sessionId, {
         type: 'error',
-        message: 'SDK 응답 시간 초과 (5분). 세션을 중단했습니다.',
+        message: 'SDK response timed out. Session has been aborted.',
         errorCode: 'SDK_HANG',
         sessionId,
       });
@@ -584,7 +593,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       sessionId,
     });
   } finally {
-    console.log(`[ws] handleChat END session=${sessionId.slice(0, 8)} claudeSid=${finalClaudeSessionId?.slice(0, 12) || 'none'}`);
+    console.log(`[ws] handleChat END session=${sessionId.slice(0, 8)} claudeSid=${loopClaudeSessionId?.slice(0, 12) || 'none'}`);
     if (hangTimer) clearTimeout(hangTimer);
     // Notify all clients that this session stopped streaming
     broadcastToAll({ type: 'session_status', sessionId, status: 'idle' });
