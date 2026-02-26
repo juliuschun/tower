@@ -12,3 +12,21 @@ CLAUDE.local.md
 simple.html
 prompt:*
 permission_issue.md
+
+# Research / scratch docs
+ASCII_ART_*.md
+research_brain.md
+memory_implementation.md
+
+# Dev plans, issues, history (internal artifacts)
+docs/plans/
+history.md
+installation.md
+issue_session_change.md
+plan.md
+plan_done.md
+
+# Claude Code tooling (not part of the app)
+claude-skills/
+memory-hooks/
+templates/

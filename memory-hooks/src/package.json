@@ -1,8 +1,0 @@
-{
-  "name": "claude-memory-hooks",
-  "type": "module",
-  "private": true,
-  "dependencies": {
-    "better-sqlite3": "^11.0.0"
-  }
-}
