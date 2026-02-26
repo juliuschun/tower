@@ -26,15 +26,18 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
     <div className="min-h-screen app-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-primary-500 mb-2">Claude Desk</h1>
+          <h1 className="text-2xl font-bold text-primary-500 mb-1">Tower</h1>
+          <p className="text-xs text-gray-600 mb-3 italic">
+            Stack your own tower of AI and systems.
+          </p>
           <p className="text-sm text-gray-500">
-            {isSetup ? '관리자 계정을 생성하세요' : '로그인'}
+            {isSetup ? 'Create an admin account' : 'Sign in'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-surface-900 border border-surface-700 rounded-xl p-6 space-y-4">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">사용자명</label>
+            <label className="block text-xs text-gray-400 mb-1">Username</label>
             <input
               type="text"
               value={username}
@@ -44,7 +47,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">비밀번호</label>
+            <label className="block text-xs text-gray-400 mb-1">Password</label>
             <input
               type="password"
               value={password}
@@ -64,7 +67,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
             disabled={loading || !username || !password}
             className="w-full py-2 bg-primary-600 hover:bg-primary-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
-            {loading ? '처리 중...' : isSetup ? '계정 생성' : '로그인'}
+            {loading ? 'Processing...' : isSetup ? 'Create account' : 'Sign in'}
           </button>
         </form>
       </div>
