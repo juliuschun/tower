@@ -40,7 +40,7 @@ initWorkspaceRepo(config.workspaceRoot).catch((err) => {
 server.listen(config.port, config.host, () => {
   console.log(`
 ╔══════════════════════════════════════════╗
-║         Claude Desk v0.1.0              ║
+║         Tower v0.1.0                    ║
 ║                                          ║
 ║  http://localhost:${config.port}              ║
 ║  Auth: ${config.authEnabled ? 'enabled' : 'disabled'}                          ║

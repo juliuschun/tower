@@ -3,27 +3,27 @@ import { config } from '../config.js';
 
 /**
  * Generate a session summary using Claude Code SDK query() with Haiku model.
- * Uses customSystemPrompt to override Claude Code's default coding assistant prompt.
+ * Uses systemPrompt to override Claude Code's default coding assistant prompt.
  */
 export async function generateSummary(messagesText: string): Promise<string> {
-  const prompt = `아래부터 사용자의 대화 내역이야. 다음 형식으로 요약해줘:
+  const prompt = `Below is a conversation history. Summarize it in this format:
 
-1) 주제 흐름을 화살표(→)로 한 줄 표시
-2) 주요 명령/작업을 불렛(•) 3~5개로 정리
-3) 현재 상태를 한 줄로
+1) Topic flow in one line using arrows (→)
+2) Key actions/tasks as 3-5 bullet points (•)
+3) Current status in one line
 
-예시:
-모델 셀렉터 구현 → DB 마이그레이션 → 프론트 통합
-• SDK Options.model로 모델 전환 기능 추가
-• 세션 자동 이름 생성 서비스 구현
-• SummaryCard 컴포넌트 생성
-현재: 빌드 성공, 서버 테스트 중
+Example:
+Model selector → DB migration → Frontend integration
+• Added model switching via SDK Options.model
+• Implemented auto session naming service
+• Created SummaryCard component
+Status: Build succeeded, testing on server
 
 ---
 ${messagesText}
 ---
 
-위 대화의 요약:`;
+Summary of the above conversation:`;
 
   console.log('[summarizer] prompt length:', prompt.length);
   console.log('[summarizer] prompt preview:', prompt.slice(0, 200));
@@ -44,7 +44,7 @@ ${messagesText}
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         maxTurns: 1,
-        systemPrompt: '너는 대화 요약기다. 인사하지 마. 도구를 사용하지 마. 지시된 형식(화살표 흐름 + 불렛 포인트 + 현재 상태)으로만 출력해.',
+        systemPrompt: 'You are a conversation summarizer. Do not greet. Do not use any tools. Output only in the specified format (arrow flow + bullet points + current status).',
         disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       },
     });
@@ -68,9 +68,9 @@ ${messagesText}
       }
     }
 
-    return resultText.trim() || '요약 생성 실패';
+    return resultText.trim() || 'Summary generation failed';
   } catch {
-    return '요약 생성 실패';
+    return 'Summary generation failed';
   } finally {
     clearTimeout(timeout);
   }

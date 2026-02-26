@@ -45,7 +45,7 @@ export function AttachmentChip({ attachment, onRemove }: AttachmentChipProps) {
       <button
         onClick={() => onRemove(attachment.id)}
         className="shrink-0 ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
-        title="제거"
+        title="Remove"
       >
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

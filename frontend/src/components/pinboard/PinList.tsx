@@ -32,10 +32,10 @@ export function PinList({ onPinClick, onUnpin }: PinListProps) {
       <div className="px-4 py-8 text-center">
         <div className="text-surface-700 text-2xl mb-2">&#128204;</div>
         <p className="text-[13px] text-surface-700">
-          핀이 없습니다
+          No pins yet
         </p>
         <p className="text-[11px] text-surface-800 mt-1">
-          파일 탭에서 파일을 핀하세요
+          Pin files from the Files tab
         </p>
       </div>
     );
@@ -82,7 +82,7 @@ export function PinList({ onPinClick, onUnpin }: PinListProps) {
               onUnpin(pin.id);
             }}
             className="opacity-0 group-hover:opacity-100 p-0.5 text-surface-600 hover:text-red-400 transition-all"
-            title="핀 해제"
+            title="Unpin"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

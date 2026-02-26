@@ -111,7 +111,7 @@ export function useClaudeChat() {
         const newEpoch = data.serverEpoch;
         if (serverEpochRef.current && newEpoch && serverEpochRef.current !== newEpoch) {
           // Server restarted — epoch changed
-          toastWarning('서버가 재시작되었습니다');
+          toastWarning('Server restarted');
           useChatStore.getState().setStreaming(false);
           useChatStore.getState().markPendingFailed();
           useChatStore.getState().setPendingQuestion(null);
@@ -137,7 +137,7 @@ export function useClaudeChat() {
               questions: data.pendingQuestion.questions,
             });
           }
-          toastSuccess('스트림 재연결됨');
+          toastSuccess('Stream reconnected');
         } else {
           // status === 'idle'
           // Check wasStreaming OR safetyTimerFired (timer may have cleared isStreaming before reconnect)
@@ -148,7 +148,7 @@ export function useClaudeChat() {
           if (wasStreaming && data.sessionId) {
             // Was streaming but SDK finished while disconnected — recover from DB
             recoverMessagesFromDb(data.sessionId);
-            toastSuccess('응답 복구됨');
+            toastSuccess('Response recovered');
           }
         }
         break;
@@ -351,7 +351,7 @@ export function useClaudeChat() {
         // Auto-name: trigger if session name looks like default (date format)
         if (activeId) {
           const session = useSessionStore.getState().sessions.find((s) => s.id === activeId);
-          const isDefaultName = session?.name?.startsWith('세션 ');
+          const isDefaultName = session?.name?.startsWith('Session ');
           const msgs = useChatStore.getState().messages;
           const hasUserMsg = msgs.some((m) => m.role === 'user');
           const hasAssistantMsg = msgs.some((m) => m.role === 'assistant');
@@ -430,7 +430,7 @@ export function useClaudeChat() {
         break;
 
       case 'file_saved': {
-        toastSuccess(`${data.path.split('/').pop()} 저장됨`);
+        toastSuccess(`${data.path.split('/').pop()} saved`);
         const fs = useFileStore.getState();
         if (fs.openFile && fs.openFile.path === data.path) {
           fs.markSaved();
@@ -440,6 +440,13 @@ export function useClaudeChat() {
 
       case 'file_changed': {
         handleFileChange(data.event, data.path);
+        // Refresh parent directory tree for add/addDir so new files appear
+        if (data.event === 'add' || data.event === 'addDir') {
+          const parentDir = data.path.substring(0, data.path.lastIndexOf('/'));
+          if (parentDir) {
+            sendRef.current({ type: 'file_tree', path: parentDir });
+          }
+        }
         const fState = useFileStore.getState();
         if (fState.openFile && fState.openFile.path === data.path && data.event === 'change') {
           if (!fState.openFile.modified) {
@@ -463,7 +470,7 @@ export function useClaudeChat() {
       case 'git_commit': {
         if (data.commit) {
           useGitStore.getState().addCommit(data.commit);
-          toastSuccess(`스냅샷: ${data.commit.shortHash} (${data.commit.authorName})`);
+          toastSuccess(`Snapshot: ${data.commit.shortHash} (${data.commit.authorName})`);
         }
         break;
       }
@@ -483,7 +490,7 @@ export function useClaudeChat() {
         const pq = useChatStore.getState().pendingQuestion;
         if (pq && pq.questionId === data.questionId) {
           useChatStore.getState().setPendingQuestion(null);
-          toastWarning('응답 시간 초과 — 기본 옵션이 자동 선택되었습니다');
+          toastWarning('Response timed out — default option was auto-selected');
         }
         break;
       }
@@ -496,15 +503,15 @@ export function useClaudeChat() {
         setStreaming(false);
         currentAssistantMsg.current = null;
         if (data.errorCode === 'SESSION_LIMIT') {
-          toastError('동시 세션 한도 초과');
+          toastError('Concurrent session limit exceeded');
           addMessage({
             id: crypto.randomUUID(),
             role: 'system',
-            content: [{ type: 'text', text: `세션 한도 초과: ${data.message}. 다른 세션이 완료될 때까지 기다려주세요.` }],
+            content: [{ type: 'text', text: `Session limit exceeded: ${data.message}. Please wait for another session to finish.` }],
             timestamp: Date.now(),
           });
         } else if (data.errorCode === 'SDK_HANG') {
-          toastError('SDK 응답 시간 초과');
+          toastError('SDK response timed out');
           addMessage({
             id: crypto.randomUUID(),
             role: 'system',
@@ -516,7 +523,7 @@ export function useClaudeChat() {
           addMessage({
             id: crypto.randomUUID(),
             role: 'system',
-            content: [{ type: 'text', text: `오류: ${data.message}` }],
+            content: [{ type: 'text', text: `Error: ${data.message}` }],
             timestamp: Date.now(),
           });
         }

@@ -236,11 +236,11 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       {queued && (
         <div className="mb-2 flex items-center gap-2 px-4 py-2 bg-primary-900/20 border border-primary-500/20 rounded-xl text-[13px] text-primary-300 backdrop-blur-sm">
           <div className="w-4 h-4 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin shrink-0" />
-          <span className="truncate flex-1">대기 중: {queued.message}</span>
+          <span className="truncate flex-1">Queued: {queued.message}</span>
           <button
             onClick={handleCancelQueue}
             className="text-primary-400/60 hover:text-primary-300 p-0.5 transition-colors shrink-0"
-            title="대기 취소 (Esc)"
+            title="Cancel queue (Esc)"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -263,7 +263,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
         {/* Drop overlay */}
         {isDragOver && (
           <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-primary-900/20 backdrop-blur-sm z-10 pointer-events-none">
-            <span className="text-[13px] text-primary-300 font-medium">여기에 놓으세요</span>
+            <span className="text-[13px] text-primary-300 font-medium">Drop here</span>
           </div>
         )}
 
@@ -317,26 +317,26 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
             onKeyDown={handleKeyDown}
             placeholder={
               queued
-                ? '추가 메시지를 대기열에 넣을 수 있습니다...'
+                ? 'You can queue another message...'
                 : isStreaming
-                  ? '메시지를 입력하면 다음 턴에 전송됩니다...'
+                  ? 'Type a message to send on the next turn...'
                   : attachments.length > 0
-                    ? '추가 메시지를 입력하거나 바로 전송하세요...'
-                    : '메시지를 입력하세요...'
+                    ? 'Add a message or send as-is...'
+                    : 'Type a message...'
             }
             rows={1}
             className="flex-1 bg-transparent border-none px-4 py-3 text-[15px] text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:ring-0 min-h-[48px] max-h-[200px]"
           />
 
           <div className="absolute top-3 right-[60px] text-[11px] text-surface-700 font-medium pointer-events-none tracking-wide select-none">
-            {input.length === 0 && !isStreaming && attachments.length === 0 ? '(/로 명령어)' : ''}
+            {input.length === 0 && !isStreaming && attachments.length === 0 ? '(/ for commands)' : ''}
           </div>
 
           {isStreaming && !input.trim() && attachments.length === 0 ? (
             <button
               onClick={onAbort}
               className="p-2 m-1 bg-surface-700 hover:bg-surface-600 rounded-xl transition-all shrink-0 text-red-400 hover:shadow-lg shadow-surface-900"
-              title="중단"
+              title="Stop"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                 <rect x="7" y="7" width="10" height="10" rx="2" />
@@ -351,7 +351,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                   ? 'bg-primary-900/40 hover:bg-primary-800/50 text-primary-300 border border-primary-500/30 shadow-lg shadow-primary-900/10'
                   : 'bg-primary-600 hover:bg-primary-500 disabled:bg-surface-700 disabled:text-surface-600 disabled:shadow-none text-white shadow-lg shadow-primary-900/20'
               }`}
-              title={isStreaming ? '대기열에 추가' : '전송'}
+              title={isStreaming ? 'Add to queue' : 'Send'}
             >
               {isStreaming && (input.trim() || attachments.length > 0) ? (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

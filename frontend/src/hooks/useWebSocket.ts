@@ -37,7 +37,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
       }
 
       if (wasConnected.current) {
-        toastSuccess('재연결됨');
+        toastSuccess('Reconnected');
         onReconnectRef.current?.();
       }
       wasConnected.current = true;
@@ -61,7 +61,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
     ws.onclose = () => {
       setConnected(false);
       if (wasConnected.current) {
-        toastWarning('연결 끊김, 재연결 중...');
+        toastWarning('Disconnected, reconnecting...');
       }
 
       // Start safety timer if streaming — force reset after 15s without reconnect
@@ -74,7 +74,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
           const store = useChatStore.getState();
           if (store.isStreaming) {
             store.setStreaming(false);
-            toastError('연결 끊김으로 스트리밍 중단됨');
+            toastError('Streaming stopped due to disconnection');
           }
         }, STREAMING_SAFETY_TIMEOUT);
       }

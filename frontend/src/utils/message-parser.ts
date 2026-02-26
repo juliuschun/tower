@@ -117,19 +117,19 @@ export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
 /** Get a human-friendly label for a tool name */
 export function getToolLabel(name: string): string {
   const labels: Record<string, string> = {
-    Bash: '명령어 실행',
-    Read: '파일 읽기',
-    Write: '파일 생성',
-    Edit: '파일 편집',
-    Glob: '파일 검색',
-    Grep: '내용 검색',
-    Task: '하위 작업',
-    WebSearch: '웹 검색',
-    WebFetch: '웹 페이지 조회',
-    AskUserQuestion: '사용자 질문',
-    EnterPlanMode: '계획 모드',
-    ExitPlanMode: '계획 완료',
-    TodoWrite: '할 일 관리',
+    Bash: 'Run command',
+    Read: 'Read file',
+    Write: 'Create file',
+    Edit: 'Edit file',
+    Glob: 'Search files',
+    Grep: 'Search content',
+    Task: 'Sub-task',
+    WebSearch: 'Web search',
+    WebFetch: 'Fetch page',
+    AskUserQuestion: 'Ask user',
+    EnterPlanMode: 'Plan mode',
+    ExitPlanMode: 'Plan complete',
+    TodoWrite: 'Manage todos',
   };
   return labels[name] || name;
 }
@@ -138,27 +138,27 @@ export function getToolLabel(name: string): string {
 export function getToolSummary(name: string, input: Record<string, any>): string {
   switch (name) {
     case 'Bash':
-      return input.command ? `$ ${truncate(input.command, 60)}` : '명령어 실행';
+      return input.command ? `$ ${truncate(input.command, 60)}` : 'Run command';
     case 'Read':
-      return input.file_path ? `📄 ${basename(input.file_path)}` : '파일 읽기';
+      return input.file_path ? `📄 ${basename(input.file_path)}` : 'Read file';
     case 'Write':
-      return input.file_path ? `✏️ ${basename(input.file_path)}` : '파일 생성';
+      return input.file_path ? `✏️ ${basename(input.file_path)}` : 'Create file';
     case 'Edit':
-      return input.file_path ? `📝 ${basename(input.file_path)}` : '파일 편집';
+      return input.file_path ? `📝 ${basename(input.file_path)}` : 'Edit file';
     case 'Glob':
-      return input.pattern ? `🔍 ${input.pattern}` : '파일 패턴 검색';
+      return input.pattern ? `🔍 ${input.pattern}` : 'Search files';
     case 'Grep':
-      return input.pattern ? `🔎 "${truncate(input.pattern, 40)}"` : '내용 검색';
+      return input.pattern ? `🔎 "${truncate(input.pattern, 40)}"` : 'Search content';
     case 'WebSearch':
-      return input.query ? `🌐 ${truncate(input.query, 50)}` : '웹 검색';
+      return input.query ? `🌐 ${truncate(input.query, 50)}` : 'Web search';
     case 'AskUserQuestion': {
       const q = input.questions?.[0]?.question;
-      return q ? truncate(q, 50) : '사용자 질문';
+      return q ? truncate(q, 50) : 'Ask user';
     }
     case 'EnterPlanMode':
-      return '계획 모드 진입';
+      return 'Entering plan mode';
     case 'ExitPlanMode':
-      return '계획 완료';
+      return 'Plan complete';
     default:
       return name;
   }

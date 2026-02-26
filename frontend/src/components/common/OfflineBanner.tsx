@@ -18,7 +18,7 @@ export function OfflineBanner() {
 
   return (
     <div className="bg-amber-600 text-white text-center text-xs font-medium py-1.5 px-4 shrink-0">
-      오프라인 상태입니다. 인터넷 연결을 확인하세요.
+      You are offline. Please check your internet connection.
     </div>
   );
 }

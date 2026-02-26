@@ -186,7 +186,7 @@ function MermaidLightbox({ svgContent, onClose }: { svgContent: string; onClose:
       >
         {/* Top toolbar */}
         <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5">
-          <button onClick={() => setScale(s => clampScale(s * 1.3))} className={btnClass} title="확대">
+          <button onClick={() => setScale(s => clampScale(s * 1.3))} className={btnClass} title="Zoom in">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
             </svg>
@@ -194,18 +194,18 @@ function MermaidLightbox({ svgContent, onClose }: { svgContent: string; onClose:
           <span className="text-[11px] text-gray-500 tabular-nums min-w-[3.5rem] text-center select-none">
             {Math.round(scale * 100)}%
           </span>
-          <button onClick={() => setScale(s => clampScale(s / 1.3))} className={btnClass} title="축소">
+          <button onClick={() => setScale(s => clampScale(s / 1.3))} className={btnClass} title="Zoom out">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM7 10h6" />
             </svg>
           </button>
-          <button onClick={resetView} className={btnClass} title="원래 크기">
+          <button onClick={resetView} className={btnClass} title="Reset zoom">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </button>
           <div className="w-px h-5 bg-surface-700/50 mx-0.5" />
-          <button onClick={onClose} className={btnClass} title="닫기">
+          <button onClick={onClose} className={btnClass} title="Close">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -214,7 +214,7 @@ function MermaidLightbox({ svgContent, onClose }: { svgContent: string; onClose:
 
         {/* Zoom hint */}
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 text-[11px] text-gray-600 select-none pointer-events-none">
-          스크롤: 확대/축소 · 드래그: 이동 · 더블클릭: 확대
+          Scroll: zoom · Drag: pan · Double-click: zoom in
         </div>
 
         {/* Pannable + zoomable area */}
@@ -317,7 +317,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBl
           <button
             onClick={() => setExpanded(true)}
             className="p-1.5 rounded-md bg-surface-800/90 border border-surface-700/50 text-gray-400 hover:text-gray-200 hover:bg-surface-700/80 transition-all"
-            title="확대"
+            title="Expand"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -326,7 +326,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBl
           <button
             onClick={handleDownloadSvg}
             className="p-1.5 rounded-md bg-surface-800/90 border border-surface-700/50 text-gray-400 hover:text-gray-200 hover:bg-surface-700/80 transition-all"
-            title="SVG 다운로드"
+            title="Download SVG"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -336,7 +336,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBl
           <button
             onClick={handleDownloadJpg}
             className="p-1.5 rounded-md bg-surface-800/90 border border-surface-700/50 text-gray-400 hover:text-gray-200 hover:bg-surface-700/80 transition-all"
-            title="JPG 다운로드"
+            title="Download JPG"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />

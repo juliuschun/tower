@@ -72,19 +72,19 @@ export function Sidebar({
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
       const data = await res.json();
-      if (!res.ok) { toastError(data.error || '업로드 실패'); return; }
+      if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
       const ok = data.results.filter((r: { error?: string }) => !r.error);
       const fail = data.results.filter((r: { error?: string }) => r.error);
-      if (ok.length > 0) toastSuccess(`${ok.length}개 파일 업로드 완료`);
-      if (fail.length > 0) toastError(`${fail.length}개 파일 실패`);
+      if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded`);
+      if (fail.length > 0) toastError(`${fail.length} file(s) failed`);
       onRequestFileTree();
     } catch {
-      toastError('업로드 실패');
+      toastError('Upload failed');
     }
   };
 
   useEffect(() => {
-    // 트리가 비어있을 때만 서버에 요청 (이미 있으면 스킵)
+    // Only request from server when tree is empty (skip if already loaded)
     if (sidebarTab === 'files' && tree.length === 0) {
       onRequestFileTree();
     }
@@ -159,17 +159,17 @@ export function Sidebar({
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          새 대화
+          New Chat
         </button>
       </div>
 
       {/* Tab switcher — 5 tabs */}
       <div className="flex border-b border-surface-800/50">
-        <button onClick={() => setSidebarTab('sessions')} className={tabClass('sessions')}>세션</button>
-        <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>파일</button>
-        <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>프롬프트</button>
-        <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>핀보드</button>
-        <button onClick={() => setSidebarTab('git')} className={tabClass('git')}>버전</button>
+        <button onClick={() => setSidebarTab('sessions')} className={tabClass('sessions')}>Sessions</button>
+        <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
+        <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>Prompts</button>
+        <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>Pins</button>
+        <button onClick={() => setSidebarTab('git')} className={tabClass('git')}>Git</button>
       </div>
 
       {/* Tab content */}
@@ -183,7 +183,7 @@ export function Sidebar({
               </svg>
               <input
                 type="text"
-                placeholder="검색..."
+                placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-3 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
@@ -192,7 +192,7 @@ export function Sidebar({
 
             {filteredSessions.length === 0 && (
               <p className="text-[13px] text-surface-700 px-2 py-6 text-center">
-                {searchQuery ? '검색 결과 없음' : '아직 세션이 없습니다'}
+                {searchQuery ? 'No results found' : 'No sessions yet'}
               </p>
             )}
             <div className="space-y-0.5">
@@ -224,11 +224,11 @@ export function Sidebar({
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
-                {treeRoot ? treeRoot.replace(/^\/home\/[^/]+/, '~') : '루트'}에 업로드
+                Upload to {treeRoot ? treeRoot.replace(/^\/home\/[^/]+/, '~') : 'root'}
               </div>
             )}
             {!fileTreeDragOver && tree.length === 0 && (
-              <p className="text-[13px] text-gray-500 px-2 py-6 text-center">파일 트리 로딩 중...</p>
+              <p className="text-[13px] text-gray-500 px-2 py-6 text-center">Loading file tree...</p>
             )}
             {!fileTreeDragOver && tree.length > 0 && (
               <FileTree
@@ -251,12 +251,12 @@ export function Sidebar({
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                프롬프트 추가
+                Add Prompt
               </button>
             )}
             {prompts.length === 0 ? (
               <p className="text-[12px] text-surface-700 px-2 py-6 text-center">
-                저장된 프롬프트가 없습니다
+                No saved prompts
               </p>
             ) : (
               <div className="space-y-0.5">
@@ -348,7 +348,7 @@ function Breadcrumb({ treeRoot, onNavigate }: { treeRoot: string; onNavigate: (p
         onClick={() => onNavigate(parentPath)}
         disabled={treeRoot === '/'}
         className="ml-1 p-0.5 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-        title="상위 디렉토리"
+        title="Parent directory"
       >
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -382,10 +382,10 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
     try {
       const res = await fetch(endpoint, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify({ path: fullPath }) });
       const data = await res.json();
-      if (!res.ok) { toastError(data.error || '생성 실패'); return; }
-      toastSuccess(`${value.trim()} 생성 완료`);
+      if (!res.ok) { toastError(data.error || 'Creation failed'); return; }
+      toastSuccess(`${value.trim()} created`);
       onRefresh();
-    } catch { toastError('생성 실패'); }
+    } catch { toastError('Creation failed'); }
     setShowInput(null);
   };
 
@@ -401,13 +401,13 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
       const data = await res.json();
-      if (!res.ok) { toastError(data.error || '업로드 실패'); return; }
+      if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
       const ok = data.results.filter((r: { error?: string }) => !r.error);
       const fail = data.results.filter((r: { error?: string }) => r.error);
-      if (ok.length > 0) toastSuccess(`${ok.length}개 파일 업로드 완료`);
-      if (fail.length > 0) toastError(`${fail.length}개 파일 실패`);
+      if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded`);
+      if (fail.length > 0) toastError(`${fail.length} file(s) failed`);
       onRefresh();
-    } catch { toastError('업로드 실패'); }
+    } catch { toastError('Upload failed'); }
     // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -419,24 +419,24 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
   return (
     <div className="px-1 pt-1">
       <div className="flex items-center gap-0.5">
-        <button onClick={() => setShowInput(showInput === 'file' ? null : 'file')} className={btnClass} title="새 파일">
+        <button onClick={() => setShowInput(showInput === 'file' ? null : 'file')} className={btnClass} title="New file">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         </button>
-        <button onClick={() => setShowInput(showInput === 'folder' ? null : 'folder')} className={btnClass} title="새 폴더">
+        <button onClick={() => setShowInput(showInput === 'folder' ? null : 'folder')} className={btnClass} title="New folder">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
           </svg>
         </button>
-        <button onClick={() => fileInputRef.current?.click()} className={btnClass} title="파일 업로드">
+        <button onClick={() => fileInputRef.current?.click()} className={btnClass} title="Upload files">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
         </button>
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
         <div className="flex-1" />
-        <button onClick={onRefresh} className={btnClass} title="새로고침">
+        <button onClick={onRefresh} className={btnClass} title="Refresh">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
@@ -447,7 +447,7 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
           <input
             ref={inputRef}
             type="text"
-            placeholder={showInput === 'file' ? '파일명 입력...' : '폴더명 입력...'}
+            placeholder={showInput === 'file' ? 'Enter file name...' : 'Enter folder name...'}
             className="w-full bg-surface-950 border border-primary-500/50 rounded px-2 py-1 text-[11px] text-gray-200 outline-none placeholder-surface-700"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSubmit((e.target as HTMLInputElement).value);
@@ -517,10 +517,10 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
         onClose();
       } else {
         const err = await res.json();
-        toastError(err.error || 'CWD 변경 실패');
+        toastError(err.error || 'Failed to change CWD');
       }
     } catch {
-      toastError('CWD 변경 실패');
+      toastError('Failed to change CWD');
     }
   };
 
@@ -546,14 +546,14 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleInputSubmit}
           className="w-full bg-surface-950 border border-surface-700 rounded-md px-3 py-1.5 text-[12px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
-          placeholder="경로 입력 후 Enter"
+          placeholder="Enter path and press Enter"
         />
       </div>
 
       {/* Recent cwds */}
       {recentCwds.length > 0 && (
         <div className="px-2 py-1.5 border-b border-surface-800">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 px-1">최근</div>
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 px-1">Recent</div>
           {recentCwds.map((c) => (
             <button
               key={c}
@@ -573,7 +573,7 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
             onClick={goUp}
             disabled={browsePath === '/'}
             className="p-1 rounded hover:bg-surface-800 text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="상위 디렉토리"
+            title="Parent directory"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
           </button>
@@ -582,13 +582,13 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
             onClick={() => selectCwd(browsePath)}
             className="text-[10px] px-2 py-0.5 rounded bg-primary-600/20 border border-primary-500/30 text-primary-300 hover:bg-primary-600/30"
           >
-            선택
+            Select
           </button>
         </div>
         {loading ? (
-          <div className="py-4 text-center text-[11px] text-gray-500">로딩 중...</div>
+          <div className="py-4 text-center text-[11px] text-gray-500">Loading...</div>
         ) : dirs.length === 0 ? (
-          <div className="py-4 text-center text-[11px] text-gray-500">하위 디렉토리 없음</div>
+          <div className="py-4 text-center text-[11px] text-gray-500">No subdirectories</div>
         ) : (
           dirs.map((d) => (
             <button

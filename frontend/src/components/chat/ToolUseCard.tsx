@@ -147,7 +147,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
             {isRunning && (
               <span className="flex items-center gap-1 text-[11px] text-primary-400 font-medium">
                 <span className="w-1 h-1 rounded-full bg-primary-400 thinking-indicator" />
-                실행 중
+                Running
               </span>
             )}
             {result && !isRunning && (
@@ -155,7 +155,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                완료
+                Done
               </span>
             )}
           </div>
@@ -185,7 +185,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
           {/* === Read / Write / Edit — file path === */}
           {(name === 'Read' || name === 'Write' || name === 'Edit') && filePath && (
             <div className="flex items-center gap-2 text-[12px]">
-              <span className="text-gray-500">파일</span>
+              <span className="text-gray-500">File</span>
               <button
                 className={`${meta.color} hover:underline font-mono truncate`}
                 onClick={(e) => { e.stopPropagation(); onFileClick?.(filePath); }}
@@ -217,7 +217,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
           {/* === Grep === */}
           {name === 'Grep' && (
             <div className="text-[12px] text-gray-400 flex items-center gap-2">
-              <span className="text-gray-500">패턴</span>
+              <span className="text-gray-500">Pattern</span>
               <code className={`${meta.color} bg-surface-950/60 px-2 py-0.5 rounded font-mono`}>{input.pattern}</code>
               {input.path && <><span className="text-gray-400">|</span> <span className="text-gray-400">{input.path}</span></>}
             </div>
@@ -226,7 +226,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
           {/* === Glob === */}
           {name === 'Glob' && (
             <div className="text-[12px] text-gray-400 flex items-center gap-2">
-              <span className="text-gray-500">패턴</span>
+              <span className="text-gray-500">Pattern</span>
               <code className={`${meta.color} bg-surface-950/60 px-2 py-0.5 rounded font-mono`}>{input.pattern}</code>
             </div>
           )}
@@ -252,7 +252,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
           {(name === 'EnterPlanMode' || name === 'ExitPlanMode') && (
             <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${name === 'EnterPlanMode' ? 'bg-indigo-500/10 border border-indigo-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
               <span className={`text-[12px] font-medium ${name === 'EnterPlanMode' ? 'text-indigo-300' : 'text-emerald-300'}`}>
-                {name === 'EnterPlanMode' ? '📋 계획 모드 진입' : '✅ 계획 완료 — 구현 시작'}
+                {name === 'EnterPlanMode' ? 'Entering plan mode' : 'Plan complete - starting implementation'}
               </span>
             </div>
           )}
@@ -275,8 +275,8 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
-                결과
-                <span className="text-gray-400">({result.length.toLocaleString()} 글자)</span>
+                Result
+                <span className="text-gray-400">({result.length.toLocaleString()} chars)</span>
               </button>
               {resultExpanded && (
                 <div className="bg-surface-950/60 rounded-lg p-3 font-mono text-[11px] text-gray-300 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
@@ -290,7 +290,7 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
           {isRunning && !result && name !== 'AskUserQuestion' && (
             <div className="flex items-center gap-2 text-[11px] text-primary-400/70 pt-1">
               <div className="w-3 h-3 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin" />
-              실행 중...
+              Running...
             </div>
           )}
         </div>
@@ -310,12 +310,12 @@ function AskUserQuestionBadge({ questions, result }: { questions: any[]; result?
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          답변 완료
+          Answered
         </div>
       ) : (
         <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
           <div className="w-2.5 h-2.5 border-[1.5px] border-gray-600 border-t-gray-400 rounded-full animate-spin" />
-          입력창 위에서 응답 가능
+          Respond using the input above
         </div>
       )}
     </div>

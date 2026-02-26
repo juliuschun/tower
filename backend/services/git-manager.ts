@@ -115,7 +115,7 @@ export async function initWorkspaceRepo(repoPath: string): Promise<void> {
   await git(repoPath, ['add', '.gitignore']);
   try {
     const msg = isNew
-      ? 'init: workspace initialized by Claude Desk'
+      ? 'init: workspace initialized by Tower'
       : 'chore: update .gitignore';
     await git(repoPath, ['commit', '-m', msg]);
   } catch {}
@@ -147,8 +147,8 @@ export function autoCommit(
     const status = await git(repoPath, ['diff', '--cached', '--name-only']);
     if (!status) return null;
 
-    const author = `${username} <${username}@claude-desk>`;
-    const message = `auto: [${username}] Claude 작업 완료`;
+    const author = `${username} <${username}@tower>`;
+    const message = `auto: [${username}] Claude task completed`;
 
     await git(repoPath, ['commit', `--author=${author}`, '-m', message]);
 
@@ -167,9 +167,9 @@ export function manualCommit(
 
     // Check if there's anything to commit
     const status = await git(repoPath, ['diff', '--cached', '--name-only']);
-    if (!status) throw new Error('변경사항이 없습니다');
+    if (!status) throw new Error('No changes to commit');
 
-    const author = `${username} <${username}@claude-desk>`;
+    const author = `${username} <${username}@tower>`;
     await git(repoPath, ['commit', `--author=${author}`, '-m', message]);
 
     return await getLastCommitInfo(repoPath, 'manual');
@@ -272,7 +272,7 @@ export function rollbackToCommit(
     await git(repoPath, ['checkout', hash, '--', '.']);
     await git(repoPath, ['add', '-A', '--ignore-errors']);
 
-    const author = `${username} <${username}@claude-desk>`;
+    const author = `${username} <${username}@tower>`;
     const shortTarget = hash.slice(0, 7);
     const message = `rollback: [${username}] reverted to ${shortTarget}`;
 

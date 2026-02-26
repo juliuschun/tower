@@ -123,7 +123,7 @@ router.get('/sessions', (req, res) => {
 router.post('/sessions', (req, res) => {
   const { name, cwd } = req.body;
   const userId = (req as any).user?.userId;
-  const session = createSession(name || `세션 ${new Date().toLocaleString('ko-KR')}`, cwd || config.defaultCwd, userId);
+  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId);
   res.json(session);
 });
 
@@ -207,7 +207,7 @@ router.post('/sessions/:id/summarize', async (req, res) => {
       }
     };
 
-    // 최근 20개 메시지, user/assistant 대화 순서 유지
+    // Last 20 messages, preserving user/assistant conversation order
     const recent = messages.slice(-20);
     const messagesText = recent
       .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -319,7 +319,22 @@ router.post('/files/write', (req, res) => {
 });
 
 // ───── File Upload ─────
-router.post('/files/upload', upload.array('files', 20), async (req, res) => {
+// Wrap multer to catch errors (e.g. file size limit) and return JSON instead of HTML
+const handleMulterUpload = (req: any, res: any, next: any) => {
+  upload.array('files', 20)(req, res, (err: any) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: `File too large (max ${UPLOAD_MAX_SIZE / 1024 / 1024}MB)` });
+      }
+      if (err.code === 'LIMIT_FILE_COUNT') {
+        return res.status(413).json({ error: 'Too many files (max 20)' });
+      }
+      return res.status(400).json({ error: err.message || 'Upload error' });
+    }
+    next();
+  });
+};
+router.post('/files/upload', handleMulterUpload, async (req, res) => {
   try {
     const targetDir = req.body.targetDir as string;
     if (!targetDir) return res.status(400).json({ error: 'targetDir required' });

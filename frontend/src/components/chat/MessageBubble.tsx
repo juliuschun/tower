@@ -14,7 +14,7 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
   const handleCopy = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     await navigator.clipboard.writeText(text);
-    toastSuccess('복사됨');
+    toastSuccess('Copied');
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [text]);
@@ -23,7 +23,7 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
     <button
       onClick={handleCopy}
       className={`p-1.5 rounded-md bg-surface-800/80 border border-surface-700/50 text-gray-400 hover:text-gray-200 hover:bg-surface-700/80 transition-all ${className}`}
-      title="복사"
+      title="Copy"
     >
       {copied ? (
         <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -144,7 +144,7 @@ export function MessageBubble({ message, onFileClick, onRetry }: MessageBubblePr
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
-                <span>전송 실패</span>
+                <span>Failed to send</span>
                 {onRetry && (
                   <button
                     onClick={() => {
@@ -153,7 +153,7 @@ export function MessageBubble({ message, onFileClick, onRetry }: MessageBubblePr
                     }}
                     className="text-primary-400 hover:text-primary-300 underline underline-offset-2 transition-colors"
                   >
-                    재전송
+                    Retry
                   </button>
                 )}
               </div>
@@ -224,7 +224,7 @@ export function MessageBubble({ message, onFileClick, onRetry }: MessageBubblePr
                           <svg className="w-3 h-3 text-emerald-500/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
-                          결과
+                          Result
                         </span>
                       );
                     })}

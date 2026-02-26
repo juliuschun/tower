@@ -26,7 +26,7 @@ describe('InputBox queue + session isolation', () => {
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
     // Type and submit → should queue
-    const textarea = screen.getByPlaceholderText(/메시지를 입력/);
+    const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'queued msg' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
@@ -52,7 +52,7 @@ describe('InputBox queue + session isolation', () => {
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
     // Type and submit → should queue
-    const textarea = screen.getByPlaceholderText(/메시지를 입력/);
+    const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'my message' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
@@ -73,7 +73,7 @@ describe('InputBox queue + session isolation', () => {
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
     // Type and submit → should queue with sessionId s1
-    const textarea = screen.getByPlaceholderText(/메시지를 입력/);
+    const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'stale msg' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
@@ -94,7 +94,7 @@ describe('InputBox queue + session isolation', () => {
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
     // Queue on s1
-    const textarea = screen.getByPlaceholderText(/메시지를 입력/);
+    const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'rapid msg' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
@@ -116,7 +116,7 @@ describe('InputBox queue + session isolation', () => {
     useChatStore.setState({ isStreaming: true, sessionId: 's1' });
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
-    const textarea = screen.getByPlaceholderText(/메시지를 입력/);
+    const textarea = screen.getByPlaceholderText(/Type a message/);
     fireEvent.change(textarea, { target: { value: 'cancel me' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 

@@ -16,22 +16,22 @@ function timeAgo(dateStr: string): string {
   const then = new Date(dateStr).getTime();
   const diff = Math.floor((now - then) / 1000);
 
-  if (diff < 60) return '방금 전';
-  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}일 전`;
-  return new Date(dateStr).toLocaleDateString('ko-KR');
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)} d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US');
 }
 
 function CommitBadge({ type }: { type: string }) {
   if (type === 'auto') {
-    return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-surface-700/50 text-gray-500 font-medium">자동</span>;
+    return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-surface-700/50 text-gray-500 font-medium">auto</span>;
   }
   if (type === 'manual') {
-    return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-medium">수동</span>;
+    return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-medium">manual</span>;
   }
   if (type === 'rollback') {
-    return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-medium">롤백</span>;
+    return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-medium">rollback</span>;
   }
   return null;
 }
@@ -93,13 +93,13 @@ function CommitItem({
               onClick={() => onViewDiff(commit.hash)}
               className="flex-1 text-[10px] py-1.5 px-2 rounded bg-surface-800 hover:bg-surface-700 text-gray-400 hover:text-gray-300 transition-colors font-medium"
             >
-              Diff 보기
+              View Diff
             </button>
             <button
               onClick={() => onRollback(commit.hash)}
               className="flex-1 text-[10px] py-1.5 px-2 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors font-medium"
             >
-              되돌리기
+              Rollback
             </button>
           </div>
         </div>
@@ -138,9 +138,9 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
       const commit = await res.json();
       useGitStore.getState().addCommit(commit);
       setCommitMessage('');
-      toastSuccess('스냅샷 저장됨');
+      toastSuccess('Snapshot saved');
     } catch (err: any) {
-      toastError(err.message || '커밋 실패');
+      toastError(err.message || 'Commit failed');
     } finally {
       setIsSaving(false);
     }
@@ -160,9 +160,9 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
       const commit = await res.json();
       useGitStore.getState().addCommit(commit);
       setConfirmRollback(null);
-      toastSuccess('되돌리기 완료');
+      toastSuccess('Rollback complete');
     } catch (err: any) {
-      toastError(err.message || '되돌리기 실패');
+      toastError(err.message || 'Rollback failed');
     }
   }, []);
 
@@ -170,9 +170,9 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
     try {
       const headers = getAuthHeaders();
       const res = await fetch(`${API_BASE}/git/diff/${hash}`, { headers });
-      if (!res.ok) throw new Error('Diff 로드 실패');
+      if (!res.ok) throw new Error('Failed to load diff');
       const data = await res.json();
-      onViewDiff?.(data.diff || '(변경사항 없음)');
+      onViewDiff?.(data.diff || '(No changes)');
     } catch (err: any) {
       toastError(err.message);
     }
@@ -206,7 +206,7 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
             value={commitMessage}
             onChange={(e) => setCommitMessage(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleManualCommit(); } }}
-            placeholder="스냅샷 메시지..."
+            placeholder="Snapshot message..."
             className="flex-1 bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 px-3 py-1.5 placeholder-surface-600 outline-none focus:border-primary-500/50 transition-colors"
           />
           <button
@@ -214,7 +214,7 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
             disabled={!commitMessage.trim() || isSaving}
             className="px-3 py-1.5 text-[11px] font-semibold rounded-md bg-primary-600 hover:bg-primary-500 disabled:bg-surface-700 disabled:text-surface-600 text-white transition-colors shrink-0"
           >
-            {isSaving ? '...' : '저장'}
+            {isSaving ? '...' : 'Save'}
           </button>
         </div>
       </div>
@@ -222,9 +222,9 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
       {/* Commit list */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && commits.length === 0 ? (
-          <p className="text-[12px] text-surface-600 text-center py-8">로딩 중...</p>
+          <p className="text-[12px] text-surface-600 text-center py-8">Loading...</p>
         ) : commits.length === 0 ? (
-          <p className="text-[12px] text-surface-600 text-center py-8">아직 스냅샷이 없습니다</p>
+          <p className="text-[12px] text-surface-600 text-center py-8">No snapshots yet</p>
         ) : (
           <>
             {commits.map((commit) => (
@@ -243,7 +243,7 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
                 disabled={isLoading}
                 className="w-full py-3 text-[11px] text-surface-600 hover:text-surface-400 transition-colors"
               >
-                {isLoading ? '로딩 중...' : '더 보기...'}
+                {isLoading ? 'Loading...' : 'Load more...'}
               </button>
             )}
           </>
@@ -254,25 +254,25 @@ export function GitPanel({ onViewDiff }: GitPanelProps) {
       {confirmRollback && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-surface-900 border border-surface-700 rounded-xl p-5 max-w-sm w-full mx-4 shadow-2xl">
-            <h3 className="text-[14px] font-semibold text-gray-200 mb-2">되돌리기 확인</h3>
+            <h3 className="text-[14px] font-semibold text-gray-200 mb-2">Confirm Rollback</h3>
             <p className="text-[12px] text-gray-400 mb-4">
-              이 시점으로 파일을 되돌리시겠습니까?<br />
+              Roll back files to this point?<br />
               <span className="font-mono text-primary-400">{confirmRollback.slice(0, 7)}</span>
               <br />
-              <span className="text-[11px] text-surface-600">현재 변경사항은 새 롤백 커밋으로 기록됩니다.</span>
+              <span className="text-[11px] text-surface-600">Current changes will be saved as a new rollback commit.</span>
             </p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setConfirmRollback(null)}
                 className="px-4 py-1.5 text-[12px] rounded-md bg-surface-800 hover:bg-surface-700 text-gray-400 transition-colors"
               >
-                취소
+                Cancel
               </button>
               <button
                 onClick={() => handleRollback(confirmRollback)}
                 className="px-4 py-1.5 text-[12px] rounded-md bg-red-600 hover:bg-red-500 text-white font-semibold transition-colors"
               >
-                되돌리기
+                Rollback
               </button>
             </div>
           </div>

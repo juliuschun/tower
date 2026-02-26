@@ -54,8 +54,8 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
 
         {/* Tabs */}
         <div className="flex border-b border-surface-800 px-6 shrink-0">
-          <button className={tabClass('users')} onClick={() => setTab('users')}>사용자 관리</button>
-          <button className={tabClass('system')} onClick={() => setTab('system')}>시스템</button>
+          <button className={tabClass('users')} onClick={() => setTab('users')}>User Management</button>
+          <button className={tabClass('system')} onClick={() => setTab('system')}>System</button>
         </div>
 
         {/* Content */}
@@ -104,7 +104,7 @@ function UserManagement({ token }: { token?: string | null }) {
 
   const handleCreate = async () => {
     setError('');
-    if (!newUser.username || !newUser.password) { setError('사용자명과 비밀번호를 입력하세요'); return; }
+    if (!newUser.username || !newUser.password) { setError('Username and password are required'); return; }
     try {
       const res = await fetch(`${API_BASE}/admin/users`, {
         method: 'POST', headers: headers(),
@@ -116,9 +116,9 @@ function UserManagement({ token }: { token?: string | null }) {
         fetchUsers();
       } else {
         const data = await res.json();
-        setError(data.error || '생성 실패');
+        setError(data.error || 'Creation failed');
       }
-    } catch { setError('서버 오류'); }
+    } catch { setError('Server error'); }
   };
 
   const handleRoleChange = async (userId: number, role: string) => {
@@ -148,7 +148,7 @@ function UserManagement({ token }: { token?: string | null }) {
   };
 
   const handleDelete = async (userId: number, username: string) => {
-    if (!window.confirm(`"${username}" 사용자를 비활성화하시겠습니까?`)) return;
+    if (!window.confirm(`Disable user "${username}"?`)) return;
     await fetch(`${API_BASE}/admin/users/${userId}`, {
       method: 'DELETE', headers: headers(),
     });
@@ -156,7 +156,7 @@ function UserManagement({ token }: { token?: string | null }) {
   };
 
   if (loading) {
-    return <div className="text-sm text-gray-500 py-8 text-center">로딩 중...</div>;
+    return <div className="text-sm text-gray-500 py-8 text-center">Loading...</div>;
   }
 
   return (
@@ -164,13 +164,13 @@ function UserManagement({ token }: { token?: string | null }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-gray-400">
-          등록된 사용자 <span className="text-gray-200 font-semibold">{users.length}</span>명
+          <span className="text-gray-200 font-semibold">{users.length}</span> registered users
         </p>
         <button
           onClick={() => setShowForm(!showForm)}
           className="text-[12px] px-3 py-1.5 rounded-lg bg-primary-600/20 border border-primary-500/30 text-primary-300 hover:bg-primary-600/30 transition-colors font-medium"
         >
-          {showForm ? '취소' : '+ 사용자 추가'}
+          {showForm ? 'Cancel' : '+ Add User'}
         </button>
       </div>
 
@@ -180,7 +180,7 @@ function UserManagement({ token }: { token?: string | null }) {
           {error && <div className="text-[12px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">{error}</div>}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">사용자명</label>
+              <label className="block text-[11px] text-gray-500 mb-1">Username</label>
               <input
                 type="text"
                 value={newUser.username}
@@ -190,7 +190,7 @@ function UserManagement({ token }: { token?: string | null }) {
               />
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">비밀번호</label>
+              <label className="block text-[11px] text-gray-500 mb-1">Password</label>
               <input
                 type="password"
                 value={newUser.password}
@@ -200,7 +200,7 @@ function UserManagement({ token }: { token?: string | null }) {
               />
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">역할</label>
+              <label className="block text-[11px] text-gray-500 mb-1">Role</label>
               <select
                 value={newUser.role}
                 onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
@@ -211,13 +211,13 @@ function UserManagement({ token }: { token?: string | null }) {
               </select>
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">작업 폴더</label>
+              <label className="block text-[11px] text-gray-500 mb-1">Work Directory</label>
               <input
                 type="text"
                 value={newUser.allowed_path}
                 onChange={(e) => setNewUser({ ...newUser, allowed_path: e.target.value })}
                 className="w-full bg-surface-900 border border-surface-700 rounded-md px-3 py-2 text-[13px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
-                placeholder="빈칸 = 전체 접근"
+                placeholder="Empty = full access"
               />
             </div>
           </div>
@@ -226,13 +226,13 @@ function UserManagement({ token }: { token?: string | null }) {
               onClick={() => { setShowForm(false); setError(''); }}
               className="px-4 py-2 text-[12px] text-gray-400 hover:text-gray-200 transition-colors rounded-md"
             >
-              취소
+              Cancel
             </button>
             <button
               onClick={handleCreate}
               className="px-4 py-2 text-[12px] bg-primary-600 hover:bg-primary-500 text-white rounded-md transition-colors font-medium"
             >
-              생성
+              Create
             </button>
           </div>
         </div>
@@ -243,10 +243,10 @@ function UserManagement({ token }: { token?: string | null }) {
         <table className="w-full">
           <thead>
             <tr className="bg-surface-800/60 text-[11px] text-gray-500 uppercase tracking-wider">
-              <th className="text-left px-4 py-2.5 font-semibold">이름</th>
-              <th className="text-left px-4 py-2.5 font-semibold">역할</th>
-              <th className="text-left px-4 py-2.5 font-semibold">작업 폴더</th>
-              <th className="text-right px-4 py-2.5 font-semibold w-24">작업</th>
+              <th className="text-left px-4 py-2.5 font-semibold">Name</th>
+              <th className="text-left px-4 py-2.5 font-semibold">Role</th>
+              <th className="text-left px-4 py-2.5 font-semibold">Work Directory</th>
+              <th className="text-right px-4 py-2.5 font-semibold w-24">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-800/50">
@@ -296,15 +296,15 @@ function UserManagement({ token }: { token?: string | null }) {
                             type="password"
                             value={resetPwValue}
                             onChange={(e) => setResetPwValue(e.target.value)}
-                            placeholder="새 비밀번호"
+                            placeholder="New password"
                             className="w-28 bg-surface-900 border border-surface-700 rounded-md px-2 py-1 text-[12px] text-gray-200 focus:outline-none focus:border-primary-500/50"
                             onKeyDown={(e) => e.key === 'Enter' && handleResetPassword(u.id)}
                             autoFocus
                           />
-                          <button onClick={() => handleResetPassword(u.id)} className="p-1 text-primary-400 hover:text-primary-300 rounded" title="확인">
+                          <button onClick={() => handleResetPassword(u.id)} className="p-1 text-primary-400 hover:text-primary-300 rounded" title="Confirm">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                           </button>
-                          <button onClick={() => { setResetPwUserId(null); setResetPwValue(''); }} className="p-1 text-gray-500 hover:text-gray-300 rounded" title="취소">
+                          <button onClick={() => { setResetPwUserId(null); setResetPwValue(''); }} className="p-1 text-gray-500 hover:text-gray-300 rounded" title="Cancel">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                           </button>
                         </div>
@@ -313,7 +313,7 @@ function UserManagement({ token }: { token?: string | null }) {
                           <button
                             onClick={() => setResetPwUserId(u.id)}
                             className="p-1.5 text-gray-500 hover:text-yellow-400 hover:bg-surface-800 rounded-md transition-colors"
-                            title="비밀번호 초기화"
+                            title="Reset password"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
                           </button>
@@ -321,7 +321,7 @@ function UserManagement({ token }: { token?: string | null }) {
                             onClick={() => handleDelete(u.id, u.username)}
                             disabled={isSelf}
                             className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-surface-800 rounded-md transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
-                            title={isSelf ? '자기 자신은 삭제 불가' : '사용자 비활성화'}
+                            title={isSelf ? 'Cannot delete yourself' : 'Disable user'}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
@@ -364,9 +364,9 @@ function PathEditor({ value, onSave }: { value: string; onSave: (v: string) => v
     <button
       onClick={() => { setDraft(value); setEditing(true); }}
       className="text-[12px] text-gray-500 font-mono hover:text-gray-300 transition-colors truncate max-w-[200px] block text-left"
-      title={value || '(전체 접근)'}
+      title={value || '(full access)'}
     >
-      {value ? value.replace(/^\/home\/[^/]+/, '~') : '(전체)'}
+      {value ? value.replace(/^\/home\/[^/]+/, '~') : '(all)'}
     </button>
   );
 }
@@ -380,7 +380,7 @@ function SystemInfo() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3">서버 정보</h3>
+        <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Server Info</h3>
         <div className="rounded-lg border border-surface-700 divide-y divide-surface-800/50">
           <InfoRow label="Workspace" value={serverConfig?.workspaceRoot || '-'} mono />
           <InfoRow label="Model" value={model || 'Not connected'} />

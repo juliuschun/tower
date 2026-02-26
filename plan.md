@@ -21,7 +21,7 @@ SDK 기반 + 깔끔한 UI + 파일/에디터를 결합한 자체 플랫폼.
 |--------|------|------|
 | **Frontend** | React 18 + Vite + TailwindCSS v4 | 검증됨 |
 | **Backend** | Express + WebSocket (ws) | HTTP + 양방향 실시간 |
-| **Claude 연동** | @anthropic-ai/claude-code SDK | PTY 아닌 SDK |
+| **Claude 연동** | @anthropic-ai/claude-agent-sdk | PTY 아닌 SDK, Skills 지원 |
 | **에디터** | CodeMirror 6 (@uiw/react-codemirror) | 가볍고 모바일 지원 |
 | **MD 렌더링** | react-markdown + remark-gfm + rehype-highlight | GFM, 코드 하이라이팅 |
 | **DB** | better-sqlite3 | 세션, 유저, 메시지 |
@@ -91,6 +91,13 @@ SDK 기반 + 깔끔한 UI + 파일/에디터를 결합한 자체 플랫폼.
 | - | 동시 세션 스트리밍 + 사이드바 상태 표시 | ✅ |
 | - | 실패 메시지 감지 + 재전송 (orphan detection) | ✅ |
 | - | Mermaid 무한 루프 수정 + 메시지 복사 버튼 | ✅ |
+| - | CWD 피커 + Breadcrumb 네비게이션 | ✅ |
+| - | Plan Mode + AskUserQuestion 응답 UI | ✅ |
+| - | 모바일 반응형 UI (MobileTabBar) | ✅ |
+| - | 다크/라이트 테마 | ✅ |
+| - | Admin 사용자 관리 + 폴더 제한 | ✅ |
+| - | SDK 마이그레이션 (claude-agent-sdk + Skills 활성화) | ✅ |
+| - | 파일 업로드 | ✅ |
 
 ---
 
@@ -102,29 +109,22 @@ SDK 기반 + 깔끔한 UI + 파일/에디터를 결합한 자체 플랫폼.
 - [x] 사이드바 스트리밍 표시 — 녹색 펄스 인디케이터 + `session_status` broadcast
 - [x] 실패 메시지 감지 + 재전송 — orphan message detection (pending→delivered/failed)
 - [x] 에러 로깅 강화 — 빈 catch 블록에 console.error/warn 추가
+- [x] CWD 피커 — 사이드바 CWD 드롭다운 + Breadcrumb (commit 5c5aaf85, 93168f0d)
+- [x] Plan Mode UI — AskUserQuestion FloatingQuestionCard + EnterPlanMode/ExitPlanMode 배너 (commit 8f316020, bf9600cc)
+- [x] 모바일 반응형 — MobileTabBar + 반응형 그리드 (commit 59a33aca)
+- [x] Admin 사용자 관리 — `/admin/users` CRUD + per-user `allowed_path` (commit 90e65394)
+- [x] SDK 마이그레이션 — `@anthropic-ai/claude-agent-sdk` + `settingSources` → `Skill` 도구 활성화 (commit 224086c0)
 
 ---
 
 ## TODO / 백로그
 
-### 🔴 Admin Dashboard
+### ✅ Admin 사용자 관리 — 완료
 
-**목적:** 관리자가 시스템 상태와 사용량을 한눈에 파악. 데모에서 핵심 보여주기용.
-
-**구성:**
-- **시스템 상태** — SDK 연결, DB 크기, 서버 uptime, 활성 WS 연결 수
-- **활성 세션** — 누가 어떤 세션에서 작업 중인지, 스트리밍 상태 (실시간)
-- **사용량 통계** — 세션별 토큰/비용, 일별/주별 사용 차트
-- **사용자 관리** — 계정 목록, 역할(admin/user), 마지막 접속
-- **워크스페이스 현황** — 파일 수, Git 커밋 수, 최근 변경
-
-**구현 범위:**
-- [ ] `/admin` 라우트 (admin 역할만 접근)
-- [ ] `GET /api/admin/stats` — 시스템 통계 API
-- [ ] `GET /api/admin/sessions` — 실시간 세션 현황 API
-- [ ] AdminDashboard 컴포넌트 (카드 그리드 레이아웃)
-- [ ] 비용 차트 (일별 누적, 세션별 비교)
-- [ ] 사용자 관리 테이블
+- [x] `/api/admin/users` CRUD (목록, 생성, 수정, 비밀번호 리셋, 삭제)
+- [x] SettingsPanel 내 사용자 관리 UI (역할, allowed_path)
+- [x] adminMiddleware 권한 보호
+- ~~시스템 상태, 활성 세션 모니터링, 비용 차트~~ — 불필요
 
 ### 🔴 데모 콘텐츠 (Sample Workspace)
 
@@ -167,46 +167,27 @@ business_ai 프로젝트 구조에서 착안.
 - [ ] 세션 CWD를 데모 워크스페이스로 기본 설정 가능하게
 - [ ] 첫 접속 시 가이드 메시지 or 온보딩 세션
 
-### 🔴 세션 CWD (작업 디렉토리) 설계
+### ✅ 세션 CWD (작업 디렉토리) — 완료
 
-**현재 문제:**
-- 세션 생성 시 cwd가 항상 `config.defaultCwd`로 고정
-- UI에서 CWD를 변경할 방법 없음
-- Claude가 작업하는 폴더를 사용자가 제어 불가
+- [x] BottomBar cwd 클릭 → 폴더 피커 드롭다운
+- [x] 세션 cwd 변경 API + chat 메시지에 cwd 반영
+- [x] 새 세션 생성 시 현재 세션의 cwd 상속
+- [x] Breadcrumb 네비게이션
 
-**추천 방향 (B+C 조합):**
-```
-BottomBar: 🟢 대기 │ 📁 ~/tunnelingcc/claude-desk [▼]
-                     클릭 시 폴더 피커 드롭다운
-```
-- 새 세션: 마지막 사용 cwd 기억 + 변경 가능
-- 기존 세션: BottomBar 클릭으로 cwd 변경 → 다음 메시지부터 적용
-- 변경 시 파일 트리도 해당 폴더로 갱신
+### ✅ Plan Mode + AskUserQuestion 응답 UI — 완료
 
-**구현 범위:**
-- [ ] BottomBar cwd 클릭 → 폴더 피커 드롭다운
-- [ ] 세션 cwd 변경 API + chat 메시지에 cwd 반영
-- [ ] 새 세션 생성 시 현재 세션의 cwd 상속
-- [ ] `sendMessage`에서 `activeSession.cwd`를 chat 메시지에 포함
+- [x] `AskUserQuestion` 전용 UI (FloatingQuestionCard): 질문 + 옵션 버튼 → 사용자 선택 → SDK 응답 전달
+- [x] `EnterPlanMode`/`ExitPlanMode` 배너
+- [x] 미처리 SDK 메시지 fallback 렌더링
 
-### 🔴 Plan Mode + AskUserQuestion 응답 UI
+### ✅ 세션 UX — 완료
+- [x] 세션 마지막 대화 시간 표시 (상대 시간, 정렬)
+- ~~이름 변경 후 정렬 순서~~ — 정렬은 updated_at 기준이라 무관, 제거
 
-**증상:** Claude가 plan mode에서 AskUserQuestion을 던질 때 인터랙티브 응답 메커니즘 없음.
-
-**수정 방향:**
-- [ ] `AskUserQuestion` 전용 UI: 질문 + 옵션 버튼 → 사용자 선택 → SDK 응답 전달
-- [ ] `EnterPlanMode`/`ExitPlanMode` 배너
-- [ ] 미처리 SDK 메시지 fallback 렌더링 + console.warn
-- [ ] SDK headless 환경에서 AskUserQuestion 동작 확인
-
-### 🟡 세션 UX 잔여
-- [ ] 이름 변경 후 정렬 순서 즉시 반영
-- [ ] 세션 마지막 대화 시간 표시 (상대 시간, 정렬)
-
-### 🟡 세션 연속성 잔여
-- [ ] SDK `resume` 시 미완료 턴 처리 방식 확인
-- [ ] 스트리밍 중 WS 끊김 → 재연결 후 미완료 응답 복구 가능성
-- [ ] DB 메시지와 SDK 세션 상태 일관성 보장
+### ✅ 세션 연속성 — 실질적 완료
+- [x] WS 재연결 구현 완료
+- [x] SDK resume 동작 확인
+- ~~극단적 엣지 케이스 (스트리밍 중 서버 재시작 + resume 복구)~~ — 현재 수준으로 충분
 
 ### 🟢 전체 대화 내용 공유
 - A) 마크다운 내보내기 (우선), B) 공유 링크 (확장)
@@ -262,11 +243,11 @@ Claude를 활용한 반복 작업 자동화. 칸반 보드 + cron 트리거.
 
 ## Phase 6: 모바일 + 파일 업로드 + 배포
 
-1. 로컬 파일 업로드 (OS 드래그 앤 드롭 → 워크스페이스 저장)
-2. 모바일 반응형 (하단 탭바, ≤768px)
-3. 다크/라이트 테마
-4. 비용 추적 대시보드
-5. Docker + Cloudflare Tunnel + PWA
+1. [x] 로컬 파일 업로드 — 완료
+2. [x] 모바일 반응형 (하단 탭바, ≤768px) — MobileTabBar 구현 완료
+3. [x] 다크/라이트 테마 — slate-tinted palette 완료
+4. ~~비용 추적 대시보드~~ — 불필요
+5. [ ] Docker + Cloudflare Tunnel + PWA
 
 ---
 

@@ -36,13 +36,13 @@ export function PromptEditor({ open, onClose, onSave, initial }: PromptEditorPro
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-gray-200 mb-4">
-          {initial ? '프롬프트 편집' : '새 프롬프트'}
+          {initial ? 'Edit Prompt' : 'New Prompt'}
         </h3>
 
         <input
           ref={titleRef}
           type="text"
-          placeholder="제목"
+          placeholder="Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           className="w-full bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 px-3 py-2 mb-3 outline-none focus:border-primary-500/50 transition-colors"
@@ -50,7 +50,7 @@ export function PromptEditor({ open, onClose, onSave, initial }: PromptEditorPro
         />
 
         <textarea
-          placeholder="프롬프트 내용..."
+          placeholder="Prompt content..."
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={6}
@@ -62,14 +62,14 @@ export function PromptEditor({ open, onClose, onSave, initial }: PromptEditorPro
             onClick={onClose}
             className="px-4 py-1.5 text-[12px] text-gray-400 hover:text-gray-200 rounded-md transition-colors"
           >
-            취소
+            Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={!title.trim()}
             className="px-4 py-1.5 text-[12px] bg-primary-600 hover:bg-primary-500 disabled:bg-surface-700 disabled:text-surface-500 text-white rounded-md font-medium transition-colors"
           >
-            저장
+            Save
           </button>
         </div>
       </div>

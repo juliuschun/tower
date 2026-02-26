@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
 import { useFileStore } from '../../stores/file-store';
 import { CodeEditor } from '../editor/CodeEditor';
 
@@ -68,7 +69,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
 
   const handleClose = useCallback(() => {
     if (openFile?.modified) {
-      if (!window.confirm('저장하지 않은 변경사항이 있습니다. 닫으시겠습니까?')) return;
+      if (!window.confirm('You have unsaved changes. Close anyway?')) return;
     }
     setOpenFile(null);
   }, [openFile, setOpenFile]);
@@ -90,7 +91,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
       <div className="h-full flex flex-col bg-surface-900">
         {onMobileClose && (
           <div className="flex items-center justify-between px-4 h-12 border-b border-surface-800 shrink-0">
-            <span className="text-sm font-medium text-gray-400">파일 없음</span>
+            <span className="text-sm font-medium text-gray-400">No file</span>
             <button onClick={onMobileClose} className="p-1.5 text-gray-400 hover:text-gray-200">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -99,11 +100,43 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           </div>
         )}
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-          파일을 선택하면 여기에 표시됩니다
+          Select a file to view it here
         </div>
       </div>
     );
   }
+
+  // Resolve image src relative to the open file's directory
+  const mdComponents = useMemo(() => {
+    const fileDir = openFile.path.substring(0, openFile.path.lastIndexOf('/'));
+    const token = localStorage.getItem('token') || '';
+    return {
+      img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+        if (!src) return null;
+        // If already absolute URL, use as-is
+        if (/^https?:\/\//.test(src)) {
+          return <img src={src} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+        }
+        // Resolve relative path against the file's directory
+        let resolvedPath: string;
+        if (src.startsWith('/')) {
+          resolvedPath = src;
+        } else {
+          resolvedPath = fileDir + '/' + src;
+        }
+        // Normalize /../ and /./
+        const parts = resolvedPath.split('/');
+        const normalized: string[] = [];
+        for (const p of parts) {
+          if (p === '..') normalized.pop();
+          else if (p !== '.') normalized.push(p);
+        }
+        resolvedPath = normalized.join('/');
+        const apiUrl = `/api/files/serve?path=${encodeURIComponent(resolvedPath)}&token=${encodeURIComponent(token)}`;
+        return <img src={apiUrl} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+      },
+    };
+  }, [openFile.path]);
 
   const isMarkdown = openFile.language === 'markdown';
   const isHtml = openFile.language === 'html';
@@ -138,7 +171,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           {fileName}
         </span>
         {openFile.modified && (
-          <span className="text-primary-400 text-xs">수정됨</span>
+          <span className="text-primary-400 text-xs">Modified</span>
         )}
 
         {hasPreview && (
@@ -147,13 +180,13 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
               className={`px-2 py-0.5 text-xs rounded ${contextPanelTab === 'preview' ? 'bg-surface-700 text-white' : 'text-gray-400'}`}
               onClick={() => setContextPanelTab('preview')}
             >
-              미리보기
+              Preview
             </button>
             <button
               className={`px-2 py-0.5 text-xs rounded ${contextPanelTab === 'editor' ? 'bg-surface-700 text-white' : 'text-gray-400'}`}
               onClick={() => setContextPanelTab('editor')}
             >
-              편집
+              Edit
             </button>
           </div>
         )}
@@ -163,7 +196,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
             onClick={handleSave}
             className="text-xs px-2 py-0.5 bg-primary-600 hover:bg-primary-700 rounded transition-colors"
           >
-            저장
+            Save
           </button>
         )}
 
@@ -171,7 +204,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           <button
             onClick={() => setContextPanelExpanded(!contextPanelExpanded)}
             className="p-0.5 hover:text-primary-400 transition-colors text-gray-400"
-            title={contextPanelExpanded ? '사이드 패널로' : '확장'}
+            title={contextPanelExpanded ? 'Side panel' : 'Expand'}
           >
             {contextPanelExpanded ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -201,18 +234,18 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
-          <span className="text-amber-300 text-xs flex-1">이 파일이 외부에서 수정되었습니다</span>
+          <span className="text-amber-300 text-xs flex-1">This file was modified externally</span>
           <button
             onClick={handleReload}
             className="text-xs px-2 py-0.5 bg-amber-600 hover:bg-amber-700 rounded transition-colors text-white"
           >
-            다시 불러오기
+            Reload
           </button>
           <button
             onClick={keepLocalEdits}
             className="text-xs px-2 py-0.5 bg-surface-700 hover:bg-surface-600 rounded transition-colors text-gray-300"
           >
-            내 편집 유지
+            Keep my edits
           </button>
         </div>
       )}
@@ -230,13 +263,17 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
         <div className="flex-1 min-h-0 overflow-auto">
           {isMarkdown && contextPanelTab === 'preview' ? (
             <div className="prose prose-invert prose-sm max-w-none p-4">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                components={mdComponents}
+              >
                 {openFile.content}
               </ReactMarkdown>
             </div>
           ) : isPdf ? (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-sm p-4">
-              PDF 파일은 미리보기 탭에서 확인하세요
+              Use the Preview tab to view PDF files
             </div>
           ) : (
             <CodeEditor

@@ -44,7 +44,7 @@ export function PromptItem({ prompt, onClick, onInsert, onEdit, onDelete }: Prom
           <button
             onClick={(e) => { e.stopPropagation(); onInsert(prompt); }}
             className="p-0.5 text-gray-500 hover:text-primary-400 transition-colors"
-            title="입력창에 삽입"
+            title="Insert into input"
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5m-7 7l7-7 7 7" />
@@ -55,7 +55,7 @@ export function PromptItem({ prompt, onClick, onInsert, onEdit, onDelete }: Prom
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(prompt); }}
               className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
-              title="편집"
+              title="Edit"
             >
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -66,7 +66,7 @@ export function PromptItem({ prompt, onClick, onInsert, onEdit, onDelete }: Prom
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(prompt.id); }}
             className="p-0.5 text-gray-500 hover:text-red-400 transition-colors"
-            title="삭제"
+            title="Delete"
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

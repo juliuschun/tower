@@ -57,7 +57,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
           className="text-[13px] font-semibold"
           style={{ color: isAnswered ? 'var(--th-q-done-heading)' : 'var(--th-q-pending-heading)' }}
         >
-          {isAnswered ? '답변 완료' : 'Claude가 질문합니다'}
+          {isAnswered ? 'Answered' : 'Claude is asking'}
         </span>
       </div>
 
@@ -128,7 +128,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
                 borderTopColor: 'var(--th-q-pending-spinner-head)',
               }}
             />
-            응답 대기 중...
+            Waiting for response...
           </div>
         )}
       </div>

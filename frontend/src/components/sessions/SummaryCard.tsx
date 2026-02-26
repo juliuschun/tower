@@ -50,20 +50,20 @@ export function SummaryCard({ session }: SummaryCardProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
             <span className="text-[12px] font-medium text-gray-400">
-              {session.summary ? '요약' : '요약 없음'}
+              {session.summary ? 'Summary' : 'No summary'}
             </span>
           </button>
 
           {/* Meta chips */}
           <div className="flex items-center gap-2 shrink-0">
             {turnCount > 0 && (
-              <span className="text-[10px] text-surface-600 bg-surface-800/50 px-1.5 py-0.5 rounded" title="턴 수">
-                {turnCount}턴
+              <span className="text-[10px] text-surface-600 bg-surface-800/50 px-1.5 py-0.5 rounded" title="Turns">
+                {turnCount} turns
               </span>
             )}
             {filesCount > 0 && (
-              <span className="text-[10px] text-surface-600 bg-surface-800/50 px-1.5 py-0.5 rounded" title="편집된 파일">
-                {filesCount}파일
+              <span className="text-[10px] text-surface-600 bg-surface-800/50 px-1.5 py-0.5 rounded" title="Files edited">
+                {filesCount} files
               </span>
             )}
             {session.totalCost > 0 && (
@@ -83,7 +83,7 @@ export function SummaryCard({ session }: SummaryCardProps) {
             onClick={handleSummarize}
             disabled={loading}
             className="p-1 text-surface-600 hover:text-primary-400 transition-colors disabled:opacity-50 shrink-0"
-            title={session.summary ? '요약 갱신' : '요약 생성'}
+            title={session.summary ? 'Refresh summary' : 'Generate summary'}
           >
             <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -99,23 +99,23 @@ export function SummaryCard({ session }: SummaryCardProps) {
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
-                <span>요약이 오래되었습니다 (+{turnCount - summaryAtTurn}턴)</span>
+                <span>Summary is outdated (+{turnCount - summaryAtTurn} turns)</span>
               </div>
             )}
             <div className="text-[12px] text-gray-400 leading-relaxed mt-2 space-y-1">
               {session.summary.split('\n').map((line, i) => {
                 const trimmed = line.trim();
                 if (!trimmed) return null;
-                // 화살표 흐름 라인 — 강조
+                // Arrow flow line — highlight
                 if (trimmed.includes('→')) {
                   return <div key={i} className="text-primary-300/90 font-medium">{trimmed}</div>;
                 }
-                // 불렛 라인
+                // Bullet line
                 if (trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*')) {
                   return <div key={i} className="pl-1">{trimmed}</div>;
                 }
-                // 현재 상태 라인
-                if (trimmed.startsWith('현재:') || trimmed.startsWith('상태:')) {
+                // Current status line
+                if (trimmed.startsWith('Current:') || trimmed.startsWith('Status:')) {
                   return <div key={i} className="text-emerald-400/80 mt-1">{trimmed}</div>;
                 }
                 return <div key={i}>{trimmed}</div>;

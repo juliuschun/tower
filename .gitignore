@@ -5,7 +5,10 @@ dist/
 *.db-shm
 *.db-wal
 *.log
-.env*
+.env
+.env.local
+.env.production
+CLAUDE.local.md
 simple.html
 prompt:*
 permission_issue.md

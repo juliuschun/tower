@@ -56,10 +56,10 @@ export const config = {
   permissionMode: (process.env.PERMISSION_MODE || 'bypassPermissions') as PermissionMode,
 
   // Concurrency
-  maxConcurrentSessions: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '3'),
+  maxConcurrentSessions: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '10'),
 
   // Auth
-  jwtSecret: process.env.JWT_SECRET || 'claude-desk-secret-change-me',
+  jwtSecret: process.env.JWT_SECRET || 'tower-secret-change-me',
   authEnabled: process.env.NO_AUTH !== 'true',
   tokenExpiry: '24h',
 

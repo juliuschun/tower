@@ -86,12 +86,15 @@ async function apiPost(url: string, body: Record<string, unknown>) {
 
 function DirectoryDropWrapper({ entry, children }: { entry: FileEntry; children: React.ReactNode }) {
   const [dragOver, setDragOver] = useState(false);
+  // Counter-based approach to fix dragLeave firing when entering child elements
+  const dragCounterRef = useRef(0);
 
   if (!entry.isDirectory) return <>{children}</>;
 
   const handleDirDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    dragCounterRef.current = 0;
     setDragOver(false);
 
     // Skip internal drags
@@ -115,18 +118,18 @@ function DirectoryDropWrapper({ entry, children }: { entry: FileEntry; children:
       if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
       const ok = data.results.filter((r: any) => !r.error);
       const fail = data.results.filter((r: any) => r.error);
-      if (ok.length > 0) toastSuccess(`${ok.length}개 파일 업로드 완료`);
-      if (fail.length > 0) toastError(`${fail.length}개 파일 실패: ${fail.map((f: any) => f.error).join(', ')}`);
+      if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded`);
+      if (fail.length > 0) toastError(`${fail.length} file(s) failed: ${fail.map((f: any) => f.error).join(', ')}`);
     } catch {
-      toastError('업로드 실패');
+      toastError('Upload failed');
     }
   };
 
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
-      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
-      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current++; setDragOver(true); }}
+      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current--; if (dragCounterRef.current === 0) setDragOver(false); }}
       onDrop={handleDirDrop}
       className={dragOver ? 'bg-primary-900/20 ring-1 ring-primary-500/30 rounded' : ''}
     >
@@ -159,23 +162,23 @@ function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
 
   const menuItems: { action: MenuAction; label: string; icon: React.ReactNode; show: boolean; danger?: boolean }[] = [
     {
-      action: 'newFile', label: '새 파일', show: entry.isDirectory,
+      action: 'newFile', label: 'New file', show: entry.isDirectory,
       icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
     },
     {
-      action: 'newFolder', label: '새 폴더', show: entry.isDirectory,
+      action: 'newFolder', label: 'New folder', show: entry.isDirectory,
       icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>,
     },
     {
-      action: 'newSession', label: '여기서 새 세션', show: entry.isDirectory && showNewSession,
+      action: 'newSession', label: 'New session here', show: entry.isDirectory && showNewSession,
       icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>,
     },
     {
-      action: 'rename', label: '이름 변경', show: true,
+      action: 'rename', label: 'Rename', show: true,
       icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
     },
     {
-      action: 'delete', label: '삭제', show: true, danger: true,
+      action: 'delete', label: 'Delete', show: true, danger: true,
       icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
     },
   ];
@@ -269,13 +272,13 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
     if (action === 'delete') {
       const displayName = entry.name;
       const isDir = entry.isDirectory;
-      if (!confirm(`"${displayName}"${isDir ? ' 폴더와 모든 내용을' : '을(를)'} 삭제하시겠습니까?`)) return;
+      if (!confirm(`Delete "${displayName}"${isDir ? ' and all its contents' : ''}?`)) return;
       try {
         await apiPost('/api/files/delete', { path: entry.path });
-        toastSuccess(`${displayName} 삭제 완료`);
+        toastSuccess(`${displayName} deleted`);
         onRefreshTree?.();
       } catch (err: any) {
-        toastError(err.message || '삭제 실패');
+        toastError(err.message || 'Delete failed');
       }
     }
   };
@@ -287,21 +290,21 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
       if (inlineInput.type === 'newFile' && inlineInput.parentPath) {
         const filePath = `${inlineInput.parentPath}/${value}`;
         await apiPost('/api/files/create', { path: filePath, content: '' });
-        toastSuccess(`${value} 생성 완료`);
+        toastSuccess(`${value} created`);
       } else if (inlineInput.type === 'newFolder' && inlineInput.parentPath) {
         const dirPath = `${inlineInput.parentPath}/${value}`;
         await apiPost('/api/files/mkdir', { path: dirPath });
-        toastSuccess(`${value} 폴더 생성 완료`);
+        toastSuccess(`${value} folder created`);
       } else if (inlineInput.type === 'rename' && inlineInput.entry) {
         const oldPath = inlineInput.entry.path;
         const parentDir = oldPath.substring(0, oldPath.lastIndexOf('/'));
         const newPath = `${parentDir}/${value}`;
         await apiPost('/api/files/rename', { oldPath, newPath });
-        toastSuccess(`이름 변경 완료`);
+        toastSuccess(`Renamed`);
       }
       onRefreshTree?.();
     } catch (err: any) {
-      toastError(err.message || '작업 실패');
+      toastError(err.message || 'Operation failed');
     }
     setInlineInput(null);
   };
@@ -316,7 +319,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
             <div className="px-2 py-0.5">
               <InlineInput
                 defaultValue={entry.name}
-                placeholder="새 이름"
+                placeholder="New name"
                 onSubmit={handleInlineSubmit}
                 onCancel={() => setInlineInput(null)}
               />
@@ -373,7 +376,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
                     onPinFile(entry.path);
                   }}
                   className="opacity-0 group-hover:opacity-100 p-1 text-surface-600 hover:text-primary-400 transition-all shrink-0"
-                  title="핀 추가"
+                  title="Pin"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
@@ -394,7 +397,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
                     <FileIcon />
                   )}
                   <InlineInput
-                    placeholder={inlineInput.type === 'newFile' ? '파일명' : '폴더명'}
+                    placeholder={inlineInput.type === 'newFile' ? 'File name' : 'Folder name'}
                     onSubmit={handleInlineSubmit}
                     onCancel={() => setInlineInput(null)}
                   />
