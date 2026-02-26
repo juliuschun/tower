@@ -4,7 +4,7 @@ const home = os.homedir();
 
 module.exports = {
   apps: [{
-    name: "claude-desk",
+    name: "tower",
     script: "dist/backend/index.js",
     env: {
       NODE_ENV: "production",
@@ -12,6 +12,7 @@ module.exports = {
       HOST: "0.0.0.0",
       GIT_AUTO_COMMIT: "true",
       WORKSPACE_ROOT: path.join(home, "workspace"),
+      DEFAULT_CWD: path.join(home, "workspace"),
     },
     autorestart: true,
     max_restarts: 10,
