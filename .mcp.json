@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pinchtab": {
+      "command": "npx",
+      "args": ["tsx", "mcp/pinchtab-server.ts"]
+    }
+  }
+}
