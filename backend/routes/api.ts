@@ -69,23 +69,50 @@ router.post('/auth/login', (req, res) => {
 });
 
 // ───── Public: Shared file viewer (no auth required) ─────
+const MIME_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  html: 'text/html; charset=utf-8',
+  htm: 'text/html; charset=utf-8',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+};
+
 router.get('/shared/:token', async (req, res) => {
   const share = getShareByToken(req.params.token);
   if (!share || !isTokenValid(share)) {
     return res.status(410).json({ error: '만료되었거나 취소된 링크입니다.' });
   }
   try {
-    const content = await fsPromises.readFile(share.file_path, 'utf-8');
     const fileName = path.basename(share.file_path);
     const ext = path.extname(fileName).slice(1).toLowerCase();
+
+    // ?render=1 — 브라우저가 직접 렌더링할 수 있도록 Content-Type과 함께 파일 그대로 전송
+    if (req.query.render === '1') {
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      const buffer = await fsPromises.readFile(share.file_path);
+      return res.send(buffer);
+    }
+
+    // ?download=1 — 파일 다운로드
     if (req.query.download === '1') {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       res.setHeader('Content-Type', 'application/octet-stream');
-      return res.send(content);
+      const buffer = await fsPromises.readFile(share.file_path);
+      return res.send(buffer);
     }
+
+    // 기본 — JSON으로 콘텐츠 반환 (텍스트 파일)
+    const content = await fsPromises.readFile(share.file_path, 'utf-8');
     res.json({ content, fileName, ext });
   } catch {
-    res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+    return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
   }
 });
 

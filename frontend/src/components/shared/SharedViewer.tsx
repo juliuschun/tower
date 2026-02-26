@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 
-const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx', 'py', 'sh', 'sql', 'json', 'yaml', 'yml', 'css', 'html']);
-const PREVIEWABLE_EXTS = new Set(['md', 'ts', 'tsx', 'js', 'jsx', 'py', 'sh', 'sql', 'json', 'yaml', 'yml', 'css', 'html']);
+const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx', 'py', 'sh', 'sql', 'json', 'yaml', 'yml', 'css']);
+const PREVIEWABLE_EXTS = new Set(['md', 'ts', 'tsx', 'js', 'jsx', 'py', 'sh', 'sql', 'json', 'yaml', 'yml', 'css', 'html', 'htm', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'mp4', 'webm']);
+// 브라우저가 직접 렌더링하는 파일 — iframe으로 표시
+const IFRAME_EXTS = new Set(['pdf', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'mp4', 'webm']);
 
 interface FileData {
   content: string;
@@ -51,6 +53,7 @@ export function SharedViewer() {
   }
 
   const canPreview = PREVIEWABLE_EXTS.has(data.ext);
+  const useIframe = IFRAME_EXTS.has(data.ext);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -102,10 +105,18 @@ export function SharedViewer() {
       </div>
 
       {/* Content */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className={useIframe && viewMode === 'preview' ? 'h-[calc(100vh-56px)]' : 'max-w-4xl mx-auto px-6 py-8'}>
         {viewMode === 'raw' ? (
           /* 원본 — 항상 plain text */
           <pre className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed font-mono">{data.content}</pre>
+        ) : useIframe ? (
+          /* 미리보기 — PDF / HTML / 이미지 / 영상: 브라우저 네이티브 렌더링 */
+          <iframe
+            src={`/api/shared/${token}?render=1`}
+            className="w-full h-full border-0"
+            title={data.fileName}
+            sandbox="allow-scripts allow-same-origin"
+          />
         ) : data.ext === 'md' ? (
           /* 미리보기 — 마크다운 렌더링 */
           <div className="prose prose-invert prose-sm max-w-none">
