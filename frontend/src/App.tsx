@@ -121,29 +121,6 @@ function App() {
       .catch(() => setAuthStatus({ authEnabled: false, hasUsers: false }));
   }, []);
 
-  // Load sessions when auth resolves
-  useEffect(() => {
-    if (authStatus === null) return; // Still loading auth
-    if (authStatus.authEnabled && !token) return; // Need login first
-
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    fetch(`${API_BASE}/sessions`, { headers })
-      .then((r) => {
-        if (r.status === 401) { localStorage.removeItem('token'); setToken(null); return []; }
-        return r.ok ? r.json() : [];
-      })
-      .then((data) => {
-        setSessions(data);
-        // Silently restore the last session the user was viewing
-        const lastId = localStorage.getItem(lastViewedKey(getTokenUserId(token)));
-        if (lastId && data.some((s: SessionMeta) => s.id === lastId)) {
-          setActiveSessionId(lastId);
-        }
-      })
-      .catch(() => {});
-  }, [token, authStatus, setSessions]);
 
   const handleLogin = async (username: string, password: string) => {
     setAuthError('');
@@ -290,6 +267,33 @@ function App() {
     });
 
   }, [setActiveSessionId, clearMessages, token, setActiveSession]);
+
+  // Load sessions when auth resolves
+  useEffect(() => {
+    if (authStatus === null) return; // Still loading auth
+    if (authStatus.authEnabled && !token) return; // Need login first
+
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${API_BASE}/sessions`, { headers })
+      .then((r) => {
+        if (r.status === 401) { localStorage.removeItem('token'); setToken(null); return []; }
+        return r.ok ? r.json() : [];
+      })
+      .then((data) => {
+        setSessions(data);
+        // Silently restore the last session the user was viewing
+        const lastId = localStorage.getItem(lastViewedKey(getTokenUserId(token)));
+        if (lastId) {
+          const lastSession = data.find((s: SessionMeta) => s.id === lastId);
+          if (lastSession) {
+            handleSelectSession(lastSession);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [token, authStatus, setSessions, handleSelectSession]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
     try {
