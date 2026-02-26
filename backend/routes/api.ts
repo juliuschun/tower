@@ -108,7 +108,12 @@ router.get('/shared/:token', async (req, res) => {
       return res.send(buffer);
     }
 
-    // 기본 — JSON으로 콘텐츠 반환 (텍스트 파일)
+    // 기본 — JSON으로 콘텐츠 반환
+    // 바이너리 파일(PDF, 이미지, 영상)은 utf-8 읽기 불가 → 메타데이터만 반환 (프론트에서 iframe으로 렌더링)
+    const BINARY_EXTS = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'mp4', 'webm']);
+    if (BINARY_EXTS.has(ext)) {
+      return res.json({ content: '', fileName, ext });
+    }
     const content = await fsPromises.readFile(share.file_path, 'utf-8');
     res.json({ content, fileName, ext });
   } catch {
