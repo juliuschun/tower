@@ -876,3 +876,91 @@ az vm open-port --resource-group <RG> --name <VM> --port 32354 --priority 1010
 ### 참고
 - 공식 문서: https://platform.claude.com/docs/en/agent-sdk/skills
 - Skills는 `SKILL.md` frontmatter의 `allowed-tools`가 SDK에서는 무시됨 → `allowedTools` 옵션으로 제어
+
+---
+
+## Dev 프로세스 좀비화 + useCallback TDZ 크래시 (2026-02-26)
+
+### 증상
+- `npm run dev`로 띄운 서비스가 하루 뒤 접속 불가 (검은 화면)
+- `ps aux`에 tsx watch, vite 프로세스가 보이지만 백엔드 포트(32355)에 아무것도 안 들음
+- PM2 프로세스(`claude-desk`)도 stopped 상태
+
+### 근본 원인 1: 좀비 dev 프로세스 + 포트 충돌
+
+별도의 `npm exec tsx watch backend/index.ts`가 수동으로 실행되어 포트 32355를 점유.
+`tsx watch`가 파일 변경 감지 후 백엔드 재시작 시도 → `EADDRINUSE` → 자식 프로세스(서버) 사망.
+**tsx watch 부모는 죽지 않고 다음 파일 변경을 기다림** → ps에는 살아있지만 서빙 안 함.
+
+추가로 Vite도 포트 충돌 시 자동으로 다른 포트를 잡는 특성이 있어,
+32354가 사용 중이면 32355로 올라가 백엔드 포트를 빼앗는 cascading 충돌 발생.
+
+**해결: `predev` guard script**
+```json
+"predev": "fuser -k 32354/tcp 32355/tcp 2>/dev/null; true"
+```
+npm이 `npm run dev` 실행 전 자동으로 `predev`를 호출하여 포트 점유 프로세스를 정리.
+
+### 근본 원인 2: useCallback 선언 순서 (TDZ)
+
+`App.tsx`에서 `handleSelectSession`(useCallback, 라인 239)을 참조하는 `useEffect`(라인 124-149)가 **위에** 선언되어 있어서 `ReferenceError: Cannot access 'handleSelectSession' before initialization` 발생.
+
+JavaScript `const`는 호이스팅되지만 초기화 전 접근 불가(Temporal Dead Zone).
+React 컴포넌트 함수 본문에서 useCallback/useMemo를 useEffect보다 **아래에** 선언하면 TDZ 크래시.
+
+**해결**: useEffect를 handleSelectSession 정의 아래로 이동.
+
+### 교훈
+1. `tsx watch`는 자식 프로세스 크래시 시 부모가 살아남음 — ps만으로 정상 판단 불가, `ss -tlnp`로 포트 확인 필수
+2. `npm run dev`를 background로 띄울 때 stray 프로세스가 포트를 잡으면 cascading 충돌 발생
+3. React에서 useCallback/useMemo를 useEffect에서 참조할 때 **선언 순서가 위에 있어야 함**
+4. Vite의 포트 자동 증가 기능이 오히려 백엔드 포트를 빼앗는 원인이 될 수 있음
+
+---
+
+## Claude Code 프로세스 CPU 누적 문제 (2026-02-26)
+
+### 증상
+- 시스템이 점점 느려지다 멈춤
+- `ps aux`로 확인하면 `claude --dangerously-skip-permissions` 프로세스가 다수 실행 중
+- 각 프로세스가 idle 상태에서도 CPU 1~23%, 메모리 350~700MB 사용
+
+### 원인: zellij 터미널 세션 누적 (claude-desk 무관)
+
+모든 고CPU claude 프로세스의 parent가 `zsh` 또는 `zellij`였음. claude-desk SDK가 띄운 프로세스라면 parent가 `node`(tsx watch)이고 TTY가 `?`로 표시됨. 실제로 백엔드 프로세스 트리(`pstree -p <backend-pid>`)에 claude 자식 프로세스는 없었음.
+
+**zellij 특성**: detach해도 서버 프로세스(`zellij --server`)가 모든 pane의 자식 프로세스를 유지. 터미널을 닫아도 프로세스가 살아있음.
+
+### Claude Code가 idle에서도 CPU를 쓰는 이유
+
+각 프로세스가 보유한 리소스:
+- **timerfd 4개** — statusline 주기 업데이트, heartbeat
+- **socket 6~7개** — API 연결 유지, MCP 서버, 내부 통신
+- **inotify 1개** — 프로젝트 파일 변경 감시
+- **threads 15~20개** — V8 worker threads, libuv
+- **FD ~150개** — 파일 디스크립터
+
+이걸 N개 프로세스가 동시에 하면:
+- N × statusline bash+jq 파이프라인 주기 실행
+- N × inotify 파일 감시
+- N × Node.js GC (400~700MB 메모리에 대한 주기적 가비지 컬렉션)
+- 합산 CPU 20~60%, 메모리 3~6GB
+
+### 재발 방지
+
+1. **사용하지 않는 zellij pane의 Claude Code는 `/exit`로 종료**
+2. 정리 명령: `pgrep -f "claude --dangerously" | xargs kill` (현재 세션 제외)
+3. zellij에서 Claude Code를 여러 개 동시에 띄우지 않기
+4. 모니터링: `ps -eo pid,%cpu,rss,comm --sort=-%cpu | grep claude`
+
+### claude-desk vs 터미널 프로세스 구분법
+
+```bash
+# 백엔드 프로세스 트리 확인 — claude 자식이 있으면 SDK 세션
+pstree -p $(pgrep -f "tsx.*backend/index.ts")
+
+# 개별 claude 프로세스의 parent 확인
+ps -o pid,ppid,tty,comm -p $(pgrep -f "claude --dangerously")
+# parent가 zsh/zellij + TTY가 pts/X → 터미널 세션
+# parent가 node + TTY가 ? → claude-desk SDK 세션
+```
