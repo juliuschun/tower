@@ -128,6 +128,92 @@ router.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: '0.1.0' });
 });
 
+// ─── Browser proxy (PinchTab) ────────────────────────────────────────────────
+const PINCHTAB_BASE = process.env.PINCHTAB_URL || 'http://localhost:9867';
+
+function pinchtabHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    ...(process.env.PINCHTAB_TOKEN
+      ? { Authorization: `Bearer ${process.env.PINCHTAB_TOKEN}` }
+      : {}),
+  };
+}
+
+router.get('/browser/health', async (_req, res) => {
+  try {
+    const r = await fetch(`${PINCHTAB_BASE}/health`, { headers: pinchtabHeaders() });
+    res.json({ ok: r.ok, status: r.status });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(503).json({ ok: false, error: message });
+  }
+});
+
+router.post('/browser/navigate', async (req, res) => {
+  try {
+    const r = await fetch(`${PINCHTAB_BASE}/navigate`, {
+      method: 'POST',
+      headers: pinchtabHeaders(),
+      body: JSON.stringify(req.body),
+    });
+    res.json(await r.json());
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+router.get('/browser/text', async (_req, res) => {
+  try {
+    const r = await fetch(`${PINCHTAB_BASE}/text`, { headers: pinchtabHeaders() });
+    res.json({ text: await r.text() });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+router.get('/browser/snapshot', async (req, res) => {
+  const filter = (req.query.filter as string) || 'interactive';
+  try {
+    const r = await fetch(`${PINCHTAB_BASE}/snapshot?filter=${filter}&format=compact`, {
+      headers: pinchtabHeaders(),
+    });
+    res.json({ snapshot: await r.text() });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post('/browser/action', async (req, res) => {
+  try {
+    const r = await fetch(`${PINCHTAB_BASE}/action`, {
+      method: 'POST',
+      headers: pinchtabHeaders(),
+      body: JSON.stringify(req.body),
+    });
+    res.json(await r.json());
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+
+router.get('/browser/screenshot', async (_req, res) => {
+  try {
+    const r = await fetch(`${PINCHTAB_BASE}/screenshot`, { headers: pinchtabHeaders() });
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.set('Content-Type', 'image/jpeg');
+    res.send(buf);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ───── Users list (for share modal dropdown) ─────
 router.get('/users', (req, res) => {
   const currentUserId = (req as any).user?.userId;
