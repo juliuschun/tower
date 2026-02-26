@@ -122,11 +122,11 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
                 <div className="absolute inset-0 rounded-full bg-primary-500/20 blur-xl group-hover:bg-primary-500/30 transition-colors"></div>
                 <span className="text-4xl relative z-10">✨</span>
               </div>
-              <h2 className="text-2xl font-bold text-gray-100 mb-3 tracking-tight">Claude Desk</h2>
+              <h2 className="text-2xl font-bold text-gray-100 mb-3 tracking-tight">Tower</h2>
               <p className="text-[15px] text-gray-400 max-w-md leading-relaxed">
-                Claude와 대화하며 리서치하고, 파일을 편집하고, 코드를 실행하세요.
+                Chat with Claude to research, edit files, and run code.
                 <br />
-                <span className="text-surface-700 mt-2 block font-medium">/ 를 입력하면 명령어를 사용할 수 있습니다.</span>
+                <span className="text-surface-700 mt-2 block font-medium">Type / to use commands.</span>
               </p>
             </div>
           )}
