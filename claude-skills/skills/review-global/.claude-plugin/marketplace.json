@@ -1,0 +1,24 @@
+{
+  "name": "review-global-marketplace",
+  "owner": {
+    "name": "juliuschun"
+  },
+  "metadata": {
+    "description": "Periodic situation reports across all projects with session transcript intelligence",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "review-global",
+      "source": "./",
+      "description": "Cross-project situation reports. Spawns a Haiku subagent that scans session transcripts (JSONL), git repos, TODO/plan/codify files, and running processes. Produces a timestamped markdown review with project categorization, drift detection, and zombie process flagging.",
+      "version": "1.0.0",
+      "author": {
+        "name": "juliuschun"
+      },
+      "skills": ["./"],
+      "category": "productivity",
+      "tags": ["review", "situation-report", "cross-project", "session-scanner", "process-health"]
+    }
+  ]
+}

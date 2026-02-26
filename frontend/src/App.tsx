@@ -643,6 +643,7 @@ function App() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onNewSession={handleNewSession}
         onAdminClick={isAdmin ? handleOpenAdmin : undefined}
+        onViewDiff={handleViewDiff}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -671,7 +672,6 @@ function App() {
                 onPromptEdit={handlePromptEdit}
                 onPromptDelete={handlePromptDelete}
                 onPromptAdd={handlePromptAdd}
-                onViewDiff={handleViewDiff}
                 onNewSessionInFolder={handleNewSessionInFolder}
               />
             </div>
@@ -697,7 +697,6 @@ function App() {
                 onPromptEdit={handlePromptEdit}
                 onPromptDelete={handlePromptDelete}
                 onPromptAdd={handlePromptAdd}
-                onViewDiff={handleViewDiff}
               />
             </div>
             <SidebarResizeHandle onResize={handleSidebarResize} />

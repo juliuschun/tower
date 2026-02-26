@@ -4,310 +4,98 @@
 
 Build your own tower of AI orchestration systems.
 
+[**한국어 README**](README.ko.md)
+
 ---
 
 ## Why Tower?
 
-Claude Code is powerful — but it's a single-user CLI. When your team needs AI:
+Claude Code is freakishly powerful. But let's be honest about the problems.
 
-- **"Can everyone SSH into one machine?"** — Not practical, not safe.
-- **"Should each person set up their own Claude?"** — Expensive, inconsistent, no shared context.
-- **"How do we give non-engineers access to Claude Code?"** — They won't use a terminal.
+**It's a terminal app.** Most people on your team — the project managers, the designers, the clients, your family members who keep asking "can your AI help me with this?" — they're not going to learn the CLI. They just won't.
 
-Tower solves this. One deployment, browser access, your whole team on AI — with shared workspaces, role-based permissions, and persistent memory that makes Claude smarter over time.
+**It lives on one machine.** You can't hand someone your laptop and say "here, use my Claude." It's not portable. It's not shareable. Your carefully configured skills, your CLAUDE.md, your workspace context — all locked to one device.
 
-**What you get:**
-- A web UI with the full power of Claude Code CLI
-- Multi-user, multi-session — everyone works simultaneously
-- 20 bundled AI skills (brainstorming, TDD, debugging, code review, ...)
-- 3-layer memory system — Claude remembers across sessions
-- File editor, git integration, admin panel — all in the browser
-- Deploy in 5 minutes, access from anywhere via Cloudflare Tunnel
+**It needs an expert.** Getting the full power out of Claude Code means setting up skills, configuring permissions, managing file systems, writing system prompts. That takes someone who knows what they're doing. Without that, you're using maybe 20% of what it can do.
+
+**And even then, you can't share it.** You can't share your sessions with teammates. You can't let someone pick up where you left off. You can't build shared context that makes Claude smarter for everyone.
+
+Yes, `--dangerously-skip-permissions` is scary. The warning is there for a reason — you could get into all sorts of trouble. But having **no option** to give your team browser-based access to Claude Code? That's worse.
+
+### What Tower does
+
+Inspired by [OpenClaw](https://github.com/anthropics/openclawai), Tower is the **team version** — where everyone collaborates with one customized, informed AI that you grow together.
+
+- **Browser access** — anyone on your team can use Claude, no terminal required
+- **Shared workspace** — decisions, memory, and context that persist across sessions and users
+- **20 bundled skills** — brainstorming, TDD, debugging, code review, planning — ready out of the box
+- **3-layer memory** — Claude remembers what your team has done, decided, and learned
+- **Role-based access** — admins get full power, regular users get guardrails
+- **Deploy once, use everywhere** — Cloudflare Tunnel gives you HTTPS access from anywhere
+
+This is AI + human-in-the-loop, for real. Not a demo. Not a wrapper. A working system where your whole team builds on top of Claude Code together.
+
+> Fair warning: this has bugs. It will be updated at will. But it works, and we use it every day.
+
+---
+
+## Demo
+
+### Chat with Claude Code — in the browser
+
+<p align="center">
+  <img src="capture.gif" alt="Tower Demo — Chat with Claude Code in the browser" width="720" />
+</p>
+
+### Build and share dashboards — on the fly
+
+<p align="center">
+  <img src="capture2.gif" alt="Tower Demo — Create and share dashboards on the fly" width="720" />
+</p>
 
 ---
 
 ## Screenshots
 
-### Login
-
 <p align="center">
   <img src="docs/screenshots/login.png" alt="Login" width="720" />
 </p>
-
-### Main (Sessions + File Tree + Chat)
-
 <p align="center">
-  <img src="docs/screenshots/main.png" alt="Main" width="720" />
+  <img src="docs/screenshots/main.png" alt="Main — Sessions + Chat + File Editor" width="720" />
 </p>
-
-Switch between sessions, file tree, prompts, pinboard, and git history via sidebar tabs. Chat with Claude in the center panel. Edit files in the right-side Context Panel.
-
-### File Explorer
-
 <p align="center">
   <img src="docs/screenshots/files.png" alt="File Explorer" width="720" />
 </p>
-
-Browse your workspace as a file tree. Click any file to open it in the CodeMirror editor.
-
-### Mobile
-
 <p align="center">
-  <img src="docs/screenshots/mobile.png" alt="Mobile" width="360" />
+  <img src="docs/screenshots/mobile.png" alt="Mobile" width="280" />
 </p>
 
-Responsive layout with bottom tab bar for mobile.
-
 ---
 
-## Features
-
-### Claude Chat
-- Real-time streaming via Claude Code SDK (`@anthropic-ai/claude-agent-sdk`)
-- Multi-session support (up to 3 concurrent sessions)
-- Background session execution with auto-save
-- Live tool_use results (file edits, command output)
-- Thinking blocks (collapsible)
-- Mermaid diagram rendering
-- AskUserQuestion intercept — respond to Claude's questions in the browser
-
-### File Management
-- Sidebar file tree (real-time via chokidar)
-- CodeMirror editor (JS/TS/Python/JSON/Markdown highlighting)
-- Drag & drop file upload
-- File pinning (favorites)
-
-### Session Management
-- AI-generated session names
-- Favorites, search, tags
-- AI session summaries
-- Per-session working directory (CWD)
-
-### Git Integration
-- Sidebar git panel (commit history, diffs)
-- Auto-commit on Claude edits
-- Manual commit, rollback
-
-### Prompt Library
-- Save and reuse prompts
-- Auto-load command files (`.md`)
-
-### Admin
-- User CRUD (create, role change, password reset, disable)
-- Per-user workspace restriction (`allowed_path`)
-- Role-based permissions: `admin` (full) / `user` (restricted)
-
-### More
-- Dark / light theme
-- PWA support (offline cache, add to home screen)
-- Mobile responsive layout
-- Cloudflare Tunnel for remote access
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | React 18, Vite 6, Tailwind CSS 4, Zustand 5, CodeMirror |
-| **Backend** | Express, WebSocket (ws), tsx watch |
-| **AI** | `@anthropic-ai/claude-agent-sdk` (Claude Code SDK) |
-| **DB** | SQLite (better-sqlite3), WAL mode |
-| **Auth** | JWT (bcryptjs + jsonwebtoken) |
-| **Process** | PM2 (production), concurrently (dev) |
-| **Other** | Chokidar (file watch), Mermaid (diagrams), PWA (vite-plugin-pwa) |
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- **Node.js** 20+
-- **Claude Code CLI** installed and authenticated (`claude --version`)
-- **Anthropic API** key (Max plan or API key)
-
-### One-Step Setup
+## Get Started
 
 ```bash
-git clone <repo-url> tower
+git clone https://github.com/juliuschun/tower.git
 cd tower
-bash setup.sh
+bash setup.sh    # installs everything, asks you a few questions
+npm run dev      # → http://localhost:32354
 ```
 
-The setup wizard will:
-1. Check prerequisites (Node.js, Claude CLI)
-2. Install npm dependencies
-3. Create `.env` from `.env.example`
-4. Initialize your workspace directory
-5. Install Claude skills and memory hooks
-
-### Manual Setup
-
-If you prefer to set things up step by step:
-
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env — at minimum, change JWT_SECRET
-
-# 3. Initialize workspace (optional)
-# Copy templates/workspace/ to your workspace directory
-
-# 4. Install Claude skills (optional, requires Claude Code CLI)
-./install-skills.sh
-
-# 5. Install memory hooks (optional, requires Claude Code CLI)
-bash memory-hooks/install.sh
-```
-
-### Run
-
-```bash
-# Development
-npm run dev
-# → http://localhost:32354
-
-# Production
-npm run build
-./start.sh start
-```
-
-### First Login
-
-1. Open `http://localhost:32354`
-2. Create your **admin account** on first visit
-3. Add team members via the admin panel (shield icon in header)
+See **[INSTALL.md](INSTALL.md)** for detailed setup, environment variables, project structure, and deployment options.
 
 ---
 
-## Project Structure
+## What's Included
 
-```
-tower/
-├── backend/
-│   ├── index.ts                 # Express + WebSocket server
-│   ├── config.ts                # Environment config
-│   ├── db/schema.ts             # SQLite schema + migrations
-│   ├── routes/
-│   │   ├── api.ts               # REST API
-│   │   ├── ws-handler.ts        # WebSocket handler
-│   │   └── session-guards.ts    # Concurrent session mgmt
-│   └── services/
-│       ├── auth.ts              # Auth + user management
-│       ├── claude-sdk.ts        # Claude Agent SDK wrapper
-│       ├── session-manager.ts   # Session CRUD
-│       ├── message-store.ts     # Message persistence
-│       ├── file-system.ts       # File tree, read/write
-│       ├── git-manager.ts       # Git operations
-│       └── ...
-│
-├── frontend/src/
-│   ├── App.tsx                  # Main layout
-│   ├── components/              # UI components
-│   ├── hooks/                   # useClaudeChat, useWebSocket
-│   ├── stores/                  # Zustand state management
-│   └── utils/                   # Parsers, helpers
-│
-├── claude-skills/               # Bundled Claude skills
-│   ├── skills/                  # 6 skills (ready, swarm, tech-lead, ...)
-│   ├── commands/                # Slash commands (prime, gdrive, gmail)
-│   └── agents/                  # Agent definitions
-│
-├── memory-hooks/                # Session memory system
-│   ├── install.sh               # One-step installer
-│   └── src/                     # Hook scripts (SQLite FTS5)
-│
-├── templates/
-│   └── workspace/               # Workspace template for new deployments
-│
-├── setup.sh                     # One-step setup wizard
-├── start.sh                     # Production server management
-├── .env.example                 # Environment variable template
-├── ecosystem.config.cjs         # PM2 config
-└── package.json
-```
-
----
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and edit:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `32354` | Server port |
-| `HOST` | `0.0.0.0` | Bind address |
-| `WORKSPACE_ROOT` | `$HOME/workspace` | Root directory for file browsing |
-| `DEFAULT_CWD` | `$WORKSPACE_ROOT` | Default CWD for new sessions |
-| `JWT_SECRET` | *(must change)* | JWT signing key |
-| `NO_AUTH` | `false` | Set `true` to disable auth |
-| `PERMISSION_MODE` | `bypassPermissions` | Claude permission level |
-| `MAX_CONCURRENT_SESSIONS` | `10` | Max concurrent sessions |
-| `GIT_AUTO_COMMIT` | `true` | Auto-commit Claude edits |
-| `DB_PATH` | `data/tower.db` | SQLite database path |
-| `CLAUDE_PATH` | *(auto-detect)* | Claude CLI path override |
-
----
-
-## User Roles
-
-| Role | Claude Permissions | File Access | Admin Panel |
-|------|-------------------|-------------|-------------|
-| `admin` | `bypassPermissions` | Full | Yes |
-| `user` | `acceptEdits` | `allowed_path` only | No |
-
----
-
-## Claude Skills & Hooks
-
-Tower ships with **20 skills**, 3 commands, and 1 agent — all bundled in the repo.
-
-Categories: workflow (brainstorming, planning, TDD, debugging, code review, ...), domain (tech-lead, UI/UX, swarm), and utilities (ready, humanize).
-
-Install with `./install-skills.sh` (included in `setup.sh`).
-See `claude-skills/README.md` for the full list.
-
-### Memory Hooks
-
-A 3-layer memory system that gives Claude persistent memory across sessions:
-1. **Auto Memory** — per-project patterns and learning
-2. **Workspace Memory** — team decisions and processes
-3. **Session Hooks** — SQLite FTS5 auto-capture of session activity
-
-Install with `bash memory-hooks/install.sh` (included in `setup.sh`).
-See `memory-hooks/README.md` for details.
-
----
-
-## Remote Access (Cloudflare Tunnel)
-
-```bash
-# Install cloudflared (one-time)
-# https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-
-# Quick Tunnel (temporary URL, no account needed)
-cloudflared tunnel --url http://localhost:32354
-```
-
-The output URL (`https://xxx.trycloudflare.com`) gives you HTTPS access from anywhere.
-
-> Quick Tunnel URLs change on restart. For a permanent URL, use a [Named Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/).
-
----
-
-## Server Management
-
-```bash
-./start.sh start     # Build + start with PM2
-./start.sh stop      # Stop
-./start.sh restart   # Rebuild + restart
-./start.sh logs      # View logs
-./start.sh status    # Check status
-```
+| | |
+|---|---|
+| **20 AI Skills** | Brainstorming, TDD, debugging, code review, planning, UI/UX design, and more. See [`claude-skills/README.md`](claude-skills/README.md). |
+| **3-Layer Memory** | Auto memory + workspace memory + session hooks. Claude remembers across sessions. See [`memory-hooks/README.md`](memory-hooks/README.md). |
+| **Workspace Templates** | Team principles, decision records, shared docs — bootstrapped by `setup.sh`. |
+| **File Editor** | CodeMirror with syntax highlighting, real-time file tree, drag & drop upload. |
+| **Git Integration** | Auto-commit on Claude edits, commit history, diff viewer, rollback. |
+| **Admin Panel** | User management, role-based permissions, per-user workspace restrictions. |
+| **Mobile** | Responsive layout with bottom tab bar. PWA support. |
 
 ---
 

@@ -4,12 +4,14 @@ import { useSessionStore } from '../../stores/session-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useModelStore } from '../../stores/model-store';
 import { ModelSelector } from './ModelSelector';
+import { GitPanel } from '../git/GitPanel';
 
 interface HeaderProps {
   connected: boolean;
   onToggleSidebar: () => void;
   onNewSession?: () => void;
   onAdminClick?: () => void;
+  onViewDiff?: (diff: string) => void;
 }
 
 /** Abbreviate model name for mobile: "Sonnet 4.6" → "S4.6", "Opus 4.6" → "O4.6", etc. */
@@ -102,7 +104,47 @@ function ViewToggle() {
   );
 }
 
-export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick }: HeaderProps) {
+function VersionHistoryButton({ onViewDiff }: { onViewDiff?: (diff: string) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200 ${open ? 'bg-surface-800 text-gray-200' : ''}`}
+        title="Version history"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-80 md:w-96 max-h-[70vh] bg-surface-900 border border-surface-700 rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-[100] flex flex-col">
+          <div className="px-3 py-2 border-b border-surface-800 flex items-center gap-2">
+            <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-[12px] font-semibold text-gray-300">Version History</span>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <GitPanel onViewDiff={(diff) => { onViewDiff?.(diff); setOpen(false); }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick, onViewDiff }: HeaderProps) {
   const cost = useChatStore((s) => s.cost);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
@@ -171,6 +213,8 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick 
         ) : (
           <ModelSelector />
         )}
+
+        <VersionHistoryButton onViewDiff={onViewDiff} />
 
         {onAdminClick && (
           <button

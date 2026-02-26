@@ -27,7 +27,7 @@ interface SessionState {
   streamingSessions: Set<string>;
   unreadSessions: Set<string>;
   sidebarOpen: boolean;
-  sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git';
+  sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins';
   searchQuery: string;
   isMobile: boolean;
   mobileTab: MobileTab;
@@ -42,7 +42,7 @@ interface SessionState {
   setSessionStreaming: (id: string, streaming: boolean) => void;
   markSessionRead: (id: string) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'git') => void;
+  setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins') => void;
   setSearchQuery: (query: string) => void;
   setIsMobile: (v: boolean) => void;
   setMobileTab: (tab: MobileTab) => void;

@@ -6,7 +6,6 @@ import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
 import { SessionItem } from '../sessions/SessionItem';
 import { FileTree } from '../files/FileTree';
 import { PinList } from '../pinboard/PinList';
-import { GitPanel } from '../git/GitPanel';
 import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
 import { toastError, toastSuccess } from '../../utils/toast';
 
@@ -28,7 +27,6 @@ interface SidebarProps {
   onPromptDelete?: (id: number | string) => void;
   onPromptAdd?: () => void;
   onPromptInsert?: (prompt: PromptItem) => void;
-  onViewDiff?: (diff: string) => void;
   onNewSessionInFolder?: (path: string) => void;
 }
 
@@ -38,7 +36,7 @@ export function Sidebar({
   onFileClick, onDirectoryClick, onRequestFileTree,
   onPinFile, onUnpinFile, onPinClick, onSettingsClick,
   onPromptClick, onPromptEdit, onPromptDelete, onPromptAdd,
-  onViewDiff, onNewSessionInFolder,
+  onNewSessionInFolder,
 }: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -163,13 +161,12 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Tab switcher — 5 tabs */}
+      {/* Tab switcher — 4 tabs */}
       <div className="flex border-b border-surface-800/50">
         <button onClick={() => setSidebarTab('sessions')} className={tabClass('sessions')}>Sessions</button>
         <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
         <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>Prompts</button>
         <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>Pins</button>
-        <button onClick={() => setSidebarTab('git')} className={tabClass('git')}>Git</button>
       </div>
 
       {/* Tab content */}
@@ -272,13 +269,11 @@ export function Sidebar({
               </div>
             )}
           </div>
-        ) : sidebarTab === 'pins' ? (
+        ) : (
           <PinList
             onPinClick={(pin) => onPinClick?.(pin)}
             onUnpin={(id) => onUnpinFile?.(id)}
           />
-        ) : (
-          <GitPanel onViewDiff={onViewDiff} />
         )}
       </div>
 

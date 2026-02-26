@@ -26,7 +26,5 @@ issue_session_change.md
 plan.md
 plan_done.md
 
-# Claude Code tooling (not part of the app)
-claude-skills/
-memory-hooks/
-templates/
+# Large video files
+*.mov
