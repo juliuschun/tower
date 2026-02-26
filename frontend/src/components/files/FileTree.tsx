@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { FileEntry } from '../../stores/file-store';
 import { toastSuccess, toastError } from '../../utils/toast';
+import { ShareModal } from './ShareModal';
 
 interface FileTreeProps {
   entries: FileEntry[];
@@ -139,7 +140,7 @@ function DirectoryDropWrapper({ entry, children }: { entry: FileEntry; children:
 }
 
 // ─── Context Menu ───
-type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession';
+type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession' | 'shareFile';
 
 function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
   x: number; y: number; entry: FileEntry;
@@ -172,6 +173,17 @@ function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
     {
       action: 'newSession', label: 'New session here', show: entry.isDirectory && showNewSession,
       icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>,
+    },
+    {
+      action: 'shareFile' as MenuAction,
+      label: '공유하기',
+      show: !entry.isDirectory,
+      icon: (
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+        </svg>
+      ),
     },
     {
       action: 'rename', label: 'Rename', show: true,
@@ -247,6 +259,7 @@ function InlineInput({ defaultValue, placeholder, onSubmit, onCancel }: {
 export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, onNewSessionInFolder, onRefreshTree, depth = 0 }: FileTreeProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [inlineInput, setInlineInput] = useState<{ type: 'newFile' | 'newFolder' | 'rename'; parentPath?: string; entry?: FileEntry } | null>(null);
+  const [shareFilePath, setShareFilePath] = useState<string | null>(null);
 
   const handleContextAction = async (action: MenuAction, entry: FileEntry) => {
     if (action === 'newSession' && onNewSessionInFolder) {
@@ -266,6 +279,11 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
 
     if (action === 'rename') {
       setInlineInput({ type: 'rename', entry });
+      return;
+    }
+
+    if (action === 'shareFile') {
+      setShareFilePath(entry.path);
       return;
     }
 
@@ -426,6 +444,9 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
           onAction={handleContextAction}
           onClose={() => setContextMenu(null)}
         />
+      )}
+      {shareFilePath && (
+        <ShareModal filePath={shareFilePath} onClose={() => setShareFilePath(null)} />
       )}
     </div>
   );

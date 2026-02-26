@@ -143,6 +143,26 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);
   `);
+
+  // File sharing table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shares (
+      id              TEXT PRIMARY KEY,
+      file_path       TEXT NOT NULL,
+      owner_id        INTEGER NOT NULL,
+      share_type      TEXT NOT NULL CHECK(share_type IN ('internal','external')),
+      target_user_id  INTEGER,
+      token           TEXT UNIQUE,
+      expires_at      DATETIME,
+      revoked         INTEGER DEFAULT 0,
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_id) REFERENCES users(id),
+      FOREIGN KEY (target_user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shares_token ON shares(token);
+    CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_user_id);
+  `);
 }
 
 export function closeDb() {

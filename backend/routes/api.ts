@@ -26,6 +26,13 @@ import {
 } from '../services/git-manager.js';
 import { config, availableModels } from '../config.js';
 import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks } from '../services/task-manager.js';
+import {
+  createInternalShare, createExternalShare, getSharesByFile,
+  getSharesWithMe, getShareByToken, revokeShare, isTokenValid,
+  hasInternalShareForUser,
+} from '../services/share-manager.js';
+import fsPromises from 'fs/promises';
+import { getDb } from '../db/schema.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 10 * 1024 * 1024; // 10MB
 const DANGEROUS_EXTENSIONS = new Set([
@@ -61,11 +68,87 @@ router.post('/auth/login', (req, res) => {
   res.json({ token, user: payload });
 });
 
+// ───── Public: Shared file viewer (no auth required) ─────
+router.get('/shared/:token', async (req, res) => {
+  const share = getShareByToken(req.params.token);
+  if (!share || !isTokenValid(share)) {
+    return res.status(410).json({ error: '만료되었거나 취소된 링크입니다.' });
+  }
+  try {
+    const content = await fsPromises.readFile(share.file_path, 'utf-8');
+    const fileName = path.basename(share.file_path);
+    const ext = path.extname(fileName).slice(1).toLowerCase();
+    if (req.query.download === '1') {
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return res.send(content);
+    }
+    res.json({ content, fileName, ext });
+  } catch {
+    res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+  }
+});
+
 // ───── Protected routes ─────
 router.use(authMiddleware);
 
 router.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: '0.1.0' });
+});
+
+// ───── Users list (for share modal dropdown) ─────
+router.get('/users', (req, res) => {
+  const currentUserId = (req as any).user?.userId;
+  const users = getDb()
+    .prepare('SELECT id, username FROM users WHERE disabled = 0 ORDER BY username')
+    .all()
+    .filter((u: any) => u.id !== currentUserId);
+  res.json(users);
+});
+
+// ───── Shares ─────
+router.post('/shares', (req, res) => {
+  const { shareType, filePath, targetUserId, expiresIn } = req.body;
+  const ownerId = (req as any).user?.userId;
+  if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!filePath) return res.status(400).json({ error: 'filePath required' });
+  try {
+    if (shareType === 'internal') {
+      if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
+      const share = createInternalShare(filePath, ownerId, targetUserId);
+      return res.json(share);
+    } else if (shareType === 'external') {
+      const share = createExternalShare(filePath, ownerId, expiresIn || '24h');
+      const url = `/shared/${share.token}`;
+      return res.json({ ...share, url });
+    } else {
+      return res.status(400).json({ error: 'shareType must be internal or external' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// IMPORTANT: register /shares/with-me BEFORE /shares/:id to avoid Express matching 'with-me' as :id
+router.get('/shares/with-me', (req, res) => {
+  const userId = (req as any).user?.userId;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  res.json(getSharesWithMe(userId));
+});
+
+router.get('/shares', (req, res) => {
+  const ownerId = (req as any).user?.userId;
+  const filePath = req.query.filePath as string;
+  if (!ownerId || !filePath) return res.status(400).json({ error: 'filePath required' });
+  res.json(getSharesByFile(filePath, ownerId));
+});
+
+router.delete('/shares/:id', (req, res) => {
+  const ownerId = (req as any).user?.userId;
+  if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
+  const ok = revokeShare(req.params.id, ownerId);
+  if (!ok) return res.status(404).json({ error: '공유를 찾을 수 없거나 취소 권한이 없습니다.' });
+  res.json({ ok: true });
 });
 
 // ───── Admin: User Management ─────
@@ -299,7 +382,12 @@ router.get('/files/read', (req, res) => {
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
     const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
-    if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied: outside allowed path' });
+    if (!isPathSafe(filePath, userRoot)) {
+      if (!userId || !hasInternalShareForUser(filePath, userId)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      // internal share found — allow read to continue
+    }
     const result = readFile(filePath);
     res.json({ path: filePath, ...result });
   } catch (error: any) {
