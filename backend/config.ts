@@ -68,7 +68,7 @@ export const config = {
   hiddenPatterns: ['.git', 'node_modules', '__pycache__', '.venv', '.env', '.DS_Store'],
 
   // DB — use PROJECT_ROOT so path is stable regardless of cwd
-  dbPath: process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'claude-desk.db'),
+  dbPath: process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'tower.db'),
 
   // Git auto-commit
   gitAutoCommit: process.env.GIT_AUTO_COMMIT !== 'false',
