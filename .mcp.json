@@ -1,13 +1,3 @@
 {
-  "mcpServers": {
-    "pinchtab": {
-      "command": "npx",
-      "args": ["tsx", "mcp/pinchtab-server.ts"],
-      "env": {
-        "CHROME_BINARY": "/usr/bin/chromium-browser",
-        "BRIDGE_PROFILE": "/home/enterpriseai/snap/chromium/common/pinchtab-profile",
-        "BRIDGE_HEADLESS": "true"
-      }
-    }
-  }
+  "mcpServers": {}
 }
