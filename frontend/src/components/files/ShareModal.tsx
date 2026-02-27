@@ -31,11 +31,17 @@ export function ShareModal({ filePath, onClose }: Props) {
   const [shares, setShares] = useState<Share[]>([]);
   const [generatedUrl, setGeneratedUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [siteOrigin, setSiteOrigin] = useState(window.location.origin);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const fileName = filePath.split('/').pop() ?? filePath;
 
   useEffect(() => {
+    // 서버에 설정된 PUBLIC_URL 우선 사용 — 없으면 현재 origin 폴백
+    fetch('/api/health', { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => { if (d.publicUrl) setSiteOrigin(d.publicUrl); })
+      .catch(() => {});
     fetch('/api/users', { headers: getAuthHeaders() })
       .then(r => r.json()).then(setUsers).catch(() => {});
     loadShares();
@@ -71,7 +77,7 @@ export function ShareModal({ filePath, onClose }: Props) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const data = await res.json();
-      const fullUrl = `${window.location.origin}${data.url}`;
+      const fullUrl = `${siteOrigin}${data.url}`;
       setGeneratedUrl(fullUrl);
       loadShares();
       // 클립보드 복사는 별도 처리 — 실패해도 링크 생성은 성공
