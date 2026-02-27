@@ -116,7 +116,8 @@ export function SharedViewer() {
             src={`/api/shared/${token}?render=1`}
             className="w-full h-full border-0"
             title={data.fileName}
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts allow-same-origin allow-popups"
+            referrerPolicy="no-referrer"
           />
         ) : data.ext === 'md' ? (
           /* 미리보기 — 마크다운 렌더링 */
