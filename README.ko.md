@@ -42,13 +42,13 @@ Claude Code는 미친 듯이 강력합니다. 하지만 솔직히 문제가 있�
 ### 브라우저에서 Claude Code와 대화
 
 <p align="center">
-  <img src="capture.gif" alt="Tower 데모 — 브라우저에서 Claude Code 사용" width="720" />
+  <video src="capture.mp4" width="720" controls></video>
 </p>
 
 ### 대시보드를 만들고 공유 — 즉석에서
 
 <p align="center">
-  <img src="capture2.gif" alt="Tower 데모 — 대시보드 생성 및 공유" width="720" />
+  <video src="capture2.mp4" width="720" controls></video>
 </p>
 
 ---

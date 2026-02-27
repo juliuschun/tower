@@ -200,3 +200,125 @@ The output URL (`https://xxx.trycloudflare.com`) gives you HTTPS access from any
 ./start.sh logs      # View logs
 ./start.sh status    # Check status
 ```
+
+---
+
+## Browser Automation (PinchTab MCP)
+
+Tower ships with a built-in MCP server that lets Claude control a real browser via [PinchTab](https://github.com/pinchtab/pinchtab).
+
+### Prerequisites
+
+- **Chrome or Chromium** installed:
+  ```bash
+  # Ubuntu/Debian
+  sudo apt install chromium-browser
+  # or
+  sudo apt install google-chrome-stable
+  ```
+- **PinchTab binary** placed at `data/pinchtab`:
+  ```bash
+  mkdir -p data/
+  # Download from https://github.com/pinchtab/pinchtab/releases
+  chmod +x data/pinchtab
+  ```
+
+### How It Works
+
+```
+Claude Code (MCP client)
+    │  stdio
+    ▼
+mcp/pinchtab-server.ts      ← MCP 서버 (6 browser tools)
+    │  HTTP
+    ▼
+data/pinchtab               ← Bridge binary (auto-spawned)
+    │  CDP
+    ▼
+Chrome (headless)
+```
+
+The MCP server is registered in `.mcp.json` and loads automatically when Claude Code starts in this directory.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `browser_navigate` | Navigate to a URL |
+| `browser_text` | Get page text (~800 tokens, cheapest) |
+| `browser_snapshot` | Accessibility tree (interactive elements + IDs) |
+| `browser_action` | click / type / fill / scroll / hover / press |
+| `browser_screenshot` | Visual screenshot (use sparingly) |
+| `browser_evaluate` | Execute JavaScript |
+
+**Token strategy:** Start with `browser_text`, use `browser_snapshot` for interaction, `browser_screenshot` only for visual confirmation.
+
+### Configuration (.mcp.json)
+
+```json
+{
+  "mcpServers": {
+    "pinchtab": {
+      "command": "npx",
+      "args": ["tsx", "mcp/pinchtab-server.ts"],
+      "env": {
+        "CHROME_BINARY": "/usr/bin/chromium-browser",
+        "BRIDGE_PROFILE": "/path/to/chrome-profile",
+        "BRIDGE_HEADLESS": "true"
+      }
+    }
+  }
+}
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHROME_BINARY` | auto-detect | Chrome binary path. Auto-detects `google-chrome` → `chromium-browser` → `chromium` |
+| `BRIDGE_PROFILE` | (Chrome default) | Chrome user data directory |
+| `BRIDGE_HEADLESS` | `true` | Run Chrome headless |
+| `PINCHTAB_URL` | (none) | Connect to an already-running PinchTab instance instead of spawning |
+| `PINCHTAB_BINARY` | `data/pinchtab` | Override binary path |
+| `PINCHTAB_TOKEN` | (none) | Auth token for PinchTab bridge |
+
+### Self-Healing
+
+The manager automatically recovers from failures:
+
+- **Process crash** — detected via `exit` event; next `fetch()` call triggers restart
+- **Network failure** — health check on error; restarts if unhealthy
+- **Port collision** — if port 9867 is already in use on startup, connects to that instance instead of spawning
+- **Chrome not found** — clear error listing all candidates tried
+
+Restart takes ~2–10 seconds. Claude sees a slightly slow response, not an error.
+
+### Troubleshooting
+
+```bash
+# Check bridge health
+curl http://localhost:9867/health
+
+# Expected when healthy:
+# {"cdp":"...","status":"ok","tabs":1}
+
+# Expected when Chrome disconnected:
+# {"status":"disconnected","error":"..."}
+# → Restart Claude Code to respawn the bridge
+
+# Test screenshot directly
+curl -s http://localhost:9867/screenshot | python3 -c "
+import sys, json, base64
+d = json.load(sys.stdin)
+print('format:', d['format'], '| size:', len(d['base64']), 'chars')
+"
+
+# Kill stale bridge (if needed)
+pkill -f data/pinchtab
+```
+
+**"Could not process image" error** — The bridge returned JSON instead of an image (Chrome disconnected). Restart Claude Code to fix.
+
+**Chrome binary not found** — Set `CHROME_BINARY` in `.mcp.json` env to the correct path.
+
+**Port 9867 already in use** — The bridge will connect to the existing instance. If that instance is unhealthy, kill it: `pkill -f data/pinchtab`

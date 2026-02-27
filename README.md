@@ -44,13 +44,13 @@ This is AI + human-in-the-loop, for real. Not a demo. Not a wrapper. A working s
 ### Chat with Claude Code — in the browser
 
 <p align="center">
-  <img src="capture.gif" alt="Tower Demo — Chat with Claude Code in the browser" width="720" />
+  <video src="capture.mp4" width="720" controls></video>
 </p>
 
 ### Build and share dashboards — on the fly
 
 <p align="center">
-  <img src="capture2.gif" alt="Tower Demo — Create and share dashboards on the fly" width="720" />
+  <video src="capture2.mp4" width="720" controls></video>
 </p>
 
 ---
