@@ -73,9 +73,14 @@ export function ShareModal({ filePath, onClose }: Props) {
       const data = await res.json();
       const fullUrl = `${window.location.origin}${data.url}`;
       setGeneratedUrl(fullUrl);
-      await navigator.clipboard.writeText(fullUrl);
-      toastSuccess('링크 생성 및 복사 완료!');
       loadShares();
+      // 클립보드 복사는 별도 처리 — 실패해도 링크 생성은 성공
+      try {
+        await navigator.clipboard.writeText(fullUrl);
+        toastSuccess('링크 생성 및 복사 완료!');
+      } catch {
+        toastSuccess('링크가 생성되었습니다. 아래에서 복사해주세요.');
+      }
     } catch (e: any) { toastError(e.message); }
     finally { setLoading(false); }
   };
