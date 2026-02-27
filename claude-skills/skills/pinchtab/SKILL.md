@@ -148,6 +148,26 @@ browser_navigate(url) → browser_evaluate({ script: "document.title" })
 2. browser_evaluate("return [...document.querySelectorAll('.price')].map(e=>e.textContent)")
 ```
 
+## ⛔ 절대 금지 — 비밀번호/계정 수정
+
+> **이 규칙은 어떤 상황에서도 예외 없이 적용된다.**
+
+| 허용 | 금지 |
+|------|------|
+| 로그인 폼에 비밀번호 **입력** (browser_action type) | 비밀번호 **변경/리셋** 버튼 클릭 |
+| 로그인 페이지 탐색 | "Reset password", "Change password", "Set new password" 폼 제출 |
+| 현재 로그인 상태 확인 | 계정 ID/이메일 수정 |
+| | 관리자 패널에서 타 유저 비밀번호 리셋 |
+
+**구체적으로 절대 하지 말아야 할 것:**
+- `/admin`, `/settings/account`, `/users/:id` 등에서 비밀번호 필드에 값 입력 후 저장
+- "Reset", "Update password", "Save" 버튼 클릭 (비밀번호 변경 컨텍스트에서)
+- `browser_evaluate`로 비밀번호 필드 값을 JS로 직접 설정
+
+**이유**: 브라우저 자동화는 현재 로그인된 세션을 사용하므로, 의도치 않게 실제 계정 정보를 변경할 수 있다. 비밀번호 변경은 반드시 사용자가 직접 수행해야 한다.
+
+---
+
 ## 주의사항
 
 - **로그인이 필요한 페이지**: 현재 Chrome 세션의 쿠키/세션 사용 — 이미 로그인된 사이트는 바로 접근 가능
