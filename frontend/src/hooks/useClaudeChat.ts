@@ -64,12 +64,22 @@ async function mergeMessagesFromDb(sessionId: string) {
     const currentMsgs = useChatStore.getState().messages;
     const currentIds = new Set(currentMsgs.map((m) => m.id));
 
+    // 스트리밍 중인 메시지 ID를 보호 목록에 추가 (DB는 UI보다 뒤처질 수 있음)
+    const isStreaming = useChatStore.getState().isStreaming;
+    const lastAssistantId = isStreaming
+      ? currentMsgs.findLast((m) => m.role === 'assistant')?.id
+      : undefined;
+
     // Build merged list: start with DB messages (authoritative order),
     // update content for existing ones, add missing ones
     const merged = dbMsgs.map((dbMsg) => {
       if (currentIds.has(dbMsg.id)) {
-        // Keep UI version but update content from DB (DB may be more complete)
         const uiMsg = currentMsgs.find((m) => m.id === dbMsg.id)!;
+        // 현재 스트리밍 중인 마지막 assistant 메시지는 UI 버전 유지 (DB가 뒤처질 수 있음)
+        if (isStreaming && dbMsg.id === lastAssistantId) {
+          return uiMsg;
+        }
+        // Keep UI version but update content from DB (DB may be more complete)
         return { ...uiMsg, content: dbMsg.content };
       }
       return dbMsg;

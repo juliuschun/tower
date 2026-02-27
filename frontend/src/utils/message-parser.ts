@@ -1,6 +1,46 @@
 import type { ContentBlock } from '../stores/chat-store';
 
 /**
+ * Extract <thinking> blocks from a raw text string.
+ * Handles: leading, mid-text, trailing, multiple, and partial (streaming) thinking blocks.
+ */
+function extractThinkingFromText(raw: string): ContentBlock[] {
+  const result: ContentBlock[] = [];
+  // Regex matches all complete <thinking>...</thinking> blocks anywhere in the text
+  const pattern = /(<(?:antml_)?thinking>)([\s\S]*?)(<\/(?:antml_)?thinking>)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(raw)) !== null) {
+    const before = raw.slice(lastIndex, match.index).trim();
+    if (before) result.push({ type: 'text', text: before });
+    result.push({ type: 'thinking', thinking: { text: match[2] } });
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text after all complete blocks
+  const after = raw.slice(lastIndex);
+
+  // Check if remaining text contains an unclosed opening tag (streaming)
+  const openTagMatch = after.match(/^([\s\S]*?)<(?:antml_)?thinking>([\s\S]*)$/);
+  if (openTagMatch) {
+    const beforeOpen = openTagMatch[1].trim();
+    if (beforeOpen) result.push({ type: 'text', text: beforeOpen });
+    result.push({ type: 'thinking', thinking: { text: openTagMatch[2] } });
+  } else {
+    const trimmed = after.trim();
+    if (trimmed) result.push({ type: 'text', text: trimmed });
+  }
+
+  // Fallback: no thinking blocks at all → single text block
+  if (result.length === 0 && raw.trim()) {
+    result.push({ type: 'text', text: raw });
+  }
+
+  return result;
+}
+
+/**
  * Parse an SDK assistant message into UI-renderable content blocks.
  *
  * SDK assistant messages have:
@@ -21,19 +61,7 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
       });
     } else if (item.type === 'text') {
       const raw = item.text || '';
-      // Complete thinking block — <thinking>...</thinking> followed by optional text
-      const completeMatch = raw.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
-      if (completeMatch) {
-        blocks.push({ type: 'thinking', thinking: { text: completeMatch[1] } });
-        const rest = raw.slice(completeMatch[0].length).trim();
-        if (rest) blocks.push({ type: 'text', text: rest });
-      // Streaming — opening tag present but no closing tag yet
-      } else if (/^\s*<(?:antml_)?thinking>/.test(raw)) {
-        const content = raw.replace(/^\s*<(?:antml_)?thinking>\n?/, '');
-        blocks.push({ type: 'thinking', thinking: { text: content } });
-      } else {
-        blocks.push({ type: 'text', text: raw });
-      }
+      blocks.push(...extractThinkingFromText(raw));
     } else if (item.type === 'tool_use') {
       blocks.push({
         type: 'tool_use',
@@ -77,18 +105,9 @@ export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
     if (item.type === 'thinking' && item.thinking?.text) return item;
     // Extract <thinking> tags from text blocks (DB stores them embedded)
     if (item.type === 'text' && item.text) {
-      const complete = item.text.match(/^\s*<(?:antml_)?thinking>\n?([\s\S]*?)\n?<\/(?:antml_)?thinking>\s*/);
-      if (complete) {
-        const result: ContentBlock[] = [{ type: 'thinking', thinking: { text: complete[1] } }];
-        const rest = item.text.slice(complete[0].length).trim();
-        if (rest) result.push({ type: 'text', text: rest });
-        return result;
-      }
-      // Partial (streaming) — opening tag but no closing tag
-      if (/^\s*<(?:antml_)?thinking>/.test(item.text)) {
-        const content = item.text.replace(/^\s*<(?:antml_)?thinking>\n?/, '');
-        return [{ type: 'thinking', thinking: { text: content } }];
-      }
+      const extracted = extractThinkingFromText(item.text);
+      // Only expand if thinking was actually found; otherwise return as-is
+      if (extracted.some((b) => b.type === 'thinking')) return extracted;
       return item;
     }
 
