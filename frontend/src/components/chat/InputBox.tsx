@@ -8,8 +8,12 @@ interface InputBoxProps {
   onAbort: () => void;
 }
 
+const DRAFT_KEY = 'tower:inputDraft';
+
 export function InputBox({ onSend, onAbort }: InputBoxProps) {
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() => {
+    try { return localStorage.getItem(DRAFT_KEY) ?? ''; } catch { return ''; }
+  });
   const [queued, setQueued] = useState<{ message: string; sessionId: string } | null>(null);
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -20,6 +24,16 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const currentSessionId = useChatStore((s) => s.sessionId);
   const slashCommands = useChatStore((s) => s.slashCommands);
   const attachments = useChatStore((s) => s.attachments);
+
+  // Restore textarea height for persisted draft
+  useEffect(() => {
+    if (input && textareaRef.current) {
+      const el = textareaRef.current;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Clear queued message when session changes
   useEffect(() => {
@@ -97,6 +111,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     }
 
     setInput('');
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
     setShowCommands(false);
     useChatStore.getState().clearAttachments();
     if (textareaRef.current) {
@@ -142,7 +157,9 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
+    const val = e.target.value;
+    setInput(val);
+    try { localStorage.setItem(DRAFT_KEY, val); } catch { /* storage full */ }
     const el = e.target;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';

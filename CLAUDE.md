@@ -43,3 +43,7 @@ Run `bash setup.sh` to bootstrap this structure automatically.
 **Gentle reminders**:
 - Missing rationale: "Recording the reason will help later" (principle 2)
 - Vague title: "A specific title makes it easier to find" (principle 3)
+
+## Communication Style
+
+When explaining architecture, systems, or technical decisions — use plain language and everyday analogies, as if explaining to a smart non-developer. Avoid jargon. If a technical term is necessary, explain it in one sentence right after. Default to the simplest possible explanation first, then add detail only if asked.
