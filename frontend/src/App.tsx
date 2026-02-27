@@ -33,6 +33,10 @@ import { SharedViewer } from './components/shared/SharedViewer';
 
 const API_BASE = '/api';
 
+// 세션 메시지 인메모리 캐시 — 페이지 리로드 전까지 유지
+// 이미 방문한 세션 재클릭 시 즉시 표시, 서버 갱신은 백그라운드
+const sessionMsgCache = new Map<string, import('./stores/chat-store').ChatMessage[]>();
+
 function findEntry(entries: import('./stores/file-store').FileEntry[], path: string): import('./stores/file-store').FileEntry | null {
   for (const e of entries) {
     if (e.path === path) return e;
@@ -117,6 +121,15 @@ function App() {
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+
+  // 스트리밍 종료 시 현재 세션 메시지를 캐시에 저장
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  useEffect(() => {
+    if (!isStreaming && activeSessionId) {
+      const msgs = useChatStore.getState().messages;
+      if (msgs.length > 0) sessionMsgCache.set(activeSessionId, msgs);
+    }
+  }, [isStreaming, activeSessionId]);
   const addSession = useSessionStore((s) => s.addSession);
   const removeSession = useSessionStore((s) => s.removeSession);
   const setSessions = useSessionStore((s) => s.setSessions);
@@ -268,7 +281,33 @@ function App() {
     // Notify backend of session switch
     setActiveSession(session.id, session.claudeSessionId);
 
-    // Load persisted messages
+    // Load persisted messages — cache hit: 즉시 표시 후 백그라운드 갱신
+    const cached = sessionMsgCache.get(session.id);
+    if (cached && cached.length > 0) {
+      useChatStore.getState().setMessages(cached);
+      // 백그라운드 갱신 (스트리밍 중 추가된 메시지 반영)
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      fetch(`${API_BASE}/sessions/${session.id}/messages`, { headers })
+        .then(r => r.ok ? r.json() : null)
+        .then(stored => {
+          if (!stored || stored.length === 0) return;
+          // 현재 보고 있는 세션일 때만 갱신
+          if (useSessionStore.getState().activeSessionId !== session.id) return;
+          const msgs = stored.map((m: any) => ({
+            id: m.id, role: m.role,
+            content: normalizeContentBlocks(typeof m.content === 'string' ? JSON.parse(m.content) : m.content),
+            timestamp: new Date(m.created_at).getTime(),
+            parentToolUseId: m.parent_tool_use_id,
+          }));
+          sessionMsgCache.set(session.id, msgs);
+          useChatStore.getState().setMessages(msgs);
+        })
+        .catch(() => {});
+      return;
+    }
+
+    // 캐시 없음 — 서버에서 로드 후 캐시 저장
     try {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -285,6 +324,7 @@ function App() {
             timestamp: new Date(m.created_at).getTime(),
             parentToolUseId: m.parent_tool_use_id,
           }));
+          sessionMsgCache.set(session.id, msgs); // 캐시 저장
           useChatStore.getState().setMessages(msgs);
           return; // Skip system message if we restored messages
         }
