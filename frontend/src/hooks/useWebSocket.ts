@@ -96,8 +96,38 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
       if (document.visibilityState === 'visible') {
         const ws = wsRef.current;
         if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          // WS가 끊겼으면 즉시 재연결
           clearTimeout(reconnectTimer.current);
           connect();
+        } else if (ws.readyState === WebSocket.OPEN) {
+          // iOS 등에서 WS가 zombie(OPEN이지만 실제 dead) 상태일 수 있음.
+          // 핑을 보내고, 짧은 시간 안에 pong이 없으면 강제 재연결.
+          // 그리고 살아있더라도 세션 상태 재동기화를 위해 reconnect 핸들러 호출.
+          let ponged = false;
+          const zombieTimer = setTimeout(() => {
+            if (!ponged && wsRef.current?.readyState === WebSocket.OPEN) {
+              // pong 응답 없음 → zombie 상태, 강제 종료 후 재연결
+              wsRef.current.close();
+            }
+          }, 3000);
+
+          const origOnMessage = ws.onmessage;
+          const pongGuard = (event: MessageEvent) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'pong') {
+                ponged = true;
+                clearTimeout(zombieTimer);
+                ws.onmessage = origOnMessage;
+                // 연결이 살아있음 → 세션 상태만 재동기화
+                onReconnectRef.current?.();
+                return;
+              }
+            } catch { /* ignore */ }
+            origOnMessage?.call(ws, event);
+          };
+          ws.onmessage = pongGuard;
+          ws.send(JSON.stringify({ type: 'ping' }));
         }
       }
     };

@@ -55,6 +55,7 @@ router.post('/auth/setup', (req, res) => {
   if (hasUsers()) return res.status(400).json({ error: 'Admin already exists' });
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   const user = createUser(username, password, 'admin');
   const token = generateToken({ userId: user.id, username: user.username, role: user.role });
   res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
@@ -302,7 +303,7 @@ router.patch('/admin/users/:id', adminMiddleware, (req, res) => {
 router.patch('/admin/users/:id/password', adminMiddleware, (req, res) => {
   const userId = parseInt(req.params.id as string);
   const { password } = req.body;
-  if (!password) return res.status(400).json({ error: 'password required' });
+  if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   resetUserPassword(userId, password);
   res.json({ ok: true });
 });

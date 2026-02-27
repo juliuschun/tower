@@ -440,11 +440,27 @@ export function useClaudeChat() {
 
       case 'file_changed': {
         handleFileChange(data.event, data.path);
-        // Refresh parent directory tree for add/addDir so new files appear
+        // Refresh parent directory tree for add/addDir so new files appear,
+        // but ONLY if the parent directory is currently visible in the user's file tree.
+        // Skipping invisible dirs prevents the sidebar from navigating away
+        // (e.g. resetting to workspace root and showing .gitignore) when Claude
+        // creates files outside the user's current view.
         if (data.event === 'add' || data.event === 'addDir') {
           const parentDir = data.path.substring(0, data.path.lastIndexOf('/'));
           if (parentDir) {
-            sendRef.current({ type: 'file_tree', path: parentDir });
+            const { tree, treeRoot } = useFileStore.getState();
+            const findInTree = (entries: typeof tree, p: string): boolean => {
+              for (const e of entries) {
+                if (e.path === p && e.isDirectory) return true;
+                if (e.children && findInTree(e.children, p)) return true;
+              }
+              return false;
+            };
+            // Send refresh only when the parent dir is currently shown in the sidebar
+            const isVisible = parentDir === treeRoot || (tree.length > 0 && findInTree(tree, parentDir));
+            if (isVisible) {
+              sendRef.current({ type: 'file_tree', path: parentDir });
+            }
           }
         }
         const fState = useFileStore.getState();
@@ -469,8 +485,11 @@ export function useClaudeChat() {
 
       case 'git_commit': {
         if (data.commit) {
+          // Silently add the commit to the version-history panel.
+          // We intentionally do NOT show a toast here: auto-snapshots are
+          // background bookkeeping and the notification was distracting users
+          // by drawing attention (and keyboard focus) to the git panel.
           useGitStore.getState().addCommit(data.commit);
-          toastSuccess(`Snapshot: ${data.commit.shortHash} (${data.commit.authorName})`);
         }
         break;
       }

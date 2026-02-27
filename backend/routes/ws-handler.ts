@@ -36,6 +36,7 @@ interface PendingQuestion {
 
 const SDK_HANG_TIMEOUT = 60 * 60 * 1000; // 60 minutes
 const ASK_USER_TIMEOUT = 60 * 60 * 1000; // 60 minutes
+const COMPACT_TIMEOUT = 3 * 60 * 1000;   // 3 minutes — max time allowed for autocompact
 
 const clients = new Map<string, WsClient>();
 const sessionClients = new Map<string, Set<string>>(); // sessionId → Set<clientId> (1:many)
@@ -441,6 +442,26 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         sessionId,
       });
     }, SDK_HANG_TIMEOUT);
+  };
+
+  // Autocompact detection timer — separate from hang timer
+  // compact_boundary fires right before SDK starts compacting; we give it COMPACT_TIMEOUT to finish.
+  let compactTimer: ReturnType<typeof setTimeout> | null = null;
+  const startCompactTimer = () => {
+    if (compactTimer) clearTimeout(compactTimer);
+    compactTimer = setTimeout(() => {
+      compactTimer = null;
+      abortSession(sessionId);
+      broadcastToSession(sessionId, {
+        type: 'error',
+        message: 'Context compaction timed out. Session has been aborted.',
+        errorCode: 'COMPACT_TIMEOUT',
+        sessionId,
+      });
+    }, COMPACT_TIMEOUT);
+  };
+  const clearCompactTimer = () => {
+    if (compactTimer) { clearTimeout(compactTimer); compactTimer = null; }
   };
 
   // Notify all clients that this session started streaming (for sidebar indicators)

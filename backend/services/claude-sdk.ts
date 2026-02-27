@@ -1,8 +1,32 @@
 import { query, type SDKMessage, type Query, type Options, type CanUseTool } from '@anthropic-ai/claude-agent-sdk';
+import { execSync } from 'child_process';
 import { config } from '../config.js';
 
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
 delete process.env.CLAUDECODE;
+
+// Kill orphaned SDK-spawned Claude processes from previous backend runs.
+// When tsx watch restarts the backend, previously spawned Claude processes
+// lose their parent reference and become orphans (ppid=1).
+function cleanupOrphanedSdkProcesses() {
+  try {
+    const result = execSync(
+      `ps -eo pid,ppid,cmd | awk '$2==1 && /claude.*--permission-mode.*bypassPermissions/ {print $1}'`,
+      { encoding: 'utf8', timeout: 3000 }
+    ).trim();
+    if (result) {
+      const pids = result.split('\n').filter(Boolean);
+      for (const pid of pids) {
+        try {
+          process.kill(Number(pid), 'SIGTERM');
+          console.log(`[sdk] Killed orphaned Claude process PID=${pid}`);
+        } catch { /* already dead */ }
+      }
+    }
+  } catch { /* ps/awk not available or no orphans */ }
+}
+
+cleanupOrphanedSdkProcesses();
 
 export interface ClaudeSession {
   id: string;
