@@ -140,9 +140,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
 
       case 'browser_action': {
+        // 브릿지는 'kind' 필드를 사용, MCP 스키마는 'type' — 변환 필요
+        const { type: kind, ...rest } = a as { type: string; [k: string]: unknown };
         const res = await manager.fetch('/action', {
           method: 'POST',
-          body: JSON.stringify(a),
+          body: JSON.stringify({ kind, ...rest }),
         });
         const data = await res.json();
         return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -150,20 +152,45 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
       case 'browser_screenshot': {
         const res = await manager.fetch('/screenshot');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(body.error || `Screenshot failed: HTTP ${res.status}`);
+        }
+        const contentType = res.headers.get('content-type') || '';
+
+        // pinchtab API: {"base64": "...", "format": "jpeg"}
+        if (contentType.includes('application/json')) {
+          const body = await res.json();
+          if (body.error) throw new Error(body.error);
+          const fmt = (body.format as string) || 'png';
+          const mimeType = `image/${fmt}` as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+          return {
+            content: [{
+              type: 'image',
+              data: body.base64 as string,
+              mimeType,
+            }],
+          };
+        }
+
+        // fallback: raw binary (향후 포맷 변경 대비)
+        const mimeType = (contentType.split(';')[0].trim() || 'image/png') as
+          'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
         const buf = Buffer.from(await res.arrayBuffer());
         return {
           content: [{
             type: 'image',
             data: buf.toString('base64'),
-            mimeType: 'image/jpeg',
+            mimeType,
           }],
         };
       }
 
       case 'browser_evaluate': {
+        // 브릿지는 'expression' 필드를 사용, MCP 스키마는 'code' — 변환 필요
         const res = await manager.fetch('/evaluate', {
           method: 'POST',
-          body: JSON.stringify({ code: a.code }),
+          body: JSON.stringify({ expression: a.code }),
         });
         const data = await res.json();
         return { content: [{ type: 'text', text: JSON.stringify(data) }] };
