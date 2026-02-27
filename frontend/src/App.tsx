@@ -46,7 +46,13 @@ function findEntry(entries: import('./stores/file-store').FileEntry[], path: str
 
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [authStatus, setAuthStatus] = useState<{ authEnabled: boolean; hasUsers: boolean } | null>(null);
+  const [authStatus, setAuthStatus] = useState<{ authEnabled: boolean; hasUsers: boolean } | null>(() => {
+    // 캐시된 auth 상태로 즉시 시작 → 로딩 화면 없음
+    try {
+      const c = localStorage.getItem('tower:authCache');
+      return c ? JSON.parse(c) : null;
+    } catch { return null; }
+  });
   const [authError, setAuthError] = useState('');
   const [contextPanelWidth, setContextPanelWidth] = useState(() => {
     const saved = localStorage.getItem('contextPanelWidth');
@@ -115,12 +121,15 @@ function App() {
   const removeSession = useSessionStore((s) => s.removeSession);
   const setSessions = useSessionStore((s) => s.setSessions);
 
-  // Check auth status (and validate existing token before rendering main UI)
+  // 백그라운드에서 auth 상태 검증 (캐시로 이미 렌더링된 후 조용히 실행)
   useEffect(() => {
     fetch(`${API_BASE}/auth/status`)
       .then((r) => r.json())
       .then(async (status) => {
-        // If auth enabled and we have a saved token, validate it first
+        // 캐시 갱신
+        try { localStorage.setItem('tower:authCache', JSON.stringify(status)); } catch {}
+
+        // 토큰이 있으면 실제 유효성 확인 (401만 로그아웃 — 네트워크 에러는 유지)
         if (status.authEnabled && token) {
           try {
             const r = await fetch(`${API_BASE}/sessions`, {
@@ -132,15 +141,15 @@ function App() {
               setToken(null);
             }
           } catch {
-            // Network error — clear stale token so login page shows
-            localStorage.removeItem('token');
-            localStorage.removeItem('userRole');
-            setToken(null);
+            // 네트워크 에러 → 오프라인일 수 있음, 토큰 유지
           }
         }
         setAuthStatus(status);
       })
-      .catch(() => setAuthStatus({ authEnabled: false, hasUsers: false }));
+      .catch(() => {
+        // 서버 응답 없음 → 캐시 상태 그대로 유지 (오프라인 허용)
+        if (authStatus === null) setAuthStatus({ authEnabled: false, hasUsers: false });
+      });
   }, []);
 
 
@@ -162,6 +171,8 @@ function App() {
       localStorage.setItem('token', data.token);
       if (data.user?.role) localStorage.setItem('userRole', data.user.role);
       setToken(data.token);
+      // 로그인 성공 시 캐시 갱신 → 다음 앱 시작 시 로딩 없이 바로 메인 화면
+      try { localStorage.setItem('tower:authCache', JSON.stringify({ authEnabled: true, hasUsers: true })); } catch {}
       if (isSetup) {
         setAuthStatus({ ...authStatus!, hasUsers: true });
       }
