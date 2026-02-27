@@ -38,6 +38,7 @@ interface ChatPanelProps {
 export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: ChatPanelProps) {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const isCompacting = useChatStore((s) => s.isCompacting);
   const pendingQuestion = useChatStore((s) => s.pendingQuestion);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
@@ -146,6 +147,17 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
           <div ref={bottomRef} className="h-4" />
         </div>
       </div>
+
+      {/* Autocompact banner */}
+      {isCompacting && (
+        <div className="shrink-0 mx-3 md:mx-6 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-800/80 border border-surface-700/50 text-[12px] text-gray-400">
+          <svg className="w-3.5 h-3.5 shrink-0 animate-spin text-primary-400" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+          </svg>
+          <span>컨텍스트 압축 중… 잠시만 기다려 주세요.</span>
+        </div>
+      )}
 
       {/* Input + Floating Question */}
       <div className="shrink-0 px-3 md:px-6 pb-2 md:pb-6">

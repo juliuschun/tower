@@ -80,6 +80,7 @@ interface ChatState {
   rateLimit: RateLimitInfo | null;
   attachments: Attachment[];
   pendingQuestion: PendingQuestion | null;
+  isCompacting: boolean;
 
   addMessage: (msg: ChatMessage) => void;
   updateAssistantById: (id: string, content: ContentBlock[]) => void;
@@ -91,6 +92,7 @@ interface ChatState {
   setSystemInfo: (info: { slashCommands?: string[] | SlashCommandInfo[]; tools?: string[]; model?: string }) => void;
   setCost: (cost: Partial<CostInfo>) => void;
   setRateLimit: (info: RateLimitInfo | null) => void;
+  setCompacting: (v: boolean) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
   markPendingDelivered: () => void;
@@ -114,6 +116,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   rateLimit: null,
   attachments: [],
   pendingQuestion: null,
+  isCompacting: false,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -154,6 +157,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   setStreaming: (v) => set({ isStreaming: v }),
+  setCompacting: (v) => set({ isCompacting: v }),
   setSessionId: (id) => set({ sessionId: id }),
   setClaudeSessionId: (id) => set({ claudeSessionId: id }),
   setSystemInfo: (info) =>
