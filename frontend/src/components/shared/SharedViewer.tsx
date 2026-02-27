@@ -36,7 +36,7 @@ export function SharedViewer() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="bg-gray-950 flex items-center justify-center" style={{ height: '100dvh' }}>
         <div className="text-gray-400 text-sm">불러오는 중...</div>
       </div>
     );
@@ -44,7 +44,7 @@ export function SharedViewer() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="bg-gray-950 flex items-center justify-center" style={{ height: '100dvh' }}>
         <div className="text-center space-y-3">
           <div className="text-5xl">🔗</div>
           <p className="text-gray-300 text-sm">{error || '파일을 불러올 수 없습니다.'}</p>
@@ -57,9 +57,9 @@ export function SharedViewer() {
   const useIframe = IFRAME_EXTS.has(data.ext);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="flex flex-col bg-gray-950 text-gray-100" style={{ height: '100dvh' }}>
       {/* Header */}
-      <div className="border-b border-gray-800 px-6 py-3 flex items-center justify-between sticky top-0 bg-gray-950/90 backdrop-blur">
+      <div className="shrink-0 border-b border-gray-800 px-6 py-3 flex items-center justify-between bg-gray-950/90 backdrop-blur">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -105,8 +105,8 @@ export function SharedViewer() {
         </button>
       </div>
 
-      {/* Content */}
-      <div className={useIframe && viewMode === 'preview' ? 'h-[calc(100vh-56px)]' : 'max-w-4xl mx-auto px-6 py-8'}>
+      {/* Content — flex-1 + overflow-y-auto so body scroll is not needed */}
+      <div className={`flex-1 overflow-y-auto ${useIframe && viewMode === 'preview' ? '' : 'max-w-4xl mx-auto w-full px-6 py-8'}`}>
         {viewMode === 'raw' ? (
           /* 원본 — 항상 plain text */
           <pre className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed font-mono">{data.content}</pre>
