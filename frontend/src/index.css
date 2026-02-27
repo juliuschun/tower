@@ -183,9 +183,10 @@
 
 /* ─── Typography base ─── */
 html, body {
-  overflow-x: hidden;
+  overflow: hidden;          /* body 레벨 스크롤 차단 → 앱 내부 컨테이너만 스크롤 */
+  height: 100%;
   max-width: 100vw;
-  overscroll-behavior-x: none; /* prevent swipe-to-navigate on mobile browsers */
+  overscroll-behavior: none; /* iOS 고무줄 바운스 완전 차단 */
 }
 
 body {

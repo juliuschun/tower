@@ -35,8 +35,21 @@
         if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', t);
       })();
+      // Unregister stale service workers (dev mode served over production SW cache)
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          regs.forEach(function(r) { r.unregister(); });
+        });
+      }
     </script>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback shown before JS loads (or if JS fails) -->
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;">
+        <div style="color:#f59e0b;font-size:1.25rem;font-weight:bold;">Tower</div>
+        <div style="color:#7888a0;font-size:0.875rem;margin-top:0.5rem;">Loading...</div>
+      </div>
+    </div>
+    <noscript><div style="padding:2rem;text-align:center;color:#f59e0b;">JavaScript is required to use Tower.</div></noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

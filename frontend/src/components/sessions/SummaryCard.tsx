@@ -38,41 +38,41 @@ export function SummaryCard({ session }: SummaryCardProps) {
   };
 
   return (
-    <div className="sticky top-0 z-30 mx-6 pt-4 mb-2">
-      <div className="bg-surface-900/95 backdrop-blur-md border border-surface-800/50 rounded-xl overflow-hidden shadow-lg shadow-black/20">
+    <div className="sticky top-0 z-30 mx-3 sm:mx-6 pt-2 sm:pt-4 mb-1 sm:mb-2">
+      <div className="bg-surface-900/30 sm:bg-surface-900/95 sm:backdrop-blur-md border border-surface-800/15 sm:border-surface-800/50 rounded-lg sm:rounded-xl overflow-hidden sm:shadow-lg sm:shadow-black/20">
         {/* Header — always visible */}
-        <div className="flex items-center gap-2 px-4 py-2.5">
+        <div className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5">
           <button
             onClick={() => session.summary ? setExpanded(!expanded) : handleSummarize()}
             className="flex items-center gap-2 flex-1 min-w-0 text-left"
           >
-            <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-surface-700 sm:text-surface-600 transition-transform shrink-0 ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-            <span className="text-[12px] font-medium text-gray-400">
+            <span className="text-[11px] sm:text-[12px] font-medium text-surface-600 sm:text-gray-400">
               {session.summary ? 'Summary' : 'No summary'}
             </span>
           </button>
 
           {/* Meta chips */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {turnCount > 0 && (
-              <span className="text-[10px] text-surface-600 bg-surface-800/50 px-1.5 py-0.5 rounded" title="Turns">
-                {turnCount} turns
+              <span className="text-[10px] text-surface-700 sm:text-surface-600 sm:bg-surface-800/50 sm:px-1.5 sm:py-0.5 sm:rounded" title="Turns">
+                {turnCount}t
               </span>
             )}
             {filesCount > 0 && (
-              <span className="text-[10px] text-surface-600 bg-surface-800/50 px-1.5 py-0.5 rounded" title="Files edited">
-                {filesCount} files
+              <span className="text-[10px] text-surface-700 sm:text-surface-600 sm:bg-surface-800/50 sm:px-1.5 sm:py-0.5 sm:rounded" title="Files edited">
+                {filesCount}f
               </span>
             )}
             {session.totalCost > 0 && (
-              <span className="text-[10px] text-primary-400/70 bg-primary-900/10 px-1.5 py-0.5 rounded">
-                ${session.totalCost.toFixed(4)}
+              <span className="text-[10px] text-surface-700 sm:text-primary-400/70 sm:bg-primary-900/10 sm:px-1.5 sm:py-0.5 sm:rounded">
+                ${session.totalCost.toFixed(3)}
               </span>
             )}
             {session.modelUsed && (
-              <span className="text-[10px] text-purple-400/70 bg-purple-900/10 px-1.5 py-0.5 rounded">
+              <span className="hidden sm:inline text-[10px] text-purple-400/70 bg-purple-900/10 px-1.5 py-0.5 rounded">
                 {session.modelUsed.replace('claude-', '').replace(/-\d+$/, '')}
               </span>
             )}
@@ -82,10 +82,10 @@ export function SummaryCard({ session }: SummaryCardProps) {
           <button
             onClick={handleSummarize}
             disabled={loading}
-            className="p-1 text-surface-600 hover:text-primary-400 transition-colors disabled:opacity-50 shrink-0"
+            className="p-1 text-surface-700 sm:text-surface-600 hover:text-primary-400 transition-colors disabled:opacity-50 shrink-0"
             title={session.summary ? 'Refresh summary' : 'Generate summary'}
           >
-            <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </button>

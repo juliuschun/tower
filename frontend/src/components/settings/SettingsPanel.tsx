@@ -1,5 +1,6 @@
 import React from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
+import { useSessionStore } from '../../stores/session-store';
 
 interface SettingsPanelProps {
   onLogout: () => void;
@@ -11,6 +12,9 @@ export function SettingsPanel({ onLogout, onBrowserOpen }: SettingsPanelProps) {
   const setOpen = useSettingsStore((s) => s.setOpen);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const isMobile = useSessionStore((s) => s.isMobile);
+  const activeView = useSessionStore((s) => s.activeView);
+  const setActiveView = useSessionStore((s) => s.setActiveView);
 
   if (!isOpen) return null;
 
@@ -23,7 +27,7 @@ export function SettingsPanel({ onLogout, onBrowserOpen }: SettingsPanelProps) {
       />
 
       {/* Modal */}
-      <div className="relative bg-surface-900 border border-surface-700 rounded-xl shadow-2xl w-[360px] max-h-[80vh] overflow-auto">
+      <div className="relative bg-surface-900 border border-surface-700 rounded-xl shadow-2xl w-[calc(100vw-32px)] max-w-[360px] max-h-[80vh] overflow-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-800">
           <h2 className="text-[15px] font-bold text-gray-100">Settings</h2>
@@ -39,6 +43,35 @@ export function SettingsPanel({ onLogout, onBrowserOpen }: SettingsPanelProps) {
 
         {/* Content */}
         <div className="p-5 space-y-5">
+          {/* View mode — mobile only (desktop has header toggle) */}
+          {isMobile && (
+            <section>
+              <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">View</h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setActiveView('chat')}
+                  className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${
+                    activeView === 'chat'
+                      ? 'bg-surface-800 border-primary-500 text-primary-400'
+                      : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
+                  }`}
+                >
+                  Chat
+                </button>
+                <button
+                  onClick={() => setActiveView('kanban')}
+                  className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${
+                    activeView === 'kanban'
+                      ? 'bg-surface-800 border-primary-500 text-primary-400'
+                      : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
+                  }`}
+                >
+                  Board
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* Theme */}
           <section>
             <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Appearance</h3>

@@ -5,7 +5,6 @@ import { normalizeContentBlocks } from '../../utils/message-parser';
 import { MessageBubble } from './MessageBubble';
 import { InputBox } from './InputBox';
 import { FloatingQuestionCard } from './FloatingQuestionCard';
-import { SummaryCard } from '../sessions/SummaryCard';
 
 /**
  * Merge consecutive assistant messages into one visual message.
@@ -110,10 +109,6 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
     <div className="flex flex-col h-full">
       {/* Messages area */}
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-        {/* Summary card — shown when session has messages */}
-        {activeSession && messages.length > 0 && (
-          <SummaryCard session={activeSession} />
-        )}
 
         <div className="px-3 md:px-6">
           {messages.length === 0 && (

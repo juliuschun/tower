@@ -156,7 +156,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
   const currentModel = availableModels.find((m) => m.id === selectedModel) || availableModels[0];
 
   return (
-    <header className="h-14 bg-surface-900/80 backdrop-blur-md border-b border-surface-800 flex items-center px-3 md:px-5 gap-2 md:gap-4 shrink-0 sticky top-0 z-50">
+    <header className="h-14 bg-surface-900/80 backdrop-blur-md border-b border-surface-800 flex items-center px-3 md:px-5 gap-2 md:gap-4 shrink-0 z-50">
       <button
         onClick={onToggleSidebar}
         className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-gray-400 hover:text-gray-200"
@@ -176,13 +176,13 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
         {!isMobile && <span className="text-gray-100 font-bold text-[15px] tracking-tight">Tower</span>}
       </div>
 
-      {/* Chat / Board view toggle */}
-      <ViewToggle />
+      {/* Chat / Board view toggle — desktop only, mobile uses Settings panel */}
+      {!isMobile && <ViewToggle />}
 
       {activeSession && (
         <>
-          <span className="text-surface-700 -mx-1">/</span>
-          <div className={`text-[13px] font-medium text-gray-400 px-2 py-1 rounded bg-surface-800/50 truncate ${isMobile ? 'max-w-[120px]' : ''}`}>
+          <span className="text-surface-700 -mx-1 shrink-0">/</span>
+          <div className={`text-[13px] font-medium text-gray-400 px-2 py-1 rounded bg-surface-800/50 truncate min-w-0 ${isMobile ? 'max-w-[120px]' : ''}`}>
             {activeSession.name}
           </div>
         </>
@@ -202,7 +202,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
         </button>
       )}
 
-      <div className="flex items-center gap-2 md:gap-3">
+      <div className="flex items-center gap-2 md:gap-3 shrink-0">
         {isMobile ? (
           currentModel && <MobileModelSelector
             currentModel={currentModel}
@@ -214,7 +214,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           <ModelSelector />
         )}
 
-        <VersionHistoryButton onViewDiff={onViewDiff} />
+        {!isMobile && <VersionHistoryButton onViewDiff={onViewDiff} />}
 
         {onAdminClick && (
           <button
@@ -228,27 +228,29 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           </button>
         )}
 
-        <button
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
-          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-        >
-          {theme === 'dark' ? (
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          ) : (
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-            </svg>
-          )}
-        </button>
+        {/* Theme toggle: desktop only — mobile uses Settings tab in MobileTabBar */}
+        {!isMobile && (
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
+            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          >
+            {theme === 'dark' ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            )}
+          </button>
+        )}
 
-        {cost.totalCost > 0 && (
-          <span className={`font-semibold text-primary-300 bg-primary-900/10 border border-primary-800/30 rounded-md shadow-sm ${
-            isMobile ? 'text-[10px] px-1.5 py-0.5' : 'text-[11px] px-2.5 py-1'
-          }`}>
-            ${isMobile ? cost.totalCost.toFixed(2) : cost.totalCost.toFixed(4)}
+        {/* Cost badge: desktop only — prevents dynamic overflow on mobile */}
+        {!isMobile && cost.totalCost > 0 && (
+          <span className="text-[11px] px-2.5 py-1 font-semibold text-primary-300 bg-primary-900/10 border border-primary-800/30 rounded-md shadow-sm">
+            ${cost.totalCost.toFixed(4)}
           </span>
         )}
 

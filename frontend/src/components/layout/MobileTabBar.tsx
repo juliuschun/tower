@@ -1,7 +1,8 @@
 import React from 'react';
 import { useSessionStore, type MobileTab } from '../../stores/session-store';
+import { useSettingsStore } from '../../stores/settings-store';
 
-const tabs: { id: MobileTab; label: string; icon: JSX.Element }[] = [
+const tabs: { id: MobileTab | 'settings'; label: string; icon: JSX.Element }[] = [
   {
     id: 'sessions',
     label: 'Sessions',
@@ -47,6 +48,16 @@ const tabs: { id: MobileTab; label: string; icon: JSX.Element }[] = [
       </svg>
     ),
   },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
 ];
 
 export function MobileTabBar() {
@@ -55,8 +66,13 @@ export function MobileTabBar() {
   const setSidebarOpen = useSessionStore((s) => s.setSidebarOpen);
   const setSidebarTab = useSessionStore((s) => s.setSidebarTab);
   const setMobileContextOpen = useSessionStore((s) => s.setMobileContextOpen);
+  const openSettings = useSettingsStore((s) => s.setOpen);
 
-  const handleTabClick = (tab: MobileTab) => {
+  const handleTabClick = (tab: MobileTab | 'settings') => {
+    if (tab === 'settings') {
+      openSettings(true);
+      return;
+    }
     setMobileTab(tab);
     if (tab === 'sessions') {
       setSidebarOpen(true);
@@ -80,13 +96,14 @@ export function MobileTabBar() {
   };
 
   return (
-    <nav className="h-14 bg-surface-900 border-t border-surface-800 flex items-stretch shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <nav className="bg-surface-900 border-t border-surface-800 shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      <div className="h-12 flex items-stretch">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => handleTabClick(tab.id)}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
-            mobileTab === tab.id
+            tab.id !== 'settings' && mobileTab === tab.id
               ? 'text-primary-400'
               : 'text-gray-500 active:text-gray-300'
           }`}
@@ -95,6 +112,7 @@ export function MobileTabBar() {
           <span className="text-[10px] font-medium">{tab.label}</span>
         </button>
       ))}
+      </div>
     </nav>
   );
 }

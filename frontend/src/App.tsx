@@ -115,11 +115,31 @@ function App() {
   const removeSession = useSessionStore((s) => s.removeSession);
   const setSessions = useSessionStore((s) => s.setSessions);
 
-  // Check auth status
+  // Check auth status (and validate existing token before rendering main UI)
   useEffect(() => {
     fetch(`${API_BASE}/auth/status`)
       .then((r) => r.json())
-      .then(setAuthStatus)
+      .then(async (status) => {
+        // If auth enabled and we have a saved token, validate it first
+        if (status.authEnabled && token) {
+          try {
+            const r = await fetch(`${API_BASE}/sessions`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (r.status === 401) {
+              localStorage.removeItem('token');
+              localStorage.removeItem('userRole');
+              setToken(null);
+            }
+          } catch {
+            // Network error — clear stale token so login page shows
+            localStorage.removeItem('token');
+            localStorage.removeItem('userRole');
+            setToken(null);
+          }
+        }
+        setAuthStatus(status);
+      })
       .catch(() => setAuthStatus({ authEnabled: false, hasUsers: false }));
   }, []);
 
@@ -626,8 +646,9 @@ function App() {
   // Auth gate
   if (authStatus === null) {
     return (
-      <div className="min-h-screen bg-surface-950 flex items-center justify-center">
-        <div className="text-gray-500">Loading...</div>
+      <div className="app-bg flex flex-col items-center justify-center" style={{ minHeight: '100dvh' }}>
+        <div className="text-primary-500 text-lg font-bold mb-2">Tower</div>
+        <div className="text-gray-400 text-sm">Loading...</div>
       </div>
     );
   }
@@ -643,7 +664,7 @@ function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100">
+    <div className="flex flex-col overflow-hidden app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100" style={{ height: '100dvh' }}>
       <Toaster position="top-right" theme={theme} richColors closeButton />
       <OfflineBanner />
       <Header
