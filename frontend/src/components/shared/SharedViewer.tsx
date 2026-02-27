@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 
 const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx', 'py', 'sh', 'sql', 'json', 'yaml', 'yml', 'css']);
@@ -120,7 +121,7 @@ export function SharedViewer() {
         ) : data.ext === 'md' ? (
           /* 미리보기 — 마크다운 렌더링 */
           <div className="prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {data.content}
             </ReactMarkdown>
           </div>
