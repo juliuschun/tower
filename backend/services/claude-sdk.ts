@@ -7,26 +7,59 @@ delete process.env.CLAUDECODE;
 
 // Kill orphaned SDK-spawned Claude processes from previous backend runs.
 // When tsx watch restarts the backend, previously spawned Claude processes
-// lose their parent reference and become orphans (ppid=1).
+// lose their parent reference and become orphans (ppid=1, tty=?).
 function cleanupOrphanedSdkProcesses() {
   try {
+    // Match: ppid=1, no tty (?), command contains "claude --dangerously-skip-permissions"
     const result = execSync(
-      `ps -eo pid,ppid,cmd | awk '$2==1 && /claude.*--permission-mode.*bypassPermissions/ {print $1}'`,
+      `ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*--dangerously-skip-permissions/ {print $1}'`,
       { encoding: 'utf8', timeout: 3000 }
     ).trim();
     if (result) {
       const pids = result.split('\n').filter(Boolean);
+      console.log(`[sdk] Found ${pids.length} orphaned Claude process(es): ${pids.join(', ')}`);
       for (const pid of pids) {
         try {
           process.kill(Number(pid), 'SIGTERM');
           console.log(`[sdk] Killed orphaned Claude process PID=${pid}`);
         } catch { /* already dead */ }
       }
+      // SIGTERM may be ignored — follow up with SIGKILL after 3s
+      setTimeout(() => {
+        for (const pid of pids) {
+          try {
+            process.kill(Number(pid), 0); // check if still alive
+            process.kill(Number(pid), 'SIGKILL');
+            console.log(`[sdk] Force-killed orphan PID=${pid} (SIGTERM was ignored)`);
+          } catch { /* already dead — good */ }
+        }
+      }, 3000);
     }
   } catch { /* ps/awk not available or no orphans */ }
 }
 
 cleanupOrphanedSdkProcesses();
+
+// Graceful shutdown: abort all active SDK sessions before the process exits.
+// Prevents orphaned claude child processes when tsx watch restarts the backend.
+function gracefulShutdown(signal: string) {
+  let aborted = 0;
+  for (const session of activeSessions.values()) {
+    if (session.isRunning) {
+      session.abortController.abort();
+      session.isRunning = false;
+      aborted++;
+    }
+  }
+  if (aborted > 0) {
+    console.log(`[sdk] ${signal}: aborted ${aborted} active session(s)`);
+  }
+  // Give SDK a moment to clean up child processes, then exit
+  setTimeout(() => process.exit(0), 500);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export interface ClaudeSession {
   id: string;
@@ -97,32 +130,42 @@ export async function* executeQuery(
     queryOptions.resume = options.resumeSessionId;
   }
 
-  try {
-    const response = query({
-      prompt: processedPrompt,
-      options: queryOptions,
-    });
-
+  // Helper: run query and yield messages
+  async function* runQuery(opts: Options): AsyncGenerator<SDKMessage> {
+    const response = query({ prompt: processedPrompt, options: opts });
     session.query = response;
-
     for await (const message of response) {
-      // Capture claude session ID from system init message
       if (message.type === 'system' && message.subtype === 'init') {
         session.claudeSessionId = message.session_id;
       }
-      // Track session ID from any message
       if ('session_id' in message && message.session_id) {
         session.claudeSessionId = message.session_id;
       }
-
       yield message;
     }
+  }
+
+  try {
+    yield* runQuery(queryOptions);
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      // User aborted, not an error
       return;
     }
-    throw error;
+    // Resume failed (exit code 1, stale session) → retry without resume
+    if (queryOptions.resume && /exited with code|ENOENT|session.*not found/i.test(error.message || '')) {
+      console.warn(`[sdk] resume failed for session=${sessionId}, retrying fresh: ${error.message}`);
+      const freshOptions = { ...queryOptions };
+      delete freshOptions.resume;
+      session.claudeSessionId = undefined;
+      try {
+        yield* runQuery(freshOptions);
+      } catch (retryError: any) {
+        if (retryError.name === 'AbortError') return;
+        throw retryError;
+      }
+    } else {
+      throw error;
+    }
   } finally {
     session.isRunning = false;
     // Auto-cleanup after 5 minutes to prevent memory leak

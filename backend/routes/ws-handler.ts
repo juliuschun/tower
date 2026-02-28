@@ -267,7 +267,7 @@ async function handleMessage(client: WsClient, data: any) {
     case 'task_spawn': {
       const { taskId } = data;
       try {
-        await spawnTask(taskId, (type, payload) => broadcastToAll({ type, ...payload }), client.userId);
+        await spawnTask(taskId, (type, payload) => broadcastToAll({ type, ...payload }), client.userId, client.userRole);
       } catch (err: any) {
         send(client.ws, { type: 'error', message: err.message });
       }
@@ -460,7 +460,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     resetHangTimer();
 
     // Create canUseTool to intercept AskUserQuestion
-    const canUseTool = createCanUseTool(sessionId);
+    const canUseTool = createCanUseTool(sessionId, (client.userRole || 'member') as TowerRole);
 
     for await (const message of executeQuery(sessionId, data.message, {
       cwd: data.cwd || client.allowedPath || config.defaultCwd,
@@ -473,6 +473,14 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       resetHangTimer();
       // Track Claude session ID locally (NOT on client — client may have switched sessions)
       if ('session_id' in message && message.session_id) {
+        // Persist claudeSessionId to DB immediately on first capture.
+        // This prevents the Stop hook (tower-sync-stop.mjs) from creating
+        // a duplicate session before streaming completes.
+        if (!loopClaudeSessionId) {
+          try {
+            updateSession(sessionId, { claudeSessionId: message.session_id });
+          } catch (err) { console.error('[ws] early claudeSessionId persist failed:', err); }
+        }
         loopClaudeSessionId = message.session_id;
       }
 
@@ -494,6 +502,20 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
               try { attachToolResultInDb(sessionId, block.tool_use_id, finalResult); } catch (err) { console.error('[ws] attachToolResultInDb failed:', err); }
             }
           }
+
+          // Save user tool_result message to DB (so session history is complete)
+          const parentToolUseId = userContent.find((b: any) => b.tool_use_id)?.tool_use_id || null;
+          if (parentToolUseId) {
+            const msgId = (message as any).uuid || uuidv4();
+            try {
+              saveMessage(sessionId, {
+                id: msgId,
+                role: 'user',
+                content: userContent,
+                parentToolUseId,
+              });
+            } catch (err) { console.error('[ws] saveMessage (user tool_result) failed:', err); }
+          }
         }
       }
 
@@ -501,10 +523,12 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       if ((message as any).type === 'assistant') {
         const msgId = (message as any).uuid || uuidv4();
         const content = (message as any).message?.content || [];
+        const contentTypes = Array.isArray(content) ? content.map((b: any) => b.type).join(',') : 'non-array';
         if (msgId !== currentAssistantId) {
           // New assistant message
           currentAssistantId = msgId;
           currentAssistantContent = content;
+          console.log(`[ws] saveMessage assistant id=${msgId.slice(0, 8)} session=${sessionId.slice(0, 8)} blocks=${content.length} types=[${contentTypes}]`);
           try {
             saveMessage(sessionId, {
               id: msgId,
@@ -596,6 +620,11 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
   } catch (error: any) {
     console.error(`[ws] handleChat ERROR session=${sessionId}:`, error.message || error);
+    // Clear stale claudeSessionId so next attempt doesn't retry the same broken resume
+    if (resumeSessionId && /exited with code|ENOENT|session.*not found/i.test(error.message || '')) {
+      try { updateSession(sessionId, { claudeSessionId: '' }); } catch {}
+      console.warn(`[ws] cleared stale claudeSessionId for session=${sessionId}`);
+    }
     broadcastToSession(sessionId, {
       type: 'error',
       message: error.message || 'Claude query failed',

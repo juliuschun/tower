@@ -120,6 +120,7 @@ function initSchema(db: Database.Database) {
     `ALTER TABLE sessions ADD COLUMN summary_at_turn INTEGER`,
     `ALTER TABLE sessions ADD COLUMN turn_count INTEGER DEFAULT 0`,
     `ALTER TABLE sessions ADD COLUMN files_edited TEXT DEFAULT '[]'`,
+    `ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0`,
   ];
   for (const sql of sessionMigrations) {
     try { db.exec(sql); } catch {}

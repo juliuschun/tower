@@ -69,8 +69,8 @@ export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'na
 export function getSessions(userId?: number): SessionMeta[] {
   const db = getDb();
   const query = userId
-    ? db.prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY updated_at DESC')
-    : db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC');
+    ? db.prepare('SELECT * FROM sessions WHERE user_id = ? AND (archived IS NULL OR archived = 0) ORDER BY updated_at DESC')
+    : db.prepare('SELECT * FROM sessions WHERE archived IS NULL OR archived = 0 ORDER BY updated_at DESC');
 
   const rows = userId ? query.all(userId) : query.all();
   return (rows as any[]).map(mapRow);
@@ -106,7 +106,8 @@ export function getSession(id: string): SessionMeta | null {
 
 export function deleteSession(id: string): boolean {
   const db = getDb();
-  const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  // Soft-delete: hide from sidebar, preserve data for recovery
+  const result = db.prepare('UPDATE sessions SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
   return result.changes > 0;
 }
 
