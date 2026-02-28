@@ -65,9 +65,14 @@ function parseFrontmatterField(content: string, field: string): string {
     return firstLine;
   }
 
-  // Single line — quoted or bare
-  const single = fm.match(new RegExp(`^${field}:\\s*"?([^"\\n]+)"?`, 'm'));
-  if (single) return single[1].trim();
+  // Single line — capture full line, then strip surrounding quotes if present
+  // (avoids cutting off at embedded quotes, e.g. description: Use when "x" or "y")
+  const single = fm.match(new RegExp(`^${field}:\\s*(.+)$`, 'm'));
+  if (single) {
+    const val = single[1].trim();
+    if (val.startsWith('"') && val.endsWith('"')) return val.slice(1, -1);
+    return val;
+  }
 
   return '';
 }

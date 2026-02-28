@@ -100,7 +100,7 @@ else
   echo "  Set this to your domain (e.g. https://desk.yourteam.com)."
   echo "  Leave blank to skip (share links will use window.location.origin)."
   echo ""
-  read -p "  PUBLIC_URL: " -r PUBLIC_URL_INPUT
+  read -p "  PUBLIC_URL: " -r PUBLIC_URL_INPUT || true
   if [ -n "$PUBLIC_URL_INPUT" ]; then
     sed_inplace "s|^PUBLIC_URL=.*|PUBLIC_URL=$PUBLIC_URL_INPUT|" .env
     info "PUBLIC_URL set to $PUBLIC_URL_INPUT"
@@ -170,13 +170,13 @@ else
       echo "  (Press Enter to skip any question)"
       echo ""
 
-      read -p "  Team / company name: " -r TEAM_NAME
-      read -p "  Team size (people): " -r TEAM_SIZE
-      read -p "  Main tech stack (e.g. TypeScript, Python, React): " -r TECH_STACK
-      read -p "  Current top priority project: " -r TOP_PROJECT
+      read -p "  Team / company name: " -r TEAM_NAME || true
+      read -p "  Team size (people): " -r TEAM_SIZE || true
+      read -p "  Main tech stack (e.g. TypeScript, Python, React): " -r TECH_STACK || true
+      read -p "  Current top priority project: " -r TOP_PROJECT || true
       echo "  Primary language for Claude responses:"
       echo "    1) 한국어   2) English"
-      read -p "  Choice (1/2, default 1): " -n 1 -r LANG_CHOICE
+      read -p "  Choice (1/2, default 1): " -n 1 -r LANG_CHOICE || true
       echo
 
       LANG_CHOICE="${LANG_CHOICE:-1}"
