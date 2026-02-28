@@ -23,8 +23,28 @@ app.use('/api', apiRouter);
 // Serve frontend in production
 const frontendPath = config.frontendDir;
 if (fs.existsSync(frontendPath)) {
-  app.use(express.static(frontendPath));
+  // sw.js & index.html must never be cached — ensures PWA updates propagate immediately
+  // CDN-Bypass: Cloudflare respects CDN-Cache-Control separately from browser Cache-Control
+  app.get('/sw.js', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+    res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.sendFile(path.join(frontendPath, 'sw.js'));
+  });
+  app.use(express.static(frontendPath, {
+    setHeaders: (res, filePath) => {
+      // Hashed assets (e.g. index-DRQj5zgr.js) can be cached forever; everything else gets revalidation
+      if (filePath.includes('/assets/')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
 }
