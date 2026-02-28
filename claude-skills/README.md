@@ -31,7 +31,6 @@ Installed to `~/.claude/` via `./install-skills.sh` (or `bash setup.sh`).
 | Skill | Description |
 |-------|-------------|
 | `ready` | Session resume — shows recent work and todos |
-| `swarm` | Three expert perspectives on hard questions |
 | `review-global` | Periodic situation report across all projects |
 | `tech-lead` | Adaptive expert judgment for architectural decisions |
 | `ui-ux-pro-max` | UI/UX design intelligence (50 styles, 21 palettes, 50 font pairings) |
