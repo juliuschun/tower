@@ -85,7 +85,12 @@ export const config = {
 };
 
 export function getPermissionMode(role?: string): PermissionMode {
-  if (role === 'admin') return 'bypassPermissions';
-  if (role === 'user') return 'acceptEdits';
-  return config.permissionMode;
+  switch (role) {
+    case 'admin':    return 'bypassPermissions';
+    case 'operator': return 'bypassPermissions';
+    case 'member':   return 'acceptEdits';
+    case 'viewer':   return 'plan';
+    case 'user':     return 'acceptEdits'; // legacy backward-compat
+    default:         return config.permissionMode;
+  }
 }

@@ -74,7 +74,7 @@ function UserManagement({ token }: { token?: string | null }) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', allowed_path: '' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'member', allowed_path: '' });
   const [resetPwUserId, setResetPwUserId] = useState<number | null>(null);
   const [resetPwValue, setResetPwValue] = useState('');
   const [error, setError] = useState('');
@@ -112,7 +112,7 @@ function UserManagement({ token }: { token?: string | null }) {
       });
       if (res.ok) {
         setShowForm(false);
-        setNewUser({ username: '', password: '', role: 'user', allowed_path: '' });
+        setNewUser({ username: '', password: '', role: 'member', allowed_path: '' });
         fetchUsers();
       } else {
         const data = await res.json();
@@ -206,7 +206,9 @@ function UserManagement({ token }: { token?: string | null }) {
                 onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
                 className="w-full bg-surface-900 border border-surface-700 text-gray-300 rounded-md px-3 py-2 text-[13px]"
               >
-                <option value="user">user</option>
+                <option value="viewer">viewer</option>
+                <option value="member">member</option>
+                <option value="operator">operator</option>
                 <option value="admin">admin</option>
               </select>
             </div>
@@ -260,6 +262,10 @@ function UserManagement({ token }: { token?: string | null }) {
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
                         u.role === 'admin'
                           ? 'bg-primary-600/20 text-primary-400 border border-primary-500/30'
+                          : u.role === 'operator'
+                          ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-500/30'
+                          : u.role === 'viewer'
+                          ? 'bg-gray-700/40 text-gray-500 border border-gray-600/40'
                           : 'bg-surface-700 text-gray-400 border border-surface-600'
                       }`}>
                         {u.username[0].toUpperCase()}
@@ -277,8 +283,10 @@ function UserManagement({ token }: { token?: string | null }) {
                       disabled={isSelf}
                       className="bg-surface-900 border border-surface-700 text-gray-300 rounded-md px-2 py-1 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                     >
+                      <option value="viewer">viewer</option>
+                      <option value="member">member</option>
+                      <option value="operator">operator</option>
                       <option value="admin">admin</option>
-                      <option value="user">user</option>
                     </select>
                   </td>
 

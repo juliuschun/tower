@@ -279,7 +279,7 @@ router.post('/admin/users', adminMiddleware, (req, res) => {
   const { username, password, role, allowed_path } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'username and password required' });
   try {
-    const user = createUser(username, password, role || 'user');
+    const user = createUser(username, password, role || 'member');
     if (allowed_path !== undefined) updateUserPath(user.id, allowed_path);
     res.json({ ...user, allowed_path: allowed_path || '' });
   } catch (error: any) {

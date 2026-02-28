@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { getDb } from '../db/schema.js';
+import { VALID_ROLES } from './damage-control.js';
 import type { Request, Response, NextFunction } from 'express';
 
 export interface JwtPayload {
@@ -30,7 +31,7 @@ export function verifyToken(token: string): JwtPayload | null {
   }
 }
 
-export function createUser(username: string, password: string, role = 'user') {
+export function createUser(username: string, password: string, role = 'member') {
   const db = getDb();
   const hash = hashPassword(password);
   const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(username, hash, role);
@@ -82,6 +83,9 @@ export function listUsers() {
 }
 
 export function updateUserRole(userId: number, role: string) {
+  if (!VALID_ROLES.has(role)) {
+    throw new Error(`Invalid role: ${role}. Valid roles: ${[...VALID_ROLES].join(', ')}`);
+  }
   const db = getDb();
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
 }

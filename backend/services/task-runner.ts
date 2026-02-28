@@ -2,6 +2,7 @@ import { executeQuery, abortSession } from './claude-sdk.js';
 import { createSession, updateSession } from './session-manager.js';
 import { updateTask, getTask } from './task-manager.js';
 import { saveMessage } from './message-store.js';
+import { buildDamageControl, type TowerRole } from './damage-control.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const MAX_CONCURRENT_TASKS = 10;
@@ -31,7 +32,8 @@ Work autonomously. Do not ask questions — make reasonable decisions and procee
 export async function spawnTask(
   taskId: string,
   broadcastToAll: BroadcastFn,
-  userId?: number
+  userId?: number,
+  userRole?: string,
 ): Promise<void> {
   const task = getTask(taskId);
   if (!task) throw new Error('Task not found');
@@ -71,7 +73,7 @@ export async function spawnTask(
     },
   });
 
-  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll)
+  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll, userRole)
     .catch((err) => {
       console.error(`[task-runner] Task ${taskId} error:`, err.message);
     });
@@ -83,7 +85,8 @@ async function runTaskAgent(
   title: string,
   description: string,
   cwd: string,
-  broadcastToAll: BroadcastFn
+  broadcastToAll: BroadcastFn,
+  userRole?: string,
 ): Promise<void> {
   const prompt = buildTaskPrompt(title, description);
   const progressStages: string[] = ['Starting task...'];
@@ -99,10 +102,24 @@ async function runTaskAgent(
   });
 
   try {
+    const effectiveRole = (userRole || 'member') as TowerRole;
+    const damageCheck = buildDamageControl(effectiveRole);
+    const taskCanUseTool = async (toolName: string, input: Record<string, unknown>, _options: { signal: AbortSignal }) => {
+      const dc = damageCheck(toolName, input);
+      if (!dc.allowed) {
+        return { behavior: 'deny' as const, message: dc.message };
+      }
+      return { behavior: 'allow' as const, updatedInput: input };
+    };
+    const taskPermission = (effectiveRole === 'admin' || effectiveRole === 'operator')
+      ? 'bypassPermissions' as const
+      : 'acceptEdits' as const;
+
     const generator = executeQuery(sessionId, prompt, {
       cwd,
-      permissionMode: 'bypassPermissions',
+      permissionMode: taskPermission,
       model: 'claude-sonnet-4-6',
+      canUseTool: taskCanUseTool,
     });
 
     for await (const msg of generator) {

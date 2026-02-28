@@ -12,6 +12,7 @@ import { config, getPermissionMode } from '../config.js';
 import { autoCommit } from '../services/git-manager.js';
 import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient, type SessionClient } from './session-guards.js';
 import { spawnTask, abortTask } from '../services/task-runner.js';
+import { buildDamageControl, type TowerRole } from '../services/damage-control.js';
 import { getTasks } from '../services/task-manager.js';
 
 interface WsClient {
@@ -88,8 +89,16 @@ function sendToClient(client: WsClient, sessionId: string, data: any) {
   }
 }
 
-function createCanUseTool(sessionId: string) {
+function createCanUseTool(sessionId: string, userRole: TowerRole) {
+  const damageCheck = buildDamageControl(userRole);
+
   return async (toolName: string, input: Record<string, unknown>, options: { signal: AbortSignal }) => {
+    // Damage control check (role-based restrictions) — before everything else
+    const dc = damageCheck(toolName, input);
+    if (!dc.allowed) {
+      return { behavior: 'deny' as const, message: dc.message };
+    }
+
     // Allow all tools except AskUserQuestion
     if (toolName !== 'AskUserQuestion') {
       return { behavior: 'allow' as const, updatedInput: input };

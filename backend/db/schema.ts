@@ -25,7 +25,7 @@ function initSchema(db: Database.Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'user',
+      role TEXT NOT NULL DEFAULT 'member',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -108,6 +108,9 @@ function initSchema(db: Database.Database) {
   // User management migrations
   try { db.exec(`ALTER TABLE users ADD COLUMN disabled INTEGER DEFAULT 0`); } catch {}
   try { db.exec(`ALTER TABLE users ADD COLUMN allowed_path TEXT DEFAULT ''`); } catch {}
+
+  // Migrate legacy 'user' role → 'member' (4-tier role system)
+  try { db.exec(`UPDATE users SET role = 'member' WHERE role = 'user'`); } catch {}
 
   // Phase 5 migrations
   const sessionMigrations = [
