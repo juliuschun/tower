@@ -82,13 +82,35 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
     : null;
 
   const mergedMessages = useMemo(() => {
-    const merged = mergeConsecutiveAssistant(messages);
+    // Filter BEFORE merge: remove user tool_result messages first,
+    // so consecutive assistant messages can merge properly.
+    // (user tool_result messages between assistant messages break the merge chain)
+    const visible = messages.filter((msg) => {
+      if (msg.role !== 'user') return true;
+      if (msg.content.length > 0 && msg.content.every((b) => b.type === 'tool_result')) {
+        return false;
+      }
+      // Hide SDK-injected system messages that appear as user messages
+      const firstText = msg.content.find((b) => b.type === 'text')?.text || '';
+      if (firstText.startsWith('Base directory for this skill:')) return false;
+      if (firstText.startsWith('<session-start-hook>')) return false;
+      return true;
+    });
+    const merged = mergeConsecutiveAssistant(visible);
     return merged.map((msg) =>
       msg.role === 'assistant'
         ? { ...msg, content: normalizeContentBlocks(msg.content) }
         : msg
     );
   }, [messages]);
+
+  // Find the last assistant message index for metrics display
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = mergedMessages.length - 1; i >= 0; i--) {
+      if (mergedMessages[i].role === 'assistant') return i;
+    }
+    return -1;
+  }, [mergedMessages]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
@@ -128,8 +150,8 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
             </div>
           )}
 
-          {mergedMessages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} />
+          {mergedMessages.map((msg, idx) => (
+            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={idx === lastAssistantIndex} />
           ))}
 
           {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant' && (

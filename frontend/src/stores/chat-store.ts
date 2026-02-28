@@ -36,6 +36,16 @@ export interface CostInfo {
   cacheCreationTokens?: number;
   cacheReadTokens?: number;
   duration?: number;
+  // Cumulative across turns
+  cumulativeInputTokens: number;
+  cumulativeOutputTokens: number;
+  turnCount: number;
+}
+
+export interface TurnMetrics {
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
 }
 
 export interface RateLimitInfo {
@@ -81,6 +91,9 @@ interface ChatState {
   attachments: Attachment[];
   pendingQuestion: PendingQuestion | null;
   compactingSessionId: string | null;
+  sessionStartTime: number | null;
+  turnStartTime: number | null;
+  lastTurnMetrics: TurnMetrics | null;
 
   addMessage: (msg: ChatMessage) => void;
   updateAssistantById: (id: string, content: ContentBlock[]) => void;
@@ -95,9 +108,12 @@ interface ChatState {
   setCompacting: (sessionId: string | null) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
+  setSessionStartTime: (time: number | null) => void;
+  setTurnStartTime: (time: number | null) => void;
   markPendingDelivered: () => void;
   markPendingFailed: () => void;
   retryMessage: (id: string) => string | null;
+  setLastTurnMetrics: (m: TurnMetrics | null) => void;
   addAttachment: (att: Attachment) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
@@ -112,11 +128,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   slashCommands: [],
   tools: [],
   model: null,
-  cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 },
+  cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0 },
   rateLimit: null,
   attachments: [],
   pendingQuestion: null,
   compactingSessionId: null,
+  sessionStartTime: null,
+  turnStartTime: null,
+  lastTurnMetrics: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -177,10 +196,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
         model: info.model ?? s.model,
       };
     }),
-  setCost: (cost) => set((s) => ({ cost: { ...s.cost, ...cost } })),
+  setCost: (cost) => set((s) => {
+    const newInput = cost.inputTokens ?? 0;
+    const newOutput = cost.outputTokens ?? 0;
+    return {
+      cost: {
+        ...s.cost,
+        ...cost,
+        cumulativeInputTokens: s.cost.cumulativeInputTokens + newInput,
+        cumulativeOutputTokens: s.cost.cumulativeOutputTokens + newOutput,
+        turnCount: s.cost.turnCount + (newInput > 0 || newOutput > 0 ? 1 : 0),
+      },
+    };
+  }),
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
-  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0 }, rateLimit: null, pendingQuestion: null }),
+  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0 }, rateLimit: null, pendingQuestion: null, lastTurnMetrics: null }),
+  setSessionStartTime: (time) => set({ sessionStartTime: time }),
+  setTurnStartTime: (time) => set({ turnStartTime: time }),
   markPendingDelivered: () =>
     set((s) => ({
       messages: s.messages.map((m) =>
@@ -203,6 +236,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ messages: s.messages.filter((m) => m.id !== id) }));
     return text;
   },
+  setLastTurnMetrics: (m) => set({ lastTurnMetrics: m }),
   addAttachment: (att) => set((s) => {
     if (s.attachments.some((a) => a.id === att.id)) return s;
     return { attachments: [...s.attachments, att] };

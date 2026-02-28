@@ -104,7 +104,9 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
     const message = buildMessage(trimmed);
 
-    if (isStreaming) {
+    // Read from store directly (synchronous) — the component-subscribed `isStreaming`
+    // can be stale between React renders, causing double-sends on fast Enter presses.
+    if (useChatStore.getState().isStreaming) {
       setQueued({ message, sessionId: useChatStore.getState().sessionId || '' });
     } else {
       onSend(message);

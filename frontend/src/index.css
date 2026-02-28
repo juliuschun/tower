@@ -418,6 +418,19 @@ code, pre, .font-mono {
   }
 }
 
+/* ─── Typewriter cursor ─── */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typewriter-cursor > :last-child::after {
+  content: ' ▎';
+  color: rgb(139 92 246);
+  animation: blink-cursor 0.8s step-end infinite;
+  font-weight: 200;
+}
+
 /* ─── Touch device: always show hover-based buttons ─── */
 @media (hover: none) {
   .group-hover\/message\:opacity-100,

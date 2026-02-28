@@ -912,7 +912,6 @@ function App() {
 }
 
 function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => void }) {
-  const cost = useChatStore((s) => s.cost);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const sdkModel = useChatStore((s) => s.model);
   const selectedModel = useModelStore((s) => s.selectedModel);
@@ -962,16 +961,6 @@ function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => vo
           title={`Session: ${activeSessionId}`}
           onClick={() => { navigator.clipboard.writeText(activeSessionId); }}
         >{activeSessionId.slice(0, 8)}</span>
-      )}
-      {cost.totalCost > 0 && (
-        <div className="flex items-center gap-4">
-          <span className="text-primary-300/90 font-semibold px-2 py-0.5 rounded-md bg-primary-900/20 border border-primary-500/20 flex items-center gap-1">
-            <span className="text-primary-400">$</span>{cost.totalCost.toFixed(4)}
-          </span>
-          <span className="flex items-center gap-1.5" title="Input Tokens"><svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" /></svg>{cost.inputTokens.toLocaleString()}</span>
-          <span className="flex items-center gap-1.5" title="Output Tokens"><svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" /></svg>{cost.outputTokens.toLocaleString()}</span>
-          {cost.duration && <span className="flex items-center gap-1.5" title="Duration"><svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{(cost.duration / 1000).toFixed(1)}s</span>}
-        </div>
       )}
       </div>
     </footer>

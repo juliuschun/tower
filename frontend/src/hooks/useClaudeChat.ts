@@ -110,7 +110,8 @@ export function useClaudeChat() {
 
   const {
     addMessage, setStreaming, setSessionId, setClaudeSessionId,
-    setSystemInfo, setCost, sessionId, claudeSessionId
+    setSystemInfo, setCost, sessionId, claudeSessionId, setSessionStartTime,
+    setTurnStartTime,
   } = useChatStore();
 
   const { setTree, setDirectoryChildren, handleFileChange } = useFileStore();
@@ -123,6 +124,7 @@ export function useClaudeChat() {
           // Server restarted — epoch changed
           toastWarning('Server restarted');
           useChatStore.getState().setStreaming(false);
+          useChatStore.getState().setTurnStartTime(null);
           useChatStore.getState().markPendingFailed();
           useChatStore.getState().setPendingQuestion(null);
           currentAssistantMsg.current = null;
@@ -134,6 +136,10 @@ export function useClaudeChat() {
       case 'reconnect_result': {
         if (data.status === 'streaming') {
           useChatStore.getState().setStreaming(true);
+          // Restore live timer — use server timestamp if available, else now
+          if (!useChatStore.getState().turnStartTime) {
+            useChatStore.getState().setTurnStartTime(Date.now());
+          }
           safetyTimerFired.current = false;
           // Merge DB messages to fill any gap from disconnection
           if (data.sessionId) {
@@ -153,6 +159,7 @@ export function useClaudeChat() {
           // Check wasStreaming OR safetyTimerFired (timer may have cleared isStreaming before reconnect)
           const wasStreaming = useChatStore.getState().isStreaming || safetyTimerFired.current;
           useChatStore.getState().setStreaming(false);
+          useChatStore.getState().setTurnStartTime(null);
           safetyTimerFired.current = false;
           currentAssistantMsg.current = null;
           if (wasStreaming && data.sessionId) {
@@ -168,6 +175,9 @@ export function useClaudeChat() {
         // When switching TO a session that has active streaming, restore streaming state
         if (data.isStreaming) {
           useChatStore.getState().setStreaming(true);
+          if (!useChatStore.getState().turnStartTime) {
+            useChatStore.getState().setTurnStartTime(Date.now());
+          }
           currentAssistantMsg.current = null;
           if (data.sessionId) {
             mergeMessagesFromDb(data.sessionId);
@@ -209,6 +219,10 @@ export function useClaudeChat() {
           if (!shouldDropSessionMessage(curSid, data.sessionId)) {
             setSessionId(data.sessionId);
             setClaudeSessionId(sdkMsg.session_id);
+            // Start session timer if not already set
+            if (!useChatStore.getState().sessionStartTime) {
+              setSessionStartTime(Date.now());
+            }
           } else {
             // Stale init from a different session — ignore entirely
             return;
@@ -341,6 +355,11 @@ export function useClaudeChat() {
             cacheReadTokens: sdkMsg.usage?.cache_read_input_tokens,
             duration: sdkMsg.duration_ms,
           });
+          useChatStore.getState().setLastTurnMetrics({
+            inputTokens: sdkMsg.usage?.input_tokens || 0,
+            outputTokens: sdkMsg.usage?.output_tokens || 0,
+            durationMs: sdkMsg.duration_ms || 0,
+          });
           return;
         }
         break;
@@ -352,6 +371,7 @@ export function useClaudeChat() {
         if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
 
         setStreaming(false);
+        setTurnStartTime(null);
         useChatStore.getState().setCompacting(null);
         useChatStore.getState().setPendingQuestion(null);
         currentAssistantMsg.current = null;
@@ -543,6 +563,12 @@ export function useClaudeChat() {
         const _errSid = useChatStore.getState().sessionId;
         if (shouldDropSessionMessage(_errSid, data.sessionId)) return;
 
+        // SESSION_BUSY = backend still running → keep isStreaming true, silently drop the duplicate
+        if (data.errorCode === 'SESSION_BUSY') {
+          console.warn('[chat] SESSION_BUSY — duplicate send dropped (backend still running)');
+          break;
+        }
+
         setStreaming(false);
         useChatStore.getState().setCompacting(null);
         currentAssistantMsg.current = null;
@@ -596,7 +622,7 @@ export function useClaudeChat() {
         break;
       }
     }
-  }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setTree, setDirectoryChildren, handleFileChange]);
+  }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setSessionStartTime, setTurnStartTime, setTree, setDirectoryChildren, handleFileChange]);
 
   // Reconnect handler — send session context to backend for stream re-attachment
   const handleReconnect = useCallback(() => {
@@ -634,6 +660,8 @@ export function useClaudeChat() {
       });
 
       setStreaming(true);
+      setTurnStartTime(Date.now());
+      useChatStore.getState().setLastTurnMetrics(null);
       currentAssistantMsg.current = null;
 
       send({
@@ -646,14 +674,15 @@ export function useClaudeChat() {
         model: useModelStore.getState().selectedModel,
       });
     },
-    [send, addMessage, setStreaming]
+    [send, addMessage, setStreaming, setTurnStartTime]
   );
 
   const abort = useCallback(() => {
     send({ type: 'abort', sessionId: useChatStore.getState().sessionId });
     setStreaming(false);
+    setTurnStartTime(null);
     useChatStore.getState().setCompacting(null);
-  }, [send, setStreaming]);
+  }, [send, setStreaming, setTurnStartTime]);
 
   const setActiveSession = useCallback(
     (sessionId: string, claudeSessionId?: string | null) => {

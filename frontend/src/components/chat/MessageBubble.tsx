@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -6,7 +6,69 @@ import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
 import { MermaidBlock } from './MermaidBlock';
 import { toastSuccess } from '../../utils/toast';
-import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
+import { useChatStore, type ChatMessage, type ContentBlock, type TurnMetrics } from '../../stores/chat-store';
+
+/** Progressively reveal characters via requestAnimationFrame */
+function useTypewriter(fullText: string, isActive: boolean): string {
+  const [displayedLength, setDisplayedLength] = useState(0);
+  const revealedRef = useRef(0);
+  const targetRef = useRef(0);
+  const rafRef = useRef(0);
+
+  targetRef.current = fullText.length;
+
+  useEffect(() => {
+    if (!isActive) {
+      cancelAnimationFrame(rafRef.current);
+      revealedRef.current = fullText.length;
+      setDisplayedLength(fullText.length);
+      return;
+    }
+
+    // Reset when starting a new typewriter session
+    revealedRef.current = 0;
+    setDisplayedLength(0);
+
+    let running = true;
+    const animate = () => {
+      if (!running) return;
+      if (revealedRef.current < targetRef.current) {
+        revealedRef.current = Math.min(revealedRef.current + 30, targetRef.current);
+        setDisplayedLength(revealedRef.current);
+      }
+      rafRef.current = requestAnimationFrame(animate);
+    };
+
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { running = false; cancelAnimationFrame(rafRef.current); };
+  }, [isActive]);
+
+  if (!isActive) return fullText;
+  return fullText.slice(0, displayedLength);
+}
+
+function TypewriterText({ content, showMetrics, mdComponents }: {
+  content: string;
+  showMetrics: boolean;
+  mdComponents: Record<string, any>;
+}) {
+  const isStreaming = useChatStore((s) => showMetrics ? s.isStreaming : false);
+  const isActive = !!(showMetrics && isStreaming);
+  const displayedText = useTypewriter(content, isActive);
+  const isTyping = isActive && displayedText.length < content.length;
+
+  return (
+    <div className={`prose prose-invert prose-sm max-w-none overflow-hidden${isTyping ? ' typewriter-cursor' : ''}`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={mdComponents}
+      >
+        {displayedText}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -49,9 +111,10 @@ interface MessageBubbleProps {
   message: ChatMessage;
   onFileClick?: (path: string) => void;
   onRetry?: (text: string) => void;
+  showMetrics?: boolean;
 }
 
-export function MessageBubble({ message, onFileClick, onRetry }: MessageBubbleProps) {
+export function MessageBubble({ message, onFileClick, onRetry, showMetrics }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -194,15 +257,12 @@ export function MessageBubble({ message, onFileClick, onRetry }: MessageBubblePr
                       return <MermaidBlock key={`${gi}-${bi}-m${si}`} code={seg.content} />;
                     }
                     return (
-                      <div key={`${gi}-${bi}-t${si}`} className="prose prose-invert prose-sm max-w-none overflow-hidden">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          rehypePlugins={[rehypeHighlight]}
-                          components={mdComponents}
-                        >
-                          {seg.content}
-                        </ReactMarkdown>
-                      </div>
+                      <TypewriterText
+                        key={`${gi}-${bi}-t${si}`}
+                        content={seg.content}
+                        showMetrics={!!showMetrics}
+                        mdComponents={mdComponents}
+                      />
                     );
                   });
                 });
@@ -236,6 +296,7 @@ export function MessageBubble({ message, onFileClick, onRetry }: MessageBubblePr
               console.warn('[MessageBubble] unknown block group type:', group.type);
               return null;
             })}
+            {showMetrics && <TurnMetricsBar />}
           </div>
         )}
       </div>
@@ -347,6 +408,66 @@ function splitMermaidBlocks(text: string): Array<{ type: 'text' | 'mermaid'; con
   }
 
   return segments.length > 0 ? segments : [{ type: 'text', content: text }];
+}
+
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return '0.0s';
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s % 60);
+  return `${m}m ${rem}s`;
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return n.toLocaleString();
+}
+
+function TurnMetricsBar() {
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const turnStartTime = useChatStore((s) => s.turnStartTime);
+  const lastTurnMetrics = useChatStore((s) => s.lastTurnMetrics);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!isStreaming || !turnStartTime) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(Date.now() - turnStartTime);
+    const iv = setInterval(() => setElapsed(Date.now() - turnStartTime), 100);
+    return () => clearInterval(iv);
+  }, [isStreaming, turnStartTime]);
+
+  // Streaming: live timer
+  if (isStreaming && elapsed > 0) {
+    return (
+      <div className="flex items-center gap-1.5 mt-2 text-[11px] text-primary-400/80 tabular-nums font-medium">
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        {fmtDuration(elapsed)}
+      </div>
+    );
+  }
+
+  // Completed: final metrics
+  if (lastTurnMetrics) {
+    const totalTokens = lastTurnMetrics.inputTokens + lastTurnMetrics.outputTokens;
+    return (
+      <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500 tabular-nums font-medium">
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        {fmtDuration(lastTurnMetrics.durationMs)}
+        <span className="text-gray-600">·</span>
+        {fmtTokens(totalTokens)} tokens
+      </div>
+    );
+  }
+
+  return null;
 }
 
 /** Group consecutive blocks of the same type together */
