@@ -22,6 +22,9 @@ warn()  { echo -e "${YELLOW}[!!]${NC} $1"; }
 error() { echo -e "${RED}[ERR]${NC} $1"; }
 step()  { echo -e "\n${CYAN}${BOLD}── $1 ──${NC}"; }
 
+# Portable sed -i (macOS requires '' argument, Linux does not)
+sed_inplace() { if [[ "$OSTYPE" == "darwin"* ]]; then sed -i '' "$@"; else sed -i "$@"; fi; }
+
 echo ""
 echo "╔══════════════════════════════════════════╗"
 echo "║       Tower — Setup Wizard         ║"
@@ -81,8 +84,32 @@ if [ -f ".env" ]; then
   info ".env already exists (skipping)"
 else
   cp .env.example .env
-  info "Created .env from .env.example"
-  warn "Edit .env to set JWT_SECRET and other values!"
+
+  # Auto-generate JWT_SECRET (openssl preferred, fallback to node crypto)
+  if command -v openssl &>/dev/null; then
+    JWT_SECRET_VAL=$(openssl rand -hex 32)
+  else
+    JWT_SECRET_VAL=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+  fi
+  sed_inplace "s/change-me-to-a-random-secret/$JWT_SECRET_VAL/" .env
+  info "JWT_SECRET auto-generated"
+
+  # PUBLIC_URL — needed for correct share links when deployed
+  echo ""
+  echo "  ${BOLD}Public URL${NC} — used to generate share links."
+  echo "  Set this to your domain (e.g. https://desk.yourteam.com)."
+  echo "  Leave blank to skip (share links will use window.location.origin)."
+  echo ""
+  read -p "  PUBLIC_URL: " -r PUBLIC_URL_INPUT
+  if [ -n "$PUBLIC_URL_INPUT" ]; then
+    sed_inplace "s|^PUBLIC_URL=.*|PUBLIC_URL=$PUBLIC_URL_INPUT|" .env
+    info "PUBLIC_URL set to $PUBLIC_URL_INPUT"
+  else
+    sed_inplace "s|^PUBLIC_URL=.*|# PUBLIC_URL=|" .env
+    warn "PUBLIC_URL not set — share links will use browser origin"
+  fi
+
+  info "Created .env"
 fi
 
 # ───────────────────────────────────
@@ -134,6 +161,109 @@ else
       fi
     done
     info "Workspace initialized at $WORKSPACE_DIR"
+
+    # Team context wizard — fill MEMORY.md with real team info
+    MEMORY_FILE="$WORKSPACE_DIR/memory/MEMORY.md"
+    if [ -f "$MEMORY_FILE" ] && grep -q "What the team is working on right now" "$MEMORY_FILE" 2>/dev/null; then
+      echo ""
+      echo "  ${BOLD}Team context wizard${NC} — helps Claude know your team from Day 1."
+      echo "  (Press Enter to skip any question)"
+      echo ""
+
+      read -p "  Team / company name: " -r TEAM_NAME
+      read -p "  Team size (people): " -r TEAM_SIZE
+      read -p "  Main tech stack (e.g. TypeScript, Python, React): " -r TECH_STACK
+      read -p "  Current top priority project: " -r TOP_PROJECT
+      echo "  Primary language for Claude responses:"
+      echo "    1) 한국어   2) English"
+      read -p "  Choice (1/2, default 1): " -n 1 -r LANG_CHOICE
+      echo
+
+      LANG_CHOICE="${LANG_CHOICE:-1}"
+      TEAM_NAME="${TEAM_NAME:-My Team}"
+      TODAY=$(date +%Y-%m-%d)
+
+      if [[ "$LANG_CHOICE" == "2" ]]; then
+        # English MEMORY.md
+        cat > "$MEMORY_FILE" <<MEMEOF
+# ${TEAM_NAME}
+
+## Team
+- Size: ${TEAM_SIZE:-unknown}
+- Stack: ${TECH_STACK:-(not set)}
+- Claude responds in: English
+
+## Current Priority
+- ${TOP_PROJECT:-(not set)}
+
+## Workspace Structure
+- \`principles.md\` — team principles
+- \`decisions/\` — decision records (immutable, one file = one decision)
+- \`docs/\` — process docs, guides
+- \`notes/\` — temporary memos
+
+## Rhythm
+- **Weekly**: scan notes/ → promote to decisions/ or docs/
+- **Monthly**: review docs/ — still accurate?
+- **Quarterly**: update this MEMORY.md — reprioritize
+MEMEOF
+
+      else
+        # Korean MEMORY.md
+        cat > "$MEMORY_FILE" <<MEMEOF
+# ${TEAM_NAME}
+
+## 팀
+- 규모: ${TEAM_SIZE:-미정}
+- 기술 스택: ${TECH_STACK:-(미설정)}
+- Claude 응답 언어: 한국어
+
+## 현재 우선순위
+- ${TOP_PROJECT:-(미설정)}
+
+## 워크스페이스 구조
+- \`principles.md\` — 팀 원칙
+- \`decisions/\` — 결정 기록 (불변, 파일 하나 = 결정 하나)
+- \`docs/\` — 정리된 문서 (프로세스, 가이드)
+- \`notes/\` — 임시 메모, 아이디어
+
+## 정리 리듬
+- **주 1회**: notes/ 훑기 → 중요한 건 decisions/ 또는 docs/로 승격
+- **월 1회**: docs/ 훑기 → "이거 아직 맞나?" 확인
+- **분기 1회**: 이 MEMORY.md 업데이트 → 우선순위 점검
+MEMEOF
+
+        # Korean principles.md
+        PRINCIPLES_FILE="$WORKSPACE_DIR/principles.md"
+        cat > "$PRINCIPLES_FILE" <<PRINEOF
+# 우리가 지키는 다섯 가지 원칙
+
+## 1. 써라 (Write it down)
+구두로 결정하지 않는다. 짧게라도 적는다.
+적지 않은 결정은 나중에 "그때 뭐라고 했더라?"가 된다.
+
+## 2. 왜를 남겨라 (Record the why)
+"A로 결정했다"가 아니라 "B도 있었지만 A로 갔다. 이유는 X."
+나중에 조건이 바뀌면 그때 다시 판단하기 위해.
+
+## 3. 찾을 수 있게 해라 (Make it findable)
+적는 것만큼 중요한 건 나중에 찾을 수 있는 것.
+제목을 명확하게, 위치를 일관되게.
+
+## 4. 작은 것부터 (Start small)
+완벽한 SOP를 만들려고 하지 마라.
+한 문단짜리 메모가 아무것도 없는 것보다 100배 낫다.
+
+## 5. 주기적으로 돌아봐라 (Revisit)
+적었으면 끝이 아니다. 한 달에 한 번,
+"이거 아직 맞나?" 한 번만 확인하면 된다.
+PRINEOF
+        info "principles.md written in Korean"
+      fi
+
+      info "MEMORY.md initialized for ${TEAM_NAME}"
+    fi
+
   else
     warn "Skipped workspace setup"
   fi
@@ -190,11 +320,6 @@ echo "  ${BOLD}Optional:${NC}"
 echo "    cloudflared tunnel --url http://localhost:32354"
 echo "    → Expose to internet via Cloudflare tunnel"
 echo ""
-
-# Check for things that need manual attention
-if [ -f ".env" ] && grep -q "change-me-to-a-random-secret" .env 2>/dev/null; then
-  warn "Don't forget to change JWT_SECRET in .env!"
-fi
 
 echo "  For more info: see README.md"
 echo ""
