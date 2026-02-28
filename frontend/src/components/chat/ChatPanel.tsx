@@ -38,9 +38,10 @@ interface ChatPanelProps {
 export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: ChatPanelProps) {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
-  const isCompacting = useChatStore((s) => s.isCompacting);
+  const compactingSessionId = useChatStore((s) => s.compactingSessionId);
   const pendingQuestion = useChatStore((s) => s.pendingQuestion);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const isCompacting = compactingSessionId !== null && compactingSessionId === activeSessionId;
   const sessions = useSessionStore((s) => s.sessions);
   const isMobile = useSessionStore((s) => s.isMobile);
   const activeSession = sessions.find((s) => s.id === activeSessionId);

@@ -274,13 +274,14 @@ export function useClaudeChat() {
 
         // Autocompact: compact_boundary fires right before compaction starts
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'compact_boundary') {
-          useChatStore.getState().setCompacting(true);
+          useChatStore.getState().setCompacting(useChatStore.getState().sessionId);
           return;
         }
 
         // Autocompact: status message — 'compacting' | null
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'status') {
-          useChatStore.getState().setCompacting(sdkMsg.status === 'compacting');
+          const sid = useChatStore.getState().sessionId;
+          useChatStore.getState().setCompacting(sdkMsg.status === 'compacting' ? sid : null);
           return;
         }
 
@@ -351,7 +352,7 @@ export function useClaudeChat() {
         if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
 
         setStreaming(false);
-        useChatStore.getState().setCompacting(false);
+        useChatStore.getState().setCompacting(null);
         useChatStore.getState().setPendingQuestion(null);
         currentAssistantMsg.current = null;
         const activeId = useSessionStore.getState().activeSessionId;
@@ -543,7 +544,7 @@ export function useClaudeChat() {
         if (shouldDropSessionMessage(_errSid, data.sessionId)) return;
 
         setStreaming(false);
-        useChatStore.getState().setCompacting(false);
+        useChatStore.getState().setCompacting(null);
         currentAssistantMsg.current = null;
         if (data.errorCode === 'SESSION_LIMIT') {
           toastError('Concurrent session limit exceeded');
@@ -651,7 +652,7 @@ export function useClaudeChat() {
   const abort = useCallback(() => {
     send({ type: 'abort', sessionId: useChatStore.getState().sessionId });
     setStreaming(false);
-    useChatStore.getState().setCompacting(false);
+    useChatStore.getState().setCompacting(null);
   }, [send, setStreaming]);
 
   const setActiveSession = useCallback(
