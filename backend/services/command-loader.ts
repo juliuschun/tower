@@ -19,7 +19,57 @@ export function loadCommands(): SlashCommand[] {
     scanDirectory(commandsDir, 'commands', commands);
   }
 
+  // Scan ~/.claude/skills/*/SKILL.md
+  const skillsDir = path.join(claudeDir, 'skills');
+  if (fs.existsSync(skillsDir)) {
+    scanSkillsDirectory(skillsDir, commands);
+  }
+
   return commands;
+}
+
+/** Scan ~/.claude/skills/ — each subdirectory with SKILL.md becomes a slash command */
+function scanSkillsDirectory(dir: string, commands: SlashCommand[]) {
+  try {
+    const items = fs.readdirSync(dir, { withFileTypes: true });
+    for (const item of items) {
+      if (!item.isDirectory()) continue;
+      const skillFile = path.join(dir, item.name, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) continue;
+
+      const content = fs.readFileSync(skillFile, 'utf-8');
+      const nameOverride = parseFrontmatterField(content, 'name');
+      const description = parseFrontmatterField(content, 'description');
+      const skillName = nameOverride || item.name;
+
+      commands.push({
+        name: `/${skillName}`,
+        description: description || `Skill: ${skillName}`,
+        fullContent: content,
+        source: 'skills',
+      });
+    }
+  } catch {}
+}
+
+/** Extract a frontmatter field — handles bare, quoted, literal (|), and folded (>) block scalars */
+function parseFrontmatterField(content: string, field: string): string {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return '';
+  const fm = fmMatch[1];
+
+  // Block scalar — literal (|) or folded (>): grab all indented lines, return first
+  const block = fm.match(new RegExp(`^${field}:\\s*[|>][^\n]*\n((?:[ \\t]+[^\n]*\n?)+)`, 'm'));
+  if (block) {
+    const firstLine = block[1].replace(/^[ \t]+/gm, '').trim().split('\n')[0];
+    return firstLine;
+  }
+
+  // Single line — quoted or bare
+  const single = fm.match(new RegExp(`^${field}:\\s*"?([^"\\n]+)"?`, 'm'));
+  if (single) return single[1].trim();
+
+  return '';
 }
 
 function scanDirectory(dir: string, source: 'commands' | 'skills', commands: SlashCommand[]) {

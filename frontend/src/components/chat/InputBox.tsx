@@ -304,9 +304,11 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-auto shrink-0 ${
                   cmd.source === 'commands'
                     ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20'
-                    : 'bg-surface-700/50 text-gray-500 border border-surface-600/30'
+                    : cmd.source === 'skills'
+                      ? 'bg-violet-900/30 text-violet-400 border border-violet-500/20'
+                      : 'bg-surface-700/50 text-gray-500 border border-surface-600/30'
                 }`}>
-                  {cmd.source === 'commands' ? 'cmd' : 'sdk'}
+                  {cmd.source === 'commands' ? 'cmd' : cmd.source === 'skills' ? 'skill' : 'sdk'}
                 </span>
               </button>
             ))}
