@@ -75,8 +75,11 @@ cp "$SRC_DIR"/post-tool-use.mjs "$HOOKS_DIR/"
 cp "$SRC_DIR"/session-start.mjs "$HOOKS_DIR/"
 cp "$SRC_DIR"/stop.mjs "$HOOKS_DIR/"
 cp "$SRC_DIR"/search.mjs "$HOOKS_DIR/"
+cp "$SRC_DIR"/tower-sync-lib.mjs "$HOOKS_DIR/"
+cp "$SRC_DIR"/tower-sync-stop.mjs "$HOOKS_DIR/"
+cp "$SRC_DIR"/cli-import.mjs "$HOOKS_DIR/"
 cp "$SRC_DIR"/package.json "$HOOKS_DIR/"
-info "Source files copied to $HOOKS_DIR"
+info "Source files copied to $HOOKS_DIR (incl. tower-sync)"
 
 # 2. Install dependencies
 cd "$HOOKS_DIR"
@@ -117,11 +120,25 @@ node -e "
     }]
   });
 
+  // Stop: memory summary only (sync)
   settings.hooks.Stop = [{
-    hooks: [{
-      type: 'command',
-      command: 'node \$HOME/.claude/hooks/memory/stop.mjs'
-    }]
+    hooks: [
+      {
+        type: 'command',
+        command: 'node \$HOME/.claude/hooks/memory/stop.mjs'
+      }
+    ]
+  }];
+
+  // SessionEnd: tower.db sync (async, once per session — avoids dual-writer conflict with Tower ws-handler)
+  settings.hooks.SessionEnd = [{
+    hooks: [
+      {
+        type: 'command',
+        command: 'node \$HOME/.claude/hooks/memory/tower-sync-stop.mjs',
+        async: true
+      }
+    ]
   }];
 
   fs.writeFileSync('$SETTINGS', JSON.stringify(settings, null, 2) + '\n');
@@ -142,12 +159,17 @@ echo "  What happens now:"
 echo "    - Every new Claude session auto-loads recent memory"
 echo "    - Edit/Write/Bash actions are captured automatically"
 echo "    - Session summaries are saved on exit"
+echo "    - CLI sessions are synced to tower.db on exit"
 echo ""
 echo "  Commands:"
 echo "    /memory <query>      Search memories"
 echo "    /memory --stats      Show statistics"
 echo "    /memory --recent     Show recent 20"
 echo "    /memory --summaries  Show session summaries"
+echo ""
+echo "  Import existing CLI history:"
+echo "    node ~/.claude/hooks/memory/cli-import.mjs"
+echo "    node ~/.claude/hooks/memory/cli-import.mjs --dry-run"
 echo ""
 echo "  Uninstall:"
 echo "    bash $SCRIPT_DIR/install.sh --uninstall"

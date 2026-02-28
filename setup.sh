@@ -287,6 +287,18 @@ if [ -d "$CLAUDE_DIR" ]; then
   echo
   if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     bash "$SCRIPT_DIR/memory-hooks/install.sh"
+
+    # CLI history import (tower-sync)
+    echo ""
+    read -p "  Import existing CLI history to tower.db? (Y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+      if [ -f "$HOME/.claude/hooks/memory/cli-import.mjs" ]; then
+        node "$HOME/.claude/hooks/memory/cli-import.mjs"
+      else
+        warn "cli-import.mjs not found — run memory-hooks/install.sh first"
+      fi
+    fi
   else
     warn "Skipped memory hooks"
   fi
