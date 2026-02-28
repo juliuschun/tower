@@ -8,24 +8,34 @@ interface FloatingQuestionCardProps {
 }
 
 export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQuestionCardProps) {
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  // 질문별 답변 상태 — 모두 채워야 제출
+  const [answers, setAnswers] = useState<Record<number, string>>({});
   const prevQuestionId = useRef(question.questionId);
 
-  // Reset local state when question changes
+  // 질문이 바뀌면 답변 초기화
   useEffect(() => {
     if (question.questionId !== prevQuestionId.current) {
-      setSelectedAnswer(null);
+      setAnswers({});
       prevQuestionId.current = question.questionId;
     }
   }, [question.questionId]);
 
-  const isAnswered = !!answered || !!selectedAnswer;
-  const displayAnswer = answered?.answer || selectedAnswer;
+  const totalQuestions = question.questions.length;
+  const allAnswered = Object.keys(answers).length === totalQuestions;
+  const isAnswered = !!answered || allAnswered;
 
-  const handleSelect = (label: string) => {
-    if (isAnswered) return;
-    setSelectedAnswer(label);
-    onAnswer(question.questionId, label);
+  const handleSelect = (qi: number, label: string) => {
+    if (isAnswered || answers[qi]) return; // 이미 답한 질문은 변경 불가
+    const newAnswers = { ...answers, [qi]: label };
+    setAnswers(newAnswers);
+
+    // 모든 질문에 답했을 때만 제출
+    if (Object.keys(newAnswers).length === totalQuestions) {
+      const combined = question.questions
+        .map((q, i) => `${q.question}: ${newAnswers[i]}`)
+        .join('\n');
+      onAnswer(question.questionId, combined);
+    }
   };
 
   return (
@@ -63,14 +73,25 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
 
       {/* Body */}
       <div className="px-4 py-3 space-y-3">
-        {question.questions.map((q, qi) => (
+        {question.questions.map((q, qi) => {
+          const qAnswered = answers[qi] ?? (answered ? answered.answer.split('\n')[qi]?.split(': ').slice(1).join(': ') : null);
+          const qDone = !!qAnswered;
+          return (
           <div key={qi} className="space-y-2">
-            <div className="text-[14px] text-gray-200 leading-relaxed">{q.question}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-[14px] text-gray-200 leading-relaxed">{q.question}</div>
+              {/* 이 질문만 답했고 전체 미완성일 때 — 체크 표시 */}
+              {qDone && !isAnswered && (
+                <svg className="w-3.5 h-3.5 shrink-0 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
             {q.options && (
               <div className="flex flex-wrap gap-2">
                 {q.options.map((opt, oi) => {
-                  const isSelected = displayAnswer === opt.label;
-                  if (isAnswered) {
+                  const isSelected = (answers[qi] || (answered ? answered.answer.split('\n')[qi]?.split(': ').slice(1).join(': ') : null)) === opt.label;
+                  if (qDone) {
                     return (
                       <span
                         key={oi}
@@ -83,7 +104,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
                           background: 'transparent',
                           borderColor: 'var(--th-border-subtle)',
                           color: 'var(--th-text-muted)',
-                          opacity: 0.6,
+                          opacity: 0.4,
                         }}
                       >
                         {isSelected && (
@@ -98,7 +119,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
                   return (
                     <button
                       key={oi}
-                      onClick={() => handleSelect(opt.label)}
+                      onClick={() => handleSelect(qi, opt.label)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] active:scale-95 transition-all cursor-pointer floating-q-btn"
                       style={{
                         background: 'var(--th-q-pending-btn-bg)',
@@ -116,9 +137,10 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
-        {/* Waiting spinner */}
+        {/* Waiting spinner — 남은 질문 수 표시 */}
         {!isAnswered && (
           <div className="flex items-center gap-2 text-[11px] pt-1" style={{ color: 'var(--th-q-pending-muted)' }}>
             <div
@@ -128,7 +150,9 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
                 borderTopColor: 'var(--th-q-pending-spinner-head)',
               }}
             />
-            Waiting for response...
+            {totalQuestions > 1
+              ? `${Object.keys(answers).length} / ${totalQuestions} answered`
+              : 'Waiting for response...'}
           </div>
         )}
       </div>
