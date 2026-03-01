@@ -126,15 +126,21 @@ export async function* executeQuery(
 
   if (options.resumeSessionId) {
     queryOptions.resume = options.resumeSessionId;
+    console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} cwd=${queryOptions.cwd}`);
   }
 
   // Helper: run query and yield messages
   async function* runQuery(opts: Options): AsyncGenerator<SDKMessage> {
     const response = query({ prompt: processedPrompt, options: opts });
     session.query = response;
+    let resumeConfirmed = false;
     for await (const message of response) {
       if (message.type === 'system' && message.subtype === 'init') {
         session.claudeSessionId = message.session_id;
+        if (opts.resume && !resumeConfirmed) {
+          console.log(`[sdk] resume succeeded: session=${sessionId.slice(0,8)} claudeSid=${message.session_id?.slice(0,12)}`);
+          resumeConfirmed = true;
+        }
       }
       if ('session_id' in message && message.session_id) {
         session.claudeSessionId = message.session_id;
@@ -169,6 +175,7 @@ export async function* executeQuery(
         throw retryError;
       }
     } else {
+      console.error(`[sdk] query error (unmatched for resume): ${error.message}`);
       throw error;
     }
   } finally {

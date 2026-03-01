@@ -446,17 +446,14 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
   } catch (err) { console.error('[ws] saveMessage (user) failed:', err); }
 
-  // Use claudeSessionId from the message, with DB fallback for resilience.
-  // This prevents context loss when frontend loses claudeSessionId (e.g. server restart, HMR).
-  let resumeSessionId = data.claudeSessionId || undefined;
-  if (!resumeSessionId) {
-    try {
-      const dbSession = getSession(sessionId);
-      if (dbSession?.claudeSessionId) {
-        resumeSessionId = dbSession.claudeSessionId;
-        console.log(`[ws] resume fallback from DB: claudeSid=${resumeSessionId!.slice(0, 12)}… for session=${sessionId.slice(0, 8)}`);
-      }
-    } catch {}
+  // Always fetch DB session — we need both claudeSessionId and cwd for reliable resume.
+  // CWD must match the directory where .jsonl was created, otherwise SDK can't find it.
+  let dbSession: ReturnType<typeof getSession> | undefined;
+  try { dbSession = getSession(sessionId); } catch {}
+
+  let resumeSessionId = data.claudeSessionId || dbSession?.claudeSessionId || undefined;
+  if (!data.claudeSessionId && resumeSessionId) {
+    console.log(`[ws] resume fallback from DB: claudeSid=${resumeSessionId.slice(0, 12)}… for session=${sessionId.slice(0, 8)}`);
   }
   let loopClaudeSessionId: string | undefined; // track locally — client may switch sessions mid-stream
   let currentAssistantId: string | null = null;
@@ -489,7 +486,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     const canUseTool = createCanUseTool(sessionId, (client.userRole || 'member') as TowerRole, client.allowedPath);
 
     for await (const message of executeQuery(sessionId, data.message, {
-      cwd: data.cwd || client.allowedPath || config.defaultCwd,
+      cwd: data.cwd || dbSession?.cwd || client.allowedPath || config.defaultCwd,
       resumeSessionId,
       permissionMode,
       model: data.model,

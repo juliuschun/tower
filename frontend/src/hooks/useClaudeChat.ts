@@ -185,6 +185,7 @@ export function useClaudeChat() {
                 messageId,
                 sessionId: sid,
                 claudeSessionId: session.claudeSessionId,
+                cwd: session.cwd,
                 model: useModelStore.getState().selectedModel,
               });
               useSessionStore.getState().setSessionStreaming(sid, true);
@@ -287,6 +288,7 @@ export function useClaudeChat() {
                   messageId,
                   sessionId: data.sessionId,
                   claudeSessionId: session?.claudeSessionId,
+                  cwd: session?.cwd,
                   model: useModelStore.getState().selectedModel,
                 });
                 // Re-mark as streaming since we just sent a new message
