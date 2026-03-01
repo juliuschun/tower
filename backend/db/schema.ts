@@ -150,6 +150,7 @@ function initSchema(db: Database.Database) {
 
   // Kanban tasks migrations
   try { db.exec(`ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT 'claude-opus-4-6'`); } catch {}
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0`); } catch {}
 
   // Messages turn-metrics migrations
   try { db.exec(`ALTER TABLE messages ADD COLUMN duration_ms INTEGER`); } catch {}

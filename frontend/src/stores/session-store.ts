@@ -19,7 +19,7 @@ export interface SessionMeta {
   filesEdited?: string[];
 }
 
-export type MobileTab = 'sessions' | 'chat' | 'files' | 'edit' | 'pins';
+export type MobileTab = 'sessions' | 'chat' | 'files' | 'edit' | 'pins' | 'board';
 
 interface SessionState {
   sessions: SessionMeta[];
@@ -33,7 +33,7 @@ interface SessionState {
   mobileTab: MobileTab;
   mobileContextOpen: boolean;
   mobileTabBeforeContext: MobileTab;  // 파일 열기 전 탭 기억 (뒤로가기용)
-  activeView: 'chat' | 'kanban';
+  activeView: 'chat' | 'kanban' | 'history';
 
   setSessions: (sessions: SessionMeta[]) => void;
   setActiveSessionId: (id: string | null) => void;
@@ -50,7 +50,7 @@ interface SessionState {
   setMobileContextOpen: (v: boolean) => void;
   openMobileContext: () => void;   // 현재 탭 기억하고 context panel 열기
   closeMobileContext: (fromPopState?: boolean) => void;  // 기억한 탭으로 복귀
-  setActiveView: (view: 'chat' | 'kanban') => void;
+  setActiveView: (view: 'chat' | 'kanban' | 'history') => void;
   clearAllClaudeSessionIds: () => void;
 }
 

@@ -111,6 +111,28 @@ export function deleteSession(id: string): boolean {
   return result.changes > 0;
 }
 
+export function getArchivedSessions(userId?: number): SessionMeta[] {
+  const db = getDb();
+  const query = userId
+    ? db.prepare('SELECT * FROM sessions WHERE user_id = ? AND archived = 1 ORDER BY updated_at DESC')
+    : db.prepare('SELECT * FROM sessions WHERE archived = 1 ORDER BY updated_at DESC');
+
+  const rows = userId ? query.all(userId) : query.all();
+  return (rows as any[]).map(mapRow);
+}
+
+export function restoreSession(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('UPDATE sessions SET archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+export function permanentlyDeleteSession(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
 /**
  * Clear all claudeSessionIds on server startup.
  * After a restart, all CLI processes are dead (or will be killed by orphan cleanup),

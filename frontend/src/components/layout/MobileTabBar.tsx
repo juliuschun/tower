@@ -49,6 +49,15 @@ const tabs: { id: MobileTab | 'settings'; label: string; icon: JSX.Element }[] =
     ),
   },
   {
+    id: 'board',
+    label: 'Board',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+      </svg>
+    ),
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: (
@@ -67,6 +76,8 @@ export function MobileTabBar() {
   const setSidebarTab = useSessionStore((s) => s.setSidebarTab);
   const setMobileContextOpen = useSessionStore((s) => s.setMobileContextOpen);
   const openSettings = useSettingsStore((s) => s.setOpen);
+  const setActiveView = useSessionStore((s) => s.setActiveView);
+  const activeView = useSessionStore((s) => s.activeView);
 
   const handleTabClick = (tab: MobileTab | 'settings') => {
     if (tab === 'settings') {
@@ -81,6 +92,7 @@ export function MobileTabBar() {
     } else if (tab === 'chat') {
       setSidebarOpen(false);
       setMobileContextOpen(false);
+      setActiveView('chat');
     } else if (tab === 'files') {
       setSidebarOpen(true);
       setSidebarTab('files');
@@ -93,6 +105,10 @@ export function MobileTabBar() {
       setSidebarOpen(true);
       setSidebarTab('pins');
       setMobileContextOpen(false);
+    } else if (tab === 'board') {
+      setSidebarOpen(false);
+      setMobileContextOpen(false);
+      setActiveView('kanban');
     }
   };
 

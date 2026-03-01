@@ -8,6 +8,7 @@ import {
 } from '../services/auth.js';
 import {
   createSession, getSessions, getSession, updateSession, deleteSession,
+  getArchivedSessions, restoreSession, permanentlyDeleteSession,
   scanClaudeNativeSessions
 } from '../services/session-manager.js';
 import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
@@ -25,7 +26,7 @@ import {
   autoCommit,
 } from '../services/git-manager.js';
 import { config, availableModels } from '../config.js';
-import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks } from '../services/task-manager.js';
+import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask } from '../services/task-manager.js';
 import {
   createInternalShare, createExternalShare, getSharesByFile,
   getSharesWithMe, getShareByToken, revokeShare, isTokenValid,
@@ -832,6 +833,15 @@ router.get('/tasks', (req, res) => {
   }
 });
 
+router.get('/tasks/meta', (req, res) => {
+  try {
+    const cwds = getDistinctCwds((req as any).user?.id);
+    res.json({ cwds });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/tasks', (req, res) => {
   try {
     const { title, description, cwd, model } = req.body;
@@ -868,6 +878,58 @@ router.post('/tasks/reorder', (req, res) => {
     const { taskIds, status } = req.body;
     if (!taskIds || !status) return res.status(400).json({ error: 'taskIds and status required' });
     reorderTasks(taskIds, status);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── History (archived sessions + tasks) ──────────────────
+router.get('/history', (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const sessions = getArchivedSessions(userId);
+    const tasks = getArchivedTasks(userId);
+    res.json({ sessions, tasks });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/sessions/:id/restore', (req, res) => {
+  try {
+    const ok = restoreSession(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'session not found' });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/sessions/:id/permanent', (req, res) => {
+  try {
+    const ok = permanentlyDeleteSession(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'session not found' });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/tasks/:id/restore', (req, res) => {
+  try {
+    const ok = restoreTask(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'task not found' });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/tasks/:id/permanent', (req, res) => {
+  try {
+    const ok = permanentlyDeleteTask(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

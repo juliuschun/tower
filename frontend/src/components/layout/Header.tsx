@@ -1,5 +1,4 @@
 import React from 'react';
-import { useChatStore } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useModelStore } from '../../stores/model-store';
@@ -78,28 +77,27 @@ function ViewToggle() {
   const activeView = useSessionStore((s) => s.activeView);
   const setActiveView = useSessionStore((s) => s.setActiveView);
 
+  const tabs: { id: 'chat' | 'kanban' | 'history'; label: string }[] = [
+    { id: 'chat', label: 'Chat' },
+    { id: 'kanban', label: 'Board' },
+    { id: 'history', label: 'History' },
+  ];
+
   return (
     <div className="flex items-center gap-0.5 bg-surface-800/60 rounded-lg p-0.5">
-      <button
-        onClick={() => setActiveView('chat')}
-        className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
-          activeView === 'chat'
-            ? 'bg-surface-700 text-white shadow-sm'
-            : 'text-gray-500 hover:text-gray-300'
-        }`}
-      >
-        Chat
-      </button>
-      <button
-        onClick={() => setActiveView('kanban')}
-        className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
-          activeView === 'kanban'
-            ? 'bg-surface-700 text-white shadow-sm'
-            : 'text-gray-500 hover:text-gray-300'
-        }`}
-      >
-        Board
-      </button>
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          onClick={() => setActiveView(tab.id)}
+          className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+            activeView === tab.id
+              ? 'bg-surface-700 text-white shadow-sm'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -145,7 +143,6 @@ function VersionHistoryButton({ onViewDiff }: { onViewDiff?: (diff: string) => v
 }
 
 export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick, onViewDiff }: HeaderProps) {
-  const cost = useChatStore((s) => s.cost);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -176,8 +173,8 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
         {!isMobile && <span className="text-gray-100 font-bold text-[15px] tracking-tight">Tower</span>}
       </div>
 
-      {/* Chat / Board view toggle — desktop only, mobile uses Settings panel */}
-      {!isMobile && <ViewToggle />}
+      {/* Chat / Board / History view toggle */}
+      <ViewToggle />
 
       {activeSession && (
         <>
@@ -245,13 +242,6 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
               </svg>
             )}
           </button>
-        )}
-
-        {/* Cost badge: desktop only — prevents dynamic overflow on mobile */}
-        {!isMobile && cost.totalCost > 0 && (
-          <span className="text-[11px] px-2.5 py-1 font-semibold text-primary-300 bg-primary-900/10 border border-primary-800/30 rounded-md shadow-sm">
-            ${cost.totalCost.toFixed(4)}
-          </span>
         )}
 
         <div className={`w-2 h-2 rounded-full ring-2 ring-surface-900 ring-offset-1 ring-offset-transparent ${connected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse'}`}

@@ -28,6 +28,7 @@ import { useGitStore } from './stores/git-store';
 import { normalizeContentBlocks } from './utils/message-parser';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
+import { HistoryPanel } from './components/history/HistoryPanel';
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
 import { SharedViewer } from './components/shared/SharedViewer';
 
@@ -273,6 +274,11 @@ function App() {
     // Skip if already on this session
     const currentId = useSessionStore.getState().activeSessionId;
     if (currentId === session.id) return;
+
+    // Always switch to chat view when selecting a session (e.g. from kanban sidebar)
+    if (useSessionStore.getState().activeView !== 'chat') {
+      useSessionStore.getState().setActiveView('chat');
+    }
 
     // DON'T abort streaming — let the SDK query run in the background and save to DB.
     // When user switches back, messages are loaded from DB.
@@ -836,12 +842,14 @@ function App() {
             </div>
             {/* Horizontal resize handle */}
             <HorizontalResizeHandle onResize={handleExpandedPanelResize} />
-            {/* Bottom: ChatPanel or KanbanBoard — compact */}
+            {/* Bottom: ChatPanel, KanbanBoard, or HistoryPanel — compact */}
             <main className="flex-1 min-h-0 flex justify-center">
-              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'kanban' ? 'bg-surface-950' : 'bg-surface-950/50 backdrop-blur-3xl'}`}>
+              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'chat' ? 'bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
+                  ) : activeView === 'history' ? (
+                    <HistoryPanel />
                   ) : (
                     <ChatPanel
                       onSend={handleSendMessage}
@@ -856,12 +864,14 @@ function App() {
           </div>
         ) : !isMobile ? (
           <>
-            {/* Normal mode: horizontal split (left: chat/kanban, right: context) */}
+            {/* Normal mode: horizontal split (left: chat/kanban/history, right: context) */}
             <main className="flex-1 min-w-0 flex justify-center">
-              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 border-x border-surface-900/50 ${activeView === 'kanban' ? 'bg-surface-950' : 'max-w-4xl bg-surface-950/50 backdrop-blur-3xl'}`}>
+              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 border-x border-surface-900/50 ${activeView === 'chat' ? 'max-w-4xl bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
+                  ) : activeView === 'history' ? (
+                    <HistoryPanel />
                   ) : (
                     <ChatPanel
                       onSend={handleSendMessage}
@@ -896,12 +906,14 @@ function App() {
             ) : null}
           </>
         ) : (
-          /* Mobile: normal chat panel or kanban */
+          /* Mobile: normal chat panel, kanban, or history */
           <main className="flex-1 min-w-0 flex justify-center">
-            <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'kanban' ? 'bg-surface-950' : 'bg-surface-950/50 backdrop-blur-3xl'}`}>
+            <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'chat' ? 'bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
               <ErrorBoundary fallbackLabel="Chat error">
                 {activeView === 'kanban' ? (
                   <KanbanBoard />
+                ) : activeView === 'history' ? (
+                  <HistoryPanel />
                 ) : (
                   <ChatPanel
                     onSend={handleSendMessage}

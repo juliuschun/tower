@@ -100,6 +100,11 @@ function createCanUseTool(sessionId: string, userRole: TowerRole, allowedPath?: 
       return { behavior: 'deny' as const, message: dc.message };
     }
 
+    // Block agent teams — TeamCreate causes zombie polling loops → CPU spikes
+    if (toolName === 'TeamCreate') {
+      return { behavior: 'deny' as const, message: 'Agent teams are disabled on this server. Use sequential task execution instead.' };
+    }
+
     // Path enforcement (per-user workspace restriction)
     if (pathCheck) {
       const pc = pathCheck(toolName, input);
@@ -215,6 +220,18 @@ export function setupWebSocket(server: Server) {
     clients.set(clientId, client);
 
     send(ws, { type: 'connected', clientId, serverEpoch: config.serverEpoch, streamingSessions: getRunningSessionIds() });
+
+    // ── Protocol-level ping (binary frame) ──────────────────────────────
+    // Cloudflare and mobile networks need WS protocol pings to keep alive.
+    // App-level JSON ping alone isn't enough — Cloudflare may still timeout.
+    let isAlive = true;
+    ws.on('pong', () => { isAlive = true; });       // browser auto-replies pong
+    const pingInterval = setInterval(() => {
+      if (!isAlive) { ws.terminate(); return; }      // dead connection → force close
+      isAlive = false;
+      ws.ping();                                      // binary ping frame
+    }, 25_000);                                       // 25s < Cloudflare's ~100s timeout
+    ws.on('close', () => clearInterval(pingInterval));
 
     ws.on('message', async (raw) => {
       try {

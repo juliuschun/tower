@@ -436,6 +436,10 @@ async function runTaskAgent(
       if (!dc.allowed) {
         return { behavior: 'deny' as const, message: dc.message };
       }
+      // Block agent teams — causes zombie polling CPU spikes
+      if (toolName === 'TeamCreate') {
+        return { behavior: 'deny' as const, message: 'Agent teams are disabled. Use sequential task execution.' };
+      }
       if (pathCheck) {
         const pc = pathCheck(toolName, input);
         if (!pc.allowed) {

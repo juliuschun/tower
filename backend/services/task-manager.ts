@@ -53,8 +53,8 @@ export function createTask(title: string, description: string, cwd: string, user
 export function getTasks(userId?: number): TaskMeta[] {
   const db = getDb();
   const rows = userId
-    ? db.prepare('SELECT * FROM tasks WHERE user_id = ? ORDER BY status, sort_order').all(userId)
-    : db.prepare('SELECT * FROM tasks ORDER BY status, sort_order').all();
+    ? db.prepare('SELECT * FROM tasks WHERE user_id = ? AND (archived IS NULL OR archived = 0) ORDER BY status, sort_order').all(userId)
+    : db.prepare('SELECT * FROM tasks WHERE (archived IS NULL OR archived = 0) ORDER BY status, sort_order').all();
   return rows.map(mapRow);
 }
 
@@ -89,8 +89,37 @@ export function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' |
 
 export function deleteTask(id: string): boolean {
   const db = getDb();
+  // Soft-delete: archive instead of permanent removal
+  const result = db.prepare('UPDATE tasks SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+export function getArchivedTasks(userId?: number): TaskMeta[] {
+  const db = getDb();
+  const rows = userId
+    ? db.prepare('SELECT * FROM tasks WHERE user_id = ? AND archived = 1 ORDER BY updated_at DESC').all(userId)
+    : db.prepare('SELECT * FROM tasks WHERE archived = 1 ORDER BY updated_at DESC').all();
+  return rows.map(mapRow);
+}
+
+export function restoreTask(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('UPDATE tasks SET archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+export function permanentlyDeleteTask(id: string): boolean {
+  const db = getDb();
   const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function getDistinctCwds(userId?: number): string[] {
+  const db = getDb();
+  const rows = userId
+    ? db.prepare('SELECT DISTINCT cwd FROM tasks WHERE user_id = ? ORDER BY cwd').all(userId) as any[]
+    : db.prepare('SELECT DISTINCT cwd FROM tasks ORDER BY cwd').all() as any[];
+  return rows.map((r) => r.cwd);
 }
 
 export function reorderTasks(taskIds: string[], status: string): void {
