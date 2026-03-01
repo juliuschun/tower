@@ -134,7 +134,7 @@ export async function spawnTask(
     },
   });
 
-  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll, userRole, allowedPath, resumeClaudeSessionId, task.progressSummary)
+  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll, userRole, allowedPath, resumeClaudeSessionId, task.progressSummary, task.model)
     .catch((err) => {
       console.error(`[task-runner] Task ${taskId} error:`, err.message);
     });
@@ -151,6 +151,7 @@ async function runTaskAgent(
   allowedPath?: string,
   resumeClaudeSessionId?: string,
   previousProgress?: string[],
+  model?: string,
 ): Promise<void> {
   const prompt = resumeClaudeSessionId
     ? buildResumePrompt(title, description, previousProgress ?? [])
@@ -194,7 +195,7 @@ async function runTaskAgent(
     const generator = executeQuery(sessionId, prompt, {
       cwd,
       permissionMode: taskPermission,
-      model: 'claude-sonnet-4-6',
+      model: model || 'claude-opus-4-6',
       canUseTool: taskCanUseTool,
       ...(resumeClaudeSessionId ? { resumeSessionId: resumeClaudeSessionId } : {}),
     });

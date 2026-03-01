@@ -5,54 +5,59 @@ import { config } from '../config.js';
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
 delete process.env.CLAUDECODE;
 
-// Kill orphaned Claude processes from previous backend runs.
-// When tsx watch restarts the backend, SDK-spawned processes lose their
-// parent and become orphans (ppid=1, tty=?). CLI sessions that outlive
-// their zellij pane also end up in this state.
-// Matches both CLI format (--dangerously-skip-permissions) and
-// SDK format (--permission-mode bypassPermissions).
+// Clean up orphaned Claude processes from previous backend runs.
+// When tsx watch restarts the backend, SDK-spawned CLI processes lose their
+// parent and become orphans (ppid=1, tty=?).
+// Strategy: SIGTERM first (lets CLI flush session .jsonl to disk), then
+// SIGKILL after 2s grace period for any that ignore SIGTERM.
 function cleanupOrphanedSdkProcesses() {
   try {
     const result = execSync(
       `ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*(--dangerously-skip-permissions|--permission-mode)/ {print $1}'`,
       { encoding: 'utf8', timeout: 3000 }
     ).trim();
-    if (result) {
-      const pids = result.split('\n').filter(Boolean);
-      console.log(`[sdk] Found ${pids.length} orphaned Claude process(es): ${pids.join(', ')}`);
-      // SIGKILL directly — orphaned claude processes ignore SIGTERM
+    if (!result) return;
+
+    const pids = result.split('\n').filter(Boolean);
+    console.log(`[sdk] Found ${pids.length} orphaned Claude process(es): ${pids.join(', ')}`);
+
+    for (const pid of pids) {
+      try {
+        process.kill(Number(pid), 'SIGTERM');
+        console.log(`[sdk] Sent SIGTERM to orphaned PID=${pid}`);
+      } catch { /* already dead */ }
+    }
+
+    // SIGKILL survivors after 2s grace period
+    setTimeout(() => {
       for (const pid of pids) {
         try {
+          process.kill(Number(pid), 0); // probe — throws if dead
           process.kill(Number(pid), 'SIGKILL');
-          console.log(`[sdk] Killed orphaned Claude process PID=${pid}`);
-        } catch { /* already dead */ }
+          console.log(`[sdk] SIGKILL orphaned PID=${pid} (ignored SIGTERM)`);
+        } catch { /* already dead — good */ }
       }
-    }
+    }, 2000);
   } catch { /* ps/awk not available or no orphans */ }
 }
 
 cleanupOrphanedSdkProcesses();
 
-// Graceful shutdown: abort all active SDK sessions before the process exits.
-// Prevents orphaned claude child processes when tsx watch restarts the backend.
+// Graceful shutdown: mark sessions as not running but do NOT abort CLI processes.
+// Let them become orphans — the next startup's cleanupOrphanedSdkProcesses()
+// will SIGTERM them gracefully, giving them time to flush session files.
 function gracefulShutdown(signal: string) {
-  let aborted = 0;
+  let running = 0;
   for (const session of activeSessions.values()) {
     if (session.isRunning) {
-      session.abortController.abort();
       session.isRunning = false;
-      aborted++;
+      running++;
     }
   }
-  if (aborted > 0) {
-    console.log(`[sdk] ${signal}: aborted ${aborted} active session(s)`);
+  if (running > 0) {
+    console.log(`[sdk] ${signal}: ${running} CLI process(es) will be cleaned up on next startup`);
   }
-  // Give SDK a moment to clean up child processes, then exit
-  setTimeout(() => process.exit(0), 500);
 }
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export interface ClaudeSession {
   id: string;

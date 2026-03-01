@@ -239,9 +239,13 @@ export function useClaudeChat() {
           }
         } else {
           // Switching to a non-streaming session — reset streaming state
-          // so InputBox doesn't show queue mode / stop button for this session
-          useChatStore.getState().setStreaming(false);
-          useChatStore.getState().setTurnStartTime(null);
+          // so InputBox doesn't show queue mode / stop button for this session.
+          // Guard: only reset if we haven't already started streaming from a queue drain.
+          // The ack reflects server state at request time which may be stale — our local
+          // state (from messages sent after the request) takes precedence.
+          if (!useChatStore.getState().isStreaming) {
+            useChatStore.getState().setTurnStartTime(null);
+          }
         }
         // Restore pending question if backend has one
         if (data.pendingQuestion) {
@@ -460,6 +464,13 @@ export function useClaudeChat() {
       }
 
       case 'sdk_done': {
+        // Always sync claudeSessionId to session store — even for background sessions.
+        // Without this, switching away during streaming → sdk_done is dropped →
+        // session store keeps stale claudeSessionId → resume fails on return.
+        if (data.claudeSessionId && data.sessionId) {
+          useSessionStore.getState().updateSessionMeta(data.sessionId, { claudeSessionId: data.claudeSessionId });
+        }
+
         // Ignore done signals for sessions we're not currently viewing
         const _doneSid = useChatStore.getState().sessionId;
         if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
@@ -472,18 +483,6 @@ export function useClaudeChat() {
         const activeId = useSessionStore.getState().activeSessionId;
         if (data.claudeSessionId) {
           setClaudeSessionId(data.claudeSessionId);
-          // Persist claudeSessionId to DB for session resume
-          if (activeId) {
-            const tk = localStorage.getItem('token');
-            const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
-            fetch(`/api/sessions/${activeId}`, {
-              method: 'PATCH',
-              headers: hdrs,
-              body: JSON.stringify({ claudeSessionId: data.claudeSessionId }),
-            }).catch((err) => { console.warn('[chat] persist claudeSessionId failed:', err); });
-            useSessionStore.getState().updateSessionMeta(activeId, { claudeSessionId: data.claudeSessionId });
-          }
         }
 
         // Auto-name: trigger if session name looks like default (date format)

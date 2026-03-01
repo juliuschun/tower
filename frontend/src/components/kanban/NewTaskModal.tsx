@@ -2,6 +2,11 @@ import { useState } from 'react';
 import { useSessionStore } from '../../stores/session-store';
 import type { TaskMeta } from '../../stores/kanban-store';
 
+const AVAILABLE_MODELS = [
+  { id: 'claude-opus-4-6', name: 'Opus 4.6' },
+  { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6' },
+];
+
 interface NewTaskModalProps {
   onClose: () => void;
   onCreated: (task: TaskMeta) => void;
@@ -15,6 +20,7 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [cwd, setCwd] = useState(activeSession?.cwd || '/home/enterpriseai/workspace');
+  const [model, setModel] = useState('claude-opus-4-6');
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
@@ -28,7 +34,7 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ title: title.trim(), description: description.trim(), cwd: cwd.trim() }),
+        body: JSON.stringify({ title: title.trim(), description: description.trim(), cwd: cwd.trim(), model }),
       });
       if (res.ok) {
         const task = await res.json();
@@ -73,13 +79,29 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
             />
           </div>
 
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Working Directory</label>
-            <input
-              value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
-              className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-gray-400 mb-1 block">Working Directory</label>
+              <input
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div className="w-40">
+              <label className="text-xs text-gray-400 mb-1 block">Model</label>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none cursor-pointer"
+              >
+                {AVAILABLE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 

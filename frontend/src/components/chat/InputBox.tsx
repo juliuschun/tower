@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, type SlashCommandInfo } from '../../stores/chat-store';
+import { useSessionStore } from '../../stores/session-store';
 import { AttachmentChip } from './AttachmentChip';
 
 const EMPTY_QUEUE: string[] = [];
@@ -28,6 +29,9 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     return s.messageQueue[sid] ?? EMPTY_QUEUE;
   });
   const hasQueue = currentQueue.length > 0;
+  // Per-session streaming flag (authoritative, set by session_status events).
+  // Used to prevent premature queue drain during session switches.
+  const isSessionStreaming = useSessionStore((s) => currentSessionId ? s.streamingSessions.has(currentSessionId) : false);
   const slashCommands = useChatStore((s) => s.slashCommands);
   const attachments = useChatStore((s) => s.attachments);
 
@@ -56,18 +60,24 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     setSelectedIndex(0);
   }, [filteredCommands.length]);
 
-  // Auto-send first queued message when streaming stops for the current session
+  // Track the last sent message for SESSION_BUSY re-queuing
+  const lastSentRef = useRef<string | null>(null);
+
+  // Auto-send first queued message when streaming stops for the current session.
+  // Guards:
+  //   1. isStreaming (global UI flag) must be false
+  //   2. isSessionStreaming (per-session flag from session_status) must be false
+  // Both must be false to confirm the session is genuinely idle, preventing premature
+  // queue drain during session switches where isStreaming is momentarily reset.
   useEffect(() => {
-    if (!isStreaming && currentQueue.length > 0 && currentSessionId) {
+    if (!isStreaming && !isSessionStreaming && currentQueue.length > 0 && currentSessionId) {
       const msg = useChatStore.getState().dequeueMessage(currentSessionId);
       if (msg) {
+        lastSentRef.current = msg;  // Track for SESSION_BUSY re-queue
         onSend(msg);
       }
     }
-  }, [isStreaming, currentQueue.length, currentSessionId, onSend]);
-
-  // Track the last sent message for SESSION_BUSY re-queuing
-  const lastSentRef = useRef<string | null>(null);
+  }, [isStreaming, isSessionStreaming, currentQueue.length, currentSessionId, onSend]);
 
   // Listen for SESSION_BUSY events — re-queue the last sent message
   useEffect(() => {

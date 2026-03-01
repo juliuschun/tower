@@ -84,11 +84,18 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
         </div>
       )}
 
-      {/* Footer: CWD + time + actions */}
+      {/* Footer: CWD + model + time + actions */}
       <div className="mt-2 flex items-center justify-between text-[10px] text-gray-600">
-        <span className="truncate max-w-[60%]" title={task.cwd}>
-          {task.cwd.split('/').pop()}
-        </span>
+        <div className="flex items-center gap-1.5 truncate max-w-[60%]">
+          <span className="truncate" title={task.cwd}>
+            {task.cwd.split('/').pop()}
+          </span>
+          {task.model && (
+            <span className={`shrink-0 px-1 py-0.5 rounded text-[9px] ${task.model.includes('opus') ? 'bg-purple-900/40 text-purple-400' : 'bg-sky-900/40 text-sky-400'}`}>
+              {task.model.includes('opus') ? 'Opus' : 'Sonnet'}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
           {/* Action buttons — visible on hover */}

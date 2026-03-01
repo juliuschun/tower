@@ -23,6 +23,7 @@ function mapRow(row: any): TaskMeta {
     title: row.title,
     description: row.description || '',
     cwd: row.cwd,
+    model: row.model || 'claude-opus-4-6',
     status: row.status,
     sessionId: row.session_id,
     sortOrder: row.sort_order,
@@ -34,16 +35,17 @@ function mapRow(row: any): TaskMeta {
   };
 }
 
-export function createTask(title: string, description: string, cwd: string, userId?: number): TaskMeta {
+export function createTask(title: string, description: string, cwd: string, userId?: number, model?: string): TaskMeta {
   const db = getDb();
   const id = uuidv4();
   const maxOrder = db.prepare('SELECT MAX(sort_order) as max_order FROM tasks WHERE status = ?').get('todo') as any;
   const sortOrder = (maxOrder?.max_order ?? -1) + 1;
+  const resolvedModel = model || 'claude-opus-4-6';
 
   db.prepare(`
-    INSERT INTO tasks (id, title, description, cwd, status, sort_order, user_id)
-    VALUES (?, ?, ?, ?, 'todo', ?, ?)
-  `).run(id, title, description, cwd, sortOrder, userId ?? null);
+    INSERT INTO tasks (id, title, description, cwd, model, status, sort_order, user_id)
+    VALUES (?, ?, ?, ?, ?, 'todo', ?, ?)
+  `).run(id, title, description, cwd, resolvedModel, sortOrder, userId ?? null);
 
   return getTask(id)!;
 }

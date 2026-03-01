@@ -284,24 +284,21 @@ function App() {
     clearMessages();
     useChatStore.getState().setSessionId(session.id);
 
-    // Set Claude session ID for resume — prefer cached value, fall back to server
+    // Always fetch fresh claudeSessionId from server — the session store value
+    // can be stale when sdk_done fired while viewing a different session.
     let resolvedClaudeSessionId = session.claudeSessionId || null;
-    if (!resolvedClaudeSessionId) {
-      // Session store may be stale (e.g., task runner set claudeSessionId after initial load).
-      // Fetch fresh from server so resume works for task-spawned sessions.
-      try {
-        const headers: Record<string, string> = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const freshRes = await fetch(`${API_BASE}/sessions/${session.id}`, { headers });
-        if (freshRes.ok) {
-          const fresh = await freshRes.json();
-          if (fresh.claudeSessionId) {
-            resolvedClaudeSessionId = fresh.claudeSessionId;
-            useSessionStore.getState().updateSessionMeta(session.id, { claudeSessionId: fresh.claudeSessionId });
-          }
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const freshRes = await fetch(`${API_BASE}/sessions/${session.id}`, { headers });
+      if (freshRes.ok) {
+        const fresh = await freshRes.json();
+        if (fresh.claudeSessionId) {
+          resolvedClaudeSessionId = fresh.claudeSessionId;
+          useSessionStore.getState().updateSessionMeta(session.id, { claudeSessionId: fresh.claudeSessionId });
         }
-      } catch {}
-    }
+      }
+    } catch {}
     useChatStore.getState().setClaudeSessionId(resolvedClaudeSessionId);
 
     // Notify backend of session switch

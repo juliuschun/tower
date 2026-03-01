@@ -834,9 +834,9 @@ router.get('/tasks', (req, res) => {
 
 router.post('/tasks', (req, res) => {
   try {
-    const { title, description, cwd } = req.body;
+    const { title, description, cwd, model } = req.body;
     if (!title || !cwd) return res.status(400).json({ error: 'title and cwd required' });
-    const task = createTask(title, description || '', cwd, (req as any).user?.id);
+    const task = createTask(title, description || '', cwd, (req as any).user?.id, model);
     res.json(task);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

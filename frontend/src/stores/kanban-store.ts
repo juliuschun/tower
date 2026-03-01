@@ -5,6 +5,7 @@ export interface TaskMeta {
   title: string;
   description: string;
   cwd: string;
+  model: string;
   status: 'todo' | 'in_progress' | 'done' | 'failed';
   sessionId: string | null;
   sortOrder: number;
