@@ -31,6 +31,9 @@ async function recoverMessagesFromDb(sessionId: string) {
           ),
           timestamp: new Date(m.created_at).getTime(),
           parentToolUseId: m.parent_tool_use_id,
+          durationMs: m.duration_ms || undefined,
+          inputTokens: m.input_tokens || undefined,
+          outputTokens: m.output_tokens || undefined,
         }));
         useChatStore.getState().setMessages(msgs);
       }
@@ -59,6 +62,9 @@ async function mergeMessagesFromDb(sessionId: string) {
       ),
       timestamp: new Date(m.created_at).getTime(),
       parentToolUseId: m.parent_tool_use_id,
+      durationMs: m.duration_ms || undefined,
+      inputTokens: m.input_tokens || undefined,
+      outputTokens: m.output_tokens || undefined,
     }));
 
     const currentMsgs = useChatStore.getState().messages;
@@ -453,11 +459,16 @@ export function useClaudeChat() {
             cacheReadTokens: sdkMsg.usage?.cache_read_input_tokens,
             duration: sdkMsg.duration_ms,
           });
-          useChatStore.getState().setLastTurnMetrics({
+          const turnMetrics = {
             inputTokens: sdkMsg.usage?.input_tokens || 0,
             outputTokens: sdkMsg.usage?.output_tokens || 0,
             durationMs: sdkMsg.duration_ms || 0,
-          });
+          };
+          useChatStore.getState().setLastTurnMetrics(turnMetrics);
+          // Persist metrics onto the current assistant message for per-message display
+          if (currentAssistantMsg.current) {
+            useChatStore.getState().updateMessageMetrics(currentAssistantMsg.current.id, turnMetrics);
+          }
           return;
         }
         break;

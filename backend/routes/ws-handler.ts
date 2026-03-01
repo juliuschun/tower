@@ -6,7 +6,7 @@ import { executeQuery, abortSession, cleanupSession, getClaudeSessionId, getActi
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken, getUserAllowedPath } from '../services/auth.js';
 import { isPathSafe } from '../services/file-system.js';
-import { saveMessage, updateMessageContent, attachToolResultInDb } from '../services/message-store.js';
+import { saveMessage, updateMessageContent, attachToolResultInDb, updateMessageMetrics } from '../services/message-store.js';
 import { getSession, updateSession } from '../services/session-manager.js';
 import { config, getPermissionMode } from '../config.js';
 import { autoCommit } from '../services/git-manager.js';
@@ -578,6 +578,18 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
             }
           }
         }
+      }
+
+      // Save turn metrics to the current assistant message in DB
+      if ((message as any).type === 'result' && currentAssistantId) {
+        const usage = (message as any).usage;
+        try {
+          updateMessageMetrics(currentAssistantId, {
+            duration_ms: (message as any).duration_ms,
+            input_tokens: usage?.input_tokens,
+            output_tokens: usage?.output_tokens,
+          });
+        } catch (err) { console.error('[ws] updateMessageMetrics failed:', err); }
       }
 
       // Broadcast to ALL tabs viewing this session

@@ -184,7 +184,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
           )}
 
           {mergedMessages.map((msg, idx) => (
-            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={idx === lastAssistantIndex && !isWaitingForAssistant} />
+            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={msg.role === 'assistant' && (msg.durationMs != null || (idx === lastAssistantIndex && !isWaitingForAssistant))} isLastAssistant={idx === lastAssistantIndex} />
           ))}
 
           {isWaitingForAssistant && (

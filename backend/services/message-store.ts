@@ -7,6 +7,9 @@ export interface StoredMessage {
   content: string; // JSON string of ContentBlock[]
   parent_tool_use_id?: string | null;
   created_at?: string;
+  duration_ms?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
 }
 
 export function saveMessage(
@@ -62,6 +65,16 @@ export function attachToolResultInDb(sessionId: string, toolUseId: string, resul
       }
     } catch {}
   }
+}
+
+export function updateMessageMetrics(
+  messageId: string,
+  metrics: { duration_ms?: number; input_tokens?: number; output_tokens?: number }
+): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE messages SET duration_ms = ?, input_tokens = ?, output_tokens = ? WHERE id = ?`
+  ).run(metrics.duration_ms ?? null, metrics.input_tokens ?? null, metrics.output_tokens ?? null, messageId);
 }
 
 export function deleteMessages(sessionId: string): void {

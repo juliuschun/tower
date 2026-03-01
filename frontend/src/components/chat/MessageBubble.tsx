@@ -122,9 +122,10 @@ interface MessageBubbleProps {
   onFileClick?: (path: string) => void;
   onRetry?: (text: string) => void;
   showMetrics?: boolean;
+  isLastAssistant?: boolean;
 }
 
-export function MessageBubble({ message, onFileClick, onRetry, showMetrics }: MessageBubbleProps) {
+export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLastAssistant }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -325,7 +326,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics }: Me
               console.warn('[MessageBubble] unknown block group type:', group.type);
               return null;
             })}
-            {showMetrics && <TurnMetricsBar />}
+            {showMetrics && <TurnMetricsBar message={message} isLast={!!isLastAssistant} />}
           </div>
         )}
       </div>
@@ -453,24 +454,24 @@ function fmtTokens(n: number): string {
   return n.toLocaleString();
 }
 
-export function TurnMetricsBar() {
+export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isLast?: boolean }) {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const turnStartTime = useChatStore((s) => s.turnStartTime);
   const lastTurnMetrics = useChatStore((s) => s.lastTurnMetrics);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (!isStreaming || !turnStartTime) {
+    if (!isStreaming || !turnStartTime || !isLast) {
       setElapsed(0);
       return;
     }
     setElapsed(Date.now() - turnStartTime);
     const iv = setInterval(() => setElapsed(Date.now() - turnStartTime), 100);
     return () => clearInterval(iv);
-  }, [isStreaming, turnStartTime]);
+  }, [isStreaming, turnStartTime, isLast]);
 
-  // Streaming: live timer
-  if (isStreaming && elapsed > 0) {
+  // Streaming: live timer (only for the last assistant message)
+  if (isLast && isStreaming && elapsed > 0) {
     return (
       <div className="flex items-center gap-1.5 mt-2 text-[11px] text-primary-400/80 tabular-nums font-medium">
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -481,15 +482,22 @@ export function TurnMetricsBar() {
     );
   }
 
-  // Completed: final metrics
-  if (lastTurnMetrics) {
-    const totalTokens = lastTurnMetrics.inputTokens + lastTurnMetrics.outputTokens;
+  // Per-message metrics (from DB or live result event)
+  const msgMetrics = message?.durationMs != null
+    ? { durationMs: message.durationMs, inputTokens: message.inputTokens || 0, outputTokens: message.outputTokens || 0 }
+    : null;
+
+  // Fallback to lastTurnMetrics for the last assistant message
+  const metrics = msgMetrics || (isLast ? lastTurnMetrics : null);
+
+  if (metrics) {
+    const totalTokens = metrics.inputTokens + metrics.outputTokens;
     return (
       <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500 tabular-nums font-medium">
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        {fmtDuration(lastTurnMetrics.durationMs)}
+        {fmtDuration(metrics.durationMs)}
         <span className="text-gray-600">·</span>
         {fmtTokens(totalTokens)} tokens
       </div>

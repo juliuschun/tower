@@ -52,6 +52,9 @@ export interface ChatMessage {
   timestamp: number;
   parentToolUseId?: string | null;
   sendStatus?: 'pending' | 'delivered' | 'failed';
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface CostInfo {
@@ -145,6 +148,7 @@ interface ChatState {
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
   setPendingQuestion: (pq: PendingQuestion | null) => void;
+  updateMessageMetrics: (id: string, metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number }) => void;
   enqueueMessage: (sessionId: string, message: string) => void;
   dequeueMessage: (sessionId: string) => string | null;
   removeQueuedMessage: (sessionId: string, index: number) => void;
@@ -276,6 +280,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   removeAttachment: (id) => set((s) => ({ attachments: s.attachments.filter((a) => a.id !== id) })),
   clearAttachments: () => set({ attachments: [] }),
   setPendingQuestion: (pq) => set({ pendingQuestion: pq }),
+
+  updateMessageMetrics: (id, metrics) =>
+    set((s) => {
+      const idx = s.messages.findIndex((m) => m.id === id);
+      if (idx === -1) return s;
+      const msgs = [...s.messages];
+      msgs[idx] = { ...msgs[idx], ...metrics };
+      return { messages: msgs };
+    }),
 
   enqueueMessage: (sessionId, message) => set((s) => {
     const updated = {
