@@ -1,5 +1,30 @@
 import { create } from 'zustand';
 
+// --- Message Queue localStorage persistence ---
+const QUEUE_STORAGE_KEY = 'claude-desk:messageQueue';
+
+function saveQueueToStorage(queue: Record<string, string[]>) {
+  try {
+    const cleaned = Object.fromEntries(
+      Object.entries(queue).filter(([, v]) => v.length > 0)
+    );
+    if (Object.keys(cleaned).length === 0) {
+      localStorage.removeItem(QUEUE_STORAGE_KEY);
+    } else {
+      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(cleaned));
+    }
+  } catch { /* storage unavailable or quota exceeded */ }
+}
+
+function loadQueueFromStorage(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 export interface ToolUse {
@@ -57,7 +82,7 @@ export interface RateLimitInfo {
 export interface SlashCommandInfo {
   name: string;
   description: string;
-  source: 'sdk' | 'commands';
+  source: 'sdk' | 'commands' | 'skills';
 }
 
 export interface Attachment {
@@ -94,6 +119,8 @@ interface ChatState {
   sessionStartTime: number | null;
   turnStartTime: number | null;
   lastTurnMetrics: TurnMetrics | null;
+  /** Per-session message queue: sessionId → messages[] */
+  messageQueue: Record<string, string[]>;
 
   addMessage: (msg: ChatMessage) => void;
   updateAssistantById: (id: string, content: ContentBlock[]) => void;
@@ -118,6 +145,10 @@ interface ChatState {
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
   setPendingQuestion: (pq: PendingQuestion | null) => void;
+  enqueueMessage: (sessionId: string, message: string) => void;
+  dequeueMessage: (sessionId: string) => string | null;
+  removeQueuedMessage: (sessionId: string, index: number) => void;
+  clearSessionQueue: (sessionId: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -136,6 +167,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sessionStartTime: null,
   turnStartTime: null,
   lastTurnMetrics: null,
+  messageQueue: loadQueueFromStorage(),
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -244,4 +276,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
   removeAttachment: (id) => set((s) => ({ attachments: s.attachments.filter((a) => a.id !== id) })),
   clearAttachments: () => set({ attachments: [] }),
   setPendingQuestion: (pq) => set({ pendingQuestion: pq }),
+
+  enqueueMessage: (sessionId, message) => set((s) => {
+    const updated = {
+      ...s.messageQueue,
+      [sessionId]: [...(s.messageQueue[sessionId] || []), message],
+    };
+    saveQueueToStorage(updated);
+    return { messageQueue: updated };
+  }),
+
+  dequeueMessage: (sessionId) => {
+    const state = get();
+    const queue = state.messageQueue[sessionId];
+    if (!queue || queue.length === 0) return null;
+    const [first, ...rest] = queue;
+    const updated = { ...state.messageQueue, [sessionId]: rest };
+    saveQueueToStorage(updated);
+    set({ messageQueue: updated });
+    return first;
+  },
+
+  removeQueuedMessage: (sessionId, index) => set((s) => {
+    const queue = s.messageQueue[sessionId] || [];
+    const updated = {
+      ...s.messageQueue,
+      [sessionId]: queue.filter((_, i) => i !== index),
+    };
+    saveQueueToStorage(updated);
+    return { messageQueue: updated };
+  }),
+
+  clearSessionQueue: (sessionId) => set((s) => {
+    const { [sessionId]: _, ...rest } = s.messageQueue;
+    saveQueueToStorage(rest);
+    return { messageQueue: rest };
+  }),
 }));

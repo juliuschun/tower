@@ -34,6 +34,7 @@ export function shouldResetAssistantRef(
 /**
  * Should a queued message be auto-sent?
  * Returns false if streaming is still active or if the queued session doesn't match the current.
+ * An empty queuedSessionId (from new-session first turn) always matches.
  */
 export function shouldAutoSendQueue(
   isStreaming: boolean,
@@ -41,5 +42,7 @@ export function shouldAutoSendQueue(
   currentSessionId: string | null,
 ): boolean {
   if (isStreaming) return false;
+  // Empty queued session = queued during first turn before session was assigned → allow
+  if (!queuedSessionId) return true;
   return currentSessionId === queuedSessionId;
 }

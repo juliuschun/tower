@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallba
 import { useChatStore, type ChatMessage, type PendingQuestion } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { normalizeContentBlocks } from '../../utils/message-parser';
-import { MessageBubble } from './MessageBubble';
+import { MessageBubble, TurnMetricsBar } from './MessageBubble';
 import { InputBox } from './InputBox';
 import { FloatingQuestionCard } from './FloatingQuestionCard';
 
@@ -111,16 +111,25 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
     }
     return -1;
   }, [mergedMessages]);
+
+  // Detect "waiting for first assistant content" — streaming started but no assistant msg yet
+  const isWaitingForAssistant = isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant';
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
 
+  // Reset scroll-to-bottom on session switch so new session always starts at bottom
+  useEffect(() => {
+    isNearBottom.current = true;
+  }, [activeSessionId]);
+
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
   }, []);
 
+  // Snap to bottom when new messages arrive (if user is near bottom)
   useLayoutEffect(() => {
     if (!isNearBottom.current) return;
     const el = scrollContainerRef.current;
@@ -129,10 +138,34 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
     }
   }, [messages]);
 
+  // Auto-scroll during streaming / typewriter animation.
+  // The typewriter reveals text gradually inside the same message,
+  // so the messages dependency above won't fire — poll via rAF instead.
+  // NOTE: 'smooth' behavior was removed — on mobile it fights with
+  //       virtual-keyboard viewport changes, causing visible jitter.
+  useEffect(() => {
+    if (!isStreaming) return;
+    let raf: number;
+    const tick = () => {
+      if (isNearBottom.current) {
+        const el = scrollContainerRef.current;
+        if (el) {
+          const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+          if (gap > 4) {
+            el.scrollTop = el.scrollHeight;          // instant — no smooth
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isStreaming]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Messages area */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" style={{ willChange: 'scroll-position', WebkitOverflowScrolling: 'touch' }}>
 
         <div className="px-3 md:px-6">
           {messages.length === 0 && (
@@ -151,18 +184,21 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
           )}
 
           {mergedMessages.map((msg, idx) => (
-            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={idx === lastAssistantIndex} />
+            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={idx === lastAssistantIndex && !isWaitingForAssistant} />
           ))}
 
-          {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant' && (
-            <div className="flex gap-4 my-6">
-              <div className="w-8 h-8 rounded-full bg-primary-600/20 border border-primary-500/30 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1 shadow-[0_0_15px_rgba(139,92,246,0.15)] ring-1 ring-primary-500/20 text-primary-400">
+          {isWaitingForAssistant && (
+            <div className="flex gap-3 my-5">
+              <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
                 C
               </div>
-              <div className="flex items-center gap-1.5 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
+              <div>
+                <div className="flex items-center gap-1.5 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
+                </div>
+                <TurnMetricsBar />
               </div>
             </div>
           )}

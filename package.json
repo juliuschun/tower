@@ -6,7 +6,7 @@
   "scripts": {
     "predev": "fuser -k 32354/tcp 32355/tcp 2>/dev/null; true",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "PORT=32355 HOST=0.0.0.0 GIT_AUTO_COMMIT=true WORKSPACE_ROOT=$HOME/workspace DEFAULT_CWD=$HOME/workspace PUBLIC_URL=https://desk.moatai.app tsx watch backend/index.ts",
+    "dev:backend": "PORT=32355 HOST=0.0.0.0 GIT_AUTO_COMMIT=true WORKSPACE_ROOT=$HOME/workspace DEFAULT_CWD=$HOME/workspace tsx watch backend/index.ts",
     "dev:frontend": "vite --host 0.0.0.0 --port 32354",
     "build": "vite build && tsc -p tsconfig.backend.json",
     "start": "pm2 start ecosystem.config.cjs",
@@ -35,6 +35,8 @@
     "concurrently": "^9.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.0",
     "mermaid": "^11.12.3",
     "multer": "^2.0.2",

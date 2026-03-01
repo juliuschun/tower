@@ -148,6 +148,9 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);
   `);
 
+  // Kanban tasks migrations
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`); } catch {}
+
   // File sharing table
   db.exec(`
     CREATE TABLE IF NOT EXISTS shares (

@@ -52,6 +52,17 @@ info "Node.js $(node -v)"
 # Claude Code CLI
 if command -v claude &>/dev/null; then
   info "Claude Code CLI found: $(which claude)"
+  if ! claude auth status &>/dev/null; then
+    warn "Claude CLI found but not authenticated."
+    echo "  Run: claude login"
+    echo "  Tower needs Claude to be logged in."
+    echo ""
+    read -p "  Continue without authentication? (y/N) " -n 1 -r
+    echo
+    [[ $REPLY =~ ^[Yy]$ ]] || exit 1
+  else
+    info "Claude CLI authenticated"
+  fi
 else
   warn "Claude Code CLI not found."
   echo "  Install: npm install -g @anthropic-ai/claude-code"
@@ -262,6 +273,260 @@ PRINEOF
       fi
 
       info "MEMORY.md initialized for ${TEAM_NAME}"
+
+      # ── Workspace CLAUDE.md onboarding ──
+      CLAUDE_WS_FILE="$WORKSPACE_DIR/CLAUDE.md"
+      if [ -f "$CLAUDE_WS_FILE" ] && grep -q '{{TEAM_NAME}}' "$CLAUDE_WS_FILE" 2>/dev/null; then
+        echo ""
+        echo "  ${BOLD}Workspace CLAUDE.md wizard${NC} — customizes AI behavior for your workspace."
+        echo "  (Press Enter to skip any question)"
+        echo ""
+
+        # Q1: Infrastructure type
+        echo "  Infrastructure:"
+        echo "    1) Local machine"
+        echo "    2) Azure VM"
+        echo "    3) AWS / GCP / other cloud"
+        echo "    4) Skip (add later)"
+        read -p "  Choice (1-4, default 4): " -n 1 -r INFRA_CHOICE || true
+        echo
+        INFRA_CHOICE="${INFRA_CHOICE:-4}"
+
+        # Q2: Client projects
+        read -p "  Use projects/ for per-client work? (y/N) " -n 1 -r USE_PROJECTS || true
+        echo
+        USE_PROJECTS="${USE_PROJECTS:-n}"
+
+        # Build infra section
+        INFRA_SECTION=""
+        if [[ "$INFRA_CHOICE" == "2" ]]; then
+          if [[ "$LANG_CHOICE" == "2" ]]; then
+            INFRA_SECTION="
+## Azure VM Environment
+
+This workspace runs on an Azure VM.
+
+- **VM Management Guide**: \`azurevm/README.md\` (create if needed)
+- **Auth**: System Managed Identity (\`az login --identity\`)
+- **Warning**: VM state changes (start/stop/resize) should be logged to \`azurevm/critical_change.md\`
+"
+          else
+            INFRA_SECTION="
+## Azure VM 환경
+
+이 워크스페이스는 Azure VM에서 운영된다.
+
+- **VM 관리 가이드**: \`azurevm/README.md\` (필요 시 생성)
+- **인증**: System Managed Identity (\`az login --identity\`)
+- **주의**: VM 상태 변경(시작/중지/리사이즈)은 \`azurevm/critical_change.md\`에 기록할 것
+"
+          fi
+        elif [[ "$INFRA_CHOICE" == "3" ]]; then
+          if [[ "$LANG_CHOICE" == "2" ]]; then
+            INFRA_SECTION="
+## Cloud Environment
+
+This workspace runs on a cloud instance.
+
+- **Access guide**: \`docs/cloud-setup.md\` (create if needed)
+- **Resources**: document in \`docs/\` for team reference
+"
+          else
+            INFRA_SECTION="
+## 클라우드 환경
+
+이 워크스페이스는 클라우드 인스턴스에서 운영된다.
+
+- **접속 가이드**: \`docs/cloud-setup.md\` (필요 시 생성)
+- **리소스 목록**: \`docs/\`에 문서화하여 팀 참고
+"
+          fi
+        fi
+
+        # Build projects section
+        PROJECTS_SECTION=""
+        if [[ "$USE_PROJECTS" =~ ^[Yy]$ ]]; then
+          mkdir -p "$WORKSPACE_DIR/projects"
+          if [[ "$LANG_CHOICE" == "2" ]]; then
+            PROJECTS_SECTION="
+## Projects (projects/)
+
+Per-client or per-project outputs live here.
+
+| Folder | Description |
+|--------|-------------|
+| (add as needed) | |
+
+When creating project outputs:
+- Work inside the relevant project folder
+- Name files clearly: \`2026-03-marketing-analysis.md\` not \`report_final_v2.md\`
+"
+          else
+            PROJECTS_SECTION="
+## 프로젝트 작업 (projects/)
+
+\`projects/\` 안의 하위 폴더는 개별 클라이언트나 프로젝트의 산출물이다.
+
+| 폴더 | 설명 |
+|------|------|
+| (필요에 따라 추가) | |
+
+프로젝트 산출물을 만들 때:
+- 해당 프로젝트 폴더 안에서 작업
+- 최종 산출물 이름은 명확하게 (\`보고서_v1.md\` ✗ → \`2026-03-마케팅-분석-보고서.md\` ✓)
+"
+          fi
+        fi
+
+        # Generate CLAUDE.md based on language choice
+        if [[ "$LANG_CHOICE" == "2" ]]; then
+          # ── English CLAUDE.md ──
+          cat > "$CLAUDE_WS_FILE" <<CLAUDEEOF
+# ${TEAM_NAME} — Workspace
+
+This directory is the **team brain** — decisions, docs, memos, and project outputs.
+It is *not* a code project. For code-specific rules, see each repo's own CLAUDE.md.
+
+## Role of This Directory
+
+| This workspace | Code project CLAUDE.md |
+|---|---|
+| Team collaboration rules, doc structure, AI behavior | Build/dev rules for that specific codebase |
+
+## Directory Structure
+
+\`\`\`
+workspace/
+├── CLAUDE.md              # ← This file (AI behavior + workspace guide)
+├── principles.md          # Team principles
+├── memory/MEMORY.md       # Team context (current priorities, structure, rhythm)
+├── decisions/             # Decision records (immutable — never delete/modify)
+├── docs/                  # Process docs, guides, SOPs
+├── notes/                 # Temporary memos, ideas$(if [[ "$USE_PROJECTS" =~ ^[Yy]$ ]]; then echo "
+└── projects/              # Per-client/project outputs"; else echo ""; fi)
+\`\`\`
+
+## Agent Behavior Rules
+
+### On Session Start
+
+1. **Read \`memory/MEMORY.md\`** — understand team status and priorities
+2. **Know \`principles.md\`** — especially "Write it down" and "Record the why"
+3. **Search \`decisions/\` and \`docs/\`** before starting any task — check for prior art
+
+### While Working
+
+- **Decisions → suggest recording**: "Want to record this in \`decisions/\`?"
+- **File naming**: decisions → \`YYYY-MM-DD-title.md\`, notes → \`YYYY-MM-DD.md\`
+- **\`decisions/\` files are immutable.** To change a decision, create a new file.
+- **Tasks under 15 min: just do them.** The task system is for 30+ min work.
+
+### When Writing Docs
+
+- Markdown. Specific titles ("Apply API cache" ✓, "Performance improvements" ✗)
+- Always include the **why**: "We went with A over B because X."
+- Assume the reader is smart but not a developer — explain jargon inline.
+
+## Communication Style
+
+When explaining technical decisions or architecture:
+- Plain language, everyday analogies
+- Simplest explanation first, detail only if asked
+- If a technical term is necessary, explain it in one sentence right after
+${INFRA_SECTION}${PROJECTS_SECTION}
+## Cleanup Rhythm
+
+| Frequency | Action |
+|---|---|
+| **Weekly** | Scan \`notes/\` → promote anything important to \`decisions/\` or \`docs/\` |
+| **Monthly** | Review \`docs/\` — still accurate? |
+| **Quarterly** | Update \`memory/MEMORY.md\` — reprioritize |
+
+## Warnings
+
+- **Never commit \`.env\`, credentials, or secret files** (check \`.gitignore\`)
+- **Never delete or modify files in \`decisions/\`** — create a new file instead
+- When modifying this CLAUDE.md, note the reason in \`decisions/\`
+CLAUDEEOF
+
+        else
+          # ── Korean CLAUDE.md ──
+          cat > "$CLAUDE_WS_FILE" <<CLAUDEEOF
+# ${TEAM_NAME} — Workspace
+
+팀의 공유 작업 공간. 결정, 문서, 메모, 프로젝트 산출물이 모인다.
+코드 프로젝트가 아니다. 코드 빌드/개발 규칙은 각 프로젝트의 CLAUDE.md 참고.
+
+## 이 디렉토리의 역할
+
+| 이 workspace | 코드 프로젝트 CLAUDE.md |
+|---|---|
+| 팀 협업 규칙, 문서 체계, AI 행동 규칙 | 해당 코드베이스의 빌드/개발 규칙 |
+
+## 디렉토리 구조
+
+\`\`\`
+workspace/
+├── CLAUDE.md              # ← 이 파일 (AI 행동 규칙 + 워크스페이스 가이드)
+├── principles.md          # 팀 원칙
+├── memory/MEMORY.md       # 팀 컨텍스트 (현재 우선순위, 구조, 리듬)
+├── decisions/             # 결정 기록 (불변 — 절대 삭제/수정 금지)
+├── docs/                  # 정리된 문서 (프로세스, 가이드, SOP)
+├── notes/                 # 임시 메모, 아이디어$(if [[ "$USE_PROJECTS" =~ ^[Yy]$ ]]; then echo "
+└── projects/              # 프로젝트별 산출물"; else echo ""; fi)
+\`\`\`
+
+## 에이전트 행동 규칙
+
+### 세션 시작 시
+
+1. **\`memory/MEMORY.md\` 읽기** — 팀 현황, 우선순위, 구조 파악
+2. **\`principles.md\` 인식** — 특히 "써라", "왜를 남겨라"
+3. 태스크에 관련된 기존 문서가 있는지 \`decisions/\`와 \`docs/\`를 먼저 검색
+
+### 작업 중
+
+- **결정을 내렸으면 기록을 제안하라**: "이 결정을 \`decisions/\`에 기록할까요?"
+- **파일명 규칙**: decisions → \`YYYY-MM-DD-제목.md\`, notes → \`YYYY-MM-DD.md\`
+- **\`decisions/\` 파일은 절대 삭제·수정하지 않는다.** 변경이 필요하면 새 파일을 만든다.
+- **15분 안에 끝나는 일은 태스크로 만들지 말고 직접 해라.** 태스크 시스템의 가치는 30분+ 작업에서 나온다.
+
+### 문서 작성 시
+
+- 마크다운 기본. 한국어 우선, 기술 용어는 영어 혼용 가능.
+- 제목은 **구체적으로** ("API 캐시 적용" ✓, "성능 개선" ✗)
+- 이유(Why)를 반드시 포함: "A로 했다" → "B도 있었지만 A로 갔다. 이유는 X."
+- 읽는 사람이 개발자가 아닐 수 있다. 전문 용어 쓰면 바로 다음에 한 문장 설명.
+
+## 커뮤니케이션 스타일
+
+기술적 결정이나 아키텍처를 설명할 때:
+- 일상 비유를 쓰고, 전문 용어를 피한다
+- 가장 단순한 설명부터 시작, 디테일은 요청받으면 추가
+- 기술 용어가 필요하면 바로 다음에 한 문장으로 설명
+${INFRA_SECTION}${PROJECTS_SECTION}
+## 정리 리듬
+
+| 주기 | 행동 |
+|------|------|
+| **주 1회** | \`notes/\` 훑기 → 중요한 건 \`decisions/\` 또는 \`docs/\`로 승격 |
+| **월 1회** | \`docs/\` 훑기 → "이거 아직 맞나?" 확인 |
+| **분기 1회** | \`memory/MEMORY.md\` 업데이트 → 우선순위 점검 |
+
+## 주의사항
+
+- **\`.env\`, 인증 정보, 시크릿 파일은 절대 커밋하지 않는다** (\`.gitignore\` 확인)
+- **\`decisions/\` 파일은 절대 삭제·수정 금지** — 변경이 필요하면 새 파일 생성
+- 이 CLAUDE.md를 수정할 때는 \`decisions/\`에 변경 이유를 남길 것
+CLAUDEEOF
+
+        fi
+
+        info "CLAUDE.md generated for ${TEAM_NAME}"
+        echo "  → $CLAUDE_WS_FILE"
+        echo "  → Annotated reference: $(dirname "$0")/sample_claude.md"
+      fi
+
     fi
 
   else

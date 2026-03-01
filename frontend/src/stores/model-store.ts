@@ -16,7 +16,7 @@ interface ModelState {
   setConnectionType: (type: string) => void;
 }
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-opus-4-6';
 
 export const useModelStore = create<ModelState>((set) => ({
   availableModels: [],

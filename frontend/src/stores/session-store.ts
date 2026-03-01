@@ -32,6 +32,7 @@ interface SessionState {
   isMobile: boolean;
   mobileTab: MobileTab;
   mobileContextOpen: boolean;
+  mobileTabBeforeContext: MobileTab;  // 파일 열기 전 탭 기억 (뒤로가기용)
   activeView: 'chat' | 'kanban';
 
   setSessions: (sessions: SessionMeta[]) => void;
@@ -47,6 +48,8 @@ interface SessionState {
   setIsMobile: (v: boolean) => void;
   setMobileTab: (tab: MobileTab) => void;
   setMobileContextOpen: (v: boolean) => void;
+  openMobileContext: () => void;   // 현재 탭 기억하고 context panel 열기
+  closeMobileContext: (fromPopState?: boolean) => void;  // 기억한 탭으로 복귀
   setActiveView: (view: 'chat' | 'kanban') => void;
 }
 
@@ -61,6 +64,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   isMobile: false,
   mobileTab: 'chat',
   mobileContextOpen: false,
+  mobileTabBeforeContext: 'chat',
   activeView: 'chat',
 
   setSessions: (sessions) => set({ sessions }),
@@ -69,7 +73,11 @@ export const useSessionStore = create<SessionState>((set) => ({
   removeSession: (id) => set((s) => ({ sessions: s.sessions.filter((ss) => ss.id !== id) })),
   updateSessionMeta: (id, updates) =>
     set((s) => ({
-      sessions: s.sessions.map((ss) => (ss.id === id ? { ...ss, ...updates } : ss)),
+      sessions: s.sessions.map((ss) =>
+        ss.id === id
+          ? { ...ss, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() }
+          : ss
+      ),
     })),
   setSessionStreaming: (id, streaming) =>
     set((s) => {
@@ -100,5 +108,34 @@ export const useSessionStore = create<SessionState>((set) => ({
   setIsMobile: (v) => set({ isMobile: v }),
   setMobileTab: (tab) => set({ mobileTab: tab }),
   setMobileContextOpen: (v) => set({ mobileContextOpen: v }),
+  openMobileContext: () => {
+    // 브라우저 뒤로가기로 닫을 수 있도록 history에 상태 추가
+    history.pushState({ mobileContext: true }, '');
+    set((s) => ({
+      mobileTabBeforeContext: s.mobileTab,
+      mobileContextOpen: true,
+      mobileTab: 'edit',
+    }));
+  },
+  closeMobileContext: (fromPopState?: boolean) => {
+    // UI 버튼(←)으로 닫을 때는 pushState로 넣은 항목 제거
+    if (!fromPopState && history.state?.mobileContext) {
+      history.back();
+      return; // popstate 핸들러가 다시 closeMobileContext(true) 호출
+    }
+    set((s) => {
+      const returnTab = s.mobileTabBeforeContext;
+      // files/pins/sessions → 사이드바 열기, chat → 사이드바 닫기
+      const needsSidebar = returnTab === 'files' || returnTab === 'sessions' || returnTab === 'pins';
+      return {
+        mobileContextOpen: false,
+        mobileTab: returnTab,
+        sidebarOpen: needsSidebar,
+        ...(returnTab === 'files' && { sidebarTab: 'files' as const }),
+        ...(returnTab === 'sessions' && { sidebarTab: 'sessions' as const }),
+        ...(returnTab === 'pins' && { sidebarTab: 'pins' as const }),
+      };
+    });
+  },
   setActiveView: (view) => set({ activeView: view }),
 }));

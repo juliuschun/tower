@@ -85,7 +85,7 @@ async function apiPost(url: string, body: Record<string, unknown>) {
   return data;
 }
 
-function DirectoryDropWrapper({ entry, children }: { entry: FileEntry; children: React.ReactNode }) {
+function DirectoryDropWrapper({ entry, children, onRefreshTree }: { entry: FileEntry; children: React.ReactNode; onRefreshTree?: () => void }) {
   const [dragOver, setDragOver] = useState(false);
   // Counter-based approach to fix dragLeave firing when entering child elements
   const dragCounterRef = useRef(0);
@@ -121,6 +121,7 @@ function DirectoryDropWrapper({ entry, children }: { entry: FileEntry; children:
       const fail = data.results.filter((r: any) => r.error);
       if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded`);
       if (fail.length > 0) toastError(`${fail.length} file(s) failed: ${fail.map((f: any) => f.error).join(', ')}`);
+      if (ok.length > 0) onRefreshTree?.();
     } catch {
       toastError('Upload failed');
     }
@@ -330,7 +331,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
   return (
     <div className={depth > 0 ? 'ml-3' : ''}>
       {entries.map((entry) => (
-        <DirectoryDropWrapper key={entry.path + '-dw'} entry={entry}>
+        <DirectoryDropWrapper key={entry.path + '-dw'} entry={entry} onRefreshTree={onRefreshTree}>
         <div key={entry.path}>
           {/* Rename inline input */}
           {inlineInput?.type === 'rename' && inlineInput.entry?.path === entry.path ? (

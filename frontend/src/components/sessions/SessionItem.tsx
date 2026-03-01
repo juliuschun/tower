@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { SessionMeta } from '../../stores/session-store';
 import { useSessionStore } from '../../stores/session-store';
+import { useChatStore } from '../../stores/chat-store';
 
 function relativeTime(dateStr: string): string {
   // SQLite CURRENT_TIMESTAMP returns UTC without 'Z' suffix — normalize to avoid local-time misparse
@@ -83,6 +84,7 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
+  const queueCount = useChatStore((s) => (s.messageQueue[session.id] ?? []).length);
   const isKanbanTask = session.name.startsWith('\u{1F7E2}'); // 🟢
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
 
@@ -139,10 +141,21 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           </svg>
         </button>
 
-        {/* Chat icon / kanban task icon / streaming indicator / unread dot */}
+        {/* Chat icon / kanban task icon / streaming indicator / unread dot / queue badge */}
         {isStreaming ? (
-          <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+          <div className="w-4 h-4 shrink-0 flex items-center justify-center relative">
             <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${isKanbanTask ? 'bg-blue-400' : 'bg-green-400'}`} />
+            {queueCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 text-[8px] font-bold text-white bg-primary-500 rounded-full min-w-[14px] h-[14px] flex items-center justify-center leading-none">
+                {queueCount}
+              </span>
+            )}
+          </div>
+        ) : queueCount > 0 ? (
+          <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+            <span className="text-[9px] font-bold text-primary-300 bg-primary-500/20 border border-primary-500/30 rounded-full min-w-[16px] h-[16px] flex items-center justify-center leading-none">
+              {queueCount}
+            </span>
           </div>
         ) : isUnread ? (
           <div className="w-4 h-4 shrink-0 flex items-center justify-center">

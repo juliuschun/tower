@@ -11,6 +11,26 @@ const PROJECT_ROOT = __dirname.includes('dist')
   ? path.resolve(__dirname, '..', '..')
   : path.resolve(__dirname, '..');
 
+// Load .env file — provides defaults, inline env vars (from package.json scripts) take precedence
+try {
+  const envPath = path.join(PROJECT_ROOT, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx);
+      const value = trimmed.slice(eqIdx + 1);
+      // Don't override existing env vars (inline vars from dev script take precedence)
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  }
+} catch {}
+
 function findClaudeExecutable(): string {
   if (process.env.CLAUDE_PATH) return process.env.CLAUDE_PATH;
 
@@ -76,13 +96,23 @@ export const config = {
   // Frontend (for production)
   frontendDir: path.join(PROJECT_ROOT, 'dist', 'frontend'),
 
-  // Public URL — used for generating shareable links (e.g. https://desk.moatai.app)
+  // Public URL — used for generating shareable links (e.g. https://your-domain.example.com)
   // If not set, share links use window.location.origin (fallback, can be wrong domain)
   publicUrl: process.env.PUBLIC_URL?.replace(/\/$/, '') || '',
 
   // Server epoch — changes on each restart, used to detect server restarts
   serverEpoch: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
 };
+
+export function validateConfig() {
+  const INSECURE = ['tower-secret-change-me', 'change-me-to-a-random-secret', ''];
+  if (config.authEnabled && INSECURE.includes(config.jwtSecret)) {
+    console.error('\n[FATAL] JWT_SECRET is not set or uses the default placeholder.');
+    console.error('  Run: openssl rand -hex 32');
+    console.error('  Then set JWT_SECRET in .env\n');
+    process.exit(1);
+  }
+}
 
 export function getPermissionMode(role?: string): PermissionMode {
   switch (role) {

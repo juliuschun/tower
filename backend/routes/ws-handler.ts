@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'os';
-import { executeQuery, abortSession, cleanupSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession } from '../services/claude-sdk.js';
+import { executeQuery, abortSession, cleanupSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession, getRunningSessionIds } from '../services/claude-sdk.js';
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken, getUserAllowedPath } from '../services/auth.js';
 import { isPathSafe } from '../services/file-system.js';
@@ -12,7 +12,7 @@ import { config, getPermissionMode } from '../config.js';
 import { autoCommit } from '../services/git-manager.js';
 import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient, type SessionClient } from './session-guards.js';
 import { spawnTask, abortTask } from '../services/task-runner.js';
-import { buildDamageControl, type TowerRole } from '../services/damage-control.js';
+import { buildDamageControl, buildPathEnforcement, type TowerRole } from '../services/damage-control.js';
 import { getTasks } from '../services/task-manager.js';
 
 interface WsClient {
@@ -89,14 +89,23 @@ function sendToClient(client: WsClient, sessionId: string, data: any) {
   }
 }
 
-function createCanUseTool(sessionId: string, userRole: TowerRole) {
+function createCanUseTool(sessionId: string, userRole: TowerRole, allowedPath?: string) {
   const damageCheck = buildDamageControl(userRole);
+  const pathCheck = allowedPath ? buildPathEnforcement(allowedPath) : null;
 
   return async (toolName: string, input: Record<string, unknown>, options: { signal: AbortSignal }) => {
     // Damage control check (role-based restrictions) — before everything else
     const dc = damageCheck(toolName, input);
     if (!dc.allowed) {
       return { behavior: 'deny' as const, message: dc.message };
+    }
+
+    // Path enforcement (per-user workspace restriction)
+    if (pathCheck) {
+      const pc = pathCheck(toolName, input);
+      if (!pc.allowed) {
+        return { behavior: 'deny' as const, message: pc.message };
+      }
     }
 
     // Allow all tools except AskUserQuestion
@@ -205,7 +214,7 @@ export function setupWebSocket(server: Server) {
 
     clients.set(clientId, client);
 
-    send(ws, { type: 'connected', clientId, serverEpoch: config.serverEpoch });
+    send(ws, { type: 'connected', clientId, serverEpoch: config.serverEpoch, streamingSessions: getRunningSessionIds() });
 
     ws.on('message', async (raw) => {
       try {
@@ -267,7 +276,7 @@ async function handleMessage(client: WsClient, data: any) {
     case 'task_spawn': {
       const { taskId } = data;
       try {
-        await spawnTask(taskId, (type, payload) => broadcastToAll({ type, ...payload }), client.userId, client.userRole);
+        await spawnTask(taskId, (type, payload) => broadcastToAll({ type, ...payload }), client.userId, client.userRole, client.allowedPath);
       } catch (err: any) {
         send(client.ws, { type: 'error', message: err.message });
       }
@@ -460,7 +469,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     resetHangTimer();
 
     // Create canUseTool to intercept AskUserQuestion
-    const canUseTool = createCanUseTool(sessionId, (client.userRole || 'member') as TowerRole);
+    const canUseTool = createCanUseTool(sessionId, (client.userRole || 'member') as TowerRole, client.allowedPath);
 
     for await (const message of executeQuery(sessionId, data.message, {
       cwd: data.cwd || client.allowedPath || config.defaultCwd,
@@ -482,6 +491,16 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
           } catch (err) { console.error('[ws] early claudeSessionId persist failed:', err); }
         }
         loopClaudeSessionId = message.session_id;
+      }
+
+      // Forward resume failure notification to the client
+      if ((message as any).type === 'system' && (message as any).subtype === 'resume_failed') {
+        broadcastToSession(sessionId, {
+          type: 'resume_failed',
+          sessionId,
+          message: (message as any).message || 'Previous conversation context could not be restored.',
+        });
+        continue;
       }
 
       // Save tool results to DB (from SDK user messages)
@@ -720,9 +739,11 @@ function handleFileWrite(client: WsClient, data: { path: string; content: string
 
 function handleFileTree(client: WsClient, data: { path?: string }) {
   try {
-    const root = client.allowedPath || config.workspaceRoot;
-    const targetPath = data.path || root;
-    if (!isPathSafe(targetPath, root)) {
+    const securityRoot = client.allowedPath || config.workspaceRoot;
+    // Admin's allowedPath is homedir (broad access), but default tree should show workspace
+    const defaultRoot = client.userRole === 'admin' ? config.workspaceRoot : securityRoot;
+    const targetPath = data.path || defaultRoot;
+    if (!isPathSafe(targetPath, securityRoot)) {
       send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
       return;
     }

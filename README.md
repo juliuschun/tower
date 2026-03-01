@@ -82,6 +82,28 @@ The longer your team uses Tower, the more it knows. The more it knows, the bette
 
 ---
 
+## From Conversation to Collaboration
+
+Most AI tools give you a chat window. You type. It responds. The conversation ends. Tomorrow you start over.
+
+Tower is built on a different premise: **AI should be a coworker, not a chatbot.**
+
+When you work through Tower, you're not sending messages into a void — you're directing an agent that reads your files, writes code, generates documents, commits changes, and remembers what it learned. You watch it work in real time. You course-correct mid-stream. You build on what it built yesterday.
+
+This isn't a new interface for the same thing. It's a different architecture for a different relationship with AI.
+
+| Chatting with AI | Working with AI |
+|---|---|
+| One question, one answer | Persistent sessions across days and weeks |
+| Context resets every conversation | Memory accumulates across the team |
+| Output lands in your clipboard | Output lands in version-controlled files |
+| Only you benefit | The whole team benefits |
+| You talk *to* AI | You and AI build *together* |
+
+Tower is the architecture that makes this transition possible — browser access, persistent memory, file system, git integration, role-based collaboration, and mobile access all working as one.
+
+---
+
 ## What You Get
 
 ### 🌐 Browser Access
@@ -111,6 +133,54 @@ Brainstorming, TDD, debugging, code review, planning, UI/UX design — pre-confi
 
 ### 🔧 Git Integration
 Auto-commit on every Claude edit. Every change is tracked, attributed, and reversible. Roll back to any point in history.
+
+### 📄 Built-in Document Viewer — Zero Install, Instant Preview
+
+Ask Claude to create a report, a dashboard, a proposal, meeting notes — and see the result **immediately**. No downloads. No extra apps. No "open this file in another program."
+
+Tower renders HTML, Markdown, and PDF files directly in its built-in viewer:
+
+- **HTML** — Interactive dashboards, styled reports, and landing page mockups render in a sandboxed preview, complete with charts and animations
+- **Markdown** — Full GFM support with syntax highlighting, tables, and images. Write docs in `.md` and they look as polished as Notion pages
+- **PDF** — Contracts, invoices, specs — viewable inline without leaving Tower
+
+**Why this matters for non-developers:**
+
+Most AI tools generate files that end up in a folder somewhere. You have to find them, figure out how to open them, maybe install something. Tower skips all of that. The file appears in a side panel the moment it's created — preview on the left, conversation on the right.
+
+This turns your workspace into something that feels like **Notion or a shared wiki** — except everything is generated and organized by AI, versioned with git, and searchable across your entire team's history.
+
+<p align="center">
+  <img src="docs/screenshots/dashboard-preview.jpg" alt="CEO Executive Dashboard — rendered instantly in Tower's built-in viewer" width="720" />
+</p>
+<p align="center"><em>Ask Claude to build a dashboard → see it live in seconds. No setup required.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/dashboard-cafe-preview.jpg" alt="Café Operations Dashboard — another example of instant HTML preview" width="720" />
+</p>
+<p align="center"><em>From executive overviews to shop-floor ops — any HTML renders right inside Tower.</em></p>
+
+### 📱 Mobile — Your AI, Wherever You Are
+
+Tower runs in any browser. On your phone, that unlocks something powerful:
+
+**Voice-first workflow.** Tap the microphone on your phone's keyboard and speak. Your device's native dictation converts speech to text — no extra app, no speech-to-text API, no configuration. Just talk to Claude like you'd talk to a colleague. This makes Tower accessible to people who would never type a command.
+
+**Full server power in your pocket.** Your phone isn't doing the computation. It's a remote control. Claude runs on your server with its full CPU, memory, and disk. Heavy tasks — data analysis, code generation, document creation, file operations across thousands of files — execute at server speed, not phone speed. You get the portability of a phone with the horsepower of a workstation.
+
+**Sessions on the go.** Waiting for a flight? Riding the subway? Spin up a new session, dictate a batch of instructions, and let Claude work while you move. Spin up five sessions in a row if you want. Come back to your desk and everything is there — files committed, context saved, ready to continue.
+
+```
+Your phone (anywhere)          Your server (always on)
+    ┌──────────┐               ┌──────────────────┐
+    │  Voice   │──── wifi ────▶│  Claude Code      │
+    │  input   │   or cell     │  Full CPU/RAM     │
+    │  + eyes  │◀─────────────│  Git, files, DB   │
+    └──────────┘   live result │  20 skills        │
+                               └──────────────────┘
+```
+
+This is what "mobile AI" actually means — not a stripped-down chat app, but full access to your team's entire AI workspace from anywhere in the world.
 
 ---
 
@@ -147,10 +217,10 @@ See **[INSTALL.md](INSTALL.md)** for detailed setup, environment variables, proj
 | **20 AI Skills** | Brainstorming, TDD, debugging, code review, planning, UI/UX design, and more. See [`claude-skills/README.md`](claude-skills/README.md). |
 | **3-Layer Memory** | Auto memory + workspace memory + session hooks. Claude remembers across sessions. See [`memory-hooks/README.md`](memory-hooks/README.md). |
 | **Workspace Templates** | Team principles, decision records, shared docs — bootstrapped by `setup.sh`. |
-| **File Editor** | CodeMirror with syntax highlighting, real-time file tree, drag & drop upload. |
+| **File Editor + Viewer** | CodeMirror editor with syntax highlighting, plus a built-in document viewer that renders HTML, Markdown, and PDF — no extra software needed. |
 | **Git Integration** | Auto-commit on Claude edits, commit history, diff viewer, rollback. |
 | **Admin Panel** | User management, role-based permissions, per-user workspace restrictions. |
-| **Mobile** | Responsive layout with bottom tab bar. PWA support. |
+| **Mobile + Voice** | Responsive layout, bottom tab bar, PWA support. Use your phone's native dictation to command Claude with full server computing power — from anywhere. |
 
 ---
 

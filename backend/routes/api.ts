@@ -87,7 +87,7 @@ const MIME_TYPES: Record<string, string> = {
 router.get('/shared/:token', async (req, res) => {
   const share = getShareByToken(req.params.token);
   if (!share || !isTokenValid(share)) {
-    return res.status(410).json({ error: '만료되었거나 취소된 링크입니다.' });
+    return res.status(410).json({ error: 'This link has expired or been revoked.' });
   }
   try {
     const fileName = path.basename(share.file_path);
@@ -118,7 +118,7 @@ router.get('/shared/:token', async (req, res) => {
     const content = await fsPromises.readFile(share.file_path, 'utf-8');
     res.json({ content, fileName, ext });
   } catch {
-    return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+    return res.status(404).json({ error: 'File not found.' });
   }
 });
 
@@ -266,7 +266,7 @@ router.delete('/shares/:id', (req, res) => {
   const ownerId = (req as any).user?.userId;
   if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
   const ok = revokeShare(req.params.id, ownerId);
-  if (!ok) return res.status(404).json({ error: '공유를 찾을 수 없거나 취소 권한이 없습니다.' });
+  if (!ok) return res.status(404).json({ error: 'Share not found or no permission to revoke.' });
   res.json({ ok: true });
 });
 
@@ -464,7 +464,12 @@ router.get('/sessions/:id/messages', (req, res) => {
 // ───── Directories ─────
 router.get('/directories', (req, res) => {
   try {
-    const dirPath = (req.query.path as string) || '/';
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const dirPath = (req.query.path as string) || userRoot;
+    if (!isPathSafe(dirPath, userRoot)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
       return res.status(400).json({ error: 'Invalid directory path' });
     }
@@ -518,6 +523,9 @@ router.post('/files/write', (req, res) => {
   try {
     const { path: filePath, content } = req.body;
     if (!filePath || content === undefined) return res.status(400).json({ error: 'path and content required' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     writeFile(filePath, content);
     res.json({ ok: true, path: filePath });
   } catch (error: any) {
@@ -562,7 +570,7 @@ router.post('/files/upload', handleMulterUpload, async (req, res) => {
         continue;
       }
       const filePath = path.join(targetDir, file.originalname);
-      if (!isPathSafe(filePath)) {
+      if (!isPathSafe(filePath, userRoot)) {
         results.push({ name: file.originalname, path: '', error: 'Access denied' });
         continue;
       }
@@ -687,7 +695,9 @@ router.get('/files/serve', (req, res) => {
   try {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
-    if (!isPathSafe(filePath)) return res.status(403).json({ error: 'Access denied' });
+    const userId = (req as any).user?.userId;
+    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
 
     const ext = filePath.split('.').pop()?.toLowerCase();
     const binaryTypes: Record<string, string> = {

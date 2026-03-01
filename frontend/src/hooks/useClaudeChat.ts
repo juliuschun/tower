@@ -130,6 +130,61 @@ export function useClaudeChat() {
           currentAssistantMsg.current = null;
         }
         serverEpochRef.current = newEpoch || null;
+
+        // Request file tree on (re)connect so sidebar doesn't stay empty
+        // (send() silently drops messages before WS is OPEN)
+        setTimeout(() => sendRef.current({ type: 'file_tree' }), 100);
+
+        // Restore streaming indicators for all running sessions
+        const runningSessions: string[] = data.streamingSessions || [];
+        if (runningSessions.length > 0) {
+          for (const sid of runningSessions) {
+            useSessionStore.getState().setSessionStreaming(sid, true);
+          }
+          // If the active session is streaming, restore chat panel state
+          const activeSid = useChatStore.getState().sessionId;
+          if (activeSid && runningSessions.includes(activeSid)) {
+            useChatStore.getState().setStreaming(true);
+            if (!useChatStore.getState().turnStartTime) {
+              useChatStore.getState().setTurnStartTime(Date.now());
+            }
+          }
+        }
+
+        // Drain orphaned queues: messages queued for sessions that are no longer streaming.
+        // Delayed to ensure sessions are loaded from API and WS is fully ready.
+        const runningSet = new Set(runningSessions);
+        setTimeout(() => {
+          const allQueues = useChatStore.getState().messageQueue;
+          const activeSid2 = useChatStore.getState().sessionId;
+          for (const [sid, queue] of Object.entries(allQueues)) {
+            if (queue.length === 0) continue;
+            // Active session queue is handled by InputBox's useEffect — skip here
+            if (sid === activeSid2) continue;
+            // If session is still streaming, session_status handler will drain when it finishes
+            if (runningSet.has(sid)) continue;
+            // Orphaned queue: session not streaming, not active → send first message
+            const msg = useChatStore.getState().dequeueMessage(sid);
+            if (msg) {
+              const session = useSessionStore.getState().sessions.find((s) => s.id === sid);
+              if (!session) {
+                // Session was deleted — just clear the orphaned queue
+                useChatStore.getState().clearSessionQueue(sid);
+                continue;
+              }
+              const messageId = crypto.randomUUID();
+              sendRef.current({
+                type: 'chat',
+                message: msg,
+                messageId,
+                sessionId: sid,
+                claudeSessionId: session.claudeSessionId,
+                model: useModelStore.getState().selectedModel,
+              });
+              useSessionStore.getState().setSessionStreaming(sid, true);
+            }
+          }
+        }, 3000);
         break;
       }
 
@@ -182,6 +237,11 @@ export function useClaudeChat() {
           if (data.sessionId) {
             mergeMessagesFromDb(data.sessionId);
           }
+        } else {
+          // Switching to a non-streaming session — reset streaming state
+          // so InputBox doesn't show queue mode / stop button for this session
+          useChatStore.getState().setStreaming(false);
+          useChatStore.getState().setTurnStartTime(null);
         }
         // Restore pending question if backend has one
         if (data.pendingQuestion) {
@@ -198,6 +258,32 @@ export function useClaudeChat() {
         // Update sidebar streaming indicators
         if (data.sessionId) {
           useSessionStore.getState().setSessionStreaming(data.sessionId, data.status === 'streaming');
+          // Bump updatedAt so sidebar re-sorts (covers background sessions too)
+          useSessionStore.getState().updateSessionMeta(data.sessionId, {});
+
+          // Auto-send queued messages for BACKGROUND sessions that finish streaming.
+          // Active session queue is handled by InputBox's useEffect.
+          const currentSid = useChatStore.getState().sessionId;
+          if (data.status !== 'streaming' && data.sessionId !== currentSid) {
+            const queue = useChatStore.getState().messageQueue[data.sessionId];
+            if (queue && queue.length > 0) {
+              const msg = useChatStore.getState().dequeueMessage(data.sessionId);
+              if (msg) {
+                const session = useSessionStore.getState().sessions.find((s) => s.id === data.sessionId);
+                const messageId = crypto.randomUUID();
+                sendRef.current({
+                  type: 'chat',
+                  message: msg,
+                  messageId,
+                  sessionId: data.sessionId,
+                  claudeSessionId: session?.claudeSessionId,
+                  model: useModelStore.getState().selectedModel,
+                });
+                // Re-mark as streaming since we just sent a new message
+                useSessionStore.getState().setSessionStreaming(data.sessionId, true);
+              }
+            }
+          }
         }
         break;
       }
@@ -324,16 +410,24 @@ export function useClaudeChat() {
           currentAssistantSessionRef.current = data.sessionId;
 
           if (!currentAssistantMsg.current || currentAssistantMsg.current.id !== msgId) {
-            // New assistant message (new turn or new UUID)
-            const msg: ChatMessage = {
-              id: msgId,
-              role: 'assistant',
-              content: parsed,
-              timestamp: Date.now(),
-              parentToolUseId: sdkMsg.parent_tool_use_id,
-            };
-            currentAssistantMsg.current = msg;
-            addMessage(msg);
+            // Check if this message already exists (e.g., loaded from DB after page reload)
+            const existingMsg = useChatStore.getState().messages.find((m) => m.id === msgId);
+            if (existingMsg) {
+              // Resume updating the existing message — don't create a duplicate
+              currentAssistantMsg.current = { ...existingMsg, content: parsed };
+              useChatStore.getState().updateAssistantById(msgId, parsed);
+            } else {
+              // New assistant message (new turn or new UUID)
+              const msg: ChatMessage = {
+                id: msgId,
+                role: 'assistant',
+                content: parsed,
+                timestamp: Date.now(),
+                parentToolUseId: sdkMsg.parent_tool_use_id,
+              };
+              currentAssistantMsg.current = msg;
+              addMessage(msg);
+            }
           } else {
             // Same message updated (streaming increments)
             currentAssistantMsg.current = {
@@ -468,8 +562,7 @@ export function useClaudeChat() {
           ...(data.encoding && { encoding: data.encoding }),
         });
         if (useSessionStore.getState().isMobile) {
-          useSessionStore.getState().setMobileContextOpen(true);
-          useSessionStore.getState().setMobileTab('edit');
+          useSessionStore.getState().openMobileContext();
         }
         break;
 
@@ -563,9 +656,12 @@ export function useClaudeChat() {
         const _errSid = useChatStore.getState().sessionId;
         if (shouldDropSessionMessage(_errSid, data.sessionId)) return;
 
-        // SESSION_BUSY = backend still running → keep isStreaming true, silently drop the duplicate
+        // SESSION_BUSY = backend still running → keep isStreaming true, notify user
         if (data.errorCode === 'SESSION_BUSY') {
-          console.warn('[chat] SESSION_BUSY — duplicate send dropped (backend still running)');
+          console.warn('[chat] SESSION_BUSY — message will be auto-sent when current turn finishes');
+          toastWarning('Message queued — waiting for current response');
+          // Re-queue: broadcast a custom event so InputBox can re-queue the message
+          window.dispatchEvent(new CustomEvent('session-busy-requeue'));
           break;
         }
 
@@ -600,8 +696,33 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'resume_failed': {
+        // SDK resume failed — show a warning so user knows context was lost
+        const _rfSid = useChatStore.getState().sessionId;
+        if (!shouldDropSessionMessage(_rfSid, data.sessionId)) {
+          toastWarning(data.message || 'Previous conversation context could not be restored.');
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'system',
+            content: [{ type: 'text', text: `⚠️ ${data.message || 'Previous conversation context could not be restored. Starting fresh.'}` }],
+            timestamp: Date.now(),
+          });
+        }
+        break;
+      }
+
+      case 'task_sdk_message': {
+        // Route kanban task SDK messages to the chat panel if viewing that session
+        const currentSid = useChatStore.getState().sessionId;
+        if (data.sessionId && currentSid === data.sessionId && data.sdkMessage) {
+          // Re-dispatch as a regular sdk_message so existing rendering pipeline handles it
+          handleMessage({ type: 'sdk_message', sessionId: data.sessionId, data: data.sdkMessage });
+        }
+        break;
+      }
+
       case 'task_update': {
-        const { taskId, status, sessionId: taskSessionId, progressSummary, session: taskSession } = data;
+        const { taskId, status, sessionId: taskSessionId, progressSummary, session: taskSession, claudeSessionId: taskClaudeSessionId } = data;
         useKanbanStore.getState().updateTask(taskId, {
           ...(status && { status }),
           ...(taskSessionId && { sessionId: taskSessionId }),
@@ -613,6 +734,19 @@ export function useClaudeChat() {
           if (!existing) {
             useSessionStore.getState().addSession(taskSession);
           }
+        }
+        // Sync claudeSessionId to session store so resume works when clicking the session
+        if (taskClaudeSessionId && taskSessionId) {
+          useSessionStore.getState().updateSessionMeta(taskSessionId, { claudeSessionId: taskClaudeSessionId });
+        }
+        break;
+      }
+
+      // Backend broadcasts session metadata changes (e.g., claudeSessionId from task runner)
+      case 'session_meta_update': {
+        const { sessionId: metaSid, updates: metaUpdates } = data;
+        if (metaSid && metaUpdates) {
+          useSessionStore.getState().updateSessionMeta(metaSid, metaUpdates);
         }
         break;
       }
@@ -664,11 +798,17 @@ export function useClaudeChat() {
       useChatStore.getState().setLastTurnMetrics(null);
       currentAssistantMsg.current = null;
 
+      // Bump updatedAt so the session moves to top of sidebar immediately
+      const activeSid = useChatStore.getState().sessionId;
+      if (activeSid) {
+        useSessionStore.getState().updateSessionMeta(activeSid, {});
+      }
+
       send({
         type: 'chat',
         message,
         messageId,
-        sessionId: useChatStore.getState().sessionId,
+        sessionId: activeSid,
         claudeSessionId: useChatStore.getState().claudeSessionId,
         cwd,
         model: useModelStore.getState().selectedModel,

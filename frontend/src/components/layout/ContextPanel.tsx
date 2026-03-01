@@ -260,7 +260,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           )}
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           {isMarkdown && contextPanelTab === 'preview' ? (
             <div className="prose prose-invert prose-sm max-w-none p-4">
               <ReactMarkdown

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, type SlashCommandInfo } from '../../stores/chat-store';
-import { shouldAutoSendQueue } from '../../utils/session-filters';
 import { AttachmentChip } from './AttachmentChip';
+
+const EMPTY_QUEUE: string[] = [];
 
 interface InputBoxProps {
   onSend: (message: string) => void;
@@ -14,7 +15,6 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const [input, setInput] = useState(() => {
     try { return localStorage.getItem(DRAFT_KEY) ?? ''; } catch { return ''; }
   });
-  const [queued, setQueued] = useState<{ message: string; sessionId: string } | null>(null);
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -22,6 +22,12 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const currentSessionId = useChatStore((s) => s.sessionId);
+  const currentQueue = useChatStore((s) => {
+    const sid = s.sessionId;
+    if (!sid) return EMPTY_QUEUE;
+    return s.messageQueue[sid] ?? EMPTY_QUEUE;
+  });
+  const hasQueue = currentQueue.length > 0;
   const slashCommands = useChatStore((s) => s.slashCommands);
   const attachments = useChatStore((s) => s.attachments);
 
@@ -34,11 +40,6 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Clear queued message when session changes
-  useEffect(() => {
-    setQueued(null);
-  }, [currentSessionId]);
 
   const filteredCommands: SlashCommandInfo[] = input.startsWith('/')
     ? slashCommands.filter((cmd) => cmd.name.toLowerCase().includes(input.slice(1).toLowerCase()))
@@ -55,16 +56,31 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     setSelectedIndex(0);
   }, [filteredCommands.length]);
 
-  // Auto-send queued message when streaming stops (only if session matches)
+  // Auto-send first queued message when streaming stops for the current session
   useEffect(() => {
-    if (!isStreaming && queued) {
-      const nowSid = useChatStore.getState().sessionId;
-      if (shouldAutoSendQueue(false, queued.sessionId, nowSid)) {
-        onSend(queued.message);
+    if (!isStreaming && currentQueue.length > 0 && currentSessionId) {
+      const msg = useChatStore.getState().dequeueMessage(currentSessionId);
+      if (msg) {
+        onSend(msg);
       }
-      setQueued(null);
     }
-  }, [isStreaming, queued, onSend]);
+  }, [isStreaming, currentQueue.length, currentSessionId, onSend]);
+
+  // Track the last sent message for SESSION_BUSY re-queuing
+  const lastSentRef = useRef<string | null>(null);
+
+  // Listen for SESSION_BUSY events — re-queue the last sent message
+  useEffect(() => {
+    const handler = () => {
+      if (lastSentRef.current) {
+        const sid = useChatStore.getState().sessionId || '';
+        useChatStore.getState().enqueueMessage(sid, lastSentRef.current);
+        lastSentRef.current = null;
+      }
+    };
+    window.addEventListener('session-busy-requeue', handler);
+    return () => window.removeEventListener('session-busy-requeue', handler);
+  }, []);
 
   const buildMessage = (text: string): string => {
     if (attachments.length === 0) return text;
@@ -107,8 +123,10 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     // Read from store directly (synchronous) — the component-subscribed `isStreaming`
     // can be stale between React renders, causing double-sends on fast Enter presses.
     if (useChatStore.getState().isStreaming) {
-      setQueued({ message, sessionId: useChatStore.getState().sessionId || '' });
+      const sid = useChatStore.getState().sessionId || '';
+      useChatStore.getState().enqueueMessage(sid, message);
     } else {
+      lastSentRef.current = message;   // track for SESSION_BUSY re-queuing
       onSend(message);
     }
 
@@ -122,7 +140,9 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   };
 
   const handleCancelQueue = () => {
-    setQueued(null);
+    if (currentSessionId) {
+      useChatStore.getState().clearSessionQueue(currentSessionId);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -150,7 +170,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       handleSubmit();
     }
     if (e.key === 'Escape') {
-      if (queued) {
+      if (hasQueue) {
         handleCancelQueue();
       } else if (showCommands) {
         setShowCommands(false);
@@ -162,9 +182,13 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     const val = e.target.value;
     setInput(val);
     try { localStorage.setItem(DRAFT_KEY, val); } catch { /* storage full */ }
+    // Batch height recalculation into a single rAF to avoid layout thrashing
+    // that causes visible jitter on mobile when the virtual keyboard is open.
     const el = e.target;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    requestAnimationFrame(() => {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    });
   };
 
   const selectCommand = (cmd: string) => {
@@ -251,25 +275,32 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
   return (
     <div className="max-w-3xl mx-auto relative">
-      {/* Queued message indicator */}
-      {queued && (
-        <div className="mb-2 flex items-center gap-2 px-4 py-2 bg-primary-900/20 border border-primary-500/20 rounded-xl text-[13px] text-primary-300 backdrop-blur-sm">
-          <div className="w-4 h-4 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin shrink-0" />
-          <span className="truncate flex-1">Queued: {queued.message}</span>
-          <button
-            onClick={handleCancelQueue}
-            className="text-primary-400/60 hover:text-primary-300 p-0.5 transition-colors shrink-0"
-            title="Cancel queue (Esc)"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+      {/* Queued message indicator(s) */}
+      {hasQueue && (
+        <div className="mb-2 space-y-1">
+          {currentQueue.map((msg, i) => (
+            <div key={i} className="flex items-center gap-2 px-4 py-2 bg-primary-900/20 border border-primary-500/20 rounded-xl text-[13px] text-primary-300 backdrop-blur-sm">
+              <div className="w-4 h-4 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin shrink-0" />
+              <span className="truncate flex-1">
+                {currentQueue.length > 1 ? `[${i + 1}/${currentQueue.length}] ` : 'Queued: '}
+                {msg}
+              </span>
+              <button
+                onClick={() => currentSessionId && useChatStore.getState().removeQueuedMessage(currentSessionId, i)}
+                className="text-primary-400/60 hover:text-primary-300 p-0.5 transition-colors shrink-0"
+                title="Cancel this message"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
       <div
-        className={`rounded-2xl shadow-2xl shadow-black/40 ring-1 bg-surface-800/80 backdrop-blur-2xl transition-all relative ${
+        className={`rounded-2xl shadow-2xl shadow-black/40 ring-1 bg-surface-800/80 backdrop-blur-2xl transition-[box-shadow,ring-color] duration-200 relative ${
           isDragOver
             ? 'ring-2 ring-primary-500/50 bg-primary-900/10'
             : 'ring-white/10'
@@ -337,7 +368,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder={
-              queued
+              hasQueue
                 ? 'You can queue another message...'
                 : isStreaming
                   ? 'Type a message to send on the next turn...'

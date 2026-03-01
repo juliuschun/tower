@@ -74,9 +74,11 @@ function UserManagement({ token }: { token?: string | null }) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'member', allowed_path: '' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', passwordConfirm: '', role: 'member', allowed_path: '' });
   const [resetPwUserId, setResetPwUserId] = useState<number | null>(null);
   const [resetPwValue, setResetPwValue] = useState('');
+  const [resetPwConfirm, setResetPwConfirm] = useState('');
+  const [resetPwError, setResetPwError] = useState('');
   const [error, setError] = useState('');
 
   const headers = useCallback((): Record<string, string> => {
@@ -105,14 +107,17 @@ function UserManagement({ token }: { token?: string | null }) {
   const handleCreate = async () => {
     setError('');
     if (!newUser.username || !newUser.password) { setError('Username and password are required'); return; }
+    if (newUser.password.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (newUser.password !== newUser.passwordConfirm) { setError('Passwords do not match'); return; }
     try {
+      const { passwordConfirm: _, ...payload } = newUser;
       const res = await fetch(`${API_BASE}/admin/users`, {
         method: 'POST', headers: headers(),
-        body: JSON.stringify(newUser),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setShowForm(false);
-        setNewUser({ username: '', password: '', role: 'member', allowed_path: '' });
+        setNewUser({ username: '', password: '', passwordConfirm: '', role: 'member', allowed_path: '' });
         fetchUsers();
       } else {
         const data = await res.json();
@@ -138,13 +143,23 @@ function UserManagement({ token }: { token?: string | null }) {
   };
 
   const handleResetPassword = async (userId: number) => {
+    setResetPwError('');
     if (!resetPwValue) return;
-    await fetch(`${API_BASE}/admin/users/${userId}/password`, {
+    if (resetPwValue.length < 8) { setResetPwError('Min 8 characters'); return; }
+    if (resetPwValue !== resetPwConfirm) { setResetPwError('Passwords do not match'); return; }
+    const res = await fetch(`${API_BASE}/admin/users/${userId}/password`, {
       method: 'PATCH', headers: headers(),
       body: JSON.stringify({ password: resetPwValue }),
     });
-    setResetPwUserId(null);
-    setResetPwValue('');
+    if (res.ok) {
+      setResetPwUserId(null);
+      setResetPwValue('');
+      setResetPwConfirm('');
+      setResetPwError('');
+    } else {
+      const data = await res.json();
+      setResetPwError(data.error || 'Reset failed');
+    }
   };
 
   const handleDelete = async (userId: number, username: string) => {
@@ -196,7 +211,19 @@ function UserManagement({ token }: { token?: string | null }) {
                 value={newUser.password}
                 onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                 className="w-full bg-surface-900 border border-surface-700 rounded-md px-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-primary-500/50"
-                placeholder="password"
+                placeholder="password (min 8 chars)"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">Confirm Password</label>
+              <input
+                type="password"
+                value={newUser.passwordConfirm}
+                onChange={(e) => setNewUser({ ...newUser, passwordConfirm: e.target.value })}
+                className={`w-full bg-surface-900 border rounded-md px-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-primary-500/50 ${
+                  newUser.passwordConfirm && newUser.password !== newUser.passwordConfirm ? 'border-red-500/50' : 'border-surface-700'
+                }`}
+                placeholder="confirm password"
               />
             </div>
             <div>
@@ -299,22 +326,34 @@ function UserManagement({ token }: { token?: string | null }) {
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       {resetPwUserId === u.id ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="password"
-                            value={resetPwValue}
-                            onChange={(e) => setResetPwValue(e.target.value)}
-                            placeholder="New password"
-                            className="w-28 bg-surface-900 border border-surface-700 rounded-md px-2 py-1 text-[12px] text-gray-200 focus:outline-none focus:border-primary-500/50"
-                            onKeyDown={(e) => e.key === 'Enter' && handleResetPassword(u.id)}
-                            autoFocus
-                          />
-                          <button onClick={() => handleResetPassword(u.id)} className="p-1 text-primary-400 hover:text-primary-300 rounded" title="Confirm">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                          </button>
-                          <button onClick={() => { setResetPwUserId(null); setResetPwValue(''); }} className="p-1 text-gray-500 hover:text-gray-300 rounded" title="Cancel">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                          </button>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="password"
+                              value={resetPwValue}
+                              onChange={(e) => { setResetPwValue(e.target.value); setResetPwError(''); }}
+                              placeholder="New password"
+                              className="w-28 bg-surface-900 border border-surface-700 rounded-md px-2 py-1 text-[12px] text-gray-200 focus:outline-none focus:border-primary-500/50"
+                              autoFocus
+                            />
+                            <input
+                              type="password"
+                              value={resetPwConfirm}
+                              onChange={(e) => { setResetPwConfirm(e.target.value); setResetPwError(''); }}
+                              placeholder="Confirm"
+                              className={`w-28 bg-surface-900 border rounded-md px-2 py-1 text-[12px] text-gray-200 focus:outline-none focus:border-primary-500/50 ${
+                                resetPwConfirm && resetPwValue !== resetPwConfirm ? 'border-red-500/50' : 'border-surface-700'
+                              }`}
+                              onKeyDown={(e) => e.key === 'Enter' && handleResetPassword(u.id)}
+                            />
+                            <button onClick={() => handleResetPassword(u.id)} className="p-1 text-primary-400 hover:text-primary-300 rounded" title="Confirm">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            </button>
+                            <button onClick={() => { setResetPwUserId(null); setResetPwValue(''); setResetPwConfirm(''); setResetPwError(''); }} className="p-1 text-gray-500 hover:text-gray-300 rounded" title="Cancel">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </div>
+                          {resetPwError && <span className="text-[10px] text-red-400 pl-1">{resetPwError}</span>}
                         </div>
                       ) : (
                         <>

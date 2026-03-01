@@ -26,13 +26,14 @@ export interface FileEntry {
 export function isPathSafe(targetPath: string, root?: string): boolean {
   const resolvedTarget = path.resolve(targetPath);
   const resolvedRoot = path.resolve(root || '/');
-  return resolvedTarget.startsWith(resolvedRoot);
+  if (resolvedRoot === '/') return true; // root=/ means no restriction
+  return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
 }
 
 export function isPathWritable(targetPath: string): boolean {
   const resolvedTarget = path.resolve(targetPath);
   const resolvedRoot = path.resolve(config.workspaceRoot);
-  return resolvedTarget.startsWith(resolvedRoot);
+  return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
 }
 
 export function getFileTree(dirPath: string, depth = 2): FileEntry[] {
@@ -117,8 +118,10 @@ export function writeFile(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
-export function writeFileBinary(filePath: string, buffer: Buffer): void {
-  if (!isPathWritable(filePath)) {
+export function writeFileBinary(filePath: string, buffer: Buffer, allowedRoot?: string): void {
+  const resolvedTarget = path.resolve(filePath);
+  const resolvedRoot = path.resolve(allowedRoot || config.workspaceRoot);
+  if (!resolvedTarget.startsWith(resolvedRoot)) {
     throw new Error('Access denied: path outside workspace');
   }
 

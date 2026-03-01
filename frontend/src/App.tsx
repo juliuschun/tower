@@ -114,6 +114,19 @@ function App() {
     }
   }, [isMobileQuery]);
 
+  // 모바일: 브라우저 뒤로가기로 파일 뷰어 닫기
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const store = useSessionStore.getState();
+      if (store.isMobile && store.mobileContextOpen) {
+        // popstate에서 호출 → history.back() 중복 방지를 위해 true 전달
+        store.closeMobileContext(true);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const setSidebarOpen = useSessionStore((s) => s.setSidebarOpen);
   const contextPanelOpen = useFileStore((s) => s.contextPanelOpen);
@@ -271,15 +284,28 @@ function App() {
     clearMessages();
     useChatStore.getState().setSessionId(session.id);
 
-    // Set Claude session ID for resume
-    if (session.claudeSessionId) {
-      useChatStore.getState().setClaudeSessionId(session.claudeSessionId);
-    } else {
-      useChatStore.getState().setClaudeSessionId(null);
+    // Set Claude session ID for resume — prefer cached value, fall back to server
+    let resolvedClaudeSessionId = session.claudeSessionId || null;
+    if (!resolvedClaudeSessionId) {
+      // Session store may be stale (e.g., task runner set claudeSessionId after initial load).
+      // Fetch fresh from server so resume works for task-spawned sessions.
+      try {
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const freshRes = await fetch(`${API_BASE}/sessions/${session.id}`, { headers });
+        if (freshRes.ok) {
+          const fresh = await freshRes.json();
+          if (fresh.claudeSessionId) {
+            resolvedClaudeSessionId = fresh.claudeSessionId;
+            useSessionStore.getState().updateSessionMeta(session.id, { claudeSessionId: fresh.claudeSessionId });
+          }
+        }
+      } catch {}
     }
+    useChatStore.getState().setClaudeSessionId(resolvedClaudeSessionId);
 
     // Notify backend of session switch
-    setActiveSession(session.id, session.claudeSessionId);
+    setActiveSession(session.id, resolvedClaudeSessionId);
 
     // Load persisted messages — cache hit: 즉시 표시 후 백그라운드 갱신
     const cached = sessionMsgCache.get(session.id);
@@ -374,6 +400,8 @@ function App() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE', headers });
       removeSession(id);
+      // Clear any orphaned queue for the deleted session
+      useChatStore.getState().clearSessionQueue(id);
       toastSuccess('Session deleted');
     } catch (err) { console.warn('[app] handleDeleteSession failed:', err); }
   }, [token, removeSession]);
@@ -792,8 +820,7 @@ function App() {
                   onSave={handleSaveFile}
                   onReload={requestFile}
                   onMobileClose={() => {
-                    setMobileContextOpen(false);
-                    useSessionStore.getState().setMobileTab('chat');
+                    useSessionStore.getState().closeMobileContext();
                   }}
                 />
               </ErrorBoundary>

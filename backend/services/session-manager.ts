@@ -79,7 +79,7 @@ export function getSessions(userId?: number): SessionMeta[] {
 function mapRow(row: any): SessionMeta {
   return {
     id: row.id,
-    claudeSessionId: row.claude_session_id,
+    claudeSessionId: row.claude_session_id || undefined,
     name: row.name,
     cwd: row.cwd,
     tags: JSON.parse(row.tags || '[]'),

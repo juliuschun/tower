@@ -13,7 +13,7 @@ module.exports = {
       GIT_AUTO_COMMIT: "true",
       WORKSPACE_ROOT: path.join(home, "workspace"),
       DEFAULT_CWD: path.join(home, "workspace"),
-      PUBLIC_URL: "https://desk.moatai.app",
+      // PUBLIC_URL: set in .env or as environment variable
     },
     autorestart: true,
     max_restarts: 10,

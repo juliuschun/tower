@@ -87,6 +87,7 @@ export function MobileTabBar() {
       setMobileContextOpen(false);
     } else if (tab === 'edit') {
       setSidebarOpen(false);
+      // Edit 탭은 직접 탭 선택이라 이전 탭 기억 불필요 — 단순 열기
       setMobileContextOpen(true);
     } else if (tab === 'pins') {
       setSidebarOpen(true);

@@ -152,8 +152,15 @@ export async function* executeQuery(
       return;
     }
     // Resume failed (exit code 1, stale session) → retry without resume
-    if (queryOptions.resume && /exited with code|ENOENT|session.*not found/i.test(error.message || '')) {
+    if (queryOptions.resume && /exited with code|ENOENT|session.*not found|unexpected token|invalid json|parse error|corrupt/i.test(error.message || '')) {
       console.warn(`[sdk] resume failed for session=${sessionId}, retrying fresh: ${error.message}`);
+      // Yield a synthetic message so callers can notify the user
+      yield {
+        type: 'system',
+        subtype: 'resume_failed',
+        session_id: sessionId,
+        message: 'Previous conversation context could not be restored. Starting fresh.',
+      } as any;
       const freshOptions = { ...queryOptions };
       delete freshOptions.resume;
       session.claudeSessionId = undefined;
@@ -191,6 +198,14 @@ export function abortSession(sessionId: string): boolean {
 
 export function getSession(sessionId: string): ClaudeSession | undefined {
   return activeSessions.get(sessionId);
+}
+
+export function getRunningSessionIds(): string[] {
+  const ids: string[] = [];
+  for (const [id, session] of activeSessions) {
+    if (session.isRunning) ids.push(id);
+  }
+  return ids;
 }
 
 export function getClaudeSessionId(sessionId: string): string | undefined {

@@ -1,9 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
-import { config } from './config.js';
+import { config, validateConfig } from './config.js';
 import apiRouter from './routes/api.js';
 import { setupWebSocket } from './routes/ws-handler.js';
 import { closeDb } from './db/schema.js';
@@ -13,9 +15,26 @@ import { initWorkspaceRepo } from './services/git-manager.js';
 // CRITICAL: Remove CLAUDECODE env var before anything else
 delete process.env.CLAUDECODE;
 
+// Refuse to start with insecure JWT secret
+validateConfig();
+
 const app = express();
+app.set('trust proxy', 1); // trust first proxy (Cloudflare) — correct IP for rate limiting
+app.use(helmet({
+  contentSecurityPolicy: false,       // breaks Vite HMR + inline scripts
+  crossOriginEmbedderPolicy: false,   // breaks iframe embeds
+}));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 min
+  max: 20,                    // 20 attempts per window per IP
+  message: { error: 'Too many attempts. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth', authLimiter);
 
 // API routes
 app.use('/api', apiRouter);

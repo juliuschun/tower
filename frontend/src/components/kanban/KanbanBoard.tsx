@@ -162,6 +162,7 @@ export function KanbanBoard() {
               onCardClick={handleCardClick}
               onDeleteTask={handleDeleteTask}
               onSpawnTask={onSpawnTask}
+              onAbortTask={onAbortTask}
             />
           ))}
         </div>
