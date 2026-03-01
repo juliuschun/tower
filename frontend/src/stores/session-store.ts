@@ -51,6 +51,7 @@ interface SessionState {
   openMobileContext: () => void;   // 현재 탭 기억하고 context panel 열기
   closeMobileContext: (fromPopState?: boolean) => void;  // 기억한 탭으로 복귀
   setActiveView: (view: 'chat' | 'kanban') => void;
+  clearAllClaudeSessionIds: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -138,4 +139,8 @@ export const useSessionStore = create<SessionState>((set) => ({
     });
   },
   setActiveView: (view) => set({ activeView: view }),
+  clearAllClaudeSessionIds: () =>
+    set((s) => ({
+      sessions: s.sessions.map((ss) => ({ ...ss, claudeSessionId: undefined })),
+    })),
 }));

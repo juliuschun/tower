@@ -111,6 +111,18 @@ export function deleteSession(id: string): boolean {
   return result.changes > 0;
 }
 
+/**
+ * Clear all claudeSessionIds on server startup.
+ * After a restart, all CLI processes are dead (or will be killed by orphan cleanup),
+ * so there's nothing to resume. Clearing prevents stale resume attempts that
+ * always fail with "Previous conversation context could not be restored".
+ */
+export function clearAllClaudeSessionIds(): number {
+  const db = getDb();
+  const result = db.prepare(`UPDATE sessions SET claude_session_id = NULL WHERE claude_session_id IS NOT NULL AND claude_session_id != ''`).run();
+  return result.changes;
+}
+
 /** Scan Claude native session files from ~/.claude/projects/ */
 export function scanClaudeNativeSessions(): { sessionId: string; projectPath: string; modified: string }[] {
   const claudeDir = path.join(os.homedir(), '.claude', 'projects');
