@@ -46,7 +46,7 @@ const pendingQuestions = new Map<string, PendingQuestion>(); // questionId → P
  * Broadcast a message to ALL connected clients (regardless of session).
  * Used for session status updates that affect the sidebar.
  */
-function broadcastToAll(data: any) {
+export function broadcastToAll(data: any) {
   const payload = JSON.stringify(data);
   for (const client of clients.values()) {
     if (client.ws.readyState === WebSocket.OPEN) {
@@ -640,7 +640,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   } catch (error: any) {
     console.error(`[ws] handleChat ERROR session=${sessionId}:`, error.message || error);
     // Clear stale claudeSessionId so next attempt doesn't retry the same broken resume
-    if (resumeSessionId && /exited with code|ENOENT|session.*not found/i.test(error.message || '')) {
+    if (resumeSessionId && /exited with code|ENOENT|session.*not found|aborted/i.test(error.message || '')) {
       try { updateSession(sessionId, { claudeSessionId: '' }); } catch {}
       console.warn(`[ws] cleared stale claudeSessionId for session=${sessionId}`);
     }
@@ -684,6 +684,10 @@ function handleAbort(client: WsClient, data: { sessionId?: string }) {
     const aborted = abortSession(sessionId);
     // Pure: bump epoch + remove this client from session routing
     abortCleanup(client, sessionClients, sessionId);
+    // Clear claudeSessionId — aborted CLI process may leave corrupted session files.
+    // Without this, next message tries to resume a broken session → exit code 1.
+    try { updateSession(sessionId, { claudeSessionId: '' }); } catch {}
+    broadcastToAll({ type: 'session_meta_update', sessionId, updates: { claudeSessionId: '' } });
     send(client.ws, { type: 'abort_result', aborted, sessionId });
   }
 }

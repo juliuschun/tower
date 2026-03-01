@@ -821,6 +821,7 @@ export function useClaudeChat() {
     setStreaming(false);
     setTurnStartTime(null);
     useChatStore.getState().setCompacting(null);
+    useChatStore.getState().setPendingQuestion(null);
   }, [send, setStreaming, setTurnStartTime]);
 
   const setActiveSession = useCallback(

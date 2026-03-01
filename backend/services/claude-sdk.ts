@@ -10,7 +10,7 @@ delete process.env.CLAUDECODE;
 // parent and become orphans (ppid=1, tty=?).
 // Strategy: SIGTERM first (lets CLI flush session .jsonl to disk), then
 // SIGKILL after 2s grace period for any that ignore SIGTERM.
-function cleanupOrphanedSdkProcesses() {
+export function cleanupOrphanedSdkProcesses() {
   try {
     const result = execSync(
       `ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*(--dangerously-skip-permissions|--permission-mode)/ {print $1}'`,
@@ -41,12 +41,12 @@ function cleanupOrphanedSdkProcesses() {
   } catch { /* ps/awk not available or no orphans */ }
 }
 
-cleanupOrphanedSdkProcesses();
+// Cleanup deferred — called conditionally from index.ts after task recovery
 
 // Graceful shutdown: mark sessions as not running but do NOT abort CLI processes.
 // Let them become orphans — the next startup's cleanupOrphanedSdkProcesses()
 // will SIGTERM them gracefully, giving them time to flush session files.
-function gracefulShutdown(signal: string) {
+export function gracefulShutdown(signal: string) {
   let running = 0;
   for (const session of activeSessions.values()) {
     if (session.isRunning) {

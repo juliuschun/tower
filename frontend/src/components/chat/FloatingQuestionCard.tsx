@@ -5,9 +5,10 @@ interface FloatingQuestionCardProps {
   question: PendingQuestion;
   onAnswer: (questionId: string, answer: string) => void;
   answered?: { questionId: string; answer: string } | null;
+  onDismiss?: () => void;
 }
 
-export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQuestionCardProps) {
+export function FloatingQuestionCard({ question, onAnswer, answered, onDismiss }: FloatingQuestionCardProps) {
   // 질문별 답변 상태 — 모두 채워야 제출
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const prevQuestionId = useRef(question.questionId);
@@ -64,11 +65,22 @@ export function FloatingQuestionCard({ question, onAnswer, answered }: FloatingQ
           </svg>
         )}
         <span
-          className="text-[13px] font-semibold"
+          className="text-[13px] font-semibold flex-1"
           style={{ color: isAnswered ? 'var(--th-q-done-heading)' : 'var(--th-q-pending-heading)' }}
         >
           {isAnswered ? 'Answered' : 'Claude is asking'}
         </span>
+        {!isAnswered && onDismiss && (
+          <button
+            onClick={onDismiss}
+            className="p-0.5 rounded hover:bg-white/10 transition-colors"
+            title="Dismiss (Esc)"
+          >
+            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Body */}

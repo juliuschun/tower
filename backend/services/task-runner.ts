@@ -4,34 +4,290 @@ import { updateTask, getTask, getTasks } from './task-manager.js';
 import { saveMessage, attachToolResultInDb } from './message-store.js';
 import { buildDamageControl, buildPathEnforcement, type TowerRole } from './damage-control.js';
 import { v4 as uuidv4 } from 'uuid';
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 const MAX_CONCURRENT_TASKS = 10;
 const runningTasks = new Map<string, { sessionId: string; aborted: boolean }>();
+const MONITOR_POLL_INTERVAL = 3000;
+const MONITOR_TIMEOUT = 60 * 60 * 1000; // 60 minutes
+
+interface MonitoredTask {
+  taskId: string;
+  sessionId: string;
+  claudeSessionId: string;
+  jsonlPath: string;
+  startTime: number;
+  progressStages: string[];
+  timer: ReturnType<typeof setInterval>;
+}
+
+const monitoredTasks = new Map<string, MonitoredTask>();
 
 type BroadcastFn = (type: string, data: any) => void;
 
-// On server startup, mark any in_progress tasks as failed.
-// These are zombies from a previous server crash or restart.
-function recoverZombieTasks() {
+// --- Helpers for .jsonl-based recovery ---
+
+/** Build .jsonl file path for a Claude session */
+function buildJsonlPath(cwd: string, claudeSessionId: string): string {
+  const cwdPath = cwd.replace(/\//g, '-');
+  return path.join(os.homedir(), '.claude', 'projects', cwdPath, `${claudeSessionId}.jsonl`);
+}
+
+/** Check if orphan Claude CLI processes exist */
+function hasOrphanProcesses(): boolean {
   try {
-    const allTasks = getTasks();
-    const zombies = allTasks.filter(t => t.status === 'in_progress');
-    for (const task of zombies) {
-      updateTask(task.id, {
-        status: 'failed',
-        progressSummary: [...task.progressSummary, 'Server restarted — task interrupted'],
-      });
-      console.log(`[task-runner] Recovered zombie task "${task.title}" (${task.id}) → failed`);
-    }
-    if (zombies.length > 0) {
-      console.log(`[task-runner] Recovered ${zombies.length} zombie task(s)`);
-    }
-  } catch (err: any) {
-    console.error('[task-runner] Failed to recover zombie tasks:', err.message);
+    const result = execSync(
+      `ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*(--dangerously-skip-permissions|--permission-mode)/ {print $1}'`,
+      { encoding: 'utf8', timeout: 3000 }
+    ).trim();
+    return result.length > 0;
+  } catch {
+    return false;
   }
 }
 
-recoverZombieTasks();
+/** Read a .jsonl file and check for task completion markers */
+function checkJsonlForCompletion(jsonlPath: string): {
+  status: 'complete' | 'failed' | 'running';
+  reason?: string;
+  stages: string[];
+} {
+  const stages: string[] = [];
+  try {
+    const content = fs.readFileSync(jsonlPath, 'utf8');
+
+    // Extract stage markers
+    const stageMatches = content.matchAll(/\[STAGE:\s*(.+?)\]/g);
+    for (const m of stageMatches) {
+      if (!stages.includes(m[1])) stages.push(m[1]);
+    }
+
+    // Check for completion markers
+    if (content.includes('[TASK COMPLETE]')) {
+      return { status: 'complete', stages };
+    }
+
+    const failMatch = content.match(/\[TASK FAILED:\s*(.+?)\]/);
+    if (failMatch) {
+      return { status: 'failed', reason: failMatch[1], stages };
+    }
+
+    return { status: 'running', stages };
+  } catch {
+    return { status: 'running', stages };
+  }
+}
+
+// --- Recovery & Monitoring ---
+
+/**
+ * Smart recovery: check .jsonl files for in-progress tasks instead of
+ * blindly marking them all as failed. Returns task IDs still running.
+ */
+function recoverZombieTasks(): string[] {
+  const stillRunning: string[] = [];
+  try {
+    const allTasks = getTasks();
+    const zombies = allTasks.filter(t => t.status === 'in_progress');
+    if (zombies.length === 0) return stillRunning;
+
+    const orphansExist = hasOrphanProcesses();
+    console.log(`[task-runner] Recovery: ${zombies.length} in_progress task(s), orphans=${orphansExist}`);
+
+    for (const task of zombies) {
+      // Look up claudeSessionId from DB
+      let claudeSessionId: string | undefined;
+      if (task.sessionId) {
+        const session = getSession(task.sessionId);
+        claudeSessionId = session?.claudeSessionId;
+      }
+
+      if (!claudeSessionId) {
+        updateTask(task.id, {
+          status: 'failed',
+          progressSummary: [...task.progressSummary, 'Server restarted — no session to recover'],
+        });
+        console.log(`[task-runner] Task "${task.title}" (${task.id.slice(0, 8)}) → failed (no claudeSessionId)`);
+        continue;
+      }
+
+      const jsonlPath = buildJsonlPath(task.cwd, claudeSessionId);
+
+      if (!fs.existsSync(jsonlPath)) {
+        updateTask(task.id, {
+          status: 'failed',
+          progressSummary: [...task.progressSummary, 'Server restarted — session file not found'],
+        });
+        console.log(`[task-runner] Task "${task.title}" (${task.id.slice(0, 8)}) → failed (no .jsonl)`);
+        continue;
+      }
+
+      const result = checkJsonlForCompletion(jsonlPath);
+
+      if (result.status === 'complete') {
+        const newStages = result.stages.filter(s => !task.progressSummary.includes(s));
+        const finalSummary = [...task.progressSummary, ...newStages, 'Completed successfully'];
+        updateTask(task.id, {
+          status: 'done',
+          progressSummary: finalSummary,
+          completedAt: new Date().toISOString(),
+        });
+        console.log(`[task-runner] Recovered task "${task.title}" (${task.id.slice(0, 8)}) → done`);
+      } else if (result.status === 'failed') {
+        const newStages = result.stages.filter(s => !task.progressSummary.includes(s));
+        const finalSummary = [...task.progressSummary, ...newStages, `Failed: ${result.reason}`];
+        updateTask(task.id, {
+          status: 'failed',
+          progressSummary: finalSummary,
+        });
+        console.log(`[task-runner] Recovered task "${task.title}" (${task.id.slice(0, 8)}) → failed: ${result.reason}`);
+      } else {
+        // No completion markers yet
+        if (orphansExist) {
+          // Orphan process alive → task probably still running → monitor
+          stillRunning.push(task.id);
+          runningTasks.set(task.id, { sessionId: task.sessionId!, aborted: false });
+          console.log(`[task-runner] Task "${task.title}" (${task.id.slice(0, 8)}) → still running, will monitor`);
+        } else {
+          // No orphan processes → task crashed
+          const newStages = result.stages.filter(s => !task.progressSummary.includes(s));
+          const finalSummary = [...task.progressSummary, ...newStages, 'Server restarted — process not found'];
+          updateTask(task.id, {
+            status: 'failed',
+            progressSummary: finalSummary,
+          });
+          console.log(`[task-runner] Task "${task.title}" (${task.id.slice(0, 8)}) → failed (no orphan process)`);
+        }
+      }
+    }
+
+    console.log(`[task-runner] Recovery complete: ${stillRunning.length} still running, ${zombies.length - stillRunning.length} resolved`);
+  } catch (err: any) {
+    console.error('[task-runner] Failed to recover zombie tasks:', err.message);
+  }
+  return stillRunning;
+}
+
+/**
+ * Start monitoring .jsonl files for tasks that survived a backend restart.
+ * Call from index.ts after WebSocket is ready.
+ */
+export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
+  const stillRunning = recoverZombieTasks();
+
+  if (stillRunning.length === 0) {
+    console.log('[task-runner] No orphaned tasks to monitor');
+    return;
+  }
+
+  for (const taskId of stillRunning) {
+    const task = getTask(taskId);
+    if (!task || !task.sessionId) continue;
+
+    const session = getSession(task.sessionId);
+    if (!session?.claudeSessionId) continue;
+
+    const jsonlPath = buildJsonlPath(task.cwd, session.claudeSessionId);
+    if (!fs.existsSync(jsonlPath)) continue;
+
+    const progressStages = [...task.progressSummary];
+    const startTime = Date.now();
+
+    const timer = setInterval(() => {
+      const monitored = monitoredTasks.get(taskId);
+      if (!monitored) return;
+
+      // Timeout check
+      if (Date.now() - monitored.startTime > MONITOR_TIMEOUT) {
+        clearInterval(monitored.timer);
+        monitoredTasks.delete(taskId);
+        runningTasks.delete(taskId);
+
+        const finalSummary = [...monitored.progressStages, 'Timed out after 60 minutes'];
+        updateTask(taskId, { status: 'failed', progressSummary: finalSummary });
+        broadcastFn('task_update', { taskId, status: 'failed', progressSummary: finalSummary });
+        broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
+        console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} timed out`);
+        return;
+      }
+
+      // Check .jsonl for updates
+      const result = checkJsonlForCompletion(monitored.jsonlPath);
+
+      // Update stages
+      for (const stage of result.stages) {
+        if (!monitored.progressStages.includes(stage)) {
+          monitored.progressStages.push(stage);
+          updateTask(taskId, { progressSummary: monitored.progressStages });
+          broadcastFn('task_update', { taskId, status: 'in_progress', progressSummary: monitored.progressStages });
+        }
+      }
+
+      if (result.status === 'complete') {
+        clearInterval(monitored.timer);
+        monitoredTasks.delete(taskId);
+        runningTasks.delete(taskId);
+
+        const finalSummary = [...monitored.progressStages, 'Completed successfully'];
+        updateTask(taskId, { status: 'done', progressSummary: finalSummary, completedAt: new Date().toISOString() });
+        broadcastFn('task_update', { taskId, status: 'done', sessionId: monitored.sessionId, progressSummary: finalSummary });
+        broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
+        console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} → done`);
+      } else if (result.status === 'failed') {
+        clearInterval(monitored.timer);
+        monitoredTasks.delete(taskId);
+        runningTasks.delete(taskId);
+
+        const finalSummary = [...monitored.progressStages, `Failed: ${result.reason}`];
+        updateTask(taskId, { status: 'failed', progressSummary: finalSummary });
+        broadcastFn('task_update', { taskId, status: 'failed', sessionId: monitored.sessionId, progressSummary: finalSummary });
+        broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
+        console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} → failed: ${result.reason}`);
+      }
+    }, MONITOR_POLL_INTERVAL);
+
+    monitoredTasks.set(taskId, {
+      taskId,
+      sessionId: task.sessionId!,
+      claudeSessionId: session.claudeSessionId!,
+      jsonlPath,
+      startTime,
+      progressStages,
+      timer,
+    });
+
+    console.log(`[task-runner] Monitoring orphaned task "${task.title}" (${taskId.slice(0, 8)}) via ${path.basename(jsonlPath)}`);
+  }
+
+  // Broadcast current state to connected clients
+  for (const taskId of stillRunning) {
+    const task = getTask(taskId);
+    if (task) {
+      broadcastFn('task_update', {
+        taskId,
+        status: 'in_progress',
+        sessionId: task.sessionId,
+        progressSummary: task.progressSummary,
+      });
+    }
+  }
+}
+
+/** Whether there are tasks being monitored after a restart */
+export function hasMonitoredTasks(): boolean {
+  return monitoredTasks.size > 0;
+}
+
+/** Stop all monitor timers (for graceful shutdown) */
+export function stopAllMonitors(): void {
+  for (const m of monitoredTasks.values()) {
+    clearInterval(m.timer);
+  }
+  monitoredTasks.clear();
+}
 
 function buildTaskPrompt(title: string, description: string): string {
   return `# Task: ${title}
@@ -362,6 +618,21 @@ export function abortTask(taskId: string): boolean {
   const running = runningTasks.get(taskId);
   if (!running) return false;
   running.aborted = true;
+
+  // If it's a monitored orphan, clean up monitoring and mark as todo
+  const monitored = monitoredTasks.get(taskId);
+  if (monitored) {
+    clearInterval(monitored.timer);
+    monitoredTasks.delete(taskId);
+    runningTasks.delete(taskId);
+    updateTask(taskId, {
+      status: 'todo',
+      progressSummary: [...monitored.progressStages, 'Aborted by user'],
+    });
+    return true;
+  }
+
+  // Normal running task — use SDK abort
   abortSession(running.sessionId);
   return true;
 }

@@ -225,6 +225,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
             question={floatingQuestion}
             onAnswer={handleAnswerFromCard}
             answered={floatingAnswered}
+            onDismiss={() => useChatStore.getState().setPendingQuestion(null)}
           />
         )}
         <InputBox onSend={onSend} onAbort={onAbort} />

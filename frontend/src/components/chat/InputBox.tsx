@@ -63,19 +63,36 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   // Track the last sent message for SESSION_BUSY re-queuing
   const lastSentRef = useRef<string | null>(null);
 
+  // Cascade guard: prevents queue.length change from re-triggering dequeue
+  // before the server confirms streaming (isStreaming=true).
+  const drainGuardRef = useRef(false);
+  const guardSessionRef = useRef<string | null>(null);
+
   // Auto-send first queued message when streaming stops for the current session.
   // Guards:
   //   1. isStreaming (global UI flag) must be false
   //   2. isSessionStreaming (per-session flag from session_status) must be false
-  // Both must be false to confirm the session is genuinely idle, preventing premature
-  // queue drain during session switches where isStreaming is momentarily reset.
+  //   3. drainGuardRef (cascade guard) must be false
+  // All three must pass to confirm the session is genuinely idle AND we haven't
+  // already sent a message that's in-flight to the server.
   useEffect(() => {
+    // Reset guard on session switch
+    if (currentSessionId !== guardSessionRef.current) {
+      drainGuardRef.current = false;
+      guardSessionRef.current = currentSessionId;
+    }
+
     if (!isStreaming && !isSessionStreaming && currentQueue.length > 0 && currentSessionId) {
+      if (drainGuardRef.current) return;  // Already sent one, wait for streaming cycle
       const msg = useChatStore.getState().dequeueMessage(currentSessionId);
       if (msg) {
-        lastSentRef.current = msg;  // Track for SESSION_BUSY re-queue
+        drainGuardRef.current = true;
+        lastSentRef.current = msg;
         onSend(msg);
       }
+    } else {
+      // Reset guard when streaming confirmed (message accepted) or queue empty
+      drainGuardRef.current = false;
     }
   }, [isStreaming, isSessionStreaming, currentQueue.length, currentSessionId, onSend]);
 
@@ -180,7 +197,10 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       handleSubmit();
     }
     if (e.key === 'Escape') {
-      if (hasQueue) {
+      const pq = useChatStore.getState().pendingQuestion;
+      if (pq) {
+        useChatStore.getState().setPendingQuestion(null);
+      } else if (hasQueue) {
         handleCancelQueue();
       } else if (showCommands) {
         setShowCommands(false);

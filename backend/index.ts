@@ -7,10 +7,12 @@ import path from 'path';
 import fs from 'fs';
 import { config, validateConfig } from './config.js';
 import apiRouter from './routes/api.js';
-import { setupWebSocket } from './routes/ws-handler.js';
+import { setupWebSocket, broadcastToAll } from './routes/ws-handler.js';
 import { closeDb } from './db/schema.js';
 import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';
+import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from './services/task-runner.js';
+import { cleanupOrphanedSdkProcesses, gracefulShutdown } from './services/claude-sdk.js';
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
 delete process.env.CLAUDECODE;
@@ -86,20 +88,28 @@ server.listen(config.port, config.host, () => {
 ║  CWD: ${config.defaultCwd.slice(0, 30)}  ║
 ╚══════════════════════════════════════════╝
   `);
+
+  // Recover tasks that survived the restart, then conditionally clean up orphans
+  resumeOrphanedTaskMonitoring((type, payload) => broadcastToAll({ type, ...payload }));
+  if (!hasMonitoredTasks()) {
+    cleanupOrphanedSdkProcesses();
+  }
 });
 
-// Graceful shutdown
+// Graceful shutdown — let orphan CLI processes keep running
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
+  gracefulShutdown('SIGINT');
+  stopAllMonitors();
   stopFileWatcher();
   closeDb();
-  server.close();
-  process.exit(0);
+  server.close(() => process.exit(0));
 });
 
 process.on('SIGTERM', () => {
+  gracefulShutdown('SIGTERM');
+  stopAllMonitors();
   stopFileWatcher();
   closeDb();
-  server.close();
-  process.exit(0);
+  server.close(() => process.exit(0));
 });
