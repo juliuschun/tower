@@ -5,35 +5,28 @@ import { config } from '../config.js';
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
 delete process.env.CLAUDECODE;
 
-// Kill orphaned SDK-spawned Claude processes from previous backend runs.
-// When tsx watch restarts the backend, previously spawned Claude processes
-// lose their parent reference and become orphans (ppid=1, tty=?).
+// Kill orphaned Claude processes from previous backend runs.
+// When tsx watch restarts the backend, SDK-spawned processes lose their
+// parent and become orphans (ppid=1, tty=?). CLI sessions that outlive
+// their zellij pane also end up in this state.
+// Matches both CLI format (--dangerously-skip-permissions) and
+// SDK format (--permission-mode bypassPermissions).
 function cleanupOrphanedSdkProcesses() {
   try {
-    // Match: ppid=1, no tty (?), command contains "claude --dangerously-skip-permissions"
     const result = execSync(
-      `ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*--dangerously-skip-permissions/ {print $1}'`,
+      `ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*(--dangerously-skip-permissions|--permission-mode)/ {print $1}'`,
       { encoding: 'utf8', timeout: 3000 }
     ).trim();
     if (result) {
       const pids = result.split('\n').filter(Boolean);
       console.log(`[sdk] Found ${pids.length} orphaned Claude process(es): ${pids.join(', ')}`);
+      // SIGKILL directly — orphaned claude processes ignore SIGTERM
       for (const pid of pids) {
         try {
-          process.kill(Number(pid), 'SIGTERM');
+          process.kill(Number(pid), 'SIGKILL');
           console.log(`[sdk] Killed orphaned Claude process PID=${pid}`);
         } catch { /* already dead */ }
       }
-      // SIGTERM may be ignored — follow up with SIGKILL after 3s
-      setTimeout(() => {
-        for (const pid of pids) {
-          try {
-            process.kill(Number(pid), 0); // check if still alive
-            process.kill(Number(pid), 'SIGKILL');
-            console.log(`[sdk] Force-killed orphan PID=${pid} (SIGTERM was ignored)`);
-          } catch { /* already dead — good */ }
-        }
-      }, 3000);
     }
   } catch { /* ps/awk not available or no orphans */ }
 }

@@ -67,26 +67,33 @@ trap 'rm -f "$LOCK"' EXIT INT TERM
 rotate_log
 
 # ── 고아 claude 프로세스 정리 (매 실행마다) ────────────────────────────────────
-# SDK/CLI 모두: 백엔드 재시작 또는 zellij 탭 닫기로 ppid=1이 된 프로세스.
-# SIGTERM 무시하므로 SIGKILL.
-ORPHANS=$(ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*--dangerously-skip-permissions/ {print $1}')
+# SDK(--permission-mode) / CLI(--dangerously-skip-permissions) 모두 매칭.
+# 백엔드 재시작, zellij 탭 닫기 등으로 ppid=1이 된 프로세스.
+# SIGTERM 무시하므로 SIGKILL 직접 사용.
+ORPHANS=$(ps -eo pid,ppid,tty,args | awk '$2==1 && $3=="?" && /claude.*(--dangerously-skip-permissions|--permission-mode)/ {print $1}')
 if [ -n "$ORPHANS" ]; then
   ORPHAN_COUNT=$(echo "$ORPHANS" | wc -w)
   log "[FIX] 고아 claude ${ORPHAN_COUNT}개 정리: ${ORPHANS}"
   echo "$ORPHANS" | xargs kill -9 2>/dev/null || true
 fi
 
-# ── 고CPU idle claude 정리 (CPU 전체 >80% 일 때만) ─────────────────────────────
-# 터미널에 붙어있지만 TUI 렌더링 루프로 CPU를 태우는 세션.
-# 시스템 CPU idle이 20% 미만일 때만 작동 — 정상 상황에서는 건드리지 않음.
-CPU_IDLE=$(top -b -n 1 | awk '/^%Cpu/{print $8}' | cut -d. -f1)
-if [ "${CPU_IDLE:-100}" -lt 20 ]; then
-  HIGH_CPU=$(ps -eo pid,%cpu,etime,tty,args --sort=-%cpu | awk '/claude.*--dangerously-skip-permissions/ && $2>30.0 && $4!="?" {print $1}')
-  if [ -n "$HIGH_CPU" ]; then
-    HC_COUNT=$(echo "$HIGH_CPU" | wc -w)
-    log "[WARN] CPU idle<20%, 고CPU claude ${HC_COUNT}개 감지: ${HIGH_CPU}"
-    log "[HINT] 불필요하면: echo '${HIGH_CPU}' | xargs kill -9"
-  fi
+# ── 고CPU claude 프로세스 정리 ─────────────────────────────────────────────────
+# CPU 누적시간(cputime) 30분 이상 + 현재 CPU% > 50 → 정상 세션이 아님.
+# 정상 세션: 대부분 API 응답 대기(idle), cputime 누적 느림.
+# 비정상 세션: TTY 잃고 렌더링 루프, 고아 상태 등 → cputime 빠르게 누적.
+# ps cputime format: [DD-]HH:MM:SS → 분 단위로 변환.
+HIGH_CPU=$(ps -eo pid,%cpu,cputime,tty,args --sort=-%cpu | awk '
+  /claude.*(--dangerously-skip-permissions|--permission-mode)/ && $2 > 50.0 {
+    # parse cputime (HH:MM:SS or D-HH:MM:SS)
+    split($3, t, "[-:]")
+    if (length(t) == 4) mins = t[1]*24*60 + t[2]*60 + t[3]
+    else mins = t[1]*60 + t[2]
+    if (mins >= 30) print $1
+  }')
+if [ -n "$HIGH_CPU" ]; then
+  HC_COUNT=$(echo "$HIGH_CPU" | wc -w)
+  log "[FIX] 고CPU claude ${HC_COUNT}개 정리 (cputime>30m, cpu>50%): ${HIGH_CPU}"
+  echo "$HIGH_CPU" | xargs kill -9 2>/dev/null || true
 fi
 
 # ── 핵심 체크: 포트 살아있나? ────────────────────────────────────────────────

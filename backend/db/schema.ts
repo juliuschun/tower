@@ -151,6 +151,11 @@ function initSchema(db: Database.Database) {
   // Kanban tasks migrations
   try { db.exec(`ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`); } catch {}
 
+  // Messages turn-metrics migrations
+  try { db.exec(`ALTER TABLE messages ADD COLUMN duration_ms INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE messages ADD COLUMN input_tokens INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE messages ADD COLUMN output_tokens INTEGER`); } catch {}
+
   // File sharing table
   db.exec(`
     CREATE TABLE IF NOT EXISTS shares (
