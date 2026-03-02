@@ -1,8 +1,8 @@
 # Tower
 
-**Your team's AI work layer.**
+**Beyond Chat — Your Team's Central Intelligence.**
 
-For the first time, see not just what your team produced — but how it happened.
+Most AI tools are stuck in 1:1 conversations. Tower is built for the next leap: **n:1 process automation** — where an entire team shares one AI that learns, remembers, and grows with them.
 
 [**한국어 README**](README.ko.md)
 
@@ -19,6 +19,20 @@ But where does all that actually *happen*? In scattered terminals. In Slack thre
 When all AI-assisted work flows through one place — sessions recorded, decisions logged, file changes committed with attribution, memory persisting across users and time — something new becomes possible:
 
 You can actually see *how* your company works. Not just what it produced.
+
+---
+
+## The Paradigm Shift
+
+We're moving from "AI as a chat partner" to **"AI as a core team member."**
+
+| | Legacy AI Tools (1:1) | **Tower (n:1)** |
+|---|---|---|
+| **Who uses it** | Single developer in a terminal | **Entire team in a browser** |
+| **What it produces** | Conversations that vanish | **Automated processes & persistent skills** |
+| **Where context lives** | Locked on one machine | **Shared team memory** |
+| **How it grows** | Static — waits for updates | **Self-evolving — creates its own tools** |
+| **Who benefits** | The person typing | **Everyone on the team** |
 
 ---
 
@@ -46,19 +60,17 @@ When your team routes their AI work through Tower, you get a living record of:
 
 ---
 
-## The Problem With Claude Code (Not Claude's Fault)
+## Three Problems Nobody Solved
 
-Claude Code is freakishly powerful. But let's be honest:
+Claude Code is freakishly powerful. But it was designed for solo use. In a team, three gaps open up:
 
-**It's a terminal app.** Your project managers, designers, analysts, and clients aren't going to learn the CLI. They just won't.
+**The Context Gap.** It doesn't understand the *why* behind your team's architecture. Every session starts cold. What one person learns, nobody else benefits from.
 
-**It lives on one machine.** Your carefully configured skills, CLAUDE.md, workspace context — all locked to one device.
+**The Barrier to Entry.** It's a terminal app. Your project managers, designers, analysts, and clients aren't going to learn the CLI. They just won't. A huge part of your team gets locked out of the AI revolution.
 
-**It needs an expert.** Without proper setup, you're using maybe 20% of what Claude Code can do. Most teams never get there.
+**The Static Nature.** It can only use the tools it shipped with. Your team's unique workflows — the ones that actually define how you work — stay manual.
 
-**And it doesn't share.** Sessions disappear. Context resets. What one person learns, nobody else benefits from.
-
-Tower fixes all of this — and adds something more.
+Tower solves all three.
 
 ---
 
@@ -100,31 +112,39 @@ This isn't a new interface for the same thing. It's a different architecture for
 | Only you benefit | The whole team benefits |
 | You talk *to* AI | You and AI build *together* |
 
-Tower is the architecture that makes this transition possible — browser access, persistent memory, file system, git integration, role-based collaboration, and mobile access all working as one.
-
 ---
 
 ## What You Get
 
-### 🌐 Browser Access
-Anyone on your team — developer, designer, PM, analyst — can use the full power of Claude Code without a terminal. Role-based permissions mean admins get full access, regular users get guardrails.
+### 🧠 Centralized Team Brain
 
-### 🧠 3-Layer Team Memory
+Individual local history is a silo. Tower integrates your team's business logic, documentation, and decision-making context into a single intelligence layer. Whether you're a developer or a product manager, you interact with the same team brain.
 
+**3-Layer Memory:**
 1. **Auto memory** — Claude's native MEMORY.md, loaded every conversation
 2. **Workspace memory** — Shared decisions and learnings, persisted across the team
 3. **Activity hooks** — Automatic logging of edits, commands, and sessions with full-text search
 
 What one person learns becomes what Claude knows for everyone.
 
+### 🛠 Self-Evolving Skill System
+
+Stop waiting for updates to get new features. Tower ships with 20 bundled skills — brainstorming, TDD, debugging, code review, planning, UI/UX design — and is designed to **create, test, and improve its own skills.**
+
+- **Autonomous Tooling** — It can architect new scripts and workflows to solve your team's unique problems
+- **Persistent Mastery** — Once a skill is learned, it's stored and available for the entire team
+
+Your team starts at 80%, not 20%. And it only goes up from there.
+
+### 🌐 Browser Access for Everyone
+
+Anyone on your team — developer, designer, PM, analyst — can use the full power of Claude Code without a terminal. Role-based permissions mean admins get full access, regular users get guardrails.
+
 ### 👁 Work Visibility
 - See active sessions across your team in real-time
 - Every file change committed with user + session attribution
 - Decision records in `decisions/` — the *why* behind the *what*
 - Session history that doesn't disappear when someone closes their browser
-
-### 📋 20 Bundled Skills
-Brainstorming, TDD, debugging, code review, planning, UI/UX design — pre-configured and ready. Your team starts at 80%, not 20%.
 
 ### 🔒 Role-Based Access
 - **Admins**: full workspace access, `bypassPermissions` mode
@@ -176,7 +196,7 @@ Your phone (anywhere)          Your server (always on)
     │  Voice   │──── wifi ────▶│  Claude Code      │
     │  input   │   or cell     │  Full CPU/RAM     │
     │  + eyes  │◀─────────────│  Git, files, DB   │
-    └──────────┘   live result │  20 skills        │
+    └──────────┘   live result │  20+ skills       │
                                └──────────────────┘
 ```
 
@@ -186,6 +206,8 @@ This is what "mobile AI" actually means — not a stripped-down chat app, but fu
 
 ## The Flywheel
 
+AI doesn't just serve your team — it absorbs your team's processes and grows alongside you.
+
 ```
 Day 1:    Team starts using Tower
 Week 1:   Claude learns team conventions, decisions begin accumulating
@@ -194,6 +216,19 @@ Month 3:  "Why did we build it this way?" → Open the session, it's right there
 Month 6:  Team is faster. Claude is smarter. Work is visible.
 Year 1:   Institutional memory that doesn't walk out the door.
 ```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | React 18 · TypeScript · Vite 6 · Zustand · Tailwind CSS 4 · CodeMirror 6 |
+| **Backend** | Express · TypeScript · tsx watch · WebSocket (ws) |
+| **Database** | SQLite (better-sqlite3) · WAL mode · FTS5 full-text search |
+| **AI Engine** | Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) |
+| **Integrations** | MCP protocol · Git (native) · PWA · chokidar file watcher |
+| **Auth** | JWT · bcrypt · Role-based access (admin / owner / member / guest) |
 
 ---
 
@@ -214,12 +249,13 @@ See **[INSTALL.md](INSTALL.md)** for detailed setup, environment variables, proj
 
 | | |
 |---|---|
-| **20 AI Skills** | Brainstorming, TDD, debugging, code review, planning, UI/UX design, and more. See [`claude-skills/README.md`](claude-skills/README.md). |
+| **20+ AI Skills** | Brainstorming, TDD, debugging, code review, planning, UI/UX design, and more. See [`claude-skills/README.md`](claude-skills/README.md). |
 | **3-Layer Memory** | Auto memory + workspace memory + session hooks. Claude remembers across sessions. See [`memory-hooks/README.md`](memory-hooks/README.md). |
 | **Workspace Templates** | Team principles, decision records, shared docs — bootstrapped by `setup.sh`. |
 | **File Editor + Viewer** | CodeMirror editor with syntax highlighting, plus a built-in document viewer that renders HTML, Markdown, and PDF — no extra software needed. |
 | **Git Integration** | Auto-commit on Claude edits, commit history, diff viewer, rollback. |
 | **Admin Panel** | User management, role-based permissions, per-user workspace restrictions. |
+| **Kanban Board** | Task management with drag-and-drop, AI-powered task execution. |
 | **Mobile + Voice** | Responsive layout, bottom tab bar, PWA support. Use your phone's native dictation to command Claude with full server computing power — from anywhere. |
 
 ---
