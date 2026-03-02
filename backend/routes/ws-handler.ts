@@ -118,9 +118,17 @@ function createCanUseTool(sessionId: string, userRole: TowerRole, allowedPath?: 
       return { behavior: 'allow' as const, updatedInput: input };
     }
 
-    // Intercept AskUserQuestion — send to frontend and wait for user response
+    // Intercept AskUserQuestion — send to frontend and wait for user response.
+    // IMPORTANT: Must return 'allow' with updatedInput containing answers.
+    // Returning 'deny' causes SDK to treat it as tool denial → error/crash.
     const questionId = `q-${uuidv4()}`;
     const questions = (input as any).questions || [];
+
+    // Helper: build answers object from structured answer data
+    const buildAnswersInput = (answersObj: Record<string, string>) => ({
+      behavior: 'allow' as const,
+      updatedInput: { ...input, answers: answersObj },
+    });
 
     return new Promise<{ behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string; interrupt?: boolean }>((resolve) => {
       // Auto-select first option on timeout
@@ -128,12 +136,12 @@ function createCanUseTool(sessionId: string, userRole: TowerRole, allowedPath?: 
         const pq = pendingQuestions.get(questionId);
         if (pq) {
           pendingQuestions.delete(questionId);
-          const defaultAnswer = questions.map((q: any) => {
-            const firstOpt = q.options?.[0]?.label || 'No response';
-            return `${q.question}: ${firstOpt}`;
-          }).join('\n');
+          const defaultAnswers: Record<string, string> = {};
+          for (const q of questions) {
+            defaultAnswers[q.question] = q.options?.[0]?.label || 'No response';
+          }
           broadcastToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
-          resolve({ behavior: 'deny', message: `User did not respond in time. Auto-selected: ${defaultAnswer}` });
+          resolve(buildAnswersInput(defaultAnswers));
         }
       }, ASK_USER_TIMEOUT);
 
@@ -144,7 +152,16 @@ function createCanUseTool(sessionId: string, userRole: TowerRole, allowedPath?: 
         resolve: (answer: string) => {
           clearTimeout(timer);
           pendingQuestions.delete(questionId);
-          resolve({ behavior: 'deny', message: `User responded: ${answer}` });
+          // Parse structured "question: answer" lines into answers object
+          const answersObj: Record<string, string> = {};
+          const lines = answer.split('\n');
+          for (const line of lines) {
+            const colonIdx = line.indexOf(': ');
+            if (colonIdx > -1) {
+              answersObj[line.substring(0, colonIdx)] = line.substring(colonIdx + 2);
+            }
+          }
+          resolve(buildAnswersInput(answersObj));
         },
         timer,
       });

@@ -113,3 +113,22 @@ process.on('SIGTERM', () => {
   closeDb();
   server.close(() => process.exit(0));
 });
+
+// Prevent SDK "Operation aborted" errors from crashing the entire backend.
+// These occur when abort() is called while the SDK is mid-write to a dead process.
+process.on('uncaughtException', (err) => {
+  if (err.name === 'AbortError' || /operation aborted/i.test(err.message)) {
+    console.warn('[process] Caught AbortError (non-fatal):', err.message);
+    return; // swallow — expected during session abort
+  }
+  console.error('[process] Uncaught exception (fatal):', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  if (reason?.name === 'AbortError' || /operation aborted/i.test(reason?.message || '')) {
+    console.warn('[process] Caught unhandled AbortError rejection (non-fatal):', reason?.message);
+    return;
+  }
+  console.error('[process] Unhandled rejection:', reason);
+});
