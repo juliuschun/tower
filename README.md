@@ -1,12 +1,14 @@
 # Tower
 
-**Beyond Chat — Your Team's Central Intelligence.**
+**AI collaborator that builds its own tools.**
 
-Tower is not a conversation tool. It's a **task delegator** — and a **delegator builder.**
-
-Most AI tools are stuck in 1:1 conversations. Tower is built for the next leap: **n:1 process automation** — where an entire team delegates work to one AI that learns, remembers, and builds its own tools to get better at what you ask it to do.
+Your team gives commands. Tower orchestrates the process. The results accumulate. The tools get sharper. What starts as a chatbot becomes your team's **self-evolving central intelligence.**
 
 [**한국어 README**](README.ko.md)
+
+<p align="center">
+  <img src="capture.gif" alt="Tower — delegate tasks to Claude Code in the browser" width="720" />
+</p>
 
 ---
 
@@ -22,26 +24,6 @@ When all AI-assisted work flows through one place — sessions recorded, decisio
 
 You can actually see *how* your company works. Not just what it produced.
 
----
-
-## The Paradigm Shift
-
-We're moving from "AI as a chat partner" to **"AI as a core team member."**
-
-| | Legacy AI Tools (1:1) | **Tower (n:1)** |
-|---|---|---|
-| **Who uses it** | Single developer in a terminal | **Entire team in a browser** |
-| **What it produces** | Conversations that vanish | **Automated processes & persistent skills** |
-| **Where context lives** | Locked on one machine | **Shared team memory** |
-| **How it grows** | Static — waits for updates | **Self-evolving — creates its own tools** |
-| **Who benefits** | The person typing | **Everyone on the team** |
-
----
-
-## Why This Matters
-
-Most tools capture **outputs**:
-
 | Tool | Captures |
 |------|----------|
 | Jira | Ticket status |
@@ -50,150 +32,83 @@ Most tools capture **outputs**:
 | Notion | Polished documents |
 | **Tower** | **The process that created all of it** |
 
-None of them capture how work actually happens — the reasoning, the trade-offs, the back-and-forth that led to the decision.
+---
 
-Tower captures the process.
+## From Chat to Collaboration
 
-When your team routes their AI work through Tower, you get a living record of:
-- **What** was decided — and **why** (the Claude conversation is right there)
-- **Who** did what — git commits tagged by user and session
-- **What's happening right now** — active sessions with real-time visibility
-- **What the team has learned** — persisted in shared memory that makes Claude smarter for everyone
+Most AI tools are stuck in the **1:1 conversation** paradigm. You type. It responds. The conversation ends. Tomorrow you start over.
+
+Tower is built for **n:1 collaboration** — where the entire team works with one AI that learns, remembers, and grows.
+
+| | Legacy AI (1:1) | **Tower (n:1)** |
+|---|---|---|
+| **Who uses it** | One developer in a terminal | **Entire team in a browser** |
+| **What comes out** | Conversations that vanish | **Real artifacts — code, docs, decisions** |
+| **Where context lives** | Locked on one machine | **Shared team memory** |
+| **How it grows** | Static — waits for updates | **Self-evolving — builds its own tools** |
+| **The human role** | Typing prompts | **Directing, correcting, orchestrating** |
+
+The key difference: **human in the loop.** Your team doesn't just use Tower — they shape it. Every correction, every decision, every workflow you run through it makes the system more precise. The AI absorbs your team's processes and grows alongside you.
 
 ---
 
-## Three Problems Nobody Solved
+## Three Gaps in Solo AI
 
 Claude Code is freakishly powerful. But it was designed for solo use. In a team, three gaps open up:
 
 **The Context Gap.** It doesn't understand the *why* behind your team's architecture. Every session starts cold. What one person learns, nobody else benefits from.
 
-**The Barrier to Entry.** It's a terminal app. Your project managers, designers, analysts, and clients aren't going to learn the CLI. They just won't. A huge part of your team gets locked out of the AI revolution.
+**The Access Gap.** It's a terminal app. Your project managers, designers, analysts, and clients aren't going to learn the CLI. They just won't.
 
-**The Static Nature.** It can only use the tools it shipped with. Your team's unique workflows — the ones that actually define how you work — stay manual.
+**The Growth Gap.** It can only use the tools it shipped with. Your team's unique workflows — the ones that actually define how you work — stay manual.
 
-Tower solves all three.
-
----
-
-## How It Works
-
-```
-Team member opens browser
-      ↓
-Works with Claude (code, docs, decisions, research...)
-      ↓
-Everything flows through Tower
-      ↓
-Sessions recorded · Files committed · Memory updated · Context shared
-      ↓
-Next session starts smarter.
-Next team member starts with context.
-Next decision builds on the last.
-```
-
-The longer your team uses Tower, the more it knows. The more it knows, the better it performs. **It's a flywheel.**
+Tower closes all three.
 
 ---
 
-## From Conversation to Delegation
+## What Makes Tower Different
 
-Most AI tools give you a chat window. You type. It responds. The conversation ends. Tomorrow you start over.
+### 🛠 Self-Evolving Skills
 
-Tower is built on a different premise: **you don't talk to AI — you delegate to it.**
+This is the core of Tower. It doesn't just run tasks — it **builds the machinery to run them better.**
 
-When you work through Tower, you're not sending messages into a void — you're handing off real tasks to an agent that reads your files, writes code, generates documents, commits changes, and remembers what it learned. You watch it work in real time. You course-correct mid-stream. You build on what it built yesterday.
+Tower ships with 20+ skills — brainstorming, TDD, debugging, code review, planning, UI/UX design — and creates new ones as your team works. Today's one-off task becomes tomorrow's one-click skill.
 
-And here's the twist: Tower doesn't just execute tasks — it **builds the tools to execute them better next time.** A workflow you delegate once becomes a skill the whole team can reuse. That's what makes it a delegator *builder*, not just a delegator.
+- **Autonomous Tooling** — It architects new scripts and workflows for your team's unique problems
+- **Persistent Mastery** — Once a skill is learned, it's stored and available for everyone
+- **Compound Growth** — Each human correction makes every future run more precise
 
-| Chatting with AI | Delegating to AI |
-|---|---|
-| One question, one answer | Hand off a task, get back a result |
-| Context resets every conversation | Memory accumulates across the team |
-| Output lands in your clipboard | Output lands in version-controlled files |
-| Only you benefit | The whole team benefits |
-| You talk *to* AI | AI works *for* you |
-
----
-
-## What You Get
+Your team starts at 80%, not 20%. And it only goes up from there.
 
 ### 🧠 Centralized Team Brain
 
-Individual local history is a silo. Tower integrates your team's business logic, documentation, and decision-making context into a single intelligence layer. Whether you're a developer or a product manager, you interact with the same team brain.
+Three layers of memory that turn individual work into collective intelligence:
 
-**3-Layer Memory:**
-1. **Auto memory** — Claude's native MEMORY.md, loaded every conversation
+1. **Auto memory** — Claude's native context, loaded every conversation
 2. **Workspace memory** — Shared decisions and learnings, persisted across the team
 3. **Activity hooks** — Automatic logging of edits, commands, and sessions with full-text search
 
 What one person learns becomes what Claude knows for everyone.
 
-### 🛠 Self-Evolving Skill System — The Delegator Builder
+### 🌐 Browser-First, Role-Based
 
-This is what makes Tower fundamentally different. It doesn't just run tasks — it **builds the machinery to run them better.**
+Anyone — developer, designer, PM, analyst — uses the full power of Claude Code without a terminal. Admins get full access, regular users get guardrails, everyone gets the same team brain.
 
-Tower ships with 20+ bundled skills — brainstorming, TDD, debugging, code review, planning, UI/UX design — and is designed to **create, test, and improve its own skills.**
+### 📄 Instant Document Viewer
 
-- **Autonomous Tooling** — It can architect new scripts and workflows to solve your team's unique problems
-- **Persistent Mastery** — Once a skill is learned, it's stored and available for the entire team
-- **Compound Delegation** — Today's one-off task becomes tomorrow's one-click skill
+Ask Claude to create a report, a dashboard, a proposal — see it **immediately** in a built-in viewer. HTML with charts, Markdown with syntax highlighting, PDF inline. No downloads, no extra apps. It feels like Notion — except everything is AI-generated, git-versioned, and searchable.
 
-Your team starts at 80%, not 20%. And it only goes up from there.
-
-### 🌐 Browser Access for Everyone
-
-Anyone on your team — developer, designer, PM, analyst — can use the full power of Claude Code without a terminal. Role-based permissions mean admins get full access, regular users get guardrails.
-
-### 👁 Work Visibility
-- See active sessions across your team in real-time
-- Every file change committed with user + session attribution
-- Decision records in `decisions/` — the *why* behind the *what*
-- Session history that doesn't disappear when someone closes their browser
-
-### 🔒 Role-Based Access
-- **Admins**: full workspace access, `bypassPermissions` mode
-- **Users**: restricted to their `allowed_path`, `acceptEdits` mode
-- **File sharing**: internal (team) or external (expiring public links)
+<p align="center">
+  <img src="capture2.gif" alt="Tower — build and preview dashboards on the fly" width="720" />
+</p>
 
 ### 🔧 Git Integration
+
 Auto-commit on every Claude edit. Every change is tracked, attributed, and reversible. Roll back to any point in history.
 
-### 📄 Built-in Document Viewer — Zero Install, Instant Preview
+### 📱 Mobile + Voice
 
-Ask Claude to create a report, a dashboard, a proposal, meeting notes — and see the result **immediately**. No downloads. No extra apps. No "open this file in another program."
-
-Tower renders HTML, Markdown, and PDF files directly in its built-in viewer:
-
-- **HTML** — Interactive dashboards, styled reports, and landing page mockups render in a sandboxed preview, complete with charts and animations
-- **Markdown** — Full GFM support with syntax highlighting, tables, and images. Write docs in `.md` and they look as polished as Notion pages
-- **PDF** — Contracts, invoices, specs — viewable inline without leaving Tower
-
-**Why this matters for non-developers:**
-
-Most AI tools generate files that end up in a folder somewhere. You have to find them, figure out how to open them, maybe install something. Tower skips all of that. The file appears in a side panel the moment it's created — preview on the left, conversation on the right.
-
-This turns your workspace into something that feels like **Notion or a shared wiki** — except everything is generated and organized by AI, versioned with git, and searchable across your entire team's history.
-
-<p align="center">
-  <img src="docs/screenshots/dashboard-preview.jpg" alt="CEO Executive Dashboard — rendered instantly in Tower's built-in viewer" width="720" />
-</p>
-<p align="center"><em>Ask Claude to build a dashboard → see it live in seconds. No setup required.</em></p>
-
-<p align="center">
-  <img src="docs/screenshots/dashboard-cafe-preview.jpg" alt="Café Operations Dashboard — another example of instant HTML preview" width="720" />
-</p>
-<p align="center"><em>From executive overviews to shop-floor ops — any HTML renders right inside Tower.</em></p>
-
-### 📱 Mobile — Your AI, Wherever You Are
-
-Tower runs in any browser. On your phone, that unlocks something powerful:
-
-**Voice-first workflow.** Tap the microphone on your phone's keyboard and speak. Your device's native dictation converts speech to text — no extra app, no speech-to-text API, no configuration. Just talk to Claude like you'd talk to a colleague. This makes Tower accessible to people who would never type a command.
-
-**Full server power in your pocket.** Your phone isn't doing the computation. It's a remote control. Claude runs on your server with its full CPU, memory, and disk. Heavy tasks — data analysis, code generation, document creation, file operations across thousands of files — execute at server speed, not phone speed. You get the portability of a phone with the horsepower of a workstation.
-
-**Sessions on the go.** Waiting for a flight? Riding the subway? Spin up a new session, dictate a batch of instructions, and let Claude work while you move. Spin up five sessions in a row if you want. Come back to your desk and everything is there — files committed, context saved, ready to continue.
+Your phone is a remote control for your server. Tap the mic, speak, and Claude executes with full CPU/RAM. Sessions on the subway, results on your desk.
 
 ```
   Your phone (anywhere)             Your server (always on)
@@ -205,19 +120,15 @@ Tower runs in any browser. On your phone, that unlocks something powerful:
                                     └─────────────────────┘
 ```
 
-This is what "mobile AI" actually means — not a stripped-down chat app, but full access to your team's entire AI workspace from anywhere in the world.
-
 ---
 
 ## The Flywheel
 
-AI doesn't just serve your team — it absorbs your team's processes and grows alongside you.
-
 ```
 Day 1:    Team starts using Tower
-Week 1:   Claude learns team conventions, decisions begin accumulating
-Month 1:  New hire onboards → Claude already knows the project context
-Month 3:  "Why did we build it this way?" → Open the session, it's right there
+Week 1:   Claude learns team conventions, decisions accumulate
+Month 1:  New hire onboards → Claude already knows the project
+Month 3:  "Why did we build it this way?" → The session is right there
 Month 6:  Team is faster. Claude is smarter. Work is visible.
 Year 1:   Institutional memory that doesn't walk out the door.
 ```
@@ -255,46 +166,13 @@ See **[INSTALL.md](INSTALL.md)** for detailed setup, environment variables, proj
 | | |
 |---|---|
 | **20+ AI Skills** | Brainstorming, TDD, debugging, code review, planning, UI/UX design, and more. See [`claude-skills/README.md`](claude-skills/README.md). |
-| **3-Layer Memory** | Auto memory + workspace memory + session hooks. Claude remembers across sessions. See [`memory-hooks/README.md`](memory-hooks/README.md). |
+| **3-Layer Memory** | Auto memory + workspace memory + session hooks. See [`memory-hooks/README.md`](memory-hooks/README.md). |
 | **Workspace Templates** | Team principles, decision records, shared docs — bootstrapped by `setup.sh`. |
-| **File Editor + Viewer** | CodeMirror editor with syntax highlighting, plus a built-in document viewer that renders HTML, Markdown, and PDF — no extra software needed. |
+| **File Editor + Viewer** | CodeMirror editor + built-in document viewer (HTML, Markdown, PDF). |
 | **Git Integration** | Auto-commit on Claude edits, commit history, diff viewer, rollback. |
 | **Admin Panel** | User management, role-based permissions, per-user workspace restrictions. |
 | **Kanban Board** | Task management with drag-and-drop, AI-powered task execution. |
-| **Mobile + Voice** | Responsive layout, bottom tab bar, PWA support. Use your phone's native dictation to command Claude with full server computing power — from anywhere. |
-
----
-
-## Demo
-
-### Chat with Claude Code — in the browser
-
-<p align="center">
-  <img src="capture.gif" alt="Tower demo — chatting with Claude Code in the browser" width="720" />
-</p>
-
-### Build and share dashboards — on the fly
-
-<p align="center">
-  <img src="capture2.gif" alt="Tower demo — building and sharing dashboards" width="720" />
-</p>
-
----
-
-## Screenshots
-
-<p align="center">
-  <img src="docs/screenshots/login.png" alt="Login" width="720" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/main.png" alt="Main — Sessions + Chat + File Editor" width="720" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/files.png" alt="File Explorer" width="720" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/mobile.png" alt="Mobile" width="280" />
-</p>
+| **Mobile + Voice** | Responsive PWA. Native dictation → full server compute from anywhere. |
 
 ---
 
