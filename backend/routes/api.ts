@@ -28,7 +28,9 @@ import {
 import { config, availableModels } from '../config.js';
 import { search } from '../services/search.js';
 import { extractTextFromContent } from '../utils/text.js';
-import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask } from '../services/task-manager.js';
+import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask, getChildTasks } from '../services/task-manager.js';
+import { removeWorktree } from '../services/worktree-manager.js';
+import { broadcast } from './ws-handler.js';
 import {
   createInternalShare, createExternalShare, getSharesByFile,
   getSharesWithMe, getShareByToken, revokeShare, isTokenValid,
@@ -603,7 +605,8 @@ router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
         continue;
       }
       // Deduplicate: add timestamp prefix to avoid collisions
-      const safeName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      // Allow Unicode letters/numbers (Korean, Japanese, etc.) while blocking path-unsafe chars
+      const safeName = `${Date.now()}-${file.originalname.replace(/[^\p{L}\p{N}._-]/gu, '_')}`;
       const filePath = path.join(UPLOADS_DIR, safeName);
       try {
         writeFileBinary(filePath, file.buffer, config.workspaceRoot);
@@ -741,7 +744,9 @@ router.get('/files/serve', (req, res) => {
     if (isDownload) {
       const mimeType = (ext && binaryTypes[ext]) || 'application/octet-stream';
       res.setHeader('Content-Type', mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+      // RFC 5987: filename* for proper Unicode (Korean etc.) display in browsers
+      const encoded = encodeURIComponent(fileName);
+      res.setHeader('Content-Disposition', `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`);
       const stream = fs.createReadStream(filePath);
       stream.pipe(res);
       stream.on('error', () => res.status(404).json({ error: 'File not found' }));
@@ -879,12 +884,14 @@ router.get('/tasks/meta', (req, res) => {
 
 router.post('/tasks', (req, res) => {
   try {
-    const { title, description, cwd, model, scheduledAt, scheduleCron, scheduleEnabled } = req.body;
+    const { title, description, cwd, model, scheduledAt, scheduleCron, scheduleEnabled, workflow, parentTaskId } = req.body;
     if (!title || !cwd) return res.status(400).json({ error: 'title and cwd required' });
     const schedule = (scheduledAt || scheduleCron || scheduleEnabled)
       ? { scheduledAt, scheduleCron, scheduleEnabled }
       : undefined;
-    const task = createTask(title, description || '', cwd, (req as any).user?.id, model, schedule);
+    const task = createTask(title, description || '', cwd, (req as any).user?.id, model, schedule, workflow, parentTaskId);
+    // Broadcast to all connected clients so kanban boards update in real-time
+    broadcast({ type: 'task_created', task });
     res.json(task);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -906,6 +913,32 @@ router.delete('/tasks/:id', (req, res) => {
     const ok = deleteTask(req.params.id);
     if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/tasks/:id/children', (req, res) => {
+  try {
+    const children = getChildTasks(req.params.id);
+    res.json(children);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/tasks/:id/cleanup-worktree', (req, res) => {
+  try {
+    const task = getTask(req.params.id);
+    if (!task) return res.status(404).json({ error: 'task not found' });
+    if (task.status === 'in_progress') return res.status(400).json({ error: 'cannot cleanup worktree for running task' });
+    if (!task.worktreePath) return res.status(400).json({ error: 'task has no worktree' });
+
+    const ok = removeWorktree(task.worktreePath);
+    if (ok) {
+      updateTask(req.params.id, { worktreePath: null });
+    }
+    res.json({ success: ok });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

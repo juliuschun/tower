@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+export type WorkflowMode = 'auto' | 'simple' | 'default' | 'feature' | 'big_task';
+
 export interface TaskMeta {
   id: string;
   title: string;
@@ -16,6 +18,9 @@ export interface TaskMeta {
   scheduledAt: string | null;
   scheduleCron: string | null;
   scheduleEnabled: boolean;
+  workflow: WorkflowMode;
+  parentTaskId: string | null;
+  worktreePath: string | null;
 }
 
 interface KanbanState {
@@ -50,7 +55,11 @@ export const useKanbanStore = create<KanbanState>((set) => ({
     return { tasks: merged };
   }),
 
-  addTask: (task) => set((s) => ({ tasks: [...s.tasks, task] })),
+  addTask: (task) => set((s) => {
+    // Prevent duplicates (race: WS task_created vs HTTP POST response)
+    if (s.tasks.some((t) => t.id === task.id)) return s;
+    return { tasks: [...s.tasks, task] };
+  }),
 
   updateTask: (taskId, updates) =>
     set((s) => ({

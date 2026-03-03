@@ -126,7 +126,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 10;
   }, []);
 
   // Snap to bottom when new messages arrive (if user is near bottom)

@@ -740,8 +740,18 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'task_created': {
+        if (data.task) {
+          const existing = useKanbanStore.getState().tasks.find(t => t.id === data.task.id);
+          if (!existing) {
+            useKanbanStore.getState().addTask(data.task);
+          }
+        }
+        break;
+      }
+
       case 'task_update': {
-        const { taskId, status, sessionId: taskSessionId, progressSummary, session: taskSession, claudeSessionId: taskClaudeSessionId, scheduledAt, scheduleCron, scheduleEnabled } = data;
+        const { taskId, status, sessionId: taskSessionId, progressSummary, session: taskSession, claudeSessionId: taskClaudeSessionId, scheduledAt, scheduleCron, scheduleEnabled, workflow, worktreePath } = data;
         useKanbanStore.getState().updateTask(taskId, {
           ...(status && { status }),
           ...(taskSessionId !== undefined && { sessionId: taskSessionId }),
@@ -749,6 +759,8 @@ export function useClaudeChat() {
           ...(scheduledAt !== undefined && { scheduledAt }),
           ...(scheduleCron !== undefined && { scheduleCron }),
           ...(scheduleEnabled !== undefined && { scheduleEnabled }),
+          ...(workflow !== undefined && { workflow }),
+          ...(worktreePath !== undefined && { worktreePath }),
         });
         // Notify on task completion or failure
         if (status === 'done' || status === 'failed') {

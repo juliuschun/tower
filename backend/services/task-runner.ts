@@ -1,9 +1,11 @@
 import { executeQuery, abortSession } from './claude-sdk.js';
 import { createSession, updateSession, getSession } from './session-manager.js';
-import { updateTask, getTask, getTasks, type ScheduleCron } from './task-manager.js';
+import { updateTask, getTask, getTasks, type ScheduleCron, type WorkflowMode } from './task-manager.js';
 import { saveMessage, attachToolResultInDb } from './message-store.js';
 import { buildDamageControl, buildPathEnforcement, type TowerRole } from './damage-control.js';
 import { calculateNextRun } from './task-scheduler.js';
+import { buildWorkflowPrompt } from './workflow-prompts.js';
+import { createWorktree } from './worktree-manager.js';
 import { v4 as uuidv4 } from 'uuid';
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -115,7 +117,14 @@ function recoverZombieTasks(): string[] {
         continue;
       }
 
-      const jsonlPath = buildJsonlPath(task.cwd, claudeSessionId);
+      // Try worktree path first, then original cwd
+      const cwdForJsonl = task.worktreePath && fs.existsSync(task.worktreePath) ? task.worktreePath : task.cwd;
+      let jsonlPath = buildJsonlPath(cwdForJsonl, claudeSessionId);
+
+      // Fallback: if not found at worktree path, try original cwd
+      if (!fs.existsSync(jsonlPath) && cwdForJsonl !== task.cwd) {
+        jsonlPath = buildJsonlPath(task.cwd, claudeSessionId);
+      }
 
       if (!fs.existsSync(jsonlPath)) {
         updateTask(task.id, {
@@ -290,50 +299,20 @@ export function stopAllMonitors(): void {
   monitoredTasks.clear();
 }
 
-function buildTaskPrompt(title: string, description: string): string {
-  return `# Task: ${title}
-
-${description}
-
-## Instructions
-You are an autonomous agent executing a kanban task. Work through these stages:
-1. **Research** — Understand the problem, read relevant files, gather context
-2. **Plan** — Outline your approach briefly
-3. **Implement** — Make the necessary changes
-4. **Verify** — Run tests or verify your changes work correctly
-
-At the start of each stage, output a single line: \`[STAGE: StageName]\` (e.g., \`[STAGE: Research]\`)
-When you complete the entire task, output: \`[TASK COMPLETE]\`
-If you encounter an unrecoverable error, output: \`[TASK FAILED: reason]\`
-
-Work autonomously. Do not ask questions — make reasonable decisions and proceed.`;
-}
-
-function buildResumePrompt(title: string, description: string, completedStages: string[]): string {
-  const stagesText = completedStages.length > 1
-    ? `\n\n## Progress Before Interruption\nCompleted stages: ${completedStages.slice(1).join(' → ')}`
-    : '';
-
-  return `# Task: ${title} (Resuming)
-
-${description}${stagesText}
-
-## Instructions
-You are an autonomous agent resuming a previously interrupted kanban task. The task was interrupted (e.g., by a server restart) and you are continuing from where you left off.
-
-Review the conversation history above to understand what was already done, then continue from where work stopped.
-
-Work through any remaining stages:
-1. **Research** — Understand the problem, read relevant files, gather context
-2. **Plan** — Outline your approach briefly
-3. **Implement** — Make the necessary changes
-4. **Verify** — Run tests or verify your changes work correctly
-
-At the start of each stage, output a single line: \`[STAGE: StageName]\` (e.g., \`[STAGE: Research]\`)
-When you complete the entire task, output: \`[TASK COMPLETE]\`
-If you encounter an unrecoverable error, output: \`[TASK FAILED: reason]\`
-
-Work autonomously. Do not ask questions — make reasonable decisions and proceed.`;
+function buildTaskPromptForWorkflow(
+  title: string,
+  description: string,
+  workflow: WorkflowMode,
+  taskId: string,
+  isResume?: boolean,
+  previousProgress?: string[],
+): string {
+  return buildWorkflowPrompt(title, description, workflow, {
+    taskId,
+    apiBaseUrl: 'http://localhost:32355',
+    isResume,
+    previousProgress,
+  });
 }
 
 export async function spawnTask(
@@ -391,7 +370,7 @@ export async function spawnTask(
     },
   });
 
-  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll, userRole, allowedPath, resumeClaudeSessionId, task.progressSummary, task.model)
+  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll, userRole, allowedPath, resumeClaudeSessionId, task.progressSummary, task.model, task.workflow)
     .catch((err) => {
       console.error(`[task-runner] Task ${taskId} error:`, err.message);
     });
@@ -409,10 +388,32 @@ async function runTaskAgent(
   resumeClaudeSessionId?: string,
   previousProgress?: string[],
   model?: string,
+  workflow?: WorkflowMode,
 ): Promise<void> {
-  const prompt = resumeClaudeSessionId
-    ? buildResumePrompt(title, description, previousProgress ?? [])
-    : buildTaskPrompt(title, description);
+  const effectiveWorkflow = workflow || 'auto';
+
+  // Worktree creation for feature/big_task workflows
+  let agentCwd = cwd;
+  if ((effectiveWorkflow === 'feature' || effectiveWorkflow === 'big_task') && !resumeClaudeSessionId) {
+    const wt = createWorktree(cwd, taskId, title);
+    if (wt) {
+      agentCwd = wt.worktreePath;
+      updateTask(taskId, { worktreePath: wt.worktreePath });
+      broadcastToAll('task_update', { taskId, worktreePath: wt.worktreePath });
+      console.log(`[task-runner] Task "${title}" using worktree: ${wt.worktreePath}`);
+    }
+  } else if (resumeClaudeSessionId) {
+    // Resume: use existing worktree if present
+    const existingTask = getTask(taskId);
+    if (existingTask?.worktreePath && fs.existsSync(existingTask.worktreePath)) {
+      agentCwd = existingTask.worktreePath;
+    }
+  }
+
+  const prompt = buildTaskPromptForWorkflow(
+    title, description, effectiveWorkflow, taskId,
+    !!resumeClaudeSessionId, previousProgress,
+  );
   const progressStages: string[] = [resumeClaudeSessionId ? 'Resuming task...' : 'Starting task...'];
   let claudeSessionId: string | undefined;
   let turnCount = 0;
@@ -441,6 +442,10 @@ async function runTaskAgent(
       if (toolName === 'TeamCreate') {
         return { behavior: 'deny' as const, message: 'Agent teams are disabled. Use sequential task execution.' };
       }
+      // Block EnterWorktree for non-worktree modes (worktree is managed by task-runner)
+      if (toolName === 'EnterWorktree') {
+        return { behavior: 'deny' as const, message: 'Worktree is managed by the task runner. Use the current working directory.' };
+      }
       if (pathCheck) {
         const pc = pathCheck(toolName, input);
         if (!pc.allowed) {
@@ -454,7 +459,7 @@ async function runTaskAgent(
       : 'acceptEdits' as const;
 
     const generator = executeQuery(sessionId, prompt, {
-      cwd,
+      cwd: agentCwd,
       permissionMode: taskPermission,
       model: model || 'claude-opus-4-6',
       canUseTool: taskCanUseTool,
@@ -515,6 +520,28 @@ async function runTaskAgent(
         const textBlocks = content.filter((b: any) => b.type === 'text');
         for (const block of textBlocks) {
           const text = block.text || '';
+
+          // Detect triage workflow classification (auto mode only)
+          if (effectiveWorkflow === 'auto') {
+            const workflowMatch = text.match(/\[WORKFLOW:\s*(simple|default|feature|big_task)\]/);
+            if (workflowMatch) {
+              const classified = workflowMatch[1] as WorkflowMode;
+              updateTask(taskId, { workflow: classified });
+              broadcastToAll('task_update', { taskId, workflow: classified });
+              console.log(`[task-runner] Task "${title}" triage → ${classified}`);
+
+              // For feature/big_task, create worktree and instruct agent to cd
+              if ((classified === 'feature' || classified === 'big_task') && agentCwd === cwd) {
+                const wt = createWorktree(cwd, taskId, title);
+                if (wt) {
+                  updateTask(taskId, { worktreePath: wt.worktreePath });
+                  broadcastToAll('task_update', { taskId, worktreePath: wt.worktreePath });
+                  // Note: can't change SDK cwd mid-stream, but the agent can cd
+                  console.log(`[task-runner] Late worktree created: ${wt.worktreePath} — agent should cd there`);
+                }
+              }
+            }
+          }
 
           // Detect stage markers
           const stageMatch = text.match(/\[STAGE:\s*(.+?)\]/);
@@ -608,6 +635,7 @@ async function runTaskAgent(
             sessionId: null as any,
             progressSummary: [],
             completedAt: null as any,
+            worktreePath: null,
           });
           broadcastToAll('task_update', {
             taskId,
@@ -616,6 +644,7 @@ async function runTaskAgent(
             scheduleEnabled: true,
             sessionId: null,
             progressSummary: [],
+            worktreePath: null,
           });
           console.log(`[task-runner] Recurring task "${completedTask.title}" rescheduled → ${nextRun.toISOString()}`);
         } catch (err: any) {

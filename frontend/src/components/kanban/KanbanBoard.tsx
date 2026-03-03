@@ -156,6 +156,21 @@ export function KanbanBoard() {
     setScheduleTaskId(null);
   };
 
+  const handleCleanupWorktree = async (taskId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/tasks/${taskId}/cleanup-worktree`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        useKanbanStore.getState().updateTask(taskId, { worktreePath: null });
+      }
+    } catch (err) {
+      console.error('Failed to cleanup worktree:', err);
+    }
+  };
+
   const scheduleTask = scheduleTaskId ? tasks.find((t) => t.id === scheduleTaskId) : null;
 
   return (
@@ -191,6 +206,7 @@ export function KanbanBoard() {
               onSpawnTask={onSpawnTask}
               onAbortTask={onAbortTask}
               onScheduleTask={(taskId) => setScheduleTaskId(taskId)}
+              onCleanupWorktree={handleCleanupWorktree}
             />
           ))}
         </div>

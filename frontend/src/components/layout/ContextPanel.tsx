@@ -44,11 +44,25 @@ function PdfPreview({ filePath }: { filePath: string }) {
 }
 
 function ImagePreview({ filePath }: { filePath: string }) {
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const token = localStorage.getItem('token') || '';
   const src = `/api/files/serve?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-surface-900 p-4">
-      <img src={src} alt={filePath.split('/').pop()} className="max-w-full max-h-full object-contain" />
+    <div className="absolute inset-0 flex items-center justify-center bg-surface-900 p-4 overflow-auto">
+      {status === 'loading' && (
+        <span className="absolute text-gray-500 text-sm">Loading image…</span>
+      )}
+      {status === 'error' && (
+        <span className="text-red-400 text-sm">Failed to load image</span>
+      )}
+      <img
+        src={src}
+        alt={filePath.split('/').pop()}
+        className="max-w-full max-h-full object-contain"
+        style={{ display: status === 'error' ? 'none' : 'block' }}
+        onLoad={() => setStatus('loaded')}
+        onError={() => setStatus('error')}
+      />
     </div>
   );
 }

@@ -10,7 +10,15 @@ interface KanbanCardProps {
   onSpawn?: () => void;
   onAbort?: () => void;
   onSchedule?: () => void;
+  onCleanupWorktree?: () => void;
 }
+
+const WORKFLOW_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  simple: { bg: 'bg-green-900/40', text: 'text-green-400', label: 'Simple' },
+  default: { bg: 'bg-blue-900/40', text: 'text-blue-400', label: 'Default' },
+  feature: { bg: 'bg-orange-900/40', text: 'text-orange-400', label: 'Feature' },
+  big_task: { bg: 'bg-red-900/40', text: 'text-red-400', label: 'Big Task' },
+};
 
 /** Human-friendly time-until string */
 function formatTimeUntil(iso: string): string {
@@ -50,7 +58,7 @@ const STATUS_STYLES: Record<string, { badge: string; border: string }> = {
   failed: { badge: 'bg-red-900/50 text-red-300', border: 'border-red-500/30' },
 };
 
-export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, onAbort, onSchedule }: KanbanCardProps) {
+export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, onAbort, onSchedule, onCleanupWorktree }: KanbanCardProps) {
   const {
     attributes,
     listeners,
@@ -144,6 +152,18 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
               {task.model.includes('opus') ? 'Opus' : 'Sonnet'}
             </span>
           )}
+          {task.workflow && task.workflow !== 'auto' && WORKFLOW_BADGE[task.workflow] && (
+            <span className={`shrink-0 px-1 py-0.5 rounded text-[9px] ${WORKFLOW_BADGE[task.workflow].bg} ${WORKFLOW_BADGE[task.workflow].text}`}>
+              {WORKFLOW_BADGE[task.workflow].label}
+            </span>
+          )}
+          {task.worktreePath && (
+            <span className="shrink-0 text-[9px] text-orange-400" title={`Worktree: ${task.worktreePath}`}>
+              <svg className="w-3 h-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
@@ -186,6 +206,17 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
+              </svg>
+            </button>
+          )}
+          {onCleanupWorktree && task.worktreePath && task.status !== 'in_progress' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCleanupWorktree(); }}
+              className="opacity-0 group-hover:opacity-100 text-orange-400 hover:text-orange-300 transition-all"
+              title="Clean up worktree"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </button>
           )}

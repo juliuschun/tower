@@ -162,6 +162,14 @@ function initSchema(db: Database.Database) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_schedule ON tasks(schedule_enabled, scheduled_at) WHERE schedule_enabled = 1`);
   } catch {}
 
+  // Workflow mode migrations
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN workflow TEXT DEFAULT 'auto'`); } catch {}
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN parent_task_id TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN worktree_path TEXT`); } catch {}
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id) WHERE parent_task_id IS NOT NULL`);
+  } catch {}
+
   // Messages turn-metrics migrations
   try { db.exec(`ALTER TABLE messages ADD COLUMN duration_ms INTEGER`); } catch {}
   try { db.exec(`ALTER TABLE messages ADD COLUMN input_tokens INTEGER`); } catch {}

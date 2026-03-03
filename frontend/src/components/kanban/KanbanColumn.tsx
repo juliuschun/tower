@@ -13,10 +13,42 @@ interface KanbanColumnProps {
   onSpawnTask: (taskId: string) => void;
   onAbortTask: (taskId: string) => void;
   onScheduleTask: (taskId: string) => void;
+  onCleanupWorktree: (taskId: string) => void;
 }
 
-export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTask, onSpawnTask, onAbortTask, onScheduleTask }: KanbanColumnProps) {
+export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTask, onSpawnTask, onAbortTask, onScheduleTask, onCleanupWorktree }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
+
+  // Group: top-level tasks first, then child tasks nested under parents
+  const topLevel = tasks.filter((t) => !t.parentTaskId);
+  const childrenMap = new Map<string, TaskMeta[]>();
+  for (const t of tasks) {
+    if (t.parentTaskId) {
+      const list = childrenMap.get(t.parentTaskId) || [];
+      list.push(t);
+      childrenMap.set(t.parentTaskId, list);
+    }
+  }
+
+  // Build ordered list: parent followed by children
+  const orderedTasks: { task: TaskMeta; isChild: boolean }[] = [];
+  for (const task of topLevel) {
+    orderedTasks.push({ task, isChild: false });
+    const children = childrenMap.get(task.id);
+    if (children) {
+      for (const child of children) {
+        orderedTasks.push({ task: child, isChild: true });
+      }
+    }
+  }
+  // Orphan children (parent in different column)
+  for (const t of tasks) {
+    if (t.parentTaskId && !topLevel.find((p) => p.id === t.parentTaskId)) {
+      if (!orderedTasks.find((o) => o.task.id === t.id)) {
+        orderedTasks.push({ task: t, isChild: true });
+      }
+    }
+  }
 
   return (
     <div
@@ -36,16 +68,18 @@ export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTas
       {/* Cards */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map((task) => (
-            <KanbanCard
-              key={task.id}
-              task={task}
-              onClick={() => onCardClick(task)}
-              onDelete={() => onDeleteTask(task.id)}
-              onSpawn={(task.status === 'todo' || task.status === 'failed') ? () => onSpawnTask(task.id) : undefined}
-              onAbort={task.status === 'in_progress' ? () => onAbortTask(task.id) : undefined}
-              onSchedule={(task.status === 'todo' || task.status === 'done' || task.status === 'failed') ? () => onScheduleTask(task.id) : undefined}
-            />
+          {orderedTasks.map(({ task, isChild }) => (
+            <div key={task.id} className={isChild ? 'ml-4 border-l-2 border-surface-700 pl-2' : ''}>
+              <KanbanCard
+                task={task}
+                onClick={() => onCardClick(task)}
+                onDelete={() => onDeleteTask(task.id)}
+                onSpawn={(task.status === 'todo' || task.status === 'failed') ? () => onSpawnTask(task.id) : undefined}
+                onAbort={task.status === 'in_progress' ? () => onAbortTask(task.id) : undefined}
+                onSchedule={(task.status === 'todo' || task.status === 'done' || task.status === 'failed') ? () => onScheduleTask(task.id) : undefined}
+                onCleanupWorktree={task.worktreePath && task.status !== 'in_progress' ? () => onCleanupWorktree(task.id) : undefined}
+              />
+            </div>
           ))}
         </SortableContext>
 

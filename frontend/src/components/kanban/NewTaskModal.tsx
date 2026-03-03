@@ -8,6 +8,14 @@ const AVAILABLE_MODELS = [
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5' },
 ];
 
+const WORKFLOW_OPTIONS = [
+  { id: 'auto', name: 'Auto', desc: 'Agent decides' },
+  { id: 'simple', name: 'Simple', desc: 'No code' },
+  { id: 'default', name: 'Default', desc: 'Light code' },
+  { id: 'feature', name: 'Feature', desc: 'Worktree' },
+  { id: 'big_task', name: 'Big Task', desc: 'Decompose' },
+];
+
 interface NewTaskModalProps {
   onClose: () => void;
   onCreated: (task: TaskMeta) => void;
@@ -198,6 +206,7 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
   const [description, setDescription] = useState('');
   const [cwd, setCwd] = useState(activeSession?.cwd || '/home/enterpriseai/workspace');
   const [model, setModel] = useState('claude-opus-4-6');
+  const [workflow, setWorkflow] = useState('auto');
   const [submitting, setSubmitting] = useState(false);
   const [pastCwds, setPastCwds] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; path: string }[]>([]);
@@ -266,7 +275,7 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model }),
+        body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow }),
       });
       if (res.ok) {
         const task = await res.json();
@@ -368,12 +377,20 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
                 placeholder="/home/user/project"
               />
             </div>
-            <div className="w-40">
+            <div className="w-32">
               <label className="text-xs text-gray-400 mb-1 block">Model</label>
               <Dropdown
                 value={model}
                 onChange={setModel}
                 options={AVAILABLE_MODELS}
+              />
+            </div>
+            <div className="w-32">
+              <label className="text-xs text-gray-400 mb-1 block">Workflow</label>
+              <Dropdown
+                value={workflow}
+                onChange={setWorkflow}
+                options={WORKFLOW_OPTIONS}
               />
             </div>
           </div>
