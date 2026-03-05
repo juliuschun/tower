@@ -32,6 +32,28 @@ function HtmlPreview({ content }: { content: string }) {
 function PdfPreview({ filePath }: { filePath: string }) {
   const token = localStorage.getItem('token') || '';
   const src = `/api/files/serve?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const fileName = filePath.split('/').pop() || 'document.pdf';
+
+  if (isMobile) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-4">
+        <svg className="w-16 h-16 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+        <p className="text-sm text-gray-400 text-center">{fileName}</p>
+        <a
+          href={src}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+        >
+          Open PDF
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute inset-0">
       <iframe

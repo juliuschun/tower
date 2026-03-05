@@ -110,6 +110,22 @@ export function SharedViewer() {
         {viewMode === 'raw' ? (
           /* 원본 — 항상 plain text */
           <pre className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed font-mono">{data.content}</pre>
+        ) : useIframe && data.ext === 'pdf' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? (
+          /* 모바일 PDF — iframe 대신 직접 열기 */
+          <div className="flex flex-col items-center justify-center h-full gap-4 p-4">
+            <svg className="w-16 h-16 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            <p className="text-sm text-gray-400">{data.fileName}</p>
+            <a
+              href={`/api/shared/${token}?render=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+            >
+              Open PDF
+            </a>
+          </div>
         ) : useIframe ? (
           /* 미리보기 — PDF / HTML / 이미지 / 영상: 브라우저 네이티브 렌더링 */
           <iframe
