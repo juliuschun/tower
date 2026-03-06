@@ -7,6 +7,7 @@ import { useModelStore } from '../stores/model-store';
 import { useGitStore } from '../stores/git-store';
 import { parseSDKMessage, normalizeContentBlocks } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef } from '../utils/session-filters';
+import { generateUUID } from '../utils/uuid';
 import { toastSuccess, toastError, toastWarning } from '../utils/toast';
 import { notifyTaskComplete, requestNotificationPermission } from '../utils/notify';
 import { useKanbanStore } from '../stores/kanban-store';
@@ -185,7 +186,7 @@ export function useClaudeChat() {
                 useChatStore.getState().clearSessionQueue(sid);
                 continue;
               }
-              const messageId = crypto.randomUUID();
+              const messageId = generateUUID();
               sendRef.current({
                 type: 'chat',
                 message: msg,
@@ -288,7 +289,7 @@ export function useClaudeChat() {
               const msg = useChatStore.getState().dequeueMessage(data.sessionId);
               if (msg) {
                 const session = useSessionStore.getState().sessions.find((s) => s.id === data.sessionId);
-                const messageId = crypto.randomUUID();
+                const messageId = generateUUID();
                 sendRef.current({
                   type: 'chat',
                   message: msg,
@@ -420,7 +421,7 @@ export function useClaudeChat() {
         // Assistant message — each new UUID gets its own message bubble
         if (sdkMsg.type === 'assistant') {
           const parsed = parseSDKMessage(sdkMsg);
-          const msgId = sdkMsg.uuid || crypto.randomUUID();
+          const msgId = sdkMsg.uuid || generateUUID();
 
           // Reset ref if session changed since last assistant message
           if (shouldResetAssistantRef(currentAssistantSessionRef.current, data.sessionId)) {
@@ -690,7 +691,7 @@ export function useClaudeChat() {
         if (data.errorCode === 'SESSION_LIMIT') {
           toastError('Concurrent session limit exceeded');
           addMessage({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             role: 'system',
             content: [{ type: 'text', text: `Session limit exceeded: ${data.message}. Please wait for another session to finish.` }],
             timestamp: Date.now(),
@@ -698,7 +699,7 @@ export function useClaudeChat() {
         } else if (data.errorCode === 'SDK_HANG') {
           toastError('SDK response timed out');
           addMessage({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             role: 'system',
             content: [{ type: 'text', text: data.message }],
             timestamp: Date.now(),
@@ -706,7 +707,7 @@ export function useClaudeChat() {
         } else {
           toastError(data.message || 'Unknown error');
           addMessage({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             role: 'system',
             content: [{ type: 'text', text: `Error: ${data.message}` }],
             timestamp: Date.now(),
@@ -721,7 +722,7 @@ export function useClaudeChat() {
         if (!shouldDropSessionMessage(_rfSid, data.sessionId)) {
           toastWarning(data.message || 'Previous conversation context could not be restored.');
           addMessage({
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             role: 'system',
             content: [{ type: 'text', text: `⚠️ ${data.message || 'Previous conversation context could not be restored. Starting fresh.'}` }],
             timestamp: Date.now(),
@@ -825,7 +826,7 @@ export function useClaudeChat() {
 
   const sendMessage = useCallback(
     (message: string, cwd?: string) => {
-      const messageId = crypto.randomUUID();
+      const messageId = generateUUID();
       // Add user message locally with pending status
       addMessage({
         id: messageId,

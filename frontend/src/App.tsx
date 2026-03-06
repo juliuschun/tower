@@ -26,6 +26,7 @@ import { useSettingsStore } from './stores/settings-store';
 import { useModelStore } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
 import { normalizeContentBlocks } from './utils/message-parser';
+import { generateUUID } from './utils/uuid';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
 import { HistoryPanel } from './components/history/HistoryPanel';
@@ -362,7 +363,7 @@ function App() {
 
     // Show switch indicator (only if no messages restored)
     useChatStore.getState().addMessage({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: 'system',
       content: [{ type: 'text', text: `Switched to session "${session.name}"${session.claudeSessionId ? ' (can resume previous conversation)' : ''}` }],
       timestamp: Date.now(),
