@@ -4,6 +4,8 @@
 
 팀 전체가 명령을 내리고, Tower가 프로세스를 조율합니다. 결과물이 쌓이고, 도구는 정교해지고, 챗봇이었던 것이 팀의 **자가 증식하는 중앙 지능(Central Intelligence)** 이 됩니다.
 
+🌐 [English](README.md) · [한국어](README.ko.md)
+
 ---
 
 <p align="center">

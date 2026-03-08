@@ -4,7 +4,7 @@
 
 Your team gives commands. Tower orchestrates the process. The results accumulate. The tools get sharper. What starts as a chatbot becomes your team's **self-evolving central intelligence.**
 
-[**한국어 README**](README.ko.md)
+🌐 [English](README.md) · [한국어](README.ko.md)
 
 <p align="center">
   <img src="capture.gif" alt="Tower — delegate tasks to Claude Code in the browser" width="720" />
@@ -93,6 +93,32 @@ What one person learns becomes what Claude knows for everyone.
 ### 🌐 Browser-First, Role-Based
 
 Anyone — developer, designer, PM, analyst — uses the full power of Claude Code without a terminal. Admins get full access, regular users get guardrails, everyone gets the same team brain.
+
+### 📂 Project-Scoped Conversations
+
+This is what makes Tower feel like a team workspace, not a chatbot.
+
+Every project gets its own folder, its own `CLAUDE.md` instructions, and its own conversation history. When someone opens a chat inside a project, Claude automatically works in that project's directory — reading its context, writing its files, following its rules.
+
+```
+workspace/
+├── projects/
+│   ├── marketing-site/
+│   │   ├── CLAUDE.md          ← "Use Next.js. Brand voice is casual."
+│   │   └── (Claude works here)
+│   ├── api-backend/
+│   │   ├── CLAUDE.md          ← "Use Go. Follow company style guide."
+│   │   └── (Claude works here)
+│   └── onboarding-docs/
+│       ├── CLAUDE.md          ← "Write for non-technical readers."
+│       └── (Claude works here)
+├── decisions/                  ← Team decision records
+└── memory/MEMORY.md            ← Shared context across all projects
+```
+
+The result: **Claude doesn't mix up your projects.** Marketing copy doesn't leak into your API code. Your backend conventions don't override your docs style. Each project is its own context — but all of them share the same team memory.
+
+New team member joins the marketing project? Claude already knows the brand voice, the tech stack, and the decisions that got them there. No onboarding document needed — the `CLAUDE.md` *is* the onboarding.
 
 ### 📄 Instant Document Viewer
 
