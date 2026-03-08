@@ -56,17 +56,56 @@ Claude Code is the AI engine that powers Tower. You need it installed and authen
 # Install Claude Code CLI
 npm install -g @anthropic-ai/claude-code
 
-# Authenticate (interactive — opens browser or asks for API key)
-claude login
-
-# Verify
+# Verify installation
 claude --version
-claude auth status
 ```
 
 > **What is Claude Code?** It's Anthropic's CLI tool that lets you talk to Claude with full access to your filesystem. Tower wraps it with a web UI so your whole team can use it from a browser.
 
-### 3. Clone & Install
+### 3. Authenticate Claude (pick one)
+
+| Method | Best for | Command |
+|--------|----------|---------|
+| **Browser login** | Max/Pro plan subscribers | `claude auth login` → copy URL to any browser |
+| **API Key** | API key users, CI/CD | Set `ANTHROPIC_API_KEY` in `.env` |
+| **Copy credentials** | Already authed on another machine | `scp` the credentials file |
+
+#### Option A: Browser Login (Max/Pro plan)
+
+```bash
+claude auth login
+# → Outputs a URL like: https://claude.ai/oauth/authorize?...
+# → Copy that URL and open it in ANY browser (even on a different computer)
+# → Complete the login → this machine is authenticated
+```
+
+> **Headless VM?** No browser needed on the server. The URL works from any browser anywhere. After you complete login in your browser, the CLI on this machine gets authenticated automatically.
+
+#### Option B: API Key
+
+```bash
+# Add to your .env file:
+echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" >> .env
+```
+
+Get your key at: https://console.anthropic.com/settings/keys
+
+#### Option C: Copy Credentials (from another authenticated machine)
+
+```bash
+# On the new machine:
+mkdir -p ~/.claude
+scp user@authed-machine:~/.claude/.credentials.json ~/.claude/.credentials.json
+chmod 600 ~/.claude/.credentials.json
+
+# Verify:
+claude auth status
+# → Should show: "loggedIn": true
+```
+
+This copies the OAuth tokens from a machine where Claude is already authenticated. Works instantly, no browser needed.
+
+### 4. Clone & Install
 
 ```bash
 git clone https://github.com/juliuschun/tower.git
@@ -74,7 +113,7 @@ cd tower
 npm install
 ```
 
-### 4. Configure Environment
+### 5. Configure Environment
 
 ```bash
 cp .env.example .env
@@ -87,7 +126,7 @@ Edit `.env` — at minimum, change `JWT_SECRET`:
 sed -i "s/change-me-to-a-random-secret/$(openssl rand -hex 32)/" .env
 ```
 
-### 5. Initialize Workspace (optional)
+### 6. Initialize Workspace (optional)
 
 ```bash
 # Copy workspace templates
@@ -95,7 +134,7 @@ mkdir -p ~/workspace
 cp -r templates/workspace/* ~/workspace/
 ```
 
-### 6. Install Skills & Hooks (optional, requires Claude CLI)
+### 7. Install Skills & Hooks (optional, requires Claude CLI)
 
 ```bash
 # Bundled Claude skills (20 skills, 3 commands, 1 agent)
@@ -105,7 +144,7 @@ cp -r templates/workspace/* ~/workspace/
 bash memory-hooks/install.sh
 ```
 
-### 7. Start
+### 8. Start
 
 ```bash
 # Development (hot reload)
@@ -126,6 +165,104 @@ npm run build
 1. Open `http://localhost:32354` (or your domain)
 2. **The first account you create becomes the admin.** There is no default password — you set it yourself.
 3. Add team members via the admin panel (shield icon in header)
+
+---
+
+## Post-Setup Testing Checklist
+
+After installation, walk through these steps to verify everything works:
+
+### Step 1: Server Health
+
+```bash
+# Backend responds
+curl -s http://localhost:32354/api/auth/status
+# → {"authEnabled":true,"hasUsers":false}   (before first login)
+# → {"authEnabled":true,"hasUsers":true}    (after first login)
+```
+
+### Step 2: Create Admin Account
+
+Open `http://localhost:32354` in your browser. You'll see the login page.
+- Enter a username and password (min 8 characters)
+- Click "Sign in" → you're now the admin
+
+### Step 3: Verify WebSocket Connection
+
+After login, check the bottom-left status bar:
+- **Green dot + "Ready"** = WebSocket connected, Claude CLI found
+- **Red/orange dot** = Connection issue — check the backend logs
+
+### Step 4: Send a Test Message
+
+Type "hello" in the chat box and press Enter.
+- Claude should respond within a few seconds
+- If you see an error, check that Claude is authenticated: `claude auth status`
+
+### Step 5: Check the File Tree
+
+Click the **Files** tab in the left sidebar.
+- You should see your workspace directory contents
+- If empty, that's normal — workspace starts with just template files
+
+### Step 6: Create a Project
+
+Click the **hamburger menu (☰)** → look for project options.
+- Create a new project (e.g., "test-project")
+- Tower auto-creates `~/workspace/projects/test-project/` with a `CLAUDE.md` file
+- New chats in this project will use that directory as working directory
+
+### Step 7: Verify Git Auto-Commit
+
+```bash
+cd ~/workspace && git log --oneline -5
+# → Should show "init: workspace initialized by Tower"
+```
+
+If git log shows commits, auto-commit is working. Claude's file edits will be committed automatically.
+
+---
+
+## How Tower Uses the File System
+
+Understanding this prevents most confusion:
+
+```
+~/workspace/                    ← WORKSPACE_ROOT (file tree root, git repo)
+├── projects/                   ← Auto-created when you make a project
+│   ├── my-project/             ← Each project = a directory
+│   │   ├── CLAUDE.md           ← Project-specific instructions (auto-created)
+│   │   └── (Claude's files)    ← Claude reads/writes here
+│   └── another-project/
+│       └── CLAUDE.md
+├── decisions/                  ← Team decision records (from setup.sh)
+├── docs/                       ← Process documentation
+├── notes/                      ← Temporary memos
+├── memory/MEMORY.md            ← Team context for Claude
+└── uploads/                    ← Chat file attachments (auto-created)
+```
+
+### Key concepts:
+
+- **Workspace** (`WORKSPACE_ROOT`): The root directory users can browse in the Files tab. Tower initializes a git repo here on first start.
+- **Projects**: Groupings of chat sessions. Each project has its own folder with a `CLAUDE.md` that Claude reads automatically.
+- **CLAUDE.md**: Instructions file that Claude loads when working in a directory. Edit this to tell Claude about your project's conventions, tech stack, or rules.
+- **CWD (Current Working Directory)**: Each chat session has a working directory where Claude reads/writes files. For project chats, this is the project folder. For standalone chats, it defaults to `DEFAULT_CWD`.
+- **Git auto-commit**: Tower auto-commits Claude's file changes to the workspace git repo (configurable via `GIT_AUTO_COMMIT`).
+
+### What happens when you create a new chat:
+
+1. If created inside a **project** → CWD = project's root directory → Claude reads that project's `CLAUDE.md`
+2. If created as a **standalone chat** → CWD = `DEFAULT_CWD` (usually `~/workspace`) → Claude reads workspace-level `CLAUDE.md`
+3. Claude can read/write files relative to the CWD
+4. File changes are auto-committed to git (if enabled)
+
+### Codebase projects (advanced):
+
+If your project is a code repo outside the workspace (e.g., `~/my-app/`):
+- Create a project and set the **root path** to `~/my-app/`
+- Tower points Claude's CWD there instead of workspace
+- Claude reads `~/my-app/CLAUDE.md` if it exists
 
 ---
 
@@ -190,7 +327,9 @@ Copy `.env.example` to `.env` and edit:
 | Role | Claude Permissions | File Access | Admin Panel |
 |------|-------------------|-------------|-------------|
 | `admin` | `bypassPermissions` | Full | Yes |
-| `user` | `acceptEdits` | `allowed_path` only | No |
+| `operator` | `bypassPermissions` | Full | No |
+| `member` | `acceptEdits` | `allowed_path` only | No |
+| `viewer` | `plan` (read-only) | `allowed_path` only | No |
 
 ---
 
@@ -260,6 +399,38 @@ ls ~/.claude/skills/*/SKILL.md
 
 ```bash
 npm install -g pm2
+```
+
+### File tree shows nothing / "Cannot read directory"
+
+```bash
+# Check workspace exists
+ls ~/workspace/
+# If missing, create it:
+mkdir -p ~/workspace
+# Restart the server — it will auto-initialize git
+```
+
+### Claude doesn't know about my project
+
+Make sure your project has a `CLAUDE.md` file in its root directory:
+
+```bash
+ls ~/workspace/projects/my-project/CLAUDE.md
+# If missing, create one:
+echo "# My Project\n\nDescribe your project here." > ~/workspace/projects/my-project/CLAUDE.md
+```
+
+### "Claude not found" or sessions fail
+
+```bash
+# Check Claude CLI is installed and authenticated
+claude --version
+claude auth status
+# If not authenticated:
+claude auth login
+# Or set API key in .env:
+grep ANTHROPIC_API_KEY .env
 ```
 
 ---

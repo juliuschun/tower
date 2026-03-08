@@ -40,7 +40,7 @@ This will:
 Each VM needs a one-time Claude login:
 
 ```bash
-claude login
+claude auth login
 ```
 
 This stores credentials in `~/.claude/`. Tower uses this to spawn Claude sessions for all users.
@@ -191,7 +191,7 @@ fuser -k 32354/tcp
 # Check Claude CLI auth:
 claude auth status
 # Re-login if needed:
-claude login
+claude auth login
 ```
 
 ### Zombie tsx processes
