@@ -67,6 +67,8 @@ export default defineConfig({
         target: 'ws://localhost:32355',
         ws: true,
       },
+      '/hub': 'http://localhost:32400',
+      '/sites': 'http://localhost:80',
     },
   },
   build: {

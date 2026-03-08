@@ -10,12 +10,37 @@ interface InputBoxProps {
   onAbort: () => void;
 }
 
-const DRAFT_KEY = 'tower:inputDraft';
+const DRAFT_PREFIX = 'tower:inputDraft:';
+
+function getDraftKey(sessionId: string | null): string {
+  return sessionId ? `${DRAFT_PREFIX}${sessionId}` : `${DRAFT_PREFIX}__global`;
+}
+
+function loadDraft(sessionId: string | null): string {
+  try {
+    const val = localStorage.getItem(getDraftKey(sessionId));
+    if (val) return val;
+    // Migrate from old global key (one-time)
+    const OLD_KEY = 'tower:inputDraft';
+    const old = localStorage.getItem(OLD_KEY);
+    if (old) {
+      localStorage.removeItem(OLD_KEY);
+      return old;
+    }
+    return '';
+  } catch { return ''; }
+}
+
+function saveDraft(sessionId: string | null, value: string) {
+  try {
+    const key = getDraftKey(sessionId);
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch { /* storage full */ }
+}
 
 export function InputBox({ onSend, onAbort }: InputBoxProps) {
-  const [input, setInput] = useState(() => {
-    try { return localStorage.getItem(DRAFT_KEY) ?? ''; } catch { return ''; }
-  });
+  const [input, setInput] = useState('');
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -35,15 +60,29 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const slashCommands = useChatStore((s) => s.slashCommands);
   const attachments = useChatStore((s) => s.attachments);
 
-  // Restore textarea height for persisted draft
+  // Save/restore per-session draft when session changes
+  const prevSessionRef = useRef<string | null>(null);
   useEffect(() => {
-    if (input && textareaRef.current) {
-      const el = textareaRef.current;
-      el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    if (prevSessionRef.current !== currentSessionId) {
+      // Save current draft to previous session
+      if (prevSessionRef.current !== null) {
+        saveDraft(prevSessionRef.current, input);
+      }
+      // Load draft for new session
+      const restored = loadDraft(currentSessionId);
+      setInput(restored);
+      prevSessionRef.current = currentSessionId;
+      // Restore textarea height
+      if (textareaRef.current) {
+        const el = textareaRef.current;
+        requestAnimationFrame(() => {
+          el.style.height = 'auto';
+          el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+        });
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [currentSessionId]);
 
   const filteredCommands: SlashCommandInfo[] = input.startsWith('/')
     ? slashCommands.filter((cmd) => cmd.name.toLowerCase().includes(input.slice(1).toLowerCase()))
@@ -158,7 +197,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     }
 
     setInput('');
-    try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    saveDraft(currentSessionId, '');
     setShowCommands(false);
     useChatStore.getState().clearAttachments();
     if (textareaRef.current) {
@@ -211,7 +250,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInput(val);
-    try { localStorage.setItem(DRAFT_KEY, val); } catch { /* storage full */ }
+    saveDraft(currentSessionId, val);
     // Batch height recalculation into a single rAF to avoid layout thrashing
     // that causes visible jitter on mobile when the virtual keyboard is open.
     const el = e.target;
@@ -457,7 +496,29 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
           {isStreaming && !input.trim() && attachments.length === 0 ? (
             <button
-              onClick={onAbort}
+              onClick={() => {
+                // Stop streaming AND restore queued messages to input
+                const sid = useChatStore.getState().sessionId;
+                if (sid) {
+                  const queue = useChatStore.getState().messageQueue[sid];
+                  if (queue && queue.length > 0) {
+                    // Restore ALL queued messages to input box, joined with newlines
+                    const restored = queue.join('\n\n');
+                    setInput(restored);
+                    saveDraft(sid, restored);
+                    useChatStore.getState().clearSessionQueue(sid);
+                    // Resize textarea for restored text
+                    if (textareaRef.current) {
+                      const el = textareaRef.current;
+                      requestAnimationFrame(() => {
+                        el.style.height = 'auto';
+                        el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+                      });
+                    }
+                  }
+                }
+                onAbort();
+              }}
               className="p-2 m-1 bg-surface-700 hover:bg-surface-600 rounded-xl transition-all shrink-0 text-red-400 hover:shadow-lg shadow-surface-900"
               title="Stop"
             >

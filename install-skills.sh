@@ -50,6 +50,6 @@ fi
 
 echo ""
 echo "=== 설치 완료 ==="
-echo "Skills:   $(ls -d "$CLAUDE_DIR/skills"/*/ 2>/dev/null | wc -l | tr -d  )개"
-echo "Commands: $(ls "$CLAUDE_DIR/commands"/*.md 2>/dev/null | wc -l | tr -d  )개"
-echo "Agents:   $(ls "$CLAUDE_DIR/agents"/*.md 2>/dev/null | wc -l | tr -d  )개"
+echo "Skills:   $(ls -d "$CLAUDE_DIR/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')개"
+echo "Commands: $(ls "$CLAUDE_DIR/commands"/*.md 2>/dev/null | wc -l | tr -d ' ')개"
+echo "Agents:   $(ls "$CLAUDE_DIR/agents"/*.md 2>/dev/null | wc -l | tr -d ' ')개"

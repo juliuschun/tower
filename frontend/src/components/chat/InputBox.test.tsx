@@ -5,7 +5,7 @@ import { InputBox } from './InputBox';
 import { useChatStore } from '../../stores/chat-store';
 
 beforeEach(() => {
-  // Reset store to defaults
+  // Reset store to defaults (including messageQueue to prevent cross-test leaks)
   useChatStore.setState({
     isStreaming: false,
     sessionId: null,
@@ -13,7 +13,15 @@ beforeEach(() => {
     messages: [],
     slashCommands: [],
     attachments: [],
+    messageQueue: {},
   });
+  // Clear per-session drafts from localStorage
+  const toRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith('tower:inputDraft')) toRemove.push(key);
+  }
+  toRemove.forEach((k) => localStorage.removeItem(k));
 });
 
 describe('InputBox queue + session isolation', () => {

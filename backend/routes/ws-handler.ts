@@ -14,6 +14,7 @@ import { autoCommit } from '../services/git-manager.js';
 import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient, type SessionClient } from './session-guards.js';
 import { spawnTask, abortTask } from '../services/task-runner.js';
 import { buildDamageControl, buildPathEnforcement, type TowerRole } from '../services/damage-control.js';
+import { buildSystemPrompt } from '../services/system-prompt.js';
 import { getTasks } from '../services/task-manager.js';
 
 interface WsClient {
@@ -516,12 +517,20 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     // Create canUseTool to intercept AskUserQuestion
     const canUseTool = createCanUseTool(sessionId, (client.userRole || 'member') as TowerRole, client.allowedPath);
 
+    // Build system prompt (Layer 2: team rules + role context)
+    const systemPrompt = buildSystemPrompt({
+      username: client.username || 'anonymous',
+      role: client.userRole || 'member',
+      allowedPath: client.allowedPath,
+    });
+
     for await (const message of executeQuery(sessionId, data.message, {
       cwd: data.cwd || dbSession?.cwd || client.allowedPath || config.defaultCwd,
       resumeSessionId,
       permissionMode,
       model: data.model,
       canUseTool,
+      systemPrompt,
     })) {
       // Reset hang timer on each message
       resetHangTimer();

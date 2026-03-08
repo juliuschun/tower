@@ -289,17 +289,18 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60" onClick={onClose}>
       <div
-        className="bg-surface-900 border border-surface-700 rounded-xl w-full max-w-md p-5 shadow-2xl"
+        className="bg-surface-900 border border-surface-700 rounded-t-xl sm:rounded-xl w-full max-w-md p-5 shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-base font-semibold text-gray-200 mb-4">New Task</h3>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Title</label>
+            <label htmlFor="task-title" className="text-xs text-gray-400 mb-1 block">Title</label>
             <input
+              id="task-title"
               autoFocus
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -310,8 +311,9 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Description</label>
+            <label htmlFor="task-description" className="text-xs text-gray-400 mb-1 block">Description</label>
             <textarea
+              id="task-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Detailed task description for the agent..."
@@ -367,9 +369,9 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
-              <label className="text-xs text-gray-400 mb-1 block">Working Directory</label>
+              <label htmlFor="task-cwd" className="text-xs text-gray-400 mb-1 block">Working Directory</label>
               <ComboBox
                 value={cwd}
                 onChange={setCwd}
@@ -377,16 +379,16 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
                 placeholder="/home/user/project"
               />
             </div>
-            <div className="w-32">
-              <label className="text-xs text-gray-400 mb-1 block">Model</label>
+            <div className="w-full sm:w-32">
+              <label htmlFor="task-model" className="text-xs text-gray-400 mb-1 block">Model</label>
               <Dropdown
                 value={model}
                 onChange={setModel}
                 options={AVAILABLE_MODELS}
               />
             </div>
-            <div className="w-32">
-              <label className="text-xs text-gray-400 mb-1 block">Workflow</label>
+            <div className="w-full sm:w-32">
+              <label htmlFor="task-workflow" className="text-xs text-gray-400 mb-1 block">Workflow</label>
               <Dropdown
                 value={workflow}
                 onChange={setWorkflow}

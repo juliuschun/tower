@@ -153,7 +153,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered, onDismiss }
                     <button
                       key={oi}
                       onClick={() => handleSelect(qi, opt.label)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] active:scale-95 transition-all cursor-pointer floating-q-btn"
+                      className="inline-flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-lg border text-[12px] active:scale-95 transition-all cursor-pointer floating-q-btn"
                       style={{
                         background: 'var(--th-q-pending-btn-bg)',
                         borderColor: 'var(--th-q-pending-btn-border)',

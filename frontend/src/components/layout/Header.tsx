@@ -10,7 +10,11 @@ interface HeaderProps {
   onToggleSidebar: () => void;
   onNewSession?: () => void;
   onAdminClick?: () => void;
+  onPublishClick?: () => void;
   onViewDiff?: (diff: string) => void;
+  onLogout?: () => void;
+  username?: string;
+  userRole?: string;
 }
 
 /** Abbreviate model name for mobile: "Sonnet 4.6" → "S4.6", "Opus 4.6" → "O4.6", etc. */
@@ -120,6 +124,7 @@ function VersionHistoryButton({ onViewDiff }: { onViewDiff?: (diff: string) => v
         onClick={() => setOpen(!open)}
         className={`p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200 ${open ? 'bg-surface-800 text-gray-200' : ''}`}
         title="Version history"
+        aria-label="Version history"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -142,7 +147,94 @@ function VersionHistoryButton({ onViewDiff }: { onViewDiff?: (diff: string) => v
   );
 }
 
-export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick, onViewDiff }: HeaderProps) {
+function UserMenu({ username, userRole, onAdminClick, onLogout }: {
+  username?: string;
+  userRole?: string;
+  onAdminClick?: () => void;
+  onLogout?: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const initial = (username || '?')[0].toUpperCase();
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-surface-800 transition-colors"
+        aria-label="User menu"
+      >
+        <div className="w-6 h-6 rounded-full bg-primary-600/30 border border-primary-500/40 flex items-center justify-center">
+          <span className="text-[11px] font-bold text-primary-400">{initial}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-48 bg-surface-900 border border-surface-700 rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-[100]">
+          {/* User info */}
+          <div className="px-3 py-2.5 border-b border-surface-800">
+            <div className="text-[13px] font-medium text-gray-200">{username || 'User'}</div>
+            {userRole && (
+              <div className="text-[11px] text-gray-500 mt-0.5 capitalize">{userRole}</div>
+            )}
+          </div>
+          {/* Actions */}
+          <div className="py-1">
+            <button
+              onClick={() => { useSettingsStore.getState().setOpen(true); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-gray-400 hover:bg-surface-800 hover:text-gray-200 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Settings
+            </button>
+            {onAdminClick && (
+              <button
+                onClick={() => { onAdminClick(); setOpen(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-gray-400 hover:bg-surface-800 hover:text-gray-200 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                Admin Panel
+              </button>
+            )}
+          </div>
+          {/* Logout */}
+          {onLogout && (
+            <>
+              <div className="border-t border-surface-800" />
+              <div className="py-1">
+                <button
+                  onClick={() => { onLogout(); setOpen(false); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-red-400 hover:bg-red-950/30 hover:text-red-300 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Logout
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick, onPublishClick, onViewDiff, onLogout, username, userRole }: HeaderProps) {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -158,6 +250,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
         onClick={onToggleSidebar}
         className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-gray-400 hover:text-gray-200"
         title="Toggle sidebar"
+        aria-label="Toggle sidebar"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h16" />
@@ -192,6 +285,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           onClick={onNewSession}
           className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-primary-400 hover:text-primary-300"
           title="New chat"
+          aria-label="New chat"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -213,16 +307,27 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
 
         {!isMobile && <VersionHistoryButton onViewDiff={onViewDiff} />}
 
-        {onAdminClick && (
+        {!isMobile && onPublishClick && (
           <button
-            onClick={onAdminClick}
-            className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-primary-400"
-            title="Admin"
+            onClick={onPublishClick}
+            className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-amber-400"
+            title="Publishing Hub"
+            aria-label="Publishing Hub"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
+        )}
+
+        {/* User menu — replaces standalone admin button */}
+        {!isMobile && (
+          <UserMenu
+            username={username}
+            userRole={userRole}
+            onAdminClick={onAdminClick}
+            onLogout={onLogout}
+          />
         )}
 
         {/* Theme toggle: desktop only — mobile uses Settings tab in MobileTabBar */}
@@ -231,6 +336,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
             title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

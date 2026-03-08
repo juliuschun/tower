@@ -3,6 +3,7 @@ import { useSessionStore, type SessionMeta } from '../../stores/session-store';
 import { useFileStore } from '../../stores/file-store';
 import { usePinStore, type Pin } from '../../stores/pin-store';
 import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
+import { useProjectStore, type Project } from '../../stores/project-store';
 import { SessionItem } from '../sessions/SessionItem';
 import { FileTree } from '../files/FileTree';
 import { PinList } from '../pinboard/PinList';
@@ -10,7 +11,7 @@ import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
 import { toastError, toastSuccess } from '../../utils/toast';
 
 interface SidebarProps {
-  onNewSession: () => void;
+  onNewSession: (projectId?: string) => void;
   onSelectSession: (session: SessionMeta) => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, name: string) => void;
@@ -127,6 +128,10 @@ export function Sidebar({
 
   const [cwdPickerOpen, setCwdPickerOpen] = useState(false);
 
+  const projects = useProjectStore((s) => s.projects);
+  const collapsedProjects = useProjectStore((s) => s.collapsedProjects);
+  const toggleProjectCollapsed = useProjectStore((s) => s.toggleProjectCollapsed);
+
   // Filter and sort sessions: use FTS results when searching, otherwise favorites first + updatedAt
   const filteredSessions = useMemo(() => {
     if (searchResults) {
@@ -138,6 +143,60 @@ export function Sidebar({
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
   }, [sessions, searchResults]);
+
+  // Group sessions by project (only when not searching)
+  const isSearching = !!searchResults || (searchQuery.trim().length >= 2);
+  const groupedSessions = useMemo(() => {
+    if (isSearching) return null; // flat list during search
+    const projectGroups = new Map<string, { project: Project; sessions: SessionMeta[] }>();
+    const ungrouped: SessionMeta[] = [];
+
+    for (const session of filteredSessions) {
+      if (session.projectId) {
+        const proj = projects.find(p => p.id === session.projectId);
+        if (proj) {
+          if (!projectGroups.has(session.projectId)) {
+            projectGroups.set(session.projectId, { project: proj, sessions: [] });
+          }
+          projectGroups.get(session.projectId)!.sessions.push(session);
+        } else {
+          // Project was deleted but session still references it — treat as ungrouped
+          ungrouped.push(session);
+        }
+      } else {
+        ungrouped.push(session);
+      }
+    }
+
+    const sorted = [...projectGroups.values()].sort((a, b) => {
+      if (a.project.sortOrder !== b.project.sortOrder) return a.project.sortOrder - b.project.sortOrder;
+      const aLatest = a.sessions[0]?.updatedAt || '';
+      const bLatest = b.sessions[0]?.updatedAt || '';
+      return bLatest.localeCompare(aLatest);
+    });
+
+    return { groups: sorted, ungrouped };
+  }, [filteredSessions, projects, isSearching]);
+
+  const handleMoveSession = async (sessionId: string, projectId: string | null) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/move`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ projectId }),
+      });
+      if (res.ok) {
+        useSessionStore.getState().updateSessionMeta(sessionId, { projectId });
+      } else {
+        toastError('Failed to move session');
+      }
+    } catch {
+      toastError('Failed to move session');
+    }
+  };
 
   const tabClass = (tab: string) =>
     `flex-1 py-2 text-[11px] font-semibold tracking-wide transition-colors ${
@@ -182,7 +241,7 @@ export function Sidebar({
       {/* New session button */}
       <div className="p-4 border-b border-surface-800/50">
         <button
-          onClick={onNewSession}
+          onClick={() => onNewSession()}
           className="w-full py-2.5 px-4 bg-primary-600 hover:bg-primary-500 rounded-lg text-[13px] font-semibold text-white shadow-sm shadow-primary-900/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 ring-1 ring-white/10"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -218,24 +277,86 @@ export function Sidebar({
               />
             </div>
 
-            {filteredSessions.length === 0 && (
-              <p className="text-[13px] text-surface-700 px-2 py-6 text-center">
-                {searchQuery ? 'No results found' : 'No sessions yet'}
-              </p>
+            {/* Grouped or flat session list */}
+            {groupedSessions && !isSearching ? (
+              <>
+                {/* Project groups */}
+                {groupedSessions.groups.map(({ project, sessions: groupSessions }) => (
+                  <ProjectGroup
+                    key={project.id}
+                    project={project}
+                    sessions={groupSessions}
+                    collapsed={collapsedProjects.has(project.id)}
+                    activeSessionId={activeSessionId}
+                    onToggleCollapsed={() => toggleProjectCollapsed(project.id)}
+                    onSelectSession={onSelectSession}
+                    onDeleteSession={onDeleteSession}
+                    onRenameSession={onRenameSession}
+                    onToggleFavorite={onToggleFavorite}
+                    onNewSession={() => onNewSession(project.id)}
+                    onMoveSession={handleMoveSession}
+                    projects={projects}
+                  />
+                ))}
+                {/* Ungrouped sessions */}
+                {groupedSessions.ungrouped.length > 0 && (
+                  <div className="mt-2">
+                    {groupedSessions.groups.length > 0 && (
+                      <div className="flex items-center gap-2 px-1 py-1 mb-1">
+                        <div className="flex-1 h-px bg-surface-800" />
+                        <span className="text-[10px] text-surface-600 uppercase tracking-wider font-medium shrink-0">Ungrouped</span>
+                        <div className="flex-1 h-px bg-surface-800" />
+                      </div>
+                    )}
+                    <div className="space-y-0.5">
+                      {groupedSessions.ungrouped.map((session) => (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          isActive={session.id === activeSessionId}
+                          onSelect={onSelectSession}
+                          onDelete={onDeleteSession}
+                          onRename={onRenameSession}
+                          onToggleFavorite={onToggleFavorite}
+                          onMoveToProject={handleMoveSession}
+                          projects={projects}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {filteredSessions.length === 0 && (
+                  <p className="text-[13px] text-surface-700 px-2 py-6 text-center">No sessions yet</p>
+                )}
+                {/* New Project button */}
+                <div className="mt-3 mb-1">
+                  <NewProjectButton />
+                </div>
+              </>
+            ) : (
+              <>
+                {filteredSessions.length === 0 && (
+                  <p className="text-[13px] text-surface-700 px-2 py-6 text-center">
+                    {searchQuery ? 'No results found' : 'No sessions yet'}
+                  </p>
+                )}
+                <div className="space-y-0.5">
+                  {filteredSessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={session.id === activeSessionId}
+                      onSelect={onSelectSession}
+                      onDelete={onDeleteSession}
+                      onRename={onRenameSession}
+                      onToggleFavorite={onToggleFavorite}
+                      onMoveToProject={handleMoveSession}
+                      projects={projects}
+                    />
+                  ))}
+                </div>
+              </>
             )}
-            <div className="space-y-0.5">
-              {filteredSessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  isActive={session.id === activeSessionId}
-                  onSelect={onSelectSession}
-                  onDelete={onDeleteSession}
-                  onRename={onRenameSession}
-                  onToggleFavorite={onToggleFavorite}
-                />
-              ))}
-            </div>
             {/* Message search snippets */}
             {searchResults && searchResults.filter(r => r.type === 'message').length > 0 && (
               <div className="mt-2 border-t border-surface-800/50 pt-2">
@@ -674,5 +795,284 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
         )}
       </div>
     </div>
+  );
+}
+
+/* ── Project Group ── */
+
+const PROJECT_COLORS = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#06b6d4', '#f97316'];
+
+function ProjectGroup({
+  project, sessions: groupSessions, collapsed, activeSessionId,
+  onToggleCollapsed, onSelectSession, onDeleteSession, onRenameSession,
+  onToggleFavorite, onNewSession, onMoveSession, projects,
+}: {
+  project: Project;
+  sessions: SessionMeta[];
+  collapsed: boolean;
+  activeSessionId: string | null;
+  onToggleCollapsed: () => void;
+  onSelectSession: (s: SessionMeta) => void;
+  onDeleteSession: (id: string) => void;
+  onRenameSession: (id: string, name: string) => void;
+  onToggleFavorite: (id: string, fav: boolean) => void;
+  onNewSession: () => void;
+  onMoveSession: (sessionId: string, projectId: string | null) => void;
+  projects: Project[];
+}) {
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(project.name);
+  const editRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) editRef.current?.focus();
+  }, [editing]);
+
+  const commitRename = async () => {
+    const trimmed = editName.trim();
+    if (trimmed && trimmed !== project.name) {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      try {
+        const res = await fetch(`/api/projects/${project.id}`, {
+          method: 'PATCH', headers, body: JSON.stringify({ name: trimmed }),
+        });
+        if (res.ok) {
+          useProjectStore.getState().updateProject(project.id, { name: trimmed });
+        }
+      } catch {}
+    }
+    setEditing(false);
+  };
+
+  const handleDelete = async () => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, { method: 'DELETE', headers });
+      if (res.ok) {
+        useProjectStore.getState().removeProject(project.id);
+        // Locally clear projectId on affected sessions
+        for (const s of groupSessions) {
+          useSessionStore.getState().updateSessionMeta(s.id, { projectId: null });
+        }
+        toastSuccess(`Project "${project.name}" deleted`);
+      }
+    } catch {}
+  };
+
+  const handleColorChange = async (color: string) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH', headers, body: JSON.stringify({ color }),
+      });
+      if (res.ok) {
+        useProjectStore.getState().updateProject(project.id, { color });
+      }
+    } catch {}
+  };
+
+  return (
+    <div className="mb-1">
+      {/* Group header */}
+      <div
+        className="flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer hover:bg-surface-850 transition-colors group/proj"
+        onClick={onToggleCollapsed}
+        onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+        onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setEditName(project.name); }}
+      >
+        <svg className={`w-3 h-3 text-surface-600 transition-transform shrink-0 ${collapsed ? '-rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.color }} />
+        {editing ? (
+          <input
+            ref={editRef}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(false); }}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 h-[18px] bg-surface-700 text-gray-100 text-[12px] px-1 rounded border border-surface-600 outline-none focus:border-primary-500"
+          />
+        ) : (
+          <span className="flex-1 min-w-0 text-[12px] font-semibold text-gray-300 truncate">
+            {project.name}
+          </span>
+        )}
+        <span className="text-[10px] text-surface-600 tabular-nums shrink-0">
+          {groupSessions.length}
+        </span>
+      </div>
+
+      {/* Sessions inside group */}
+      {!collapsed && (
+        <div className="pl-3 space-y-0.5">
+          {groupSessions.map((session) => (
+            <SessionItem
+              key={session.id}
+              session={session}
+              isActive={session.id === activeSessionId}
+              onSelect={onSelectSession}
+              onDelete={onDeleteSession}
+              onRename={onRenameSession}
+              onToggleFavorite={onToggleFavorite}
+              onMoveToProject={onMoveSession}
+              projects={projects}
+            />
+          ))}
+          {/* In-group New Chat */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onNewSession(); }}
+            className="w-full flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] text-surface-600 hover:text-primary-400 hover:bg-surface-850 transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Chat
+          </button>
+        </div>
+      )}
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <ProjectContextMenu
+          x={ctxMenu.x} y={ctxMenu.y}
+          project={project}
+          onRename={() => { setEditing(true); setEditName(project.name); }}
+          onDelete={handleDelete}
+          onColorChange={handleColorChange}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Project Context Menu ── */
+
+function ProjectContextMenu({ x, y, project, onRename, onDelete, onColorChange, onClose }: {
+  x: number; y: number; project: Project;
+  onRename: () => void; onDelete: () => void;
+  onColorChange: (color: string) => void; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
+
+  return (
+    <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[160px]"
+      style={{ left: x, top: y }}>
+      <button className={itemClass} onClick={() => { onRename(); onClose(); }}>
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+        Rename
+      </button>
+      {/* Color picker */}
+      <div className="px-3 py-1.5">
+        <div className="text-[10px] text-surface-600 mb-1">Color</div>
+        <div className="flex gap-1 flex-wrap">
+          {PROJECT_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => { onColorChange(c); onClose(); }}
+              className={`w-4 h-4 rounded-full border-2 transition-all ${project.color === c ? 'border-white scale-110' : 'border-transparent hover:border-surface-500'}`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="border-t border-surface-700/50 my-1" />
+      <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => { onDelete(); onClose(); }}>
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+        Delete Project
+      </button>
+    </div>
+  );
+}
+
+/* ── New Project Button ── */
+
+function NewProjectButton() {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (creating) inputRef.current?.focus();
+  }, [creating]);
+
+  const handleCreate = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) { setCreating(false); return; }
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST', headers, body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.ok) {
+        const project = await res.json();
+        useProjectStore.getState().addProject(project);
+        toastSuccess(`Project "${trimmed}" created`);
+      } else {
+        toastError('Failed to create project');
+      }
+    } catch {
+      toastError('Failed to create project');
+    }
+    setName('');
+    setCreating(false);
+  };
+
+  if (creating) {
+    return (
+      <div className="px-1">
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={handleCreate}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleCreate();
+            if (e.key === 'Escape') { setName(''); setCreating(false); }
+          }}
+          placeholder="Project name..."
+          className="w-full bg-surface-800 border border-primary-500/50 rounded-md text-[12px] text-gray-200 px-3 py-1.5 placeholder-surface-700 outline-none"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setCreating(true)}
+      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] text-surface-600 hover:text-primary-400 hover:bg-surface-850 transition-colors"
+    >
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+      </svg>
+      New Project
+    </button>
   );
 }

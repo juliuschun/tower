@@ -25,39 +25,56 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
   return (
     <div className="app-bg flex items-center justify-center p-4" style={{ minHeight: '100dvh' }}>
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-primary-500 mb-1">Tower</h1>
-          <p className="text-xs text-gray-600 mb-3 italic">
-            Stack your own tower of AI and systems.
-          </p>
-          <p className="text-sm text-gray-500">
-            {isSetup ? 'Create an admin account' : 'Sign in'}
+        {/* ── Branding ── */}
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-extrabold tracking-tight text-primary-500 mb-2">
+            Tower
+          </h1>
+          <p className="text-sm text-gray-500 font-medium">
+            Every task builds your tower.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-surface-900 border border-surface-700 rounded-xl p-6 space-y-4">
+        {/* ── Form Card ── */}
+        <form
+          onSubmit={handleSubmit}
+          className="bg-surface-900 border border-surface-700 rounded-2xl p-7 space-y-5 shadow-lg shadow-black/20"
+        >
+          <p className="text-xs text-gray-500 text-center font-medium tracking-wide uppercase">
+            {isSetup ? 'Create an admin account' : 'Sign in to continue'}
+          </p>
+
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Username</label>
+            <label htmlFor="login-username" className="block text-xs text-gray-400 mb-1.5 font-medium">
+              Username
+            </label>
             <input
+              id="login-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-primary-600"
+              className="w-full bg-surface-800 border border-surface-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 transition-colors duration-200 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500/40"
               autoFocus
+              autoComplete="username"
             />
           </div>
+
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Password</label>
+            <label htmlFor="login-password" className="block text-xs text-gray-400 mb-1.5 font-medium">
+              Password
+            </label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-surface-800 border border-surface-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-primary-600"
+              className="w-full bg-surface-800 border border-surface-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 transition-colors duration-200 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500/40"
+              autoComplete={isSetup ? 'new-password' : 'current-password'}
             />
           </div>
 
           {error && (
-            <div className="text-sm text-red-400 bg-red-900/20 px-3 py-2 rounded-lg">
+            <div role="alert" className="text-sm text-red-400 bg-red-900/20 px-3 py-2.5 rounded-lg border border-red-800/30">
               {error}
             </div>
           )}
@@ -65,11 +82,16 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
           <button
             type="submit"
             disabled={loading || !username || !password}
-            className="w-full py-2 bg-primary-600 hover:bg-primary-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            className="w-full py-2.5 bg-primary-600 hover:bg-primary-500 active:bg-primary-700 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:shadow-md hover:shadow-primary-600/20"
           >
             {loading ? 'Processing...' : isSetup ? 'Create account' : 'Sign in'}
           </button>
         </form>
+
+        {/* ── Footer ── */}
+        <p className="text-center text-[11px] text-gray-600 mt-6">
+          Powered by Claude &middot; Enterprise AI
+        </p>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { createSession, updateSession, getSession } from './session-manager.js';
 import { updateTask, getTask, getTasks, type ScheduleCron, type WorkflowMode } from './task-manager.js';
 import { saveMessage, attachToolResultInDb } from './message-store.js';
 import { buildDamageControl, buildPathEnforcement, type TowerRole } from './damage-control.js';
+import { buildSystemPrompt } from './system-prompt.js';
 import { calculateNextRun } from './task-scheduler.js';
 import { buildWorkflowPrompt } from './workflow-prompts.js';
 import { createWorktree } from './worktree-manager.js';
@@ -458,11 +459,19 @@ async function runTaskAgent(
       ? 'bypassPermissions' as const
       : 'acceptEdits' as const;
 
+    // Build system prompt for task agent (Layer 2)
+    const systemPrompt = buildSystemPrompt({
+      username: 'task-agent',
+      role: effectiveRole,
+      allowedPath,
+    });
+
     const generator = executeQuery(sessionId, prompt, {
       cwd: agentCwd,
       permissionMode: taskPermission,
       model: model || 'claude-opus-4-6',
       canUseTool: taskCanUseTool,
+      systemPrompt,
       ...(resumeClaudeSessionId ? { resumeSessionId: resumeClaudeSessionId } : {}),
     });
 

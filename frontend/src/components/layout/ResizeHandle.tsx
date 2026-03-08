@@ -13,28 +13,29 @@ const DEFAULT_WIDTH = 384;
 export function ResizeHandle({ onResize, defaultWidth = DEFAULT_WIDTH }: ResizeHandleProps) {
   const dragging = useRef(false);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragging.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!dragging.current) return;
       const width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - e.clientX));
       onResize(width);
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       dragging.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
   }, [onResize]);
 
   const handleDoubleClick = useCallback(() => {
@@ -43,8 +44,8 @@ export function ResizeHandle({ onResize, defaultWidth = DEFAULT_WIDTH }: ResizeH
 
   return (
     <div
-      className="w-1.5 cursor-col-resize hover:bg-primary-500/30 active:bg-primary-500/50 transition-colors shrink-0 relative group"
-      onMouseDown={handleMouseDown}
+      className="w-1.5 cursor-col-resize hover:bg-primary-500/30 active:bg-primary-500/50 transition-colors shrink-0 relative group touch-none"
+      onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}
     >
       <div className="absolute inset-y-0 left-0 w-px bg-surface-800 group-hover:bg-primary-500/50 transition-colors" />
@@ -60,28 +61,29 @@ const SIDEBAR_DEFAULT_WIDTH = 260;
 export function SidebarResizeHandle({ onResize, defaultWidth = SIDEBAR_DEFAULT_WIDTH }: ResizeHandleProps) {
   const dragging = useRef(false);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragging.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!dragging.current) return;
       const width = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, e.clientX));
       onResize(width);
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       dragging.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
   }, [onResize]);
 
   const handleDoubleClick = useCallback(() => {
@@ -90,8 +92,8 @@ export function SidebarResizeHandle({ onResize, defaultWidth = SIDEBAR_DEFAULT_W
 
   return (
     <div
-      className="w-1.5 cursor-col-resize hover:bg-primary-500/30 active:bg-primary-500/50 transition-colors shrink-0 relative group"
-      onMouseDown={handleMouseDown}
+      className="w-1.5 cursor-col-resize hover:bg-primary-500/30 active:bg-primary-500/50 transition-colors shrink-0 relative group touch-none"
+      onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}
     >
       <div className="absolute inset-y-0 right-0 w-px bg-surface-800 group-hover:bg-primary-500/50 transition-colors" />

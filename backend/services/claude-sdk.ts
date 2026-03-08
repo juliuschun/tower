@@ -238,6 +238,7 @@ export async function* executeQuery(
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
     model?: string;
     canUseTool?: CanUseTool;
+    systemPrompt?: string;
   } = {}
 ): AsyncGenerator<SDKMessage> {
   // Abort any existing query for this session
@@ -274,6 +275,7 @@ export async function* executeQuery(
       : ['project'],           // user: project skills only (no Azure)
     ...(options.model ? { model: options.model } : {}),
     ...(options.canUseTool ? { canUseTool: options.canUseTool } : {}),
+    ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
   };
 
   if (options.resumeSessionId) {

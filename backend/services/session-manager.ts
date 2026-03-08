@@ -21,14 +21,15 @@ export interface SessionMeta {
   summaryAtTurn?: number;
   turnCount?: number;
   filesEdited?: string[];
+  projectId?: string | null;
 }
 
-export function createSession(name: string, cwd: string, userId?: number): SessionMeta {
+export function createSession(name: string, cwd: string, userId?: number, projectId?: string | null): SessionMeta {
   const id = uuidv4();
   const db = getDb();
   db.prepare(`
-    INSERT INTO sessions (id, name, cwd, user_id) VALUES (?, ?, ?, ?)
-  `).run(id, name, cwd, userId || null);
+    INSERT INTO sessions (id, name, cwd, user_id, project_id) VALUES (?, ?, ?, ?, ?)
+  `).run(id, name, cwd, userId || null, projectId || null);
 
   // FTS sync
   try {
@@ -48,6 +49,7 @@ export function createSession(name: string, cwd: string, userId?: number): Sessi
     totalTokens: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    projectId: projectId || null,
   };
 }
 
@@ -113,6 +115,7 @@ function mapRow(row: any): SessionMeta {
     summaryAtTurn: row.summary_at_turn ?? undefined,
     turnCount: row.turn_count ?? 0,
     filesEdited: JSON.parse(row.files_edited || '[]'),
+    projectId: row.project_id || null,
   };
 }
 

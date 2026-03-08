@@ -17,6 +17,7 @@ export interface SessionMeta {
   summaryAtTurn?: number;
   turnCount?: number;
   filesEdited?: string[];
+  projectId?: string | null;
 }
 
 export type MobileTab = 'sessions' | 'chat' | 'files' | 'edit' | 'pins' | 'board';

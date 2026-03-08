@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import {
-  authenticateUser, createUser, hasUsers, generateToken, authMiddleware,
+  authenticateUser, createUser, hasUsers, generateToken, verifyToken, authMiddleware,
   adminMiddleware, listUsers, updateUserRole, updateUserPath,
   resetUserPassword, disableUser, getUserAllowedPath,
 } from '../services/auth.js';
@@ -38,6 +38,10 @@ import {
 } from '../services/share-manager.js';
 import fsPromises from 'fs/promises';
 import { getDb } from '../db/schema.js';
+import {
+  getProjects, getProject, createProject, updateProject, deleteProject,
+  moveSessionToProject, reorderProjects,
+} from '../services/project-manager.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 50 * 1024 * 1024; // 50MB
 const DANGEROUS_EXTENSIONS = new Set([
@@ -60,6 +64,17 @@ const router = Router();
 // ───── Auth ─────
 router.get('/auth/status', (_req, res) => {
   res.json({ authEnabled: config.authEnabled, hasUsers: hasUsers() });
+});
+
+// nginx auth_request subrequest endpoint — returns 200 if valid token, 401 otherwise
+router.get('/auth/check', (req, res) => {
+  if (!config.authEnabled) return res.sendStatus(200);
+  const authHeader = req.headers.authorization;
+  const rawToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!rawToken) return res.sendStatus(401);
+  const payload = verifyToken(rawToken);
+  if (!payload) return res.sendStatus(401);
+  res.sendStatus(200);
 });
 
 router.post('/auth/setup', (req, res) => {
@@ -281,6 +296,28 @@ router.delete('/shares/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ───── Admin: System Prompts ─────
+import { listSystemPrompts, upsertSystemPrompt, deleteSystemPrompt } from '../services/system-prompt.js';
+
+router.get('/admin/system-prompts', adminMiddleware, (_req, res) => {
+  res.json(listSystemPrompts());
+});
+
+router.put('/admin/system-prompts/:name', adminMiddleware, (req, res) => {
+  const { name } = req.params;
+  const { prompt } = req.body;
+  if (!prompt && prompt !== '') return res.status(400).json({ error: 'prompt is required' });
+  const result = upsertSystemPrompt(name, prompt);
+  res.json(result);
+});
+
+router.delete('/admin/system-prompts/:name', adminMiddleware, (req, res) => {
+  const { name } = req.params;
+  const ok = deleteSystemPrompt(name);
+  if (!ok) return res.status(400).json({ error: 'Cannot delete the default prompt' });
+  res.json({ ok: true });
+});
+
 // ───── Admin: User Management ─────
 router.get('/admin/users', adminMiddleware, (_req, res) => {
   res.json(listUsers());
@@ -334,9 +371,9 @@ router.get('/sessions', (req, res) => {
 });
 
 router.post('/sessions', (req, res) => {
-  const { name, cwd } = req.body;
+  const { name, cwd, projectId } = req.body;
   const userId = (req as any).user?.userId;
-  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId);
+  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId);
   res.json(session);
 });
 
@@ -861,6 +898,66 @@ router.get('/config', (_req, res) => {
 // ───── Commands ─────
 router.get('/commands', (_req, res) => {
   res.json(loadCommands());
+});
+
+// ───── Projects ─────
+router.get('/projects', (req, res) => {
+  const userId = (req as any).user?.userId;
+  res.json(getProjects(userId));
+});
+
+router.post('/projects', (req, res) => {
+  try {
+    const { name, description, rootPath, color } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+    const userId = (req as any).user?.userId;
+    const project = createProject(name.trim(), userId, { description, rootPath, color });
+    res.json(project);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/projects/:id', (req, res) => {
+  try {
+    const project = updateProject(req.params.id, req.body);
+    if (!project) return res.status(404).json({ error: 'project not found' });
+    res.json(project);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/projects/:id', (req, res) => {
+  try {
+    const ok = deleteProject(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'project not found' });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/projects/reorder', (req, res) => {
+  try {
+    const { projectIds } = req.body;
+    if (!Array.isArray(projectIds)) return res.status(400).json({ error: 'projectIds array required' });
+    reorderProjects(projectIds);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/sessions/:id/move', (req, res) => {
+  try {
+    const { projectId } = req.body;
+    const ok = moveSessionToProject(req.params.id, projectId ?? null);
+    if (!ok) return res.status(404).json({ error: 'session or project not found' });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ───── Kanban Tasks ─────

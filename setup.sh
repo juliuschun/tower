@@ -50,27 +50,102 @@ fi
 info "Node.js $(node -v)"
 
 # Claude Code CLI
+CLAUDE_AUTHENTICATED=false
 if command -v claude &>/dev/null; then
   info "Claude Code CLI found: $(which claude)"
-  if ! claude auth status &>/dev/null; then
-    warn "Claude CLI found but not authenticated."
-    echo "  Run: claude login"
-    echo "  Tower needs Claude to be logged in."
-    echo ""
-    read -p "  Continue without authentication? (y/N) " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]] || exit 1
-  else
+
+  # Check if already authenticated (via login or ANTHROPIC_API_KEY)
+  AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
+  if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
     info "Claude CLI authenticated"
+    CLAUDE_AUTHENTICATED=true
+  else
+    warn "Claude CLI installed but not authenticated."
+    echo ""
+    echo "  ${BOLD}Two ways to authenticate:${NC}"
+    echo "    1) API Key — paste your Anthropic API key (easiest)"
+    echo "    2) Login   — run 'claude login' separately (needs browser)"
+    echo "    3) Skip    — set up later"
+    echo ""
+    read -p "  Choice (1/2/3): " -n 1 -r AUTH_CHOICE
+    echo
+
+    if [[ "$AUTH_CHOICE" == "1" ]]; then
+      echo ""
+      read -p "  Anthropic API Key (sk-ant-...): " -r API_KEY_INPUT
+      if [[ -n "$API_KEY_INPUT" && "$API_KEY_INPUT" == sk-ant-* ]]; then
+        # Will be added to .env in step 3
+        ANTHROPIC_API_KEY_PENDING="$API_KEY_INPUT"
+        info "API key saved (will be added to .env)"
+        CLAUDE_AUTHENTICATED=true
+      else
+        warn "Invalid API key format. Skipping authentication."
+      fi
+    elif [[ "$AUTH_CHOICE" == "2" ]]; then
+      echo ""
+      echo "  Running 'claude login'..."
+      claude login 2>&1 || true
+      # Re-check
+      AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
+      if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
+        info "Claude CLI authenticated"
+        CLAUDE_AUTHENTICATED=true
+      else
+        warn "Authentication did not complete. You can try again later."
+      fi
+    else
+      warn "Skipped Claude authentication. Set ANTHROPIC_API_KEY in .env later."
+    fi
   fi
 else
   warn "Claude Code CLI not found."
-  echo "  Install: npm install -g @anthropic-ai/claude-code"
-  echo "  Then run: claude login"
   echo ""
-  read -p "  Continue without Claude CLI? (y/N) " -n 1 -r
+  echo "  ${BOLD}Install now?${NC}"
+  echo "    1) Yes — install Claude Code CLI via npm"
+  echo "    2) No  — I'll install it later"
+  echo ""
+  read -p "  Choice (1/2): " -n 1 -r INSTALL_CHOICE
   echo
-  [[ $REPLY =~ ^[Yy]$ ]] || exit 1
+
+  if [[ "$INSTALL_CHOICE" == "1" ]]; then
+    echo "  Installing Claude Code CLI..."
+    npm install -g @anthropic-ai/claude-code 2>&1 | tail -3
+    if command -v claude &>/dev/null; then
+      info "Claude Code CLI installed: $(claude --version 2>/dev/null)"
+
+      echo ""
+      echo "  ${BOLD}Authenticate now?${NC}"
+      echo "    1) API Key — paste your Anthropic API key (easiest)"
+      echo "    2) Login   — run 'claude login' (needs browser)"
+      echo "    3) Skip    — set up later"
+      echo ""
+      read -p "  Choice (1/2/3): " -n 1 -r AUTH_CHOICE
+      echo
+
+      if [[ "$AUTH_CHOICE" == "1" ]]; then
+        echo ""
+        read -p "  Anthropic API Key (sk-ant-...): " -r API_KEY_INPUT
+        if [[ -n "$API_KEY_INPUT" && "$API_KEY_INPUT" == sk-ant-* ]]; then
+          ANTHROPIC_API_KEY_PENDING="$API_KEY_INPUT"
+          info "API key saved (will be added to .env)"
+          CLAUDE_AUTHENTICATED=true
+        else
+          warn "Invalid API key format. Skipping authentication."
+        fi
+      elif [[ "$AUTH_CHOICE" == "2" ]]; then
+        claude login 2>&1 || true
+        AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
+        if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
+          info "Claude CLI authenticated"
+          CLAUDE_AUTHENTICATED=true
+        fi
+      fi
+    else
+      error "Installation failed. Install manually: npm install -g @anthropic-ai/claude-code"
+    fi
+  else
+    warn "Skipping Claude CLI. Install later: npm install -g @anthropic-ai/claude-code"
+  fi
 fi
 
 # ───────────────────────────────────
@@ -120,7 +195,23 @@ else
     warn "PUBLIC_URL not set — share links will use browser origin"
   fi
 
+  # Add ANTHROPIC_API_KEY if user provided it in step 1
+  if [ -n "${ANTHROPIC_API_KEY_PENDING:-}" ]; then
+    echo "" >> .env
+    echo "# ── Anthropic API Key ──" >> .env
+    echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY_PENDING" >> .env
+    info "ANTHROPIC_API_KEY added to .env"
+  fi
+
   info "Created .env"
+fi
+
+# If user provided API key but .env already existed, add it
+if [ -n "${ANTHROPIC_API_KEY_PENDING:-}" ] && ! grep -q "^ANTHROPIC_API_KEY=" .env 2>/dev/null; then
+  echo "" >> .env
+  echo "# ── Anthropic API Key ──" >> .env
+  echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY_PENDING" >> .env
+  info "ANTHROPIC_API_KEY added to .env"
 fi
 
 # ───────────────────────────────────
@@ -540,6 +631,12 @@ fi
 step "Step 5/6: Claude skills & hooks"
 
 CLAUDE_DIR="$HOME/.claude"
+
+# Ensure ~/.claude exists (Claude CLI creates it on first run, but we need it now for skills)
+if command -v claude &>/dev/null && [ ! -d "$CLAUDE_DIR" ]; then
+  mkdir -p "$CLAUDE_DIR"
+  info "Created $CLAUDE_DIR"
+fi
 
 if [ -d "$CLAUDE_DIR" ]; then
   # Install bundled skills

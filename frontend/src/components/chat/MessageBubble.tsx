@@ -201,7 +201,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
           {codeText && (
             <CopyButton
               text={codeText}
-              className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100"
+              className="absolute top-2 right-2 opacity-60 hover:opacity-100 transition-opacity"
             />
           )}
         </pre>
@@ -230,7 +230,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
               ))}
               <CopyButton
                 text={getMessageText(message.content)}
-                className="absolute top-2 right-2 opacity-0 group-hover/message:opacity-100"
+                className="absolute top-2 right-2 opacity-60 hover:opacity-100 transition-opacity"
               />
             </div>
             {message.sendStatus === 'failed' && (

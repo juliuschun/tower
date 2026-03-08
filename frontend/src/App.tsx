@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Toaster } from 'sonner';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
@@ -8,6 +8,7 @@ import { LoginPage } from './components/auth/LoginPage';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
+import { PublishPanel } from './components/publish/PublishPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OfflineBanner } from './components/common/OfflineBanner';
 import { PromptEditor } from './components/prompts/PromptEditor';
@@ -25,6 +26,7 @@ import { usePromptStore, type PromptItem } from './stores/prompt-store';
 import { useSettingsStore } from './stores/settings-store';
 import { useModelStore } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
+import { useProjectStore } from './stores/project-store';
 import { normalizeContentBlocks } from './utils/message-parser';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
@@ -209,20 +211,30 @@ function App() {
   };
 
   // Create a session in DB and return it (reusable)
-  const createSessionInDb = useCallback(async (name?: string): Promise<SessionMeta | null> => {
+  const createSessionInDb = useCallback(async (name?: string, projectId?: string): Promise<SessionMeta | null> => {
     try {
-      // Inherit cwd from current active session
-      const currentSessions = useSessionStore.getState().sessions;
-      const currentActiveId = useSessionStore.getState().activeSessionId;
-      const currentSession = currentSessions.find((s) => s.id === currentActiveId);
-      const cwd = currentSession?.cwd || undefined;
+      // If creating in a project with rootPath, use that as cwd
+      // Otherwise inherit cwd from current active session
+      let cwd: string | undefined;
+      if (projectId) {
+        const project = useProjectStore.getState().projects.find((p) => p.id === projectId);
+        if (project?.rootPath) cwd = project.rootPath;
+      }
+      if (!cwd) {
+        const currentSessions = useSessionStore.getState().sessions;
+        const currentActiveId = useSessionStore.getState().activeSessionId;
+        const currentSession = currentSessions.find((s) => s.id === currentActiveId);
+        cwd = currentSession?.cwd || undefined;
+      }
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
+      const body: Record<string, any> = { name: name || `Session ${new Date().toLocaleString('en-US')}`, cwd };
+      if (projectId) body.projectId = projectId;
       const res = await fetch(`${API_BASE}/sessions`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ name: name || `Session ${new Date().toLocaleString('en-US')}`, cwd }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         const session = await res.json();
@@ -233,11 +245,11 @@ function App() {
     return null;
   }, [token, addSession]);
 
-  const handleNewSession = useCallback(async () => {
+  const handleNewSession = useCallback(async (projectId?: string) => {
     // Don't abort streaming — let the SDK query run in background and save to DB
     useChatStore.getState().setStreaming(false);
     useChatStore.getState().clearAttachments();
-    const session = await createSessionInDb();
+    const session = await createSessionInDb(undefined, projectId);
     if (session) {
       setActiveSessionId(session.id);
       useChatStore.getState().setSessionId(session.id);
@@ -394,6 +406,12 @@ function App() {
           }
         }
       })
+      .catch(() => {});
+
+    // Fetch projects
+    fetch(`${API_BASE}/projects`, { headers })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => { if (Array.isArray(data)) useProjectStore.getState().setProjects(data); })
       .catch(() => {});
   }, [token, authStatus, setSessions, handleSelectSession]);
 
@@ -626,7 +644,15 @@ function App() {
 
   const [adminOpen, setAdminOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const isAdmin = localStorage.getItem('userRole') === 'admin';
+  const tokenPayload = useMemo(() => {
+    try {
+      const t = localStorage.getItem('token');
+      if (!t) return null;
+      return JSON.parse(atob(t.split('.')[1]));
+    } catch { return null; }
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
   const handleOpenAdmin = useCallback(() => setAdminOpen(true), []);
 
   const handleLogout = useCallback(() => {
@@ -754,7 +780,11 @@ function App() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onNewSession={handleNewSession}
         onAdminClick={isAdmin ? handleOpenAdmin : undefined}
+        onPublishClick={() => setPublishOpen(true)}
         onViewDiff={handleViewDiff}
+        onLogout={handleLogout}
+        username={tokenPayload?.username}
+        userRole={tokenPayload?.role}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -767,7 +797,7 @@ function App() {
               onClick={(e) => e.stopPropagation()}
             >
               <Sidebar
-                onNewSession={() => { handleNewSession(); setSidebarOpen(false); useSessionStore.getState().setMobileTab('chat'); }}
+                onNewSession={(projectId?: string) => { handleNewSession(projectId); setSidebarOpen(false); useSessionStore.getState().setMobileTab('chat'); }}
                 onSelectSession={(s) => { handleSelectSession(s); setSidebarOpen(false); useSessionStore.getState().setMobileTab('chat'); }}
                 onDeleteSession={handleDeleteSession}
                 onRenameSession={handleRenameSession}
@@ -935,6 +965,7 @@ function App() {
       <SettingsPanel onLogout={handleLogout} onBrowserOpen={() => setBrowserOpen(true)} />
       <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
       <BrowserPanel open={browserOpen} onClose={() => setBrowserOpen(false)} />
+      <PublishPanel open={publishOpen} onClose={() => setPublishOpen(false)} />
 
       {/* Prompt editor modal */}
       <PromptEditor

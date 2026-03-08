@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { TaskMeta } from '../../stores/kanban-store';
@@ -57,6 +58,98 @@ const STATUS_STYLES: Record<string, { badge: string; border: string }> = {
   done: { badge: 'bg-green-900/50 text-green-300', border: 'border-green-500/30' },
   failed: { badge: 'bg-red-900/50 text-red-300', border: 'border-red-500/30' },
 };
+
+function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, isScheduled, isRecurring }: {
+  task: TaskMeta;
+  onSpawn?: () => void;
+  onSchedule?: () => void;
+  onCleanupWorktree?: () => void;
+  onDelete?: () => void;
+  isScheduled: boolean;
+  isRecurring: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const hasActions = onSpawn || onSchedule || (onCleanupWorktree && task.worktreePath && task.status !== 'in_progress') || (onDelete && task.status !== 'in_progress');
+  if (!hasActions) return null;
+
+  const itemClass = "w-full flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-surface-700 transition-colors text-left";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        className="opacity-60 hover:opacity-100 text-gray-400 hover:text-gray-200 transition-all p-0.5 rounded"
+        title="More actions"
+        aria-label="More actions"
+      >
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+          <circle cx="12" cy="5" r="2" />
+          <circle cx="12" cy="12" r="2" />
+          <circle cx="12" cy="19" r="2" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-40 bg-surface-800 border border-surface-700 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}>
+          {onSpawn && (
+            <button className={`${itemClass} text-blue-400`} onClick={() => { onSpawn(); setOpen(false); }}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {task.status === 'failed' ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                ) : (
+                  <>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </>
+                )}
+              </svg>
+              {task.status === 'failed' ? 'Retry' : 'Run'}
+            </button>
+          )}
+          {onSchedule && (
+            <button className={`${itemClass} ${isScheduled ? (isRecurring ? 'text-purple-400' : 'text-amber-400') : 'text-gray-300'}`}
+              onClick={() => { onSchedule(); setOpen(false); }}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {isScheduled ? 'Edit schedule' : 'Schedule'}
+            </button>
+          )}
+          {onCleanupWorktree && task.worktreePath && task.status !== 'in_progress' && (
+            <button className={`${itemClass} text-orange-400`} onClick={() => { onCleanupWorktree(); setOpen(false); }}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Clean worktree
+            </button>
+          )}
+          {onDelete && task.status !== 'in_progress' && (
+            <>
+              <div className="border-t border-surface-700/50 my-1" />
+              <button className={`${itemClass} text-red-400`} onClick={() => { onDelete(); setOpen(false); }}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, onAbort, onSchedule, onCleanupWorktree }: KanbanCardProps) {
   const {
@@ -167,36 +260,7 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
         </div>
         <div className="flex items-center gap-2">
           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
-          {/* Action buttons — visible on hover */}
-          {onSpawn && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onSpawn(); }}
-              className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-300 transition-all"
-              title={task.status === 'failed' ? 'Retry task' : 'Run task'}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                {task.status === 'failed' ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                ) : (
-                  <>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </>
-                )}
-              </svg>
-            </button>
-          )}
-          {onSchedule && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onSchedule(); }}
-              className={`opacity-0 group-hover:opacity-100 transition-all ${isScheduled ? (isRecurring ? 'text-purple-400 hover:text-purple-300' : 'text-amber-400 hover:text-amber-300') : 'text-gray-400 hover:text-gray-300'}`}
-              title={isScheduled ? 'Edit schedule' : 'Schedule task'}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-          )}
+          {/* Abort button — always visible when running */}
           {onAbort && (
             <button
               onClick={(e) => { e.stopPropagation(); onAbort(); }}
@@ -209,28 +273,16 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
               </svg>
             </button>
           )}
-          {onCleanupWorktree && task.worktreePath && task.status !== 'in_progress' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onCleanupWorktree(); }}
-              className="opacity-0 group-hover:opacity-100 text-orange-400 hover:text-orange-300 transition-all"
-              title="Clean up worktree"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-          )}
-          {onDelete && task.status !== 'in_progress' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all"
-              title="Delete task"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          )}
+          {/* More menu — touch accessible */}
+          <CardMoreMenu
+            task={task}
+            onSpawn={onSpawn}
+            onSchedule={onSchedule}
+            onCleanupWorktree={onCleanupWorktree}
+            onDelete={onDelete}
+            isScheduled={isScheduled}
+            isRecurring={isRecurring}
+          />
         </div>
       </div>
 

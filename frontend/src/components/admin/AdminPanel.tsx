@@ -19,7 +19,7 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
-  const [tab, setTab] = useState<'users' | 'system'>('users');
+  const [tab, setTab] = useState<'users' | 'prompts' | 'system'>('users');
 
   if (!open) return null;
 
@@ -55,12 +55,14 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
         {/* Tabs */}
         <div className="flex border-b border-surface-800 px-6 shrink-0">
           <button className={tabClass('users')} onClick={() => setTab('users')}>User Management</button>
+          <button className={tabClass('prompts')} onClick={() => setTab('prompts')}>System Prompt</button>
           <button className={tabClass('system')} onClick={() => setTab('system')}>System</button>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {tab === 'users' && <UserManagement token={token} />}
+          {tab === 'prompts' && <SystemPromptEditor token={token} />}
           {tab === 'system' && <SystemInfo />}
         </div>
       </div>
@@ -415,6 +417,175 @@ function PathEditor({ value, onSave }: { value: string; onSave: (v: string) => v
     >
       {value ? value.replace(/^\/home\/[^/]+/, '~') : '(all)'}
     </button>
+  );
+}
+
+// ───── System Prompt Tab ─────
+
+interface SystemPromptData {
+  id: number;
+  name: string;
+  prompt: string;
+  updated_at: string;
+}
+
+function SystemPromptEditor({ token }: { token?: string | null }) {
+  const [prompts, setPrompts] = useState<SystemPromptData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  const headers = useCallback((): Record<string, string> => {
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) h['Authorization'] = `Bearer ${token}`;
+    return h;
+  }, [token]);
+
+  const fetchPrompts = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/system-prompts`, { headers: headers() });
+      if (res.ok) setPrompts(await res.json());
+    } catch {} finally { setLoading(false); }
+  }, [headers]);
+
+  useEffect(() => { fetchPrompts(); }, [fetchPrompts]);
+
+  const handleEdit = (p: SystemPromptData) => {
+    setEditingName(p.name);
+    setEditDraft(p.prompt);
+    setSavedAt(null);
+  };
+
+  const handleSave = async () => {
+    if (!editingName) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/system-prompts/${editingName}`, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify({ prompt: editDraft }),
+      });
+      if (res.ok) {
+        setSavedAt(new Date().toLocaleTimeString());
+        fetchPrompts();
+      }
+    } catch {} finally { setSaving(false); }
+  };
+
+  const handleCancel = () => {
+    setEditingName(null);
+    setEditDraft('');
+    setSavedAt(null);
+  };
+
+  if (loading) {
+    return <div className="text-sm text-gray-500 py-8 text-center">Loading...</div>;
+  }
+
+  // If editing, show full-screen editor
+  if (editingName) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold text-gray-200">{editingName}</span>
+            <span className="text-[11px] text-gray-600">system prompt</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {savedAt && (
+              <span className="text-[11px] text-green-400">Saved at {savedAt}</span>
+            )}
+            <button
+              onClick={handleCancel}
+              className="text-[12px] px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-[12px] px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-500 text-white transition-colors font-medium disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+        <textarea
+          value={editDraft}
+          onChange={(e) => setEditDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+          className="w-full h-[400px] bg-surface-900 border border-surface-700 rounded-lg px-4 py-3 text-[13px] text-gray-200 font-mono leading-relaxed resize-none focus:outline-none focus:border-primary-500/50"
+          placeholder="Enter system prompt..."
+          autoFocus
+        />
+        <div className="text-[11px] text-gray-600">
+          This prompt is injected at the start of every conversation. It sets team-wide rules and behavior.
+          <br />
+          Tip: Use Cmd/Ctrl+S to save quickly. Role-specific context (user name, role, workspace path) is appended automatically.
+        </div>
+      </div>
+    );
+  }
+
+  // List view
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] text-gray-400">
+          Manage system prompts injected into all conversations. The <span className="text-gray-200 font-semibold">default</span> prompt applies to everyone.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-surface-700 divide-y divide-surface-800/50">
+        {prompts.map((p) => (
+          <div key={p.id} className="px-4 py-3 hover:bg-surface-800/30 transition-colors">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-semibold text-gray-200">{p.name}</span>
+                {p.name === 'default' && (
+                  <span className="text-[10px] bg-primary-600/20 text-primary-400 border border-primary-500/30 px-1.5 py-0.5 rounded-full">active</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-600">
+                  Updated {new Date(p.updated_at).toLocaleDateString()}
+                </span>
+                <button
+                  onClick={() => handleEdit(p)}
+                  className="text-[12px] px-2.5 py-1 rounded-md text-gray-400 hover:text-primary-400 hover:bg-surface-800 transition-colors"
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+            <pre className="text-[12px] text-gray-500 font-mono whitespace-pre-wrap line-clamp-3 leading-relaxed">
+              {p.prompt}
+            </pre>
+          </div>
+        ))}
+      </div>
+
+      <div className="p-3 bg-surface-800/30 rounded-lg border border-surface-700/50">
+        <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">How it works</h4>
+        <div className="text-[12px] text-gray-500 space-y-1">
+          <p>Every conversation gets this system prompt + auto-appended user context:</p>
+          <div className="font-mono text-[11px] bg-surface-900/50 rounded px-3 py-2 text-gray-400 mt-1">
+            [your prompt here]<br/>
+            <br/>
+            User: john (role: member)<br/>
+            System package management requires IT team assistance.<br/>
+            Your workspace is restricted to: /home/enterpriseai/workspace
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

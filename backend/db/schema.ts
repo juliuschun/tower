@@ -195,6 +195,30 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_user_id);
   `);
 
+  // System prompts table (Phase 2: centralized prompt management)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS system_prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT UNIQUE NOT NULL,
+      prompt TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Seed default system prompt if table is empty
+  try {
+    const promptCount = (db.prepare('SELECT COUNT(*) as cnt FROM system_prompts').get() as any).cnt;
+    if (promptCount === 0) {
+      db.prepare(`INSERT INTO system_prompts (name, prompt) VALUES (?, ?)`).run('default', [
+        'You are the team\'s AI assistant.',
+        '- Respond in Korean.',
+        '- Always confirm with the user before deleting files.',
+        '- Never output sensitive information such as .env, passwords, or API keys.',
+        '- If you are unsure about something, say you don\'t know rather than guessing.',
+      ].join('\n'));
+    }
+  } catch {}
+
   // FTS5 virtual tables for search (trigram tokenizer for Korean support)
   try {
     db.exec(`
@@ -233,6 +257,27 @@ function initSchema(db: Database.Database) {
   if (msgFtsCount === 0) {
     populateMessagesFts(db);
   }
+
+  // ── Projects table ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      root_path TEXT,
+      color TEXT DEFAULT '#f59e0b',
+      sort_order INTEGER DEFAULT 0,
+      collapsed INTEGER DEFAULT 0,
+      archived INTEGER DEFAULT 0,
+      user_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
+
+  // Add project_id FK to sessions
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN project_id TEXT REFERENCES projects(id)`); } catch {}
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)`); } catch {}
 
   // ── Session identity: UNIQUE claude_session_id (Tower = SSOT) ──
   // 1. Normalize empty strings → NULL

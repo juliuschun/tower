@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { SessionMeta } from '../../stores/session-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useChatStore } from '../../stores/chat-store';
+import type { Project } from '../../stores/project-store';
 
 function relativeTime(dateStr: string): string {
   // SQLite CURRENT_TIMESTAMP returns UTC without 'Z' suffix — normalize to avoid local-time misparse
@@ -19,9 +20,11 @@ function relativeTime(dateStr: string): string {
 
 /* ── Context Menu (fixed positioning, outside-click close) ── */
 
-function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose }: {
+function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose, onMoveToProject, projects }: {
   x: number; y: number; session: SessionMeta;
   onRename: () => void; onToggleFavorite: () => void; onDelete: () => void; onClose: () => void;
+  onMoveToProject?: (sessionId: string, projectId: string | null) => void;
+  projects?: Project[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -52,6 +55,25 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
         </svg>
         {session.favorite ? 'Remove favorite' : 'Favorite'}
       </button>
+      {/* Move to Project */}
+      {onMoveToProject && projects && projects.length > 0 && (
+        <>
+          <div className="border-t border-surface-700/50 my-1" />
+          <div className="px-3 py-1 text-[10px] text-surface-600 uppercase tracking-wider">Move to</div>
+          {projects.filter(p => p.id !== session.projectId).map((p) => (
+            <button key={p.id} className={itemClass} onClick={() => { onMoveToProject(session.id, p.id); onClose(); }}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+              <span className="truncate">{p.name}</span>
+            </button>
+          ))}
+          {session.projectId && (
+            <button className={itemClass} onClick={() => { onMoveToProject(session.id, null); onClose(); }}>
+              <span className="w-2 h-2 rounded-full shrink-0 bg-surface-600" />
+              <span className="text-surface-500">Remove from project</span>
+            </button>
+          )}
+        </>
+      )}
       {/* Divider */}
       <div className="border-t border-surface-700/50 my-1" />
       {/* Delete */}
@@ -75,9 +97,11 @@ interface SessionItemProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onToggleFavorite: (id: string, favorite: boolean) => void;
+  onMoveToProject?: (sessionId: string, projectId: string | null) => void;
+  projects?: Project[];
 }
 
-export function SessionItem({ session, isActive, onSelect, onDelete, onRename, onToggleFavorite }: SessionItemProps) {
+export function SessionItem({ session, isActive, onSelect, onDelete, onRename, onToggleFavorite, onMoveToProject, projects }: SessionItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -204,8 +228,9 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           <>
             <button
               onClick={(e) => { e.stopPropagation(); startEditing(); }}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
+              className="opacity-0 group-hover:opacity-60 hover:!opacity-100 p-1 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
               title="Rename"
+              aria-label="Rename session"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -214,8 +239,9 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
+              className="opacity-0 group-hover:opacity-60 hover:!opacity-100 p-1 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
               title="Delete"
+              aria-label="Delete session"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -233,6 +259,8 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           onToggleFavorite={() => onToggleFavorite(session.id, !session.favorite)}
           onDelete={() => onDelete(session.id)}
           onClose={() => setCtxMenu(null)}
+          onMoveToProject={onMoveToProject}
+          projects={projects}
         />
       )}
     </>
