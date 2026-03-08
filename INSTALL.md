@@ -331,6 +331,10 @@ Copy `.env.example` to `.env` and edit:
 | `member` | `acceptEdits` | `allowed_path` only | No |
 | `viewer` | `plan` (read-only) | `allowed_path` only | No |
 
+**`allowed_path`** — restricts what files a user (and their Claude sessions) can access. For example:
+- `/home/user/workspace/project-a` — user can only see files in this directory
+- Leave empty to use the default `WORKSPACE_ROOT`
+
 ---
 
 ## Server Management (Production)
@@ -432,6 +436,71 @@ claude auth login
 # Or set API key in .env:
 grep ANTHROPIC_API_KEY .env
 ```
+
+### Zombie tsx processes
+
+```bash
+# Check for duplicate backend processes:
+pgrep -fa "tsx.*backend"
+# Kill extras — only one should run:
+pkill -f "tsx.*backend"
+npm run dev
+```
+
+### Database locked
+
+```bash
+# Check for processes using the DB:
+fuser data/tower.db
+# Restart the server — it will release the lock
+```
+
+---
+
+## Backup & Restore
+
+### Manual backup
+
+```bash
+bash scripts/backup.sh
+```
+
+### Automated (cron)
+
+```bash
+crontab -e
+# Add this line:
+0 3 * * * cd ~/tower && bash scripts/backup.sh
+```
+
+Backups include: database, workspace (tar), `.env`. Keeps last 7 days.
+
+### Restore
+
+```bash
+# Stop the server
+# Copy tower.db back:
+cp backups/20260228_030000/tower.db data/tower.db
+# Restore workspace:
+tar -xzf backups/20260228_030000/workspace.tar.gz -C ~/
+# Start the server
+```
+
+---
+
+## Security Checklist
+
+Before going live, verify:
+
+- [ ] `JWT_SECRET` is a random value (not the default placeholder)
+- [ ] Admin password is strong
+- [ ] `NO_AUTH` is **not** set to `true`
+- [ ] Claude CLI is authenticated (`claude auth status`)
+- [ ] `WORKSPACE_ROOT` points to the intended directory
+- [ ] Non-admin users have `allowed_path` set appropriately
+- [ ] Server is behind HTTPS (Cloudflare, nginx, or tunnel)
+- [ ] Firewall allows only port 443 (HTTPS) inbound, or your chosen port
+- [ ] Backup cron is running (`crontab -l`)
 
 ---
 
