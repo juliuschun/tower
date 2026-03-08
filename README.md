@@ -7,7 +7,7 @@ Your team gives commands. Tower orchestrates the process. The results accumulate
 🌐 [English](README.md) · [한국어](README.ko.md)
 
 <p align="center">
-  <img src="capture.gif" alt="Tower — delegate tasks to Claude Code in the browser" width="720" />
+  <img src="capture-chat.png" alt="Tower — chat with Claude Code in the browser" width="720" />
 </p>
 
 ---
@@ -124,13 +124,17 @@ New team member joins the marketing project? Claude already knows the brand voic
 
 Ask Claude to create a report, a dashboard, a proposal — see it **immediately** in a built-in viewer. HTML with charts, Markdown with syntax highlighting, PDF inline. No downloads, no extra apps. It feels like Notion — except everything is AI-generated, git-versioned, and searchable.
 
-<p align="center">
-  <img src="capture2.gif" alt="Tower — build and preview dashboards on the fly" width="720" />
-</p>
-
 ### 🔧 Git Integration
 
 Auto-commit on every Claude edit. Every change is tracked, attributed, and reversible. Roll back to any point in history.
+
+### 📋 Agent Board
+
+Delegate tasks to Claude and watch them execute autonomously. Drag-and-drop kanban with Todo → In Progress → Done. Each task gets its own Claude session, its own working directory, and reports progress in real time.
+
+<p align="center">
+  <img src="capture-board.png" alt="Tower — AI-powered kanban board with autonomous task execution" width="720" />
+</p>
 
 ### 📱 Mobile + Voice
 
