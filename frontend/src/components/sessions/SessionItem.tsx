@@ -207,7 +207,9 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
         {/* Time (default) → action buttons (on hover) */}
         {!editing && (
           <>
-            <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden">{relativeTime(session.updatedAt)}</span>
+            <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden">
+              {relativeTime(session.updatedAt)}{session.turnCount ? ` · ${session.turnCount}t` : ''}
+            </span>
             <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); startEditing(); }}

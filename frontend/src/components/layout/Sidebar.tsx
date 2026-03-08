@@ -171,10 +171,15 @@ export function Sidebar({
     }
 
     const sorted = [...projectGroups.values()].sort((a, b) => {
-      if (a.project.sortOrder !== b.project.sortOrder) return a.project.sortOrder - b.project.sortOrder;
+      // Most-recently-active project first (by latest session update)
       const aLatest = a.sessions[0]?.updatedAt || '';
       const bLatest = b.sessions[0]?.updatedAt || '';
-      return bLatest.localeCompare(aLatest);
+      // Projects with sessions always before empty ones
+      if (aLatest && !bLatest) return -1;
+      if (!aLatest && bLatest) return 1;
+      if (aLatest && bLatest) return bLatest.localeCompare(aLatest);
+      // Both empty — fall back to sortOrder
+      return a.project.sortOrder - b.project.sortOrder;
     });
 
     return { groups: sorted, ungrouped };
