@@ -29,10 +29,26 @@ workspace/
 ├── memory/MEMORY.md       # Team context (keep up to date)
 ├── decisions/             # Decision records (immutable, one file = one decision)
 ├── docs/                  # Process docs, guides
-└── notes/                 # Temporary memos, ideas
+├── notes/                 # Temporary memos, ideas
+└── projects/              # Project folders (auto-created by Tower)
+    ├── etf-research/      # Each project gets its own folder
+    │   └── CLAUDE.md      # Project context — SDK reads this automatically
+    ├── marketing-plan/
+    │   └── CLAUDE.md
+    └── ...
 ```
 
 Run `bash setup.sh` to bootstrap this structure automatically.
+
+### Projects
+
+Projects group related chat sessions and provide context via CLAUDE.md files.
+
+- Each project has a folder under `workspace/projects/` (auto-created on project creation)
+- The `CLAUDE.md` inside defines project-specific instructions for Claude
+- New chats created in a project automatically work in that folder (cwd)
+- Codebase projects can point to external paths (e.g., `~/claude-desk/`) instead
+- Edit `CLAUDE.md` to customize what Claude knows about each project
 
 ### Claude Behavior Rules
 

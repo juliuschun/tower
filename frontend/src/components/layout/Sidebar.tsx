@@ -151,14 +151,16 @@ export function Sidebar({
     const projectGroups = new Map<string, { project: Project; sessions: SessionMeta[] }>();
     const ungrouped: SessionMeta[] = [];
 
+    // Initialize ALL projects (even empty ones) so they always appear
+    for (const proj of projects) {
+      projectGroups.set(proj.id, { project: proj, sessions: [] });
+    }
+
     for (const session of filteredSessions) {
       if (session.projectId) {
-        const proj = projects.find(p => p.id === session.projectId);
-        if (proj) {
-          if (!projectGroups.has(session.projectId)) {
-            projectGroups.set(session.projectId, { project: proj, sessions: [] });
-          }
-          projectGroups.get(session.projectId)!.sessions.push(session);
+        const group = projectGroups.get(session.projectId);
+        if (group) {
+          group.sessions.push(session);
         } else {
           // Project was deleted but session still references it — treat as ungrouped
           ungrouped.push(session);
@@ -263,18 +265,21 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto pt-2">
         {sidebarTab === 'sessions' ? (
           <div className="px-3">
-            {/* Search input */}
-            <div className="relative mb-2">
-              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-3 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
-              />
+            {/* Search + New Project */}
+            <div className="flex items-center gap-1.5 mb-2">
+              <div className="relative flex-1">
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-3 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
+                />
+              </div>
+              <NewProjectButton />
             </div>
 
             {/* Grouped or flat session list */}
@@ -298,9 +303,9 @@ export function Sidebar({
                     projects={projects}
                   />
                 ))}
-                {/* Ungrouped sessions */}
-                {groupedSessions.ungrouped.length > 0 && (
-                  <div className="mt-2">
+                {/* Ungrouped sessions — also a drop zone to remove from project */}
+                {(groupedSessions.ungrouped.length > 0 || groupedSessions.groups.length > 0) && (
+                  <UngroupedDropZone onMoveSession={handleMoveSession} hasGroups={groupedSessions.groups.length > 0} hasUngrouped={groupedSessions.ungrouped.length > 0}>
                     {groupedSessions.groups.length > 0 && (
                       <div className="flex items-center gap-2 px-1 py-1 mb-1">
                         <div className="flex-1 h-px bg-surface-800" />
@@ -323,15 +328,11 @@ export function Sidebar({
                         />
                       ))}
                     </div>
-                  </div>
+                  </UngroupedDropZone>
                 )}
                 {filteredSessions.length === 0 && (
                   <p className="text-[13px] text-surface-700 px-2 py-6 text-center">No sessions yet</p>
                 )}
-                {/* New Project button */}
-                <div className="mt-3 mb-1">
-                  <NewProjectButton />
-                </div>
               </>
             ) : (
               <>
@@ -798,9 +799,39 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
   );
 }
 
+/* ── Ungrouped Drop Zone ── */
+
+function UngroupedDropZone({ children, onMoveSession, hasGroups, hasUngrouped }: {
+  children: React.ReactNode;
+  onMoveSession: (sessionId: string, projectId: string | null) => void;
+  hasGroups: boolean;
+  hasUngrouped: boolean;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <div
+      className={`mt-2 rounded-md transition-colors ${dragOver ? 'bg-surface-800/50 ring-1 ring-surface-700/50' : ''} ${!hasUngrouped && hasGroups ? 'min-h-[40px] flex items-center justify-center' : ''}`}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const sessionId = e.dataTransfer.getData('text/plain');
+        if (sessionId) onMoveSession(sessionId, null);
+      }}
+    >
+      {!hasUngrouped && dragOver && (
+        <span className="text-[10px] text-surface-500">Drop here to remove from project</span>
+      )}
+      {children}
+    </div>
+  );
+}
+
 /* ── Project Group ── */
 
-const PROJECT_COLORS = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#06b6d4', '#f97316'];
+const PROJECT_PREVIEW_COUNT = 5;
 
 function ProjectGroup({
   project, sessions: groupSessions, collapsed, activeSessionId,
@@ -823,11 +854,26 @@ function ProjectGroup({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(project.name);
+  const [dragOver, setDragOver] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const editRef = useRef<HTMLInputElement>(null);
+
+  // Check if any session in this project is actively streaming or unread
+  const streamingSessions = useSessionStore((s) => s.streamingSessions);
+  const unreadSessions = useSessionStore((s) => s.unreadSessions);
+  const hasActivity = groupSessions.some((s) => streamingSessions.has(s.id));
+  const hasUnread = groupSessions.some((s) => unreadSessions.has(s.id));
 
   useEffect(() => {
     if (editing) editRef.current?.focus();
   }, [editing]);
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const sessionId = e.dataTransfer.getData('text/plain');
+    if (sessionId) onMoveSession(sessionId, project.id);
+  };
 
   const commitRename = async () => {
     const trimmed = editName.trim();
@@ -864,82 +910,97 @@ function ProjectGroup({
     } catch {}
   };
 
-  const handleColorChange = async (color: string) => {
-    const token = localStorage.getItem('token');
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    try {
-      const res = await fetch(`/api/projects/${project.id}`, {
-        method: 'PATCH', headers, body: JSON.stringify({ color }),
-      });
-      if (res.ok) {
-        useProjectStore.getState().updateProject(project.id, { color });
-      }
-    } catch {}
-  };
 
   return (
     <div className="mb-1">
-      {/* Group header */}
+      {/* Group header — also a drop zone */}
       <div
-        className="flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer hover:bg-surface-850 transition-colors group/proj"
+        className={`flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj ${
+          dragOver ? 'bg-primary-600/20 ring-1 ring-primary-500/40' : 'hover:bg-surface-850'
+        }`}
         onClick={onToggleCollapsed}
         onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
         onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setEditName(project.name); }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
       >
-        <svg className={`w-3 h-3 text-surface-600 transition-transform shrink-0 ${collapsed ? '-rotate-90' : ''}`}
+        <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${collapsed ? '-rotate-90' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
-        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: project.color }} />
-        {editing ? (
-          <input
-            ref={editRef}
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(false); }}
-            onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 h-[18px] bg-surface-700 text-gray-100 text-[12px] px-1 rounded border border-surface-600 outline-none focus:border-primary-500"
-          />
+        {hasActivity ? (
+          <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse shrink-0" />
         ) : (
-          <span className="flex-1 min-w-0 text-[12px] font-semibold text-gray-300 truncate">
-            {project.name}
-          </span>
+          <svg className="w-4 h-4 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+          </svg>
         )}
-        <span className="text-[10px] text-surface-600 tabular-nums shrink-0">
-          {groupSessions.length}
-        </span>
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <input
+              ref={editRef}
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(false); }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full h-[22px] bg-surface-700 text-gray-100 text-[13px] px-1 rounded border border-surface-600 outline-none focus:border-primary-500"
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[13px] font-bold truncate ${hasUnread || hasActivity ? 'text-gray-100' : 'text-gray-300'}`}>
+                  {project.name}
+                </span>
+                <span className={`text-[10px] tabular-nums shrink-0 ${hasUnread ? 'text-primary-400 font-semibold' : 'text-surface-600'}`}>
+                  {groupSessions.length}
+                </span>
+              </div>
+              {/* Subline: New Chat + N more */}
+              <div className="flex items-center gap-2 mt-0.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onNewSession(); }}
+                  className="text-[10px] text-primary-400 hover:text-primary-300 transition-colors font-medium"
+                  title="New Chat in project"
+                >
+                  + New Chat
+                </button>
+                {groupSessions.length > PROJECT_PREVIEW_COUNT && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+                    className="text-[10px] text-surface-600 hover:text-primary-400 transition-colors"
+                  >
+                    {expanded ? 'show less' : `${groupSessions.length - PROJECT_PREVIEW_COUNT} more`}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Sessions inside group */}
-      {!collapsed && (
-        <div className="pl-3 space-y-0.5">
-          {groupSessions.map((session) => (
-            <SessionItem
-              key={session.id}
-              session={session}
-              isActive={session.id === activeSessionId}
-              onSelect={onSelectSession}
-              onDelete={onDeleteSession}
-              onRename={onRenameSession}
-              onToggleFavorite={onToggleFavorite}
-              onMoveToProject={onMoveSession}
-              projects={projects}
-            />
-          ))}
-          {/* In-group New Chat */}
-          <button
-            onClick={(e) => { e.stopPropagation(); onNewSession(); }}
-            className="w-full flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] text-surface-600 hover:text-primary-400 hover:bg-surface-850 transition-colors"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New Chat
-          </button>
-        </div>
-      )}
+      {!collapsed && (() => {
+        const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, PROJECT_PREVIEW_COUNT);
+        return (
+          <div className="pl-5 space-y-0.5">
+            {visibleSessions.map((session) => (
+              <SessionItem
+                key={session.id}
+                session={session}
+                isActive={session.id === activeSessionId}
+                onSelect={onSelectSession}
+                onDelete={onDeleteSession}
+                onRename={onRenameSession}
+                onToggleFavorite={onToggleFavorite}
+                onMoveToProject={onMoveSession}
+                projects={projects}
+              />
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Context menu */}
       {ctxMenu && (
@@ -948,7 +1009,6 @@ function ProjectGroup({
           project={project}
           onRename={() => { setEditing(true); setEditName(project.name); }}
           onDelete={handleDelete}
-          onColorChange={handleColorChange}
           onClose={() => setCtxMenu(null)}
         />
       )}
@@ -958,12 +1018,13 @@ function ProjectGroup({
 
 /* ── Project Context Menu ── */
 
-function ProjectContextMenu({ x, y, project, onRename, onDelete, onColorChange, onClose }: {
+function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose }: {
   x: number; y: number; project: Project;
   onRename: () => void; onDelete: () => void;
-  onColorChange: (color: string) => void; onClose: () => void;
+  onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [showSettings, setShowSettings] = useState(false);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -973,6 +1034,14 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onColorChange, 
   }, [onClose]);
 
   const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
+
+  if (showSettings) {
+    return (
+      <div ref={ref} className="fixed z-50" style={{ left: x, top: y }}>
+        <ProjectSettingsPanel project={project} onClose={onClose} />
+      </div>
+    );
+  }
 
   return (
     <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[160px]"
@@ -984,20 +1053,15 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onColorChange, 
         </svg>
         Rename
       </button>
-      {/* Color picker */}
-      <div className="px-3 py-1.5">
-        <div className="text-[10px] text-surface-600 mb-1">Color</div>
-        <div className="flex gap-1 flex-wrap">
-          {PROJECT_COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => { onColorChange(c); onClose(); }}
-              className={`w-4 h-4 rounded-full border-2 transition-all ${project.color === c ? 'border-white scale-110' : 'border-transparent hover:border-surface-500'}`}
-              style={{ backgroundColor: c }}
-            />
-          ))}
-        </div>
-      </div>
+      {/* Settings */}
+      <button className={itemClass} onClick={() => setShowSettings(true)}>
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        Settings
+      </button>
       <div className="border-t border-surface-700/50 my-1" />
       <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => { onDelete(); onClose(); }}>
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1010,15 +1074,118 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onColorChange, 
   );
 }
 
+/* ── Project Settings Panel ── */
+
+function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+  const [description, setDescription] = useState(project.description || '');
+  const [rootPath, setRootPath] = useState(project.rootPath || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const body: Record<string, any> = {};
+      if (description !== (project.description || '')) body.description = description || null;
+      if (rootPath !== (project.rootPath || '')) body.rootPath = rootPath || null;
+      if (Object.keys(body).length > 0) {
+        const res = await fetch(`/api/projects/${project.id}`, {
+          method: 'PATCH', headers, body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          useProjectStore.getState().updateProject(project.id, updated);
+          toastSuccess('Project updated');
+        } else {
+          toastError('Failed to update project');
+        }
+      }
+    } catch {
+      toastError('Failed to update project');
+    }
+    setSaving(false);
+    onClose();
+  };
+
+  const labelClass = "text-[10px] text-surface-500 uppercase tracking-wider font-medium mb-1";
+  const inputClass = "w-full bg-surface-700 border border-surface-600 rounded text-[12px] text-gray-200 px-2.5 py-1.5 placeholder-surface-600 outline-none focus:border-primary-500/50";
+
+  return (
+    <div className="bg-surface-800 border border-surface-700 rounded-lg shadow-xl p-3 min-w-[280px] max-w-[320px]">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-[13px] font-semibold text-gray-200">{project.name}</h3>
+        <button onClick={onClose} className="text-surface-600 hover:text-gray-300 transition-colors">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Description */}
+      <div className="mb-3">
+        <div className={labelClass}>Description</div>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What is this project about?"
+          rows={2}
+          className={`${inputClass} resize-none`}
+        />
+        <p className="text-[9px] text-surface-600 mt-0.5">Also saved to CLAUDE.md in the project folder</p>
+      </div>
+
+      {/* Root Path */}
+      <div className="mb-3">
+        <div className={labelClass}>Project Folder</div>
+        <input
+          value={rootPath}
+          onChange={(e) => setRootPath(e.target.value)}
+          placeholder="Auto-created in workspace/projects/"
+          className={inputClass}
+        />
+        <p className="text-[9px] text-surface-600 mt-0.5">New chats will work in this folder. Leave empty for default.</p>
+      </div>
+
+      {/* Actions */}
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="px-3 py-1 text-[11px] text-surface-500 hover:text-gray-300 transition-colors">
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-3 py-1.5 bg-primary-600 hover:bg-primary-500 rounded text-[11px] font-medium text-white transition-colors disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── New Project Button ── */
 
 function NewProjectButton() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (creating) inputRef.current?.focus();
+  }, [creating]);
+
+  useEffect(() => {
+    if (!creating) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setName(''); setCreating(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [creating]);
 
   const handleCreate = async () => {
@@ -1045,34 +1212,34 @@ function NewProjectButton() {
     setCreating(false);
   };
 
-  if (creating) {
-    return (
-      <div className="px-1">
-        <input
-          ref={inputRef}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={handleCreate}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleCreate();
-            if (e.key === 'Escape') { setName(''); setCreating(false); }
-          }}
-          placeholder="Project name..."
-          className="w-full bg-surface-800 border border-primary-500/50 rounded-md text-[12px] text-gray-200 px-3 py-1.5 placeholder-surface-700 outline-none"
-        />
-      </div>
-    );
-  }
-
   return (
-    <button
-      onClick={() => setCreating(true)}
-      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] text-surface-600 hover:text-primary-400 hover:bg-surface-850 transition-colors"
-    >
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-      </svg>
-      New Project
-    </button>
+    <div className="relative" ref={wrapperRef}>
+      <button
+        onClick={() => setCreating(!creating)}
+        className="p-1.5 rounded-md text-surface-600 hover:text-primary-400 hover:bg-surface-800 transition-colors shrink-0"
+        title="New Project"
+        aria-label="New Project"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+        </svg>
+      </button>
+      {creating && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl p-2 min-w-[200px]">
+          <input
+            ref={inputRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreate();
+              if (e.key === 'Escape') { setName(''); setCreating(false); }
+            }}
+            placeholder="Project name..."
+            className="w-full bg-surface-700 border border-surface-600 rounded text-[12px] text-gray-200 px-2.5 py-1.5 placeholder-surface-600 outline-none focus:border-primary-500/50"
+          />
+          <p className="text-[10px] text-surface-600 mt-1.5 px-0.5">Creates a folder with CLAUDE.md for project context</p>
+        </div>
+      )}
+    </div>
   );
 }

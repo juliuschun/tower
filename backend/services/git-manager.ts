@@ -80,6 +80,12 @@ async function git(cwd: string, args: string[], timeoutMs = 30000): Promise<stri
 }
 
 export async function initWorkspaceRepo(repoPath: string): Promise<void> {
+  // Ensure workspace directory exists (first-time setup safety)
+  if (!fs.existsSync(repoPath)) {
+    fs.mkdirSync(repoPath, { recursive: true });
+    console.log(`[Git] Created workspace directory: ${repoPath}`);
+  }
+
   const gitDir = path.join(repoPath, '.git');
   const isNew = !fs.existsSync(gitDir);
 

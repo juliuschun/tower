@@ -740,6 +740,14 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'session_moved': {
+        // Update session's projectId in the store when moved via API (e.g., by a task agent)
+        if (data.sessionId) {
+          useSessionStore.getState().updateSessionMeta(data.sessionId, { projectId: data.projectId ?? null });
+        }
+        break;
+      }
+
       case 'task_created': {
         if (data.task) {
           const existing = useKanbanStore.getState().tasks.find(t => t.id === data.task.id);

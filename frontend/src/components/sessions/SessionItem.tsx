@@ -9,12 +9,12 @@ function relativeTime(dateStr: string): string {
   const normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T') + 'Z';
   const diff = Date.now() - new Date(normalized).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return '~now';
+  if (mins < 60) return `~${mins}m`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hr ago`;
+  if (hours < 24) return `~${hours}h`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} d ago`;
+  if (days < 30) return `~${days}d`;
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -62,13 +62,17 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
           <div className="px-3 py-1 text-[10px] text-surface-600 uppercase tracking-wider">Move to</div>
           {projects.filter(p => p.id !== session.projectId).map((p) => (
             <button key={p.id} className={itemClass} onClick={() => { onMoveToProject(session.id, p.id); onClose(); }}>
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+              <svg className="w-3.5 h-3.5 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+              </svg>
               <span className="truncate">{p.name}</span>
             </button>
           ))}
           {session.projectId && (
             <button className={itemClass} onClick={() => { onMoveToProject(session.id, null); onClose(); }}>
-              <span className="w-2 h-2 rounded-full shrink-0 bg-surface-600" />
+              <svg className="w-3.5 h-3.5 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
               <span className="text-surface-500">Remove from project</span>
             </button>
           )}
@@ -143,58 +147,46 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
   return (
     <>
       <div
-        className={`group flex items-center gap-2 px-3 py-2.5 min-h-[44px] rounded-md cursor-pointer text-[13px] transition-all duration-200 ${
+        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-[13px] transition-all duration-200 ${
           isActive
             ? 'bg-surface-800 text-gray-100 shadow-sm ring-1 ring-surface-700/50'
             : 'text-gray-400 hover:bg-surface-850 hover:text-gray-200'
         }`}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('text/plain', session.id);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
         onClick={() => { markSessionRead(session.id); onSelect(session); }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       >
-        {/* Favorite star */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite(session.id, !session.favorite); }}
-          className={`shrink-0 transition-colors ${
-            session.favorite ? 'text-yellow-400' : 'text-surface-700 opacity-0 group-hover:opacity-100'
-          }`}
-          title={session.favorite ? 'Remove favorite' : 'Favorite'}
-        >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={session.favorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-          </svg>
-        </button>
-
-        {/* Chat icon / kanban task icon / streaming indicator / unread dot / queue badge */}
+        {/* Status badge: only when streaming or queued */}
         {isStreaming ? (
-          <div className="w-4 h-4 shrink-0 flex items-center justify-center relative">
-            <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${isKanbanTask ? 'bg-blue-400' : 'bg-green-400'}`} />
-            {queueCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 text-[8px] font-bold text-white bg-primary-500 rounded-full min-w-[14px] h-[14px] flex items-center justify-center leading-none">
-                {queueCount}
-              </span>
-            )}
-          </div>
+          <span className="shrink-0 text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
+            running{queueCount > 0 ? ` +${queueCount}` : ''}
+          </span>
         ) : queueCount > 0 ? (
-          <div className="w-4 h-4 shrink-0 flex items-center justify-center">
-            <span className="text-[9px] font-bold text-primary-300 bg-primary-500/20 border border-primary-500/30 rounded-full min-w-[16px] h-[16px] flex items-center justify-center leading-none">
-              {queueCount}
-            </span>
-          </div>
+          <span className="shrink-0 text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
+            queued {queueCount}
+          </span>
         ) : isUnread ? (
-          <div className="w-4 h-4 shrink-0 flex items-center justify-center">
-            <div className="w-2 h-2 rounded-full bg-primary-400" />
-          </div>
-        ) : isKanbanTask ? (
-          <span className={`w-4 h-4 shrink-0 flex items-center justify-center text-xs ${isActive ? 'text-green-400' : 'text-green-600 group-hover:text-green-500'}`}>&#9643;</span>
-        ) : (
-          <svg className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-primary-500' : 'text-surface-700 group-hover:text-surface-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-        )}
+          <span className="shrink-0 text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
+            unread
+          </span>
+        ) : session.favorite ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite(session.id, false); }}
+            className="shrink-0 text-yellow-400"
+            title="Remove favorite"
+          >
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+          </button>
+        ) : null}
 
-        {/* Name + subtext */}
+        {/* Name */}
         {editing ? (
           <input
             ref={inputRef}
@@ -209,44 +201,36 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
             className="flex-1 min-w-0 h-[20px] bg-surface-700 text-gray-100 text-[13px] px-1.5 py-0 rounded border border-surface-600 outline-none focus:border-primary-500"
           />
         ) : (
-          <div className="flex-1 min-w-0">
-            <span className="truncate block font-medium leading-[20px]">{session.name}</span>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="text-[10px] text-surface-700">{relativeTime(session.updatedAt)}</span>
-              {(session.turnCount ?? 0) > 0 && (
-                <span className="text-[10px] text-surface-700">{session.turnCount} turns</span>
-              )}
-              {session.totalCost > 0 && (
-                <span className="text-[10px] tabular-nums text-surface-700">${session.totalCost.toFixed(2)}</span>
-              )}
-            </div>
-          </div>
+          <span className="flex-1 min-w-0 truncate font-medium leading-[20px]">{session.name}</span>
         )}
 
-        {/* Edit + Delete buttons (hidden during editing) */}
+        {/* Time (default) → action buttons (on hover) */}
         {!editing && (
           <>
-            <button
-              onClick={(e) => { e.stopPropagation(); startEditing(); }}
-              className="opacity-0 group-hover:opacity-60 hover:!opacity-100 p-1 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
-              title="Rename"
-              aria-label="Rename session"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
-              className="opacity-0 group-hover:opacity-60 hover:!opacity-100 p-1 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
-              title="Delete"
-              aria-label="Delete session"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden">{relativeTime(session.updatedAt)}</span>
+            <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); startEditing(); }}
+                className="p-0.5 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
+                title="Rename"
+                aria-label="Rename session"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
+                className="p-0.5 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
+                title="Delete"
+                aria-label="Delete session"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </>
         )}
       </div>

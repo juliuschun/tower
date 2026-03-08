@@ -62,15 +62,32 @@ if command -v claude &>/dev/null; then
   else
     warn "Claude CLI installed but not authenticated."
     echo ""
-    echo "  ${BOLD}Two ways to authenticate:${NC}"
-    echo "    1) API Key — paste your Anthropic API key (easiest)"
-    echo "    2) Login   — run 'claude login' separately (needs browser)"
-    echo "    3) Skip    — set up later"
+    echo "  ${BOLD}How to authenticate:${NC}"
+    echo "    1) Browser login — opens a URL you can paste into any browser (Max/Pro plan)"
+    echo "    2) API Key       — paste your Anthropic API key"
+    echo "    3) Copy creds    — copy ~/.claude/.credentials.json from another machine"
+    echo "    4) Skip          — set up later"
     echo ""
-    read -p "  Choice (1/2/3): " -n 1 -r AUTH_CHOICE
+    read -p "  Choice (1/2/3/4): " -n 1 -r AUTH_CHOICE
     echo
 
     if [[ "$AUTH_CHOICE" == "1" ]]; then
+      echo ""
+      echo "  ${BOLD}Starting login...${NC}"
+      echo "  A URL will appear below. Copy it and open in any browser."
+      echo "  (Even on a different computer — it will authenticate this machine.)"
+      echo ""
+      claude auth login 2>&1 || true
+      # Re-check
+      AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
+      if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
+        info "Claude CLI authenticated"
+        CLAUDE_AUTHENTICATED=true
+      else
+        warn "Authentication did not complete. You can try again later."
+        echo "  Tip: run 'claude auth login' to retry"
+      fi
+    elif [[ "$AUTH_CHOICE" == "2" ]]; then
       echo ""
       read -p "  Anthropic API Key (sk-ant-...): " -r API_KEY_INPUT
       if [[ -n "$API_KEY_INPUT" && "$API_KEY_INPUT" == sk-ant-* ]]; then
@@ -81,20 +98,25 @@ if command -v claude &>/dev/null; then
       else
         warn "Invalid API key format. Skipping authentication."
       fi
-    elif [[ "$AUTH_CHOICE" == "2" ]]; then
+    elif [[ "$AUTH_CHOICE" == "3" ]]; then
       echo ""
-      echo "  Running 'claude login'..."
-      claude login 2>&1 || true
-      # Re-check
-      AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
-      if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
-        info "Claude CLI authenticated"
-        CLAUDE_AUTHENTICATED=true
-      else
-        warn "Authentication did not complete. You can try again later."
+      echo "  Copy the file from a machine where Claude is already authenticated:"
+      echo "    scp user@other-machine:~/.claude/.credentials.json ~/.claude/.credentials.json"
+      echo ""
+      read -p "  Have you copied it? (y/N) " -n 1 -r COPIED
+      echo
+      if [[ "$COPIED" =~ ^[Yy]$ ]]; then
+        AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
+        if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
+          info "Claude CLI authenticated"
+          CLAUDE_AUTHENTICATED=true
+        else
+          warn "Credentials not detected. Copy the file and try 'claude auth status'."
+        fi
       fi
     else
-      warn "Skipped Claude authentication. Set ANTHROPIC_API_KEY in .env later."
+      warn "Skipped Claude authentication."
+      echo "  Set ANTHROPIC_API_KEY in .env, or run 'claude auth login' later."
     fi
   fi
 else
@@ -115,14 +137,26 @@ else
 
       echo ""
       echo "  ${BOLD}Authenticate now?${NC}"
-      echo "    1) API Key — paste your Anthropic API key (easiest)"
-      echo "    2) Login   — run 'claude login' (needs browser)"
-      echo "    3) Skip    — set up later"
+      echo "    1) Browser login — opens a URL you can paste into any browser"
+      echo "    2) API Key       — paste your Anthropic API key"
+      echo "    3) Skip          — set up later"
       echo ""
       read -p "  Choice (1/2/3): " -n 1 -r AUTH_CHOICE
       echo
 
       if [[ "$AUTH_CHOICE" == "1" ]]; then
+        echo ""
+        echo "  A URL will appear. Copy it and open in any browser."
+        echo ""
+        claude auth login 2>&1 || true
+        AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
+        if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
+          info "Claude CLI authenticated"
+          CLAUDE_AUTHENTICATED=true
+        else
+          warn "Authentication did not complete. Run 'claude auth login' later."
+        fi
+      elif [[ "$AUTH_CHOICE" == "2" ]]; then
         echo ""
         read -p "  Anthropic API Key (sk-ant-...): " -r API_KEY_INPUT
         if [[ -n "$API_KEY_INPUT" && "$API_KEY_INPUT" == sk-ant-* ]]; then
@@ -131,13 +165,6 @@ else
           CLAUDE_AUTHENTICATED=true
         else
           warn "Invalid API key format. Skipping authentication."
-        fi
-      elif [[ "$AUTH_CHOICE" == "2" ]]; then
-        claude login 2>&1 || true
-        AUTH_JSON=$(claude auth status 2>/dev/null || echo '{}')
-        if echo "$AUTH_JSON" | grep -q '"loggedIn": true'; then
-          info "Claude CLI authenticated"
-          CLAUDE_AUTHENTICATED=true
         fi
       fi
     else

@@ -32,3 +32,5 @@ future_task_manager_plan.md
 # Large video files
 *.mov
 *.mp4
+
+.worktrees/

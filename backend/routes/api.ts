@@ -954,6 +954,8 @@ router.post('/sessions/:id/move', (req, res) => {
     const { projectId } = req.body;
     const ok = moveSessionToProject(req.params.id, projectId ?? null);
     if (!ok) return res.status(404).json({ error: 'session or project not found' });
+    // Broadcast so all connected clients update their session lists
+    broadcast({ type: 'session_moved', sessionId: req.params.id, projectId: projectId ?? null });
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
