@@ -516,7 +516,8 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
             {input.length === 0 && !isStreaming && attachments.length === 0 ? '(/ for commands)' : ''}
           </div>
 
-          {isStreaming && !input.trim() && attachments.length === 0 ? (
+          {/* Stop button — always visible during streaming */}
+          {isStreaming && (
             <button
               onClick={() => {
                 // Stop streaming AND restore queued messages to input
@@ -524,12 +525,10 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                 if (sid) {
                   const queue = useChatStore.getState().messageQueue[sid];
                   if (queue && queue.length > 0) {
-                    // Restore ALL queued messages to input box, joined with newlines
-                    const restored = queue.join('\n\n');
+                    const restored = [input, ...queue].filter(Boolean).join('\n\n');
                     setInput(restored);
                     saveDraft(sid, restored);
                     useChatStore.getState().clearSessionQueue(sid);
-                    // Resize textarea for restored text
                     if (textareaRef.current) {
                       const el = textareaRef.current;
                       requestAnimationFrame(() => {
@@ -548,7 +547,9 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                 <rect x="7" y="7" width="10" height="10" rx="2" />
               </svg>
             </button>
-          ) : (
+          )}
+          {/* Send/Queue button — hidden when streaming with empty input (Stop takes its place) */}
+          {!(isStreaming && !input.trim() && attachments.length === 0) && (
             <button
               onClick={handleSubmit}
               disabled={!input.trim() && attachments.length === 0}
