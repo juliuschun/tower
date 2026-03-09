@@ -62,9 +62,19 @@ async function main() {
       if (!parsed.messages.length) { db.close(); return; }
 
       // 5. Ownership check — if Tower already owns this session, only update stats
-      const existing = db.prepare(
+      //    Race condition: Tower's claimClaudeSessionId() may not have run yet
+      //    (SDK subprocess exits → this hook fires → Tower is still reading from pipe buffer).
+      //    Retry after a short delay to let Tower claim the session first.
+      let existing = db.prepare(
         'SELECT id FROM sessions WHERE claude_session_id = ?'
       ).get(sessionId);
+
+      if (!existing) {
+        await new Promise(r => setTimeout(r, 2000));
+        existing = db.prepare(
+          'SELECT id FROM sessions WHERE claude_session_id = ?'
+        ).get(sessionId);
+      }
 
       if (existing) {
         // Tower ws-handler already writes messages in real-time.

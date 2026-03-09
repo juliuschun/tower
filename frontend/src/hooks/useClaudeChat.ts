@@ -833,8 +833,24 @@ export function useClaudeChat() {
 
   const sendMessage = useCallback(
     (message: string, cwd?: string) => {
+      // Resolve sessionId: chatStore is primary, sessionStore is fallback (handles desync)
+      let activeSid = useChatStore.getState().sessionId;
+      if (!activeSid) {
+        // Desync recovery: sessionStore might still know the active session
+        const fallback = useSessionStore.getState().activeSessionId;
+        if (fallback) {
+          console.warn(`[chat] sessionId desync detected — recovering from sessionStore: ${fallback.slice(0, 8)}`);
+          useChatStore.getState().setSessionId(fallback);
+          activeSid = fallback;
+        } else {
+          console.error('[chat] sendMessage: no sessionId in either store — cannot send');
+          toastError('No active session. Please select or create a session.');
+          return;
+        }
+      }
+
       const messageId = crypto.randomUUID();
-      // Add user message locally with pending status
+      // Add user message locally with pending status (AFTER sessionId check)
       addMessage({
         id: messageId,
         role: 'user',
@@ -849,10 +865,7 @@ export function useClaudeChat() {
       currentAssistantMsg.current = null;
 
       // Bump updatedAt so the session moves to top of sidebar immediately
-      const activeSid = useChatStore.getState().sessionId;
-      if (activeSid) {
-        useSessionStore.getState().updateSessionMeta(activeSid, { updatedAt: new Date().toISOString() });
-      }
+      useSessionStore.getState().updateSessionMeta(activeSid, { updatedAt: new Date().toISOString() });
 
       send({
         type: 'chat',

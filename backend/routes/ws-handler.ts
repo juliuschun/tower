@@ -438,7 +438,17 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
 }
 
 async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string }) {
-  const sessionId = data.sessionId || client.sessionId || uuidv4();
+  const sessionId = data.sessionId || client.sessionId;
+  if (!sessionId) {
+    console.error(`[ws] handleChat REJECTED: no sessionId from client=${client.id.slice(0, 8)} — frontend must create session first`);
+    sendToClient(client, 'unknown', {
+      type: 'error',
+      message: 'No session ID provided. Please refresh the page and try again.',
+      errorCode: 'NO_SESSION_ID',
+      sessionId: '',
+    });
+    return;
+  }
   client.sessionId = sessionId;
   console.log(`[ws] handleChat START session=${sessionId.slice(0, 8)} client=${client.id.slice(0, 8)} resume=${data.claudeSessionId?.slice(0, 12) || 'none'} activeSDK=${getActiveSessionCount()}`);
 

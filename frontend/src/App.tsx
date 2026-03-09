@@ -476,17 +476,25 @@ function App() {
   }, [token]);
 
   // Auto-create session on first message if no active session
+  const creatingSession = useRef(false);
   const handleSendMessage = useCallback(async (message: string, cwd?: string) => {
     const currentActiveId = useSessionStore.getState().activeSessionId;
     if (!currentActiveId) {
-      // Auto-create a session
-      const session = await createSessionInDb();
-      if (session) {
-        setActiveSessionId(session.id);
-        useChatStore.getState().setSessionId(session.id);
+      // Prevent concurrent session creation (e.g., rapid double-send)
+      if (creatingSession.current) return;
+      creatingSession.current = true;
+      try {
+        const session = await createSessionInDb();
+        if (session) {
+          setActiveSessionId(session.id);
+          useChatStore.getState().setSessionId(session.id);
+        }
+      } finally {
+        creatingSession.current = false;
       }
     }
-    // Pass active session's cwd so SDK runs in the correct directory
+
+    // sendMessage has its own sessionId guard with desync recovery
     const activeSess = useSessionStore.getState().sessions.find(
       (s) => s.id === useSessionStore.getState().activeSessionId
     );
