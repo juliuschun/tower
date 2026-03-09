@@ -70,7 +70,10 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   setSessions: (sessions) => set({ sessions }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
-  addSession: (session) => set((s) => ({ sessions: [session, ...s.sessions] })),
+  addSession: (session) => set((s) => {
+    if (s.sessions.some((ss) => ss.id === session.id)) return s; // dedupe
+    return { sessions: [session, ...s.sessions] };
+  }),
   removeSession: (id) => set((s) => ({ sessions: s.sessions.filter((ss) => ss.id !== id) })),
   updateSessionMeta: (id, updates) =>
     set((s) => ({
