@@ -261,6 +261,20 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       const pq = useChatStore.getState().pendingQuestion;
       if (pq) {
         useChatStore.getState().setPendingQuestion(null);
+      } else if (isStreaming) {
+        // Esc during streaming = Stop (preserve draft + restore queue)
+        e.preventDefault();
+        const sid = useChatStore.getState().sessionId;
+        if (sid) {
+          const queue = useChatStore.getState().messageQueue[sid];
+          if (queue && queue.length > 0) {
+            const restored = [input, ...queue].filter(Boolean).join('\n\n');
+            setInput(restored);
+            saveDraft(sid, restored);
+            useChatStore.getState().clearSessionQueue(sid);
+          }
+        }
+        onAbort();
       } else if (hasQueue) {
         handleCancelQueue();
       } else if (showCommands) {
