@@ -171,9 +171,10 @@ export function Sidebar({
     }
 
     const sorted = [...projectGroups.values()].sort((a, b) => {
-      // Most-recently-active project first (by latest session update)
-      const aLatest = a.sessions[0]?.updatedAt || '';
-      const bLatest = b.sessions[0]?.updatedAt || '';
+      // Most-recently-active project first — by the NEWEST session's updatedAt,
+      // ignoring favorite sort (favorites push old sessions to [0], skewing this)
+      const aLatest = a.sessions.reduce((max, s) => s.updatedAt > max ? s.updatedAt : max, '');
+      const bLatest = b.sessions.reduce((max, s) => s.updatedAt > max ? s.updatedAt : max, '');
       // Projects with sessions always before empty ones
       if (aLatest && !bLatest) return -1;
       if (!aLatest && bLatest) return 1;
