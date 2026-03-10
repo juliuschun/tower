@@ -68,7 +68,16 @@ export const useSessionStore = create<SessionState>((set) => ({
   mobileTabBeforeContext: 'chat',
   activeView: 'chat',
 
-  setSessions: (sessions) => set({ sessions }),
+  setSessions: (sessions) => {
+    // Dedupe by id — keep the first occurrence (which is usually the freshest)
+    const seen = new Set<string>();
+    const deduped = sessions.filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+    set({ sessions: deduped });
+  },
   setActiveSessionId: (id) => set({ activeSessionId: id }),
   addSession: (session) => set((s) => {
     if (s.sessions.some((ss) => ss.id === session.id)) return s; // dedupe

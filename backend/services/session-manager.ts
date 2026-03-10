@@ -89,11 +89,9 @@ export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'na
 
 export function getSessions(userId?: number): SessionMeta[] {
   const db = getDb();
-  const query = userId
-    ? db.prepare('SELECT * FROM sessions WHERE user_id = ? AND (archived IS NULL OR archived = 0) ORDER BY updated_at DESC')
-    : db.prepare('SELECT * FROM sessions WHERE archived IS NULL OR archived = 0 ORDER BY updated_at DESC');
-
-  const rows = userId ? query.all(userId) : query.all();
+  // All users see the same sessions (team workspace)
+  const query = db.prepare('SELECT * FROM sessions WHERE archived IS NULL OR archived = 0 ORDER BY updated_at DESC');
+  const rows = query.all();
   return (rows as any[]).map(mapRow);
 }
 
