@@ -27,6 +27,7 @@ export function KanbanBoard() {
   const { tasks, setTasks, setLoading } = useKanbanStore();
   const [activeTask, setActiveTask] = useState<TaskMeta | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
+  const [editingTask, setEditingTask] = useState<TaskMeta | null>(null);
   const [scheduleTaskId, setScheduleTaskId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -117,6 +118,9 @@ export function KanbanBoard() {
       const { setActiveView } = useSessionStore.getState();
       setActiveView('chat');
       window.dispatchEvent(new CustomEvent('kanban-select-session', { detail: { sessionId: task.sessionId } }));
+    } else if (task.status === 'todo' || task.status === 'failed') {
+      // Open edit modal for tasks without a session
+      setEditingTask(task);
     }
   };
 
@@ -240,6 +244,17 @@ export function KanbanBoard() {
           onCreated={(task) => {
             useKanbanStore.getState().addTask(task);
             setShowNewTask(false);
+          }}
+        />
+      )}
+
+      {editingTask && (
+        <NewTaskModal
+          editTask={editingTask}
+          onClose={() => setEditingTask(null)}
+          onCreated={(updated) => {
+            useKanbanStore.getState().updateTask(updated.id, updated);
+            setEditingTask(null);
           }}
         />
       )}

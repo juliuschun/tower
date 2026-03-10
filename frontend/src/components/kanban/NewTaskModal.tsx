@@ -19,6 +19,8 @@ const WORKFLOW_OPTIONS = [
 interface NewTaskModalProps {
   onClose: () => void;
   onCreated: (task: TaskMeta) => void;
+  /** If provided, modal becomes an edit form for this task */
+  editTask?: TaskMeta;
 }
 
 /* ── Combobox: dropdown + free-text ── */
@@ -197,16 +199,17 @@ function Dropdown({
   );
 }
 
-export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
+export function NewTaskModal({ onClose, onCreated, editTask }: NewTaskModalProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const isEditing = !!editTask;
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [cwd, setCwd] = useState(activeSession?.cwd || '');
-  const [model, setModel] = useState('claude-opus-4-6');
-  const [workflow, setWorkflow] = useState('auto');
+  const [title, setTitle] = useState(editTask?.title || '');
+  const [description, setDescription] = useState(editTask?.description || '');
+  const [cwd, setCwd] = useState(editTask?.cwd || activeSession?.cwd || '');
+  const [model, setModel] = useState(editTask?.model || 'claude-opus-4-6');
+  const [workflow, setWorkflow] = useState(editTask?.workflow || 'auto');
   const [submitting, setSubmitting] = useState(false);
   const [pastCwds, setPastCwds] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; path: string }[]>([]);
@@ -269,20 +272,38 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
           : `## Attached Files\n${fileRefs}`;
       }
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow }),
-      });
-      if (res.ok) {
-        const task = await res.json();
-        onCreated(task);
+
+      if (isEditing && editTask) {
+        // PATCH existing task
+        const res = await fetch(`/api/tasks/${editTask.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          onCreated(updated);
+        }
+      } else {
+        // POST new task
+        const res = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow }),
+        });
+        if (res.ok) {
+          const task = await res.json();
+          onCreated(task);
+        }
       }
     } catch (err) {
-      console.error('Failed to create task:', err);
+      console.error(`Failed to ${isEditing ? 'update' : 'create'} task:`, err);
     } finally {
       setSubmitting(false);
     }
@@ -294,7 +315,7 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
         className="bg-surface-900 border border-surface-700 rounded-t-xl sm:rounded-xl w-full max-w-md p-5 shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-base font-semibold text-gray-200 mb-4">New Task</h3>
+        <h3 className="text-base font-semibold text-gray-200 mb-4">{isEditing ? 'Edit Task' : 'New Task'}</h3>
 
         <div className="space-y-3">
           <div>
@@ -410,7 +431,7 @@ export function NewTaskModal({ onClose, onCreated }: NewTaskModalProps) {
             disabled={!title.trim() || !cwd.trim() || submitting}
             className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
           >
-            {submitting ? 'Creating...' : 'Create Task'}
+            {submitting ? (isEditing ? 'Saving...' : 'Creating...') : (isEditing ? 'Save Changes' : 'Create Task')}
           </button>
         </div>
       </div>
