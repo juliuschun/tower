@@ -31,96 +31,95 @@ const BWRAP_PROFILES: Record<TowerRole, BwrapProfile> = {
 };
 
 /**
- * Build bwrap argument array for SDK's executableArgs.
+ * Generate a bwrap wrapper script that the SDK can spawn as pathToClaudeCodeExecutable.
  *
- * The resulting command is:
- *   bwrap [these args] -- node
- *   (SDK appends its own args after node)
+ * The SDK spawns pathToClaudeCodeExecutable directly, so we give it a shell script
+ * that wraps the real Claude CLI inside bwrap. SDK passes its args as "$@".
  */
-export function buildBwrapArgs(
+export function createBwrapWrapper(
   allowedPath: string,
   role: TowerRole,
-): string[] {
+): string {
   const profile = BWRAP_PROFILES[role] || BWRAP_PROFILES.member;
-  const args: string[] = [];
+  const claudeReal = fs.realpathSync(config.claudeExecutable);
+  const claudeDir = path.dirname(claudeReal);
+  const resolvedPath = path.resolve(allowedPath);
+  const home = os.homedir();
+
+  const lines: string[] = ['#!/bin/bash'];
+
+  const bwrapArgs: string[] = [];
 
   // ── System binaries (read-only) ──
-  for (const dir of ['/usr', '/bin', '/lib', '/lib64']) {
+  for (const dir of ['/usr', '/bin', '/lib', '/lib64', '/sbin']) {
     if (fs.existsSync(dir)) {
-      args.push('--ro-bind', dir, dir);
+      bwrapArgs.push(`--ro-bind ${dir} ${dir}`);
     }
-  }
-
-  // ── /sbin for system tools some scripts expect ──
-  if (fs.existsSync('/sbin')) {
-    args.push('--ro-bind', '/sbin', '/sbin');
   }
 
   // ── /etc: only what's needed ──
   for (const f of [
-    '/etc/resolv.conf',    // DNS
-    '/etc/ssl',            // SSL certificates
-    '/etc/passwd',         // user info (some tools need it)
-    '/etc/group',          // group info
-    '/etc/hostname',       // hostname
-    '/etc/localtime',      // timezone
-    '/etc/alternatives',   // Debian alternatives symlinks
+    '/etc/resolv.conf', '/etc/ssl', '/etc/passwd', '/etc/group',
+    '/etc/hostname', '/etc/localtime', '/etc/alternatives',
   ]) {
-    args.push('--ro-bind-try', f, f);
+    bwrapArgs.push(`--ro-bind-try ${f} ${f}`);
   }
 
-  // ── Workspace (read/write) — this is the ONLY writable host path ──
-  const resolvedPath = path.resolve(allowedPath);
-  args.push('--bind', resolvedPath, '/workspace');
+  // ── Workspace (read/write) — keep host path so .jsonl session paths match ──
+  bwrapArgs.push(`--bind ${resolvedPath} ${resolvedPath}`);
 
-  // ── Claude CLI binary (read-only) ──
-  const claudeReal = fs.realpathSync(config.claudeExecutable);
-  const claudeDir = path.dirname(claudeReal);
-  args.push('--ro-bind', claudeDir, '/claude-bin');
+  // ── Claude CLI binary (read-only, at original host path) ──
+  bwrapArgs.push(`--ro-bind ${claudeDir} ${claudeDir}`);
 
-  // ── Claude config dir (~/.claude) for settings, skills, CLAUDE.md ──
-  const claudeConfigDir = path.join(os.homedir(), '.claude');
+  // ── Claude config (keep real home path for session file compatibility) ──
+  const claudeJson = path.join(home, '.claude.json');
+  if (fs.existsSync(claudeJson)) {
+    bwrapArgs.push(`--ro-bind ${claudeJson} ${claudeJson}`);
+  }
+  const claudeConfigDir = path.join(home, '.claude');
   if (fs.existsSync(claudeConfigDir)) {
-    args.push('--ro-bind', claudeConfigDir, path.join('/home/sandbox', '.claude'));
+    bwrapArgs.push(`--ro-bind ${claudeConfigDir} ${claudeConfigDir}`);
   }
-
-  // ── Session data dir for resume (.jsonl files) — needs write ──
-  const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+  // Session data (write) — must come after ro-bind to override
+  const claudeProjectsDir = path.join(home, '.claude', 'projects');
   if (fs.existsSync(claudeProjectsDir)) {
-    args.push('--bind', claudeProjectsDir, path.join('/home/sandbox', '.claude', 'projects'));
+    bwrapArgs.push(`--bind ${claudeProjectsDir} ${claudeProjectsDir}`);
   }
-
-  // ── Isolated temp space ──
-  args.push('--tmpfs', '/tmp');
-  args.push('--tmpfs', '/run');
-  args.push('--dev', '/dev');
+  // ── Isolated temp ──
+  bwrapArgs.push('--tmpfs /tmp', '--tmpfs /run', '--dev /dev');
 
   // ── /proc ──
   if (profile.allowProc) {
-    args.push('--proc', '/proc');
+    bwrapArgs.push('--proc /proc');
   }
 
   // ── Namespace isolation ──
-  args.push('--unshare-pid');
-  args.push('--unshare-uts');
-  args.push('--unshare-ipc');
-
+  bwrapArgs.push('--unshare-pid', '--unshare-uts', '--unshare-ipc');
   if (!profile.networkEnabled) {
-    args.push('--unshare-net');
+    bwrapArgs.push('--unshare-net');
   }
 
   // ── Safety ──
-  args.push('--die-with-parent');
-  args.push('--new-session');
+  bwrapArgs.push('--die-with-parent', '--new-session', `--chdir ${resolvedPath}`);
 
-  // ── Set HOME so Claude CLI finds ~/.claude ──
-  args.push('--setenv', 'HOME', '/home/sandbox');
+  // ── Environment ──
+  bwrapArgs.push(`--setenv HOME ${home}`);
+  bwrapArgs.push('--unsetenv CLAUDECODE');
 
-  // ── Separator + executable ──
-  args.push('--');
-  args.push('node');
+  // ── Assemble script ──
+  lines.push(`exec bwrap \\`);
+  for (const arg of bwrapArgs) {
+    lines.push(`  ${arg} \\`);
+  }
+  lines.push(`  -- ${claudeReal} "$@"`);
 
-  return args;
+  const script = lines.join('\n');
+
+  // Write to a temp file
+  const wrapperPath = path.join('/tmp', `tower-bwrap-${role}-${process.pid}.sh`);
+  fs.writeFileSync(wrapperPath, script, { mode: 0o755 });
+
+  return wrapperPath;
 }
 
 /**
