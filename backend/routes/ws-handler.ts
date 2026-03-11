@@ -542,6 +542,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       model: data.model,
       canUseTool,
       systemPrompt,
+      userRole: client.userRole,
     })) {
       // Reset hang timer on each message
       resetHangTimer();

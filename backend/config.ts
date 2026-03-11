@@ -90,6 +90,9 @@ export const config = {
   // DB — use PROJECT_ROOT so path is stable regardless of cwd
   dbPath: process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'tower.db'),
 
+  // Sandbox (Linux only, requires: apt install bubblewrap)
+  sandboxEnabled: process.env.SANDBOX_ENABLED === 'true',
+
   // Git auto-commit
   gitAutoCommit: process.env.GIT_AUTO_COMMIT !== 'false',
 

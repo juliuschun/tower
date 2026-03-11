@@ -472,6 +472,7 @@ async function runTaskAgent(
       model: model || 'claude-opus-4-6',
       canUseTool: taskCanUseTool,
       systemPrompt,
+      userRole: effectiveRole,
       ...(resumeClaudeSessionId ? { resumeSessionId: resumeClaudeSessionId } : {}),
     });
 

@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { config } from '../config.js';
+import { buildBwrapArgs, shouldUseSandbox } from './bwrap-sandbox.js';
 
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
 delete process.env.CLAUDECODE;
@@ -239,6 +240,7 @@ export async function* executeQuery(
     model?: string;
     canUseTool?: CanUseTool;
     systemPrompt?: string;
+    userRole?: string;
   } = {}
 ): AsyncGenerator<SDKMessage> {
   // Abort any existing query for this session
@@ -263,12 +265,18 @@ export async function* executeQuery(
     processedPrompt = prompt.substring(1);
   }
 
+  const useSandbox = shouldUseSandbox();
+  const sandboxRole = (options.userRole || 'member') as 'admin' | 'operator' | 'member' | 'viewer';
+  const effectiveCwd = options.cwd || config.defaultCwd;
+
   const queryOptions: Options = {
     abortController,
-    executable: 'node',
-    executableArgs: [],
-    pathToClaudeCodeExecutable: config.claudeExecutable,
-    cwd: options.cwd || config.defaultCwd,
+    executable: (useSandbox ? 'bwrap' : 'node') as any,
+    executableArgs: useSandbox
+      ? buildBwrapArgs(effectiveCwd, sandboxRole)
+      : [],
+    pathToClaudeCodeExecutable: useSandbox ? '/claude-bin/' + path.basename(fs.realpathSync(config.claudeExecutable)) : config.claudeExecutable,
+    cwd: useSandbox ? '/workspace' : effectiveCwd,
     permissionMode: options.permissionMode || config.permissionMode,
     settingSources: options.permissionMode === 'bypassPermissions'
       ? ['user', 'project']   // admin: user-level skills (Azure) included
