@@ -282,9 +282,7 @@ export async function* executeQuery(
     pathToClaudeCodeExecutable: wrapperPath || config.claudeExecutable,
     cwd: effectiveCwd,
     permissionMode: options.permissionMode || config.permissionMode,
-    settingSources: options.permissionMode === 'bypassPermissions'
-      ? ['user', 'project']   // admin: user-level skills (Azure) included
-      : ['project'],           // user: project skills only (no Azure)
+    settingSources: ['user', 'project'],  // all roles: load user-level skills + project CLAUDE.md
     ...(options.model ? { model: options.model } : {}),
     ...(options.canUseTool ? { canUseTool: options.canUseTool } : {}),
     ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),

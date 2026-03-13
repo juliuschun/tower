@@ -25,6 +25,9 @@ export interface TaskMeta {
   parentTaskId: string | null;
   worktreePath: string | null;
   projectId: string | null;
+  roomId: string | null;
+  triggeredBy: number | null;
+  roomMessageId: string | null;
 }
 
 export interface ScheduleCron {
@@ -57,6 +60,9 @@ function mapRow(row: any): TaskMeta {
     parentTaskId: row.parent_task_id || null,
     worktreePath: row.worktree_path || null,
     projectId: row.project_id || null,
+    roomId: row.room_id || null,
+    triggeredBy: row.triggered_by || null,
+    roomMessageId: row.room_message_id || null,
   };
 }
 
@@ -70,6 +76,7 @@ export function createTask(
   workflow?: WorkflowMode,
   parentTaskId?: string,
   projectId?: string,
+  roomInfo?: { roomId: string; triggeredBy: number; roomMessageId: string },
 ): TaskMeta {
   const db = getDb();
   const id = uuidv4();
@@ -78,8 +85,8 @@ export function createTask(
   const resolvedModel = model || 'claude-opus-4-6';
 
   db.prepare(`
-    INSERT INTO tasks (id, title, description, cwd, model, status, sort_order, user_id, scheduled_at, schedule_cron, schedule_enabled, workflow, parent_task_id, project_id)
-    VALUES (?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, title, description, cwd, model, status, sort_order, user_id, scheduled_at, schedule_cron, schedule_enabled, workflow, parent_task_id, project_id, room_id, triggered_by, room_message_id)
+    VALUES (?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id, title, description, cwd, resolvedModel, sortOrder, userId ?? null,
     schedule?.scheduledAt ?? null,
@@ -88,6 +95,9 @@ export function createTask(
     workflow || 'auto',
     parentTaskId ?? null,
     projectId ?? null,
+    roomInfo?.roomId ?? null,
+    roomInfo?.triggeredBy ?? null,
+    roomInfo?.roomMessageId ?? null,
   );
 
   return getTask(id)!;
@@ -121,7 +131,7 @@ export function getTask(id: string): TaskMeta | null {
   return row ? mapRow(row) : null;
 }
 
-export function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' | 'description' | 'cwd' | 'model' | 'status' | 'sessionId' | 'sortOrder' | 'progressSummary' | 'completedAt' | 'scheduledAt' | 'scheduleCron' | 'scheduleEnabled' | 'workflow' | 'parentTaskId' | 'worktreePath' | 'projectId'>>): TaskMeta | null {
+export function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' | 'description' | 'cwd' | 'model' | 'status' | 'sessionId' | 'sortOrder' | 'progressSummary' | 'completedAt' | 'scheduledAt' | 'scheduleCron' | 'scheduleEnabled' | 'workflow' | 'parentTaskId' | 'worktreePath' | 'projectId' | 'roomId' | 'triggeredBy' | 'roomMessageId'>>): TaskMeta | null {
   const db = getDb();
   const fields: string[] = [];
   const values: any[] = [];
@@ -142,6 +152,9 @@ export function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' |
   if (updates.parentTaskId !== undefined) { fields.push('parent_task_id = ?'); values.push(updates.parentTaskId); }
   if (updates.worktreePath !== undefined) { fields.push('worktree_path = ?'); values.push(updates.worktreePath); }
   if (updates.projectId !== undefined) { fields.push('project_id = ?'); values.push(updates.projectId); }
+  if (updates.roomId !== undefined) { fields.push('room_id = ?'); values.push(updates.roomId); }
+  if (updates.triggeredBy !== undefined) { fields.push('triggered_by = ?'); values.push(updates.triggeredBy); }
+  if (updates.roomMessageId !== undefined) { fields.push('room_message_id = ?'); values.push(updates.roomMessageId); }
 
   if (fields.length === 0) return getTask(id);
 

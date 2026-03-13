@@ -166,6 +166,28 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
 
   // Memoize ReactMarkdown components to prevent MermaidBlock unmount/remount loop
   const mdComponents = useMemo(() => ({
+    img({ src, alt, ...props }: Record<string, any>) {
+      // Convert local file paths to authenticated API URLs
+      let imgSrc = src || '';
+      if (imgSrc.startsWith('/home/') || imgSrc.startsWith('/tmp/') || imgSrc.startsWith('/workspace/')) {
+        const token = localStorage.getItem('token') || '';
+        imgSrc = `/api/files/serve?path=${encodeURIComponent(imgSrc)}&token=${encodeURIComponent(token)}`;
+      } else if (imgSrc.startsWith('/api/files/serve') && !imgSrc.includes('token=')) {
+        const token = localStorage.getItem('token') || '';
+        const sep = imgSrc.includes('?') ? '&' : '?';
+        imgSrc = `${imgSrc}${sep}token=${encodeURIComponent(token)}`;
+      }
+      return (
+        <img
+          src={imgSrc}
+          alt={alt || ''}
+          loading="lazy"
+          className="max-w-full rounded-lg border border-surface-700/40 cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => window.open(imgSrc, '_blank')}
+          {...props}
+        />
+      );
+    },
     code({ children, className, ...props }: Record<string, any>) {
       const isInline = !className;
       const text = String(children).trim();

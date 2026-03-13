@@ -29,13 +29,13 @@ interface SessionState {
   streamingSessions: Set<string>;
   unreadSessions: Set<string>;
   sidebarOpen: boolean;
-  sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins';
+  sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms';
   searchQuery: string;
   isMobile: boolean;
   mobileTab: MobileTab;
   mobileContextOpen: boolean;
   mobileTabBeforeContext: MobileTab;  // 파일 열기 전 탭 기억 (뒤로가기용)
-  activeView: 'chat' | 'kanban' | 'history';
+  activeView: 'chat' | 'kanban' | 'history' | 'rooms';
 
   setSessions: (sessions: SessionMeta[]) => void;
   setActiveSessionId: (id: string | null) => void;
@@ -45,14 +45,14 @@ interface SessionState {
   setSessionStreaming: (id: string, streaming: boolean) => void;
   markSessionRead: (id: string) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins') => void;
+  setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms') => void;
   setSearchQuery: (query: string) => void;
   setIsMobile: (v: boolean) => void;
   setMobileTab: (tab: MobileTab) => void;
   setMobileContextOpen: (v: boolean) => void;
   openMobileContext: () => void;   // 현재 탭 기억하고 context panel 열기
   closeMobileContext: (fromPopState?: boolean) => void;  // 기억한 탭으로 복귀
-  setActiveView: (view: 'chat' | 'kanban' | 'history') => void;
+  setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms') => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({

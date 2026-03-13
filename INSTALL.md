@@ -9,8 +9,11 @@
 | **Git** | any | `git --version` |
 | **Claude Code CLI** | latest | `claude --version` |
 | **Anthropic API** | Max plan or API key | `claude auth status` |
+| **PostgreSQL** *(optional)* | 18+ with pgvector | `psql --version` |
 
 > **Note**: `better-sqlite3` requires native build tools. On Ubuntu: `sudo apt install -y build-essential python3`
+>
+> **Note**: PostgreSQL is only needed for the chat rooms feature. Without it, all other features work normally via SQLite.
 
 ---
 
@@ -266,6 +269,69 @@ If your project is a code repo outside the workspace (e.g., `~/my-app/`):
 
 ---
 
+## PostgreSQL 18 Setup (Chat Rooms)
+
+Chat rooms require PostgreSQL. If you only need basic chat sessions (no team rooms), you can skip this section.
+
+### Install PostgreSQL 18 + pgvector
+
+```bash
+# Add PGDG official repository
+sudo apt install -y curl ca-certificates
+sudo install -d /usr/share/postgresql-common/pgdg
+curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
+  https://www.postgresql.org/media/keys/ACCC4CF8.asc
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+  https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+  | sudo tee /etc/apt/sources.list.d/pgdg.list
+
+# Install PostgreSQL 18 + pgvector
+sudo apt update
+sudo apt install -y postgresql-18 postgresql-18-pgvector
+```
+
+### Create Database & User
+
+```bash
+sudo -u postgres psql -p 5433 <<'SQL'
+CREATE USER tower WITH PASSWORD 'your-secure-password';
+CREATE DATABASE tower_chat OWNER tower;
+\c tower_chat
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS "vector";
+SQL
+```
+
+### Configure Environment
+
+Add to your `.env`:
+
+```bash
+DATABASE_URL=postgresql://tower:your-secure-password@127.0.0.1:5433/tower_chat
+```
+
+### Verify
+
+```bash
+# Check PG is running
+sudo systemctl status postgresql@18-main
+
+# Test connection
+psql "postgresql://tower:your-secure-password@127.0.0.1:5433/tower_chat" -c "SELECT version();"
+# → PostgreSQL 18.3 ...
+
+# Check extensions
+psql "postgresql://tower:your-secure-password@127.0.0.1:5433/tower_chat" -c "\dx"
+# → pg_trgm, uuid-ossp, vector
+```
+
+Migrations run automatically on server start when `DATABASE_URL` is set.
+
+> **Note**: PG 18 defaults to port 5433 if PG 14/16 is already installed on 5432. Check with `pg_lsclusters`.
+
+---
+
 ## Azure VM Deployment
 
 If you're deploying to an Azure VM, there are extra steps:
@@ -317,6 +383,7 @@ Copy `.env.example` to `.env` and edit:
 | `MAX_CONCURRENT_SESSIONS` | `10` | Max concurrent sessions |
 | `GIT_AUTO_COMMIT` | `true` | Auto-commit Claude edits |
 | `DB_PATH` | `data/tower.db` | SQLite database path |
+| `DATABASE_URL` | *(none)* | PostgreSQL connection string (chat rooms) |
 | `CLAUDE_PATH` | *(auto-detect)* | Claude CLI path override |
 | `PUBLIC_URL` | *(none)* | Canonical domain for share links |
 

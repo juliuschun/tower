@@ -172,6 +172,12 @@ function initSchema(db: Database.Database) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id) WHERE parent_task_id IS NOT NULL`);
   } catch {}
 
+  // Chat room integration (v3.0 — cross-DB references to PG chat_rooms)
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN room_id TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN triggered_by INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN room_message_id TEXT`); } catch {}
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_room ON tasks(room_id) WHERE room_id IS NOT NULL`); } catch {}
+
   // Messages turn-metrics migrations
   try { db.exec(`ALTER TABLE messages ADD COLUMN duration_ms INTEGER`); } catch {}
   try { db.exec(`ALTER TABLE messages ADD COLUMN input_tokens INTEGER`); } catch {}

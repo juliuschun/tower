@@ -16,6 +16,9 @@ import { spawnTask, abortTask } from '../services/task-runner.js';
 import { buildDamageControl, buildPathEnforcement, type TowerRole } from '../services/damage-control.js';
 import { buildSystemPrompt } from '../services/system-prompt.js';
 import { getTasks } from '../services/task-manager.js';
+import { addRoomClient, removeRoomClient, removeClientFromAllRooms, getRoomClientIds } from '../services/room-guards.js';
+import type { RoomClient } from '../services/room-guards.js';
+import { isPgEnabled } from '../db/pg.js';
 
 interface WsClient {
   id: string;
@@ -27,6 +30,7 @@ interface WsClient {
   username?: string;        // username from JWT
   activeQueryEpoch: number; // incremented on each new query / session switch
   allowedPath?: string;     // per-user workspace path restriction
+  joinedRooms: Set<string>;  // rooms this client is subscribed to (for room-guards)
 }
 
 interface PendingQuestion {
@@ -43,6 +47,7 @@ const ASK_USER_TIMEOUT = 60 * 60 * 1000; // 60 minutes
 const clients = new Map<string, WsClient>();
 const sessionClients = new Map<string, Set<string>>(); // sessionId → Set<clientId> (1:many)
 const pendingQuestions = new Map<string, PendingQuestion>(); // questionId → PendingQuestion
+const roomClients = new Map<string, Set<string>>(); // roomId → Set<clientId>
 
 /**
  * Claim a claudeSessionId for a Tower session.
@@ -79,6 +84,22 @@ function broadcastToSession(sessionId: string, data: any) {
   if (!clientIds) return;
   const payload = JSON.stringify(data);
   for (const clientId of clientIds) {
+    const client = clients.get(clientId);
+    if (client?.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+/**
+ * Broadcast a message to ALL clients subscribed to a room.
+ * Used for chat room messages, typing indicators, and AI status updates.
+ */
+function broadcastToRoom(roomId: string, data: any, excludeClientId?: string) {
+  const clientIds = getRoomClientIds(roomClients, roomId);
+  const payload = JSON.stringify(data);
+  for (const clientId of clientIds) {
+    if (clientId === excludeClientId) continue;
     const client = clients.get(clientId);
     if (client?.ws.readyState === WebSocket.OPEN) {
       client.ws.send(payload);
@@ -230,7 +251,7 @@ export function setupWebSocket(server: Server) {
 
   wss.on('connection', (ws, req) => {
     const clientId = uuidv4();
-    const client: WsClient = { id: clientId, ws, activeQueryEpoch: 0 };
+    const client: WsClient = { id: clientId, ws, activeQueryEpoch: 0, joinedRooms: new Set() };
 
     // Extract user role from JWT token
     if (config.authEnabled) {
@@ -280,12 +301,16 @@ export function setupWebSocket(server: Server) {
       if (client.sessionId) {
         removeSessionClient(sessionClients, client.sessionId, clientId);
       }
+      // Clean up room subscriptions
+      removeClientFromAllRooms(roomClients, client as any);
     });
 
     ws.on('error', () => {
       if (client.sessionId) {
         removeSessionClient(sessionClients, client.sessionId, clientId);
       }
+      // Clean up room subscriptions
+      removeClientFromAllRooms(roomClients, client as any);
       clients.delete(clientId);
     });
   });
@@ -344,6 +369,21 @@ async function handleMessage(client: WsClient, data: any) {
       send(client.ws, { type: 'task_list', tasks });
       break;
     }
+    case 'room_join':
+      handleRoomJoin(client, data);
+      break;
+    case 'room_leave':
+      handleRoomLeave(client, data);
+      break;
+    case 'room_message':
+      await handleRoomMessage(client, data);
+      break;
+    case 'room_typing':
+      handleRoomTyping(client, data);
+      break;
+    case 'room_read':
+      await handleRoomRead(client, data);
+      break;
     default:
       send(client.ws, { type: 'error', message: `Unknown message type: ${data.type}` });
   }
@@ -852,6 +892,263 @@ function handleFileTree(client: WsClient, data: { path?: string }) {
     send(client.ws, { type: 'error', message: error.message });
   }
 }
+
+// ── Chat Room Handlers ──────────────────────────────────────────────────
+
+function handleRoomJoin(client: WsClient, data: { roomId: string }) {
+  if (!isPgEnabled()) {
+    send(client.ws, { type: 'error', message: 'Chat rooms require PostgreSQL (DATABASE_URL not set)' });
+    return;
+  }
+  const roomClient: RoomClient = { id: client.id, joinedRooms: client.joinedRooms };
+  addRoomClient(roomClients, roomClient, data.roomId);
+  send(client.ws, { type: 'room_joined', roomId: data.roomId });
+}
+
+function handleRoomLeave(client: WsClient, data: { roomId: string }) {
+  const roomClient: RoomClient = { id: client.id, joinedRooms: client.joinedRooms };
+  removeRoomClient(roomClients, roomClient, data.roomId);
+  send(client.ws, { type: 'room_left', roomId: data.roomId });
+}
+
+async function handleRoomMessage(client: WsClient, data: { roomId: string; content: string; mentions?: string[]; replyTo?: string }) {
+  if (!isPgEnabled()) {
+    send(client.ws, { type: 'error', message: 'Chat rooms require PostgreSQL' });
+    return;
+  }
+  if (!client.userId) {
+    send(client.ws, { type: 'error', message: 'Authentication required' });
+    return;
+  }
+  if (!data.content?.trim()) {
+    send(client.ws, { type: 'error', message: 'Empty message' });
+    return;
+  }
+
+  try {
+    // Dynamic import to avoid loading PG modules when not needed
+    const { getMemberRole } = await import('../services/room-manager.js');
+
+    // Check membership
+    const memberRole = await getMemberRole(data.roomId, client.userId);
+    if (!memberRole) {
+      send(client.ws, { type: 'error', message: 'Not a member of this room' });
+      return;
+    }
+    if (memberRole === 'readonly') {
+      send(client.ws, { type: 'error', message: 'Read-only members cannot send messages' });
+      return;
+    }
+
+    // Insert message via room-manager (with sender_id for proper attribution)
+    const { sendMessage } = await import('../services/room-manager.js');
+    const savedMsg = await sendMessage(
+      data.roomId,
+      client.userId,
+      data.content,
+      'human',
+      {
+        mentions: data.mentions || [],
+        ...(data.replyTo ? { reply_to: data.replyTo } : {}),
+      },
+    );
+    const messageId = savedMsg.id;
+
+    // Broadcast to all room subscribers (clients that have room_join'd)
+    const roomMessage = {
+      type: 'room_message',
+      roomId: data.roomId,
+      message: {
+        id: messageId,
+        roomId: data.roomId,
+        senderId: client.userId,
+        senderName: client.username,
+        msgType: 'human',
+        content: data.content,
+        metadata: { mentions: data.mentions || [] },
+        replyTo: data.replyTo || null,
+        createdAt: new Date().toISOString(),
+      },
+    };
+    broadcastToRoom(data.roomId, roomMessage);
+
+    // Also notify room members who are NOT currently viewing this room
+    // so their unread counts update in real time on the main screen
+    const { getMembers } = await import('../services/room-manager.js');
+    const members = await getMembers(data.roomId);
+    const joinedClientIds = getRoomClientIds(roomClients, data.roomId);
+    for (const member of members) {
+      if (member.userId === client.userId) continue; // skip sender
+      // Check if this member already received the message via broadcastToRoom
+      let alreadyReceived = false;
+      for (const cid of joinedClientIds) {
+        const c = clients.get(cid);
+        if (c && c.userId === member.userId) { alreadyReceived = true; break; }
+      }
+      if (!alreadyReceived) {
+        broadcastToUser(member.userId, roomMessage);
+      }
+    }
+
+    // Check for @ai mention
+    if (data.mentions?.includes('ai') || data.content.match(/(^|[\s])@ai\b/i)) {
+      const { parseAiMention, checkRateLimit, checkConcurrentLimit, checkAiCallPermission, recordAiCall } = await import('../services/ai-dispatch.js');
+      const mention = parseAiMention(data.content);
+
+      if (mention.found && mention.prompt) {
+        // Permission check
+        const permCheck = checkAiCallPermission(
+          (client.userRole || 'member') as any,
+          memberRole as any,
+        );
+        if (!permCheck.allowed) {
+          broadcastToRoom(data.roomId, {
+            type: 'room_message',
+            roomId: data.roomId,
+            message: {
+              id: `sys-${Date.now()}`,
+              roomId: data.roomId,
+              senderId: null,
+              msgType: 'system',
+              content: permCheck.reason || 'Permission denied',
+              metadata: {},
+              createdAt: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        // Rate limit check
+        const rateResult = checkRateLimit(client.userId, data.roomId);
+        if (!rateResult.allowed) {
+          send(client.ws, { type: 'error', message: `Rate limit exceeded (${rateResult.reason}). Retry after ${Math.ceil((rateResult.retryAfterMs || 0) / 1000)}s` });
+          return;
+        }
+
+        // Concurrent limit check
+        const concResult = checkConcurrentLimit(data.roomId);
+        if (!concResult.allowed) {
+          send(client.ws, { type: 'error', message: `Room has ${concResult.runningCount}/${concResult.limit} AI tasks running. Please wait.` });
+          return;
+        }
+
+        // Record the call for rate limiting
+        recordAiCall(client.userId, data.roomId);
+
+        // Create task via task-manager
+        const { createTask } = await import('../services/task-manager.js');
+        const taskTitle = mention.prompt.slice(0, 80) || '@ai task';
+
+        // Determine CWD from room's project (if any)
+        const { getRoom: fetchRoom } = await import('../services/room-manager.js');
+        const room = await fetchRoom(data.roomId);
+        const taskCwd = room?.projectId ? config.defaultCwd : config.defaultCwd; // TODO: resolve project root_path
+
+        const task = createTask(
+          taskTitle,
+          mention.prompt,
+          taskCwd,
+          client.userId,
+          undefined, undefined, undefined, undefined, undefined,
+          { roomId: data.roomId, triggeredBy: client.userId, roomMessageId: messageId },
+        );
+
+        // Post task_ref message to room
+        const taskRefMsg = await sendMessage(
+          data.roomId,
+          null,
+          `Task "${taskTitle}" registered`,
+          'ai_task_ref',
+          { task_id: task.id, status: 'todo' },
+          task.id,
+        );
+        const taskRefId = taskRefMsg.id;
+
+        broadcastToRoom(data.roomId, {
+          type: 'room_message',
+          roomId: data.roomId,
+          message: {
+            id: taskRefId,
+            roomId: data.roomId,
+            senderId: null,
+            msgType: 'ai_task_ref',
+            content: `Task "${taskTitle}" registered`,
+            metadata: { task_id: task.id, status: 'todo' },
+            createdAt: new Date().toISOString(),
+          },
+        });
+
+        // Spawn task (fire-and-forget) — room tasks use acceptEdits (capped in task-runner)
+        // Spawn with room-aware broadcast
+        spawnTask(task.id, (type, payload) => {
+          broadcastToAll({ type, ...payload });
+          // Also notify room when task completes
+          if (type === 'task_update' && (payload.status === 'done' || payload.status === 'failed')) {
+            broadcastToRoom(data.roomId, {
+              type: 'room_ai_status',
+              roomId: data.roomId,
+              taskId: task.id,
+              status: payload.status,
+            });
+          }
+        }, client.userId, client.userRole, client.allowedPath).catch(err => {
+          console.error(`[ws] Room task spawn failed:`, err.message);
+          broadcastToRoom(data.roomId, {
+            type: 'room_message',
+            roomId: data.roomId,
+            message: {
+              id: `err-${Date.now()}`,
+              roomId: data.roomId,
+              senderId: null,
+              msgType: 'ai_error',
+              content: `Task failed to start: ${err.message}`,
+              metadata: { task_id: task.id, error: err.message },
+              createdAt: new Date().toISOString(),
+            },
+          });
+        });
+      }
+    }
+  } catch (err: any) {
+    console.error('[ws] handleRoomMessage error:', err.message);
+    send(client.ws, { type: 'error', message: err.message || 'Failed to send message' });
+  }
+}
+
+function handleRoomTyping(client: WsClient, data: { roomId: string }) {
+  if (!client.userId || !client.joinedRooms.has(data.roomId)) return;
+  broadcastToRoom(data.roomId, {
+    type: 'room_typing',
+    roomId: data.roomId,
+    userId: client.userId,
+    username: client.username,
+  }, client.id); // exclude sender
+}
+
+async function handleRoomRead(client: WsClient, data: { roomId: string }) {
+  if (!client.userId || !isPgEnabled()) return;
+  try {
+    const { updateLastRead } = await import('../services/room-manager.js');
+    await updateLastRead(data.roomId, client.userId);
+  } catch (err: any) {
+    console.error('[ws] handleRoomRead error:', err.message);
+  }
+}
+
+/**
+ * Broadcast a message to ALL clients of a specific user (by userId).
+ * Used for member-added notifications so the invited user sees the room immediately.
+ */
+export function broadcastToUser(userId: number, data: any) {
+  const payload = JSON.stringify(data);
+  for (const client of clients.values()) {
+    if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+export { broadcastToRoom };
 
 function send(ws: WebSocket, data: any) {
   if (ws.readyState === WebSocket.OPEN) {

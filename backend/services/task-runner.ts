@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const MAX_CONCURRENT_TASKS = 10;
+const MAX_CONCURRENT_TASKS = 30;
 const runningTasks = new Map<string, { sessionId: string; aborted: boolean }>();
 const MONITOR_POLL_INTERVAL = 3000;
 const MONITOR_TIMEOUT = 60 * 60 * 1000; // 60 minutes
@@ -419,6 +419,7 @@ async function runTaskAgent(
   let claudeSessionId: string | undefined;
   let turnCount = 0;
   let lastSummary = '';
+  let completionSummary = ''; // Richer summary for room reporting
 
   // Save user prompt to DB so it's visible when viewing the session
   saveMessage(sessionId, {
@@ -460,11 +461,63 @@ async function runTaskAgent(
       : 'acceptEdits' as const;
 
     // Build system prompt for task agent (Layer 2)
-    const systemPrompt = buildSystemPrompt({
+    let systemPrompt = buildSystemPrompt({
       username: 'task-agent',
       role: effectiveRole,
       allowedPath,
     });
+
+    // Inject room context if this is a room-triggered task
+    const currentTask = getTask(taskId);
+    if (currentTask?.roomId) {
+      try {
+        const { getMessages: getRoomMessages, getAiContexts, getRoom: fetchRoom } = await import('./room-manager.js');
+        const { assembleRoomContext } = await import('./room-context.js');
+
+        const room = await fetchRoom(currentTask.roomId);
+        const recentMsgs = await getRoomMessages(currentTask.roomId, { limit: 20 });
+        const aiContexts = await getAiContexts(currentTask.roomId, 5);
+
+        const config = {
+          maxTier1Count: 5,
+          maxTier1Tokens: 500,
+          maxTier2Tokens: 2000,
+          maxRecentMessages: 15,
+          maxTotalTokens: 3000,
+        };
+
+        const aiEntries = aiContexts.map(ctx => ({
+          taskId: ctx.sourceTaskId || 'unknown',
+          question: '',
+          answerSummary: ctx.content,
+          tokenCount: ctx.tokenCount,
+          createdAt: ctx.createdAt,
+          expiresAt: ctx.expiresAt ?? undefined,
+        }));
+
+        const recentForContext = recentMsgs
+          .filter(m => m.msgType === 'human' || m.msgType === 'ai_summary')
+          .map(m => ({
+            sender: m.senderName || 'system',
+            content: m.content,
+            timestamp: m.createdAt,
+          }));
+
+        const roomContext = assembleRoomContext({
+          roomName: room?.name || 'Unknown Room',
+          roomDescription: room?.description || '',
+          aiContextEntries: aiEntries,
+          recentMessages: recentForContext,
+          userPrompt: description,
+          config,
+        });
+
+        systemPrompt = roomContext + '\n\n---\n\n' + systemPrompt;
+        console.log(`[task-runner] Room context injected for task "${title}" (room: ${room?.name})`);
+      } catch (err: any) {
+        console.error(`[task-runner] Failed to build room context for task ${taskId.slice(0, 8)}:`, err.message);
+      }
+    }
 
     const generator = executeQuery(sessionId, prompt, {
       cwd: agentCwd,
@@ -568,20 +621,30 @@ async function runTaskAgent(
             }
           }
 
-          // Detect completion
+          // Detect completion — capture the full text block as rich summary
           if (text.includes('[TASK COMPLETE]')) {
             lastSummary = 'Completed successfully';
+            // Extract everything after [TASK COMPLETE] marker as the summary
+            const afterMarker = text.split('[TASK COMPLETE]').pop()?.trim();
+            if (afterMarker && afterMarker.length > 5) {
+              completionSummary = afterMarker.slice(0, 1000);
+            }
           }
 
           // Detect failure
           const failMatch = text.match(/\[TASK FAILED:\s*(.+?)\]/);
           if (failMatch) {
             lastSummary = failMatch[1];
+            completionSummary = text.trim().slice(0, 1000);
           }
 
           // Keep last meaningful text as summary
           if (text.trim().length > 10 && !text.startsWith('[')) {
             lastSummary = text.trim().slice(0, 200);
+            // Also accumulate for richer room summary (keep latest substantial block)
+            if (text.trim().length > 30) {
+              completionSummary = text.trim().slice(0, 1000);
+            }
           }
         }
 
@@ -630,6 +693,70 @@ async function runTaskAgent(
         claudeSessionId,
         progressSummary: finalSummary,
       });
+
+      // ── Room task completion: post summary + save context ──
+      const completedTaskForRoom = getTask(taskId);
+      if (completedTaskForRoom?.roomId) {
+        try {
+          const { sendMessage: sendRoomMsg, saveAiContext } = await import('./room-manager.js');
+          const { broadcastToRoom } = await import('../routes/ws-handler.js');
+
+          const msgType = finalStatus === 'done' ? 'ai_summary' : 'ai_error';
+
+          // Build rich summary for room reporting
+          const stagesReport = progressStages
+            .filter(s => s !== 'Starting task...' && s !== 'Resuming task...')
+            .map(s => `• ${s}`)
+            .join('\n');
+
+          let summaryText: string;
+          if (completionSummary) {
+            // Use the rich completion summary (captured from agent's final output)
+            summaryText = `📋 태스크: ${title}\n📊 상태: ${finalStatus === 'done' ? '✅ 완료' : '❌ 실패'}\n\n${completionSummary}`;
+            if (stagesReport) {
+              summaryText += `\n\n🔄 진행 단계:\n${stagesReport}`;
+            }
+          } else if (lastSummary && lastSummary !== 'Completed successfully') {
+            summaryText = `📋 태스크: ${title}\n📊 상태: ${finalStatus === 'done' ? '✅ 완료' : '❌ 실패'}\n\n${lastSummary}`;
+          } else {
+            summaryText = `📋 태스크: ${title}\n📊 상태: ${finalStatus === 'done' ? '✅ 완료' : '❌ 실패'}`;
+            if (stagesReport) {
+              summaryText += `\n\n🔄 진행 단계:\n${stagesReport}`;
+            }
+          }
+
+          // Post message to room
+          const roomMsg = await sendRoomMsg(
+            completedTaskForRoom.roomId,
+            null, // system sender
+            summaryText,
+            msgType,
+            { taskId, taskTitle: title, status: finalStatus },
+            taskId,
+          );
+
+          // Broadcast to room clients
+          broadcastToRoom(completedTaskForRoom.roomId, {
+            type: 'room_message',
+            roomId: completedTaskForRoom.roomId,
+            message: roomMsg,
+          });
+
+          // Save as AI context (rough token estimate: 1 token per 4 chars)
+          if (finalStatus === 'done') {
+            await saveAiContext(
+              completedTaskForRoom.roomId,
+              summaryText,
+              Math.ceil(summaryText.length / 4),
+              taskId,
+            );
+          }
+
+          console.log(`[task-runner] Room task "${title}" → posted ${msgType} to room ${completedTaskForRoom.roomId.slice(0, 8)}`);
+        } catch (err: any) {
+          console.error(`[task-runner] Failed to post room summary for task ${taskId.slice(0, 8)}:`, err.message);
+        }
+      }
 
       // ── Recurring schedule reset ──
       // If this task has a cron pattern, reset it to 'todo' with next scheduled_at
@@ -680,6 +807,31 @@ async function runTaskAgent(
       status: 'failed',
       progressSummary: errorSummary,
     });
+
+    // Post error to room if this was a room-triggered task
+    const failedTaskForRoom = getTask(taskId);
+    if (failedTaskForRoom?.roomId) {
+      try {
+        const { sendMessage: sendRoomMsg } = await import('./room-manager.js');
+        const { broadcastToRoom } = await import('../routes/ws-handler.js');
+        const errorText = `📋 태스크: ${title}\n📊 상태: ❌ 실패\n\n오류: ${err.message}`;
+        const roomMsg = await sendRoomMsg(
+          failedTaskForRoom.roomId,
+          null,
+          errorText,
+          'ai_error',
+          { taskId, taskTitle: title, status: 'failed' },
+          taskId,
+        );
+        broadcastToRoom(failedTaskForRoom.roomId, {
+          type: 'room_message',
+          roomId: failedTaskForRoom.roomId,
+          message: roomMsg,
+        });
+      } catch (roomErr: any) {
+        console.error(`[task-runner] Failed to post error to room:`, roomErr.message);
+      }
+    }
 
     // Notify viewers: session done streaming (even on error)
     broadcastToAll('sdk_done', { sessionId, claudeSessionId });

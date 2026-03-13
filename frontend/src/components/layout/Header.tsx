@@ -4,6 +4,7 @@ import { useSettingsStore } from '../../stores/settings-store';
 import { useModelStore } from '../../stores/model-store';
 import { ModelSelector } from './ModelSelector';
 import { GitPanel } from '../git/GitPanel';
+import { useRoomStore } from '../../stores/room-store';
 
 interface HeaderProps {
   connected: boolean;
@@ -80,9 +81,15 @@ function MobileModelSelector({ currentModel, availableModels, selectedModel, onS
 function ViewToggle() {
   const activeView = useSessionStore((s) => s.activeView);
   const setActiveView = useSessionStore((s) => s.setActiveView);
+  const pgEnabled = useRoomStore((s) => s.pgEnabled);
+  const unreadCounts = useRoomStore((s) => s.unreadCounts);
 
-  const tabs: { id: 'chat' | 'kanban' | 'history'; label: string }[] = [
+  // Total unread messages across all rooms
+  const totalUnread = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+
+  const tabs: { id: 'chat' | 'kanban' | 'history' | 'rooms'; label: string }[] = [
     { id: 'chat', label: 'Chat' },
+    ...(pgEnabled ? [{ id: 'rooms' as const, label: 'Rooms' }] : []),
     { id: 'kanban', label: 'Board' },
     { id: 'history', label: 'History' },
   ];
@@ -93,13 +100,18 @@ function ViewToggle() {
         <button
           key={tab.id}
           onClick={() => setActiveView(tab.id)}
-          className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+          className={`relative px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
             activeView === tab.id
               ? 'bg-surface-700 text-white shadow-sm'
               : 'text-gray-500 hover:text-gray-300'
           }`}
         >
           {tab.label}
+          {tab.id === 'rooms' && totalUnread > 0 && activeView !== 'rooms' && (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-[9px] font-bold text-white rounded-full leading-none">
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
         </button>
       ))}
     </div>

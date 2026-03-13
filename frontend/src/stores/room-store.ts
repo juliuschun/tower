@@ -1,0 +1,357 @@
+import { create } from 'zustand';
+
+// ── Types ──────────────────────────────────────────────────────────
+
+export interface Room {
+  id: string;
+  name: string;
+  description: string | null;
+  roomType: 'team' | 'project' | 'dashboard';
+  projectId: string | null;
+  avatarUrl: string | null;
+  archived: boolean;
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoomMember {
+  roomId: string;
+  userId: number;
+  username: string;
+  role: 'owner' | 'admin' | 'member' | 'readonly';
+  joinedAt: string;
+  lastReadAt: string;
+}
+
+export interface RoomMessage {
+  id: string;
+  roomId: string;
+  senderId: number | null;
+  senderName: string | null;
+  seq: number;
+  msgType: 'human' | 'ai_summary' | 'ai_task_ref' | 'ai_error' | 'system';
+  content: string;
+  metadata: Record<string, unknown>;
+  taskId: string | null;
+  replyTo: string | null;
+  editedAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+}
+
+export interface TypingUser {
+  userId: number;
+  username: string;
+  timestamp: number; // Date.now() when typing started
+}
+
+export interface RoomNotification {
+  id: string;
+  userId: number;
+  roomId: string | null;
+  type: string;
+  title: string;
+  body: string | null;
+  metadata: Record<string, unknown>;
+  read: boolean;
+  createdAt: string;
+}
+
+// ── Typing timeout tracking (outside zustand to avoid serialization issues) ──
+
+const typingTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+function typingKey(roomId: string, userId: number): string {
+  return `${roomId}:${userId}`;
+}
+
+// ── Store ──────────────────────────────────────────────────────────
+
+interface RoomState {
+  // Room list
+  rooms: Room[];
+  activeRoomId: string | null;
+
+  // Messages per room (keyed by roomId)
+  messagesByRoom: Record<string, RoomMessage[]>;
+
+  // Members per room
+  membersByRoom: Record<string, RoomMember[]>;
+
+  // Unread counts per room
+  unreadCounts: Record<string, number>;
+
+  // Typing indicators per room
+  typingByRoom: Record<string, TypingUser[]>;
+
+  // Notifications
+  notifications: RoomNotification[];
+  unreadNotifCount: number;
+
+  // Loading states
+  loading: boolean;
+  messagesLoading: boolean;
+
+  // PG availability flag
+  pgEnabled: boolean;
+
+  // ── Actions ──────────────────────────────────────────────────────
+
+  // Rooms
+  setRooms: (rooms: Room[]) => void;
+  addRoom: (room: Room) => void;
+  updateRoom: (roomId: string, updates: Partial<Room>) => void;
+  removeRoom: (roomId: string) => void;
+  setActiveRoomId: (roomId: string | null) => void;
+
+  // Messages
+  setMessages: (roomId: string, messages: RoomMessage[]) => void;
+  addMessage: (roomId: string, message: RoomMessage) => void;
+  prependMessages: (roomId: string, messages: RoomMessage[]) => void;
+  updateMessage: (roomId: string, messageId: string, updates: Partial<RoomMessage>) => void;
+  removeMessage: (roomId: string, messageId: string) => void;
+
+  // Members
+  setMembers: (roomId: string, members: RoomMember[]) => void;
+  addMember: (roomId: string, member: RoomMember) => void;
+  removeMember: (roomId: string, userId: number) => void;
+
+  // Unread
+  setUnreadCounts: (counts: Record<string, number>) => void;
+  incrementUnread: (roomId: string) => void;
+  clearUnread: (roomId: string) => void;
+
+  // Typing
+  setTyping: (roomId: string, user: TypingUser) => void;
+  clearTyping: (roomId: string, userId: number) => void;
+
+  // Notifications
+  setNotifications: (notifications: RoomNotification[]) => void;
+  addNotification: (notification: RoomNotification) => void;
+  markNotificationRead: (notifId: string) => void;
+  markAllNotificationsRead: () => void;
+  setUnreadNotifCount: (count: number) => void;
+
+  // Loading
+  setLoading: (loading: boolean) => void;
+  setMessagesLoading: (loading: boolean) => void;
+
+  // PG
+  setPgEnabled: (enabled: boolean) => void;
+}
+
+export const useRoomStore = create<RoomState>((set, get) => ({
+  rooms: [],
+  activeRoomId: null,
+  messagesByRoom: {},
+  membersByRoom: {},
+  unreadCounts: {},
+  typingByRoom: {},
+  notifications: [],
+  unreadNotifCount: 0,
+  loading: false,
+  messagesLoading: false,
+  pgEnabled: false,
+
+  // ── Rooms ────────────────────────────────────────────────────────
+
+  setRooms: (rooms) => set({ rooms }),
+
+  addRoom: (room) => set((s) => {
+    if (s.rooms.some((r) => r.id === room.id)) return s;
+    return { rooms: [...s.rooms, room] };
+  }),
+
+  updateRoom: (roomId, updates) =>
+    set((s) => ({
+      rooms: s.rooms.map((r) =>
+        r.id === roomId ? { ...r, ...updates, updatedAt: updates.updatedAt ?? new Date().toISOString() } : r
+      ),
+    })),
+
+  removeRoom: (roomId) =>
+    set((s) => ({ rooms: s.rooms.filter((r) => r.id !== roomId) })),
+
+  setActiveRoomId: (roomId) => set({ activeRoomId: roomId }),
+
+  // ── Messages ─────────────────────────────────────────────────────
+
+  setMessages: (roomId, messages) =>
+    set((s) => ({
+      messagesByRoom: { ...s.messagesByRoom, [roomId]: messages },
+    })),
+
+  addMessage: (roomId, message) =>
+    set((s) => {
+      const existing = s.messagesByRoom[roomId] ?? [];
+      // Dedup by id
+      if (existing.some((m) => m.id === message.id)) return s;
+      return {
+        messagesByRoom: { ...s.messagesByRoom, [roomId]: [...existing, message] },
+      };
+    }),
+
+  prependMessages: (roomId, messages) =>
+    set((s) => {
+      const existing = s.messagesByRoom[roomId] ?? [];
+      const existingIds = new Set(existing.map((m) => m.id));
+      const newOnly = messages.filter((m) => !existingIds.has(m.id));
+      if (newOnly.length === 0) return s;
+      return {
+        messagesByRoom: { ...s.messagesByRoom, [roomId]: [...newOnly, ...existing] },
+      };
+    }),
+
+  updateMessage: (roomId, messageId, updates) =>
+    set((s) => {
+      const existing = s.messagesByRoom[roomId];
+      if (!existing) return s;
+      return {
+        messagesByRoom: {
+          ...s.messagesByRoom,
+          [roomId]: existing.map((m) => (m.id === messageId ? { ...m, ...updates } : m)),
+        },
+      };
+    }),
+
+  removeMessage: (roomId, messageId) =>
+    set((s) => {
+      const existing = s.messagesByRoom[roomId];
+      if (!existing) return s;
+      return {
+        messagesByRoom: {
+          ...s.messagesByRoom,
+          [roomId]: existing.filter((m) => m.id !== messageId),
+        },
+      };
+    }),
+
+  // ── Members ──────────────────────────────────────────────────────
+
+  setMembers: (roomId, members) =>
+    set((s) => ({
+      membersByRoom: { ...s.membersByRoom, [roomId]: members },
+    })),
+
+  addMember: (roomId, member) =>
+    set((s) => {
+      const existing = s.membersByRoom[roomId] ?? [];
+      if (existing.some((m) => m.userId === member.userId)) return s;
+      return {
+        membersByRoom: { ...s.membersByRoom, [roomId]: [...existing, member] },
+      };
+    }),
+
+  removeMember: (roomId, userId) =>
+    set((s) => {
+      const existing = s.membersByRoom[roomId];
+      if (!existing) return s;
+      return {
+        membersByRoom: {
+          ...s.membersByRoom,
+          [roomId]: existing.filter((m) => m.userId !== userId),
+        },
+      };
+    }),
+
+  // ── Unread ───────────────────────────────────────────────────────
+
+  setUnreadCounts: (counts) => set({ unreadCounts: counts }),
+
+  incrementUnread: (roomId) =>
+    set((s) => ({
+      unreadCounts: { ...s.unreadCounts, [roomId]: (s.unreadCounts[roomId] ?? 0) + 1 },
+    })),
+
+  clearUnread: (roomId) =>
+    set((s) => {
+      if (!s.unreadCounts[roomId]) return s;
+      return { unreadCounts: { ...s.unreadCounts, [roomId]: 0 } };
+    }),
+
+  // ── Typing ───────────────────────────────────────────────────────
+
+  setTyping: (roomId, user) => {
+    const key = typingKey(roomId, user.userId);
+
+    // Clear any existing timeout for this user in this room
+    const prev = typingTimeouts.get(key);
+    if (prev) clearTimeout(prev);
+
+    // Auto-clear after 5 seconds
+    const timeout = setTimeout(() => {
+      typingTimeouts.delete(key);
+      get().clearTyping(roomId, user.userId);
+    }, 5000);
+    typingTimeouts.set(key, timeout);
+
+    set((s) => {
+      const existing = s.typingByRoom[roomId] ?? [];
+      const filtered = existing.filter((t) => t.userId !== user.userId);
+      return {
+        typingByRoom: { ...s.typingByRoom, [roomId]: [...filtered, user] },
+      };
+    });
+  },
+
+  clearTyping: (roomId, userId) => {
+    const key = typingKey(roomId, userId);
+    const prev = typingTimeouts.get(key);
+    if (prev) {
+      clearTimeout(prev);
+      typingTimeouts.delete(key);
+    }
+
+    set((s) => {
+      const existing = s.typingByRoom[roomId];
+      if (!existing) return s;
+      const filtered = existing.filter((t) => t.userId !== userId);
+      return {
+        typingByRoom: { ...s.typingByRoom, [roomId]: filtered },
+      };
+    });
+  },
+
+  // ── Notifications ────────────────────────────────────────────────
+
+  setNotifications: (notifications) => set({ notifications }),
+
+  addNotification: (notification) =>
+    set((s) => {
+      if (s.notifications.some((n) => n.id === notification.id)) return s;
+      return {
+        notifications: [notification, ...s.notifications],
+        unreadNotifCount: s.unreadNotifCount + 1,
+      };
+    }),
+
+  markNotificationRead: (notifId) =>
+    set((s) => {
+      const target = s.notifications.find((n) => n.id === notifId);
+      if (!target || target.read) return s;
+      return {
+        notifications: s.notifications.map((n) =>
+          n.id === notifId ? { ...n, read: true } : n
+        ),
+        unreadNotifCount: Math.max(0, s.unreadNotifCount - 1),
+      };
+    }),
+
+  markAllNotificationsRead: () =>
+    set((s) => ({
+      notifications: s.notifications.map((n) => ({ ...n, read: true })),
+      unreadNotifCount: 0,
+    })),
+
+  setUnreadNotifCount: (count) => set({ unreadNotifCount: count }),
+
+  // ── Loading ──────────────────────────────────────────────────────
+
+  setLoading: (loading) => set({ loading }),
+  setMessagesLoading: (messagesLoading) => set({ messagesLoading }),
+
+  // ── PG ───────────────────────────────────────────────────────────
+
+  setPgEnabled: (pgEnabled) => set({ pgEnabled }),
+}));

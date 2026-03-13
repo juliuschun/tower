@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { useChatStore, type ChatMessage, type ContentBlock, type SlashCommandInfo } from '../stores/chat-store';
+import { useChatStore, type ChatMessage, type SlashCommandInfo } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
 import { useModelStore } from '../stores/model-store';
@@ -11,6 +11,7 @@ import { generateUUID } from '../utils/uuid';
 import { toastSuccess, toastError, toastWarning } from '../utils/toast';
 import { notifyTaskComplete, requestNotificationPermission } from '../utils/notify';
 import { useKanbanStore } from '../stores/kanban-store';
+import { useRoomStore } from '../stores/room-store';
 
 /** Debounce timer for auto-reload of externally changed files */
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +149,20 @@ export function useClaudeChat() {
         // Refresh kanban tasks on (re)connect — task_update messages may have
         // been missed during a brief disconnection (mobile bg, Cloudflare, etc.)
         setTimeout(() => sendRef.current({ type: 'task_list' }), 150);
+
+        // Fetch rooms on connect
+        setTimeout(() => {
+          const tk = localStorage.getItem('token');
+          const hdrs: Record<string, string> = {};
+          if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+          fetch('/api/rooms', { headers: hdrs })
+            .then(r => r.ok ? r.json() : { rooms: [], pgEnabled: false })
+            .then(roomData => {
+              useRoomStore.getState().setRooms(roomData.rooms || []);
+              useRoomStore.getState().setPgEnabled(roomData.pgEnabled ?? false);
+            })
+            .catch(() => {});
+        }, 200);
 
         // Restore streaming indicators for all running sessions
         const runningSessions: string[] = data.streamingSessions || [];
@@ -808,6 +823,61 @@ export function useClaudeChat() {
 
       case 'task_list': {
         useKanbanStore.getState().setTasks(data.tasks || []);
+        break;
+      }
+
+      // ── Room events ──────────────────────────────────────────
+      case 'room_message': {
+        const { roomId, message: roomMsg } = data;
+        useRoomStore.getState().addMessage(roomId, roomMsg);
+        if (useRoomStore.getState().activeRoomId !== roomId) {
+          useRoomStore.getState().incrementUnread(roomId);
+        }
+        break;
+      }
+
+      case 'room_typing': {
+        const { roomId, userId, username } = data;
+        useRoomStore.getState().setTyping(roomId, { userId, username, timestamp: Date.now() });
+        break;
+      }
+
+      case 'room_joined': {
+        // Confirmation that we joined a room
+        break;
+      }
+
+      case 'room_left': {
+        break;
+      }
+
+      case 'room_member_joined':
+      case 'room_member_added': {
+        const { roomId, member } = data;
+        useRoomStore.getState().addMember(roomId, member);
+        break;
+      }
+
+      case 'room_member_left':
+      case 'room_member_removed': {
+        const { roomId, userId } = data;
+        useRoomStore.getState().removeMember(roomId, userId);
+        break;
+      }
+
+      case 'room_added': {
+        // A room was added to our list (e.g. we were invited)
+        const { room } = data;
+        if (room) {
+          useRoomStore.getState().addRoom(room);
+        }
+        break;
+      }
+
+      case 'room_removed': {
+        // We were removed from a room
+        const { roomId } = data;
+        useRoomStore.getState().removeRoom(roomId);
         break;
       }
     }

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useSessionStore, type SessionMeta } from '../../stores/session-store';
 import { useFileStore } from '../../stores/file-store';
-import { usePinStore, type Pin } from '../../stores/pin-store';
+import { type Pin } from '../../stores/pin-store';
 import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
 import { useProjectStore, type Project } from '../../stores/project-store';
 import { SessionItem } from '../sessions/SessionItem';
@@ -9,6 +9,8 @@ import { FileTree } from '../files/FileTree';
 import { PinList } from '../pinboard/PinList';
 import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
 import { toastError, toastSuccess } from '../../utils/toast';
+import { useRoomStore } from '../../stores/room-store';
+import { RoomList } from '../rooms/RoomList';
 
 interface SidebarProps {
   onNewSession: (projectId?: string) => void;
@@ -50,6 +52,13 @@ export function Sidebar({
   const treeRoot = useFileStore((s) => s.treeRoot);
 
   const prompts = usePromptStore((s) => s.prompts);
+
+  const pgEnabled = useRoomStore((s) => s.pgEnabled);
+  const unreadCounts = useRoomStore((s) => s.unreadCounts);
+  const totalRoomUnread = useMemo(
+    () => Object.values(unreadCounts).reduce((s, c) => s + c, 0),
+    [unreadCounts],
+  );
 
   const [fileTreeDragOver, setFileTreeDragOver] = useState(false);
   const fileTreeDragCounter = useRef(0);
@@ -270,6 +279,16 @@ export function Sidebar({
         <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
         <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>Prompts</button>
         <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>Pins</button>
+        {pgEnabled && (
+          <button onClick={() => setSidebarTab('rooms')} className={`${tabClass('rooms')} relative`}>
+            Rooms
+            {totalRoomUnread > 0 && sidebarTab !== 'rooms' && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-[8px] font-bold text-white rounded-full leading-none">
+                {totalRoomUnread > 99 ? '99+' : totalRoomUnread}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Tab content */}
@@ -477,6 +496,11 @@ export function Sidebar({
               </div>
             )}
           </div>
+        ) : sidebarTab === 'rooms' ? (
+          <RoomList onSelectRoom={(roomId) => {
+            useRoomStore.getState().setActiveRoomId(roomId);
+            useSessionStore.getState().setActiveView('rooms');
+          }} />
         ) : (
           <PinList
             onPinClick={(pin) => onPinClick?.(pin)}
@@ -933,7 +957,15 @@ function ProjectGroup({
         className={`flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj ${
           dragOver ? 'bg-primary-600/20 ring-1 ring-primary-500/40' : 'hover:bg-surface-850'
         }`}
-        onClick={onToggleCollapsed}
+        onClick={() => {
+          if (collapsed && groupSessions.length > 0) {
+            // Expanding: auto-select most recent session
+            onToggleCollapsed();
+            onSelectSession(groupSessions[0]);
+          } else {
+            onToggleCollapsed();
+          }
+        }}
         onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
         onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setEditName(project.name); }}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}

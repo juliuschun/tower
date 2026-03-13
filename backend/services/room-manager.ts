@@ -1,0 +1,707 @@
+/**
+ * Room Manager — PostgreSQL-backed room CRUD + PgAdapter implementation.
+ *
+ * All room data (chat_rooms, room_members, room_messages, room_ai_context,
+ * notifications, attachments) lives in PG.  User data lives in SQLite.
+ * This module bridges the two.
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import { getPgPool } from '../db/pg.js';
+import { getDb } from '../db/schema.js';
+import type { PgAdapter } from './cross-db.js';
+
+// ── Types ────────────────────────────────────────────────────────────
+
+export interface Room {
+  id: string;
+  name: string;
+  description: string | null;
+  roomType: 'team' | 'project' | 'dashboard';
+  projectId: string | null;
+  avatarUrl: string | null;
+  archived: boolean;
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoomMember {
+  roomId: string;
+  userId: number;
+  username: string;
+  role: 'owner' | 'admin' | 'member' | 'readonly';
+  joinedAt: string;
+  lastReadAt: string;
+}
+
+export interface RoomMessage {
+  id: string;
+  roomId: string;
+  senderId: number | null;
+  senderName: string | null;
+  seq: number;
+  msgType: 'human' | 'ai_summary' | 'ai_task_ref' | 'ai_error' | 'system';
+  content: string;
+  metadata: Record<string, unknown>;
+  taskId: string | null;
+  replyTo: string | null;
+  editedAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+}
+
+// ── Validation Helpers ───────────────────────────────────────────────
+
+const VALID_ROOM_TYPES = new Set(['team', 'project', 'dashboard']);
+const VALID_MEMBER_ROLES = new Set(['owner', 'admin', 'member', 'readonly']);
+const VALID_MSG_TYPES = new Set(['human', 'ai_summary', 'ai_task_ref', 'ai_error', 'system']);
+
+function assertRoomType(v: string): asserts v is Room['roomType'] {
+  if (!VALID_ROOM_TYPES.has(v)) throw new Error(`Invalid room type: ${v}`);
+}
+
+function assertMemberRole(v: string): asserts v is RoomMember['role'] {
+  if (!VALID_MEMBER_ROLES.has(v)) throw new Error(`Invalid member role: ${v}`);
+}
+
+function assertMsgType(v: string): asserts v is RoomMessage['msgType'] {
+  if (!VALID_MSG_TYPES.has(v)) throw new Error(`Invalid message type: ${v}`);
+}
+
+// ── Username Cache (SQLite → memory) ─────────────────────────────────
+
+const usernameCache = new Map<number, string>();
+
+function lookupUsername(userId: number): string | null {
+  const cached = usernameCache.get(userId);
+  if (cached !== undefined) return cached;
+
+  const row = getDb()
+    .prepare('SELECT username FROM users WHERE id = ?')
+    .get(userId) as { username: string } | undefined;
+
+  if (row) {
+    usernameCache.set(userId, row.username);
+    return row.username;
+  }
+  return null;
+}
+
+/** Clear cache entry (e.g. after user rename). */
+export function invalidateUsernameCache(userId?: number): void {
+  if (userId !== undefined) {
+    usernameCache.delete(userId);
+  } else {
+    usernameCache.clear();
+  }
+}
+
+// ── Row → Domain Mappers ─────────────────────────────────────────────
+
+function rowToRoom(r: any): Room {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? null,
+    roomType: r.room_type,
+    projectId: r.project_id ?? null,
+    avatarUrl: r.avatar_url ?? null,
+    archived: !!r.archived,
+    createdBy: r.created_by,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
+  };
+}
+
+function rowToMessage(r: any): RoomMessage {
+  return {
+    id: r.id,
+    roomId: r.room_id,
+    senderId: r.sender_id ?? null,
+    senderName: r.sender_id != null ? lookupUsername(r.sender_id) : null,
+    seq: Number(r.seq),
+    msgType: r.msg_type,
+    content: r.content,
+    metadata: r.metadata ?? {},
+    taskId: r.task_id ?? null,
+    replyTo: r.reply_to ?? null,
+    editedAt: r.edited_at ? (r.edited_at instanceof Date ? r.edited_at.toISOString() : String(r.edited_at)) : null,
+    deletedAt: r.deleted_at ? (r.deleted_at instanceof Date ? r.deleted_at.toISOString() : String(r.deleted_at)) : null,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  };
+}
+
+function rowToMember(r: any): RoomMember {
+  return {
+    roomId: r.room_id,
+    userId: r.user_id,
+    username: lookupUsername(r.user_id) ?? `user_${r.user_id}`,
+    role: r.role,
+    joinedAt: r.joined_at instanceof Date ? r.joined_at.toISOString() : String(r.joined_at),
+    lastReadAt: r.last_read_at instanceof Date ? r.last_read_at.toISOString() : String(r.last_read_at ?? r.joined_at),
+  };
+}
+
+// ── Room CRUD ────────────────────────────────────────────────────────
+
+export async function createRoom(
+  name: string,
+  description: string | null,
+  roomType: string,
+  createdBy: number,
+  projectId?: string,
+): Promise<Room> {
+  assertRoomType(roomType);
+  const pool = getPgPool();
+
+  const { rows } = await pool.query(
+    `INSERT INTO chat_rooms (name, description, room_type, project_id, created_by)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [name, description, roomType, projectId ?? null, createdBy],
+  );
+  const room = rowToRoom(rows[0]);
+
+  // Auto-add creator as owner
+  await pool.query(
+    `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'owner')`,
+    [room.id, createdBy],
+  );
+
+  // Auto-add fellow group members (from SQLite groups)
+  try {
+    const { getUserGroups } = await import('./group-manager.js');
+    const creatorGroups = getUserGroups(createdBy);
+    if (creatorGroups.length > 0) {
+      const db = getDb();
+      const groupIds = creatorGroups.map(g => g.id);
+      const placeholders = groupIds.map(() => '?').join(',');
+      const fellowMembers = db.prepare(
+        `SELECT DISTINCT u.id FROM users u
+         JOIN user_groups ug ON ug.user_id = u.id
+         WHERE ug.group_id IN (${placeholders}) AND u.id != ? AND u.disabled = 0`
+      ).all(...groupIds, createdBy) as { id: number }[];
+
+      for (const member of fellowMembers) {
+        await pool.query(
+          `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')
+           ON CONFLICT (room_id, user_id) DO NOTHING`,
+          [room.id, member.id],
+        );
+      }
+      if (fellowMembers.length > 0) {
+        console.log(`[room-manager] Auto-added ${fellowMembers.length} group member(s) to room "${name}"`);
+      }
+    }
+  } catch (err: any) {
+    console.error(`[room-manager] Failed to auto-add group members:`, err.message);
+  }
+
+  return room;
+}
+
+export async function getRoom(roomId: string): Promise<Room | null> {
+  const { rows } = await getPgPool().query(
+    'SELECT * FROM chat_rooms WHERE id = $1',
+    [roomId],
+  );
+  return rows.length > 0 ? rowToRoom(rows[0]) : null;
+}
+
+export async function listRooms(userId: number): Promise<Room[]> {
+  const pool = getPgPool();
+
+  // Check if user is admin (SQLite)
+  const userRow = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | undefined;
+  const isAdmin = userRow?.role === 'admin';
+
+  // Admin sees ALL rooms (no group filter needed)
+  if (isAdmin) {
+    const { rows } = await pool.query(
+      `SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`,
+    );
+    // Auto-add admin as member to any rooms they're not in (so they can send messages)
+    for (const room of rows) {
+      await pool.query(
+        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`,
+        [room.id, userId],
+      );
+    }
+    return rows.map(rowToRoom);
+  }
+
+  // Non-admin: auto-join rooms by fellow group members
+  try {
+    const { getUserGroups } = await import('./group-manager.js');
+    const userGroups = getUserGroups(userId);
+    if (userGroups.length > 0) {
+      const db = getDb();
+      const groupIds = userGroups.map(g => g.id);
+      const placeholders = groupIds.map(() => '?').join(',');
+      // Find fellow group members (SQLite)
+      const fellowIds = (db.prepare(
+        `SELECT DISTINCT user_id FROM user_groups WHERE group_id IN (${placeholders})`
+      ).all(...groupIds) as { user_id: number }[]).map(r => r.user_id);
+
+      if (fellowIds.length > 0) {
+        // Find rooms created by fellow members where this user is NOT yet a member (PG)
+        const pgPlaceholders = fellowIds.map((_, i) => `$${i + 1}`).join(',');
+        const { rows: missingRooms } = await pool.query(
+          `SELECT r.id FROM chat_rooms r
+           WHERE r.created_by IN (${pgPlaceholders}) AND r.archived = 0
+           AND r.id NOT IN (SELECT room_id FROM room_members WHERE user_id = $${fellowIds.length + 1})`,
+          [...fellowIds, userId],
+        );
+        // Auto-add user as member
+        for (const room of missingRooms) {
+          await pool.query(
+            `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
+            [room.id, userId],
+          );
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error(`[room-manager] Auto-join group rooms failed:`, err.message);
+  }
+
+  // Now fetch all rooms user is a member of
+  const { rows } = await pool.query(
+    `SELECT r.* FROM chat_rooms r
+     JOIN room_members m ON m.room_id = r.id
+     WHERE m.user_id = $1 AND r.archived = 0
+     ORDER BY r.updated_at DESC`,
+    [userId],
+  );
+  return rows.map(rowToRoom);
+}
+
+export async function updateRoom(
+  roomId: string,
+  updates: { name?: string; description?: string; archived?: boolean },
+): Promise<Room | null> {
+  const sets: string[] = [];
+  const vals: any[] = [];
+  let idx = 1;
+
+  if (updates.name !== undefined) {
+    sets.push(`name = $${idx++}`);
+    vals.push(updates.name);
+  }
+  if (updates.description !== undefined) {
+    sets.push(`description = $${idx++}`);
+    vals.push(updates.description);
+  }
+  if (updates.archived !== undefined) {
+    sets.push(`archived = $${idx++}`);
+    vals.push(updates.archived);
+  }
+
+  if (sets.length === 0) return getRoom(roomId);
+
+  sets.push(`updated_at = NOW()`);
+  vals.push(roomId);
+
+  const { rows } = await getPgPool().query(
+    `UPDATE chat_rooms SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+    vals,
+  );
+  return rows.length > 0 ? rowToRoom(rows[0]) : null;
+}
+
+export async function deleteRoom(roomId: string): Promise<boolean> {
+  const { rowCount } = await getPgPool().query(
+    'DELETE FROM chat_rooms WHERE id = $1',
+    [roomId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+// ── Members ──────────────────────────────────────────────────────────
+
+export async function addMember(
+  roomId: string,
+  userId: number,
+  role: string = 'member',
+): Promise<RoomMember> {
+  assertMemberRole(role);
+  const { rows } = await getPgPool().query(
+    `INSERT INTO room_members (room_id, user_id, role)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (room_id, user_id) DO UPDATE SET role = EXCLUDED.role
+     RETURNING *`,
+    [roomId, userId, role],
+  );
+  return rowToMember(rows[0]);
+}
+
+export async function removeMember(roomId: string, userId: number): Promise<boolean> {
+  const { rowCount } = await getPgPool().query(
+    'DELETE FROM room_members WHERE room_id = $1 AND user_id = $2',
+    [roomId, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function getMembers(roomId: string): Promise<RoomMember[]> {
+  const { rows } = await getPgPool().query(
+    'SELECT * FROM room_members WHERE room_id = $1 ORDER BY joined_at ASC',
+    [roomId],
+  );
+  return rows.map(rowToMember);
+}
+
+export async function updateMemberRole(
+  roomId: string,
+  userId: number,
+  role: string,
+): Promise<boolean> {
+  assertMemberRole(role);
+  const { rowCount } = await getPgPool().query(
+    'UPDATE room_members SET role = $1 WHERE room_id = $2 AND user_id = $3',
+    [role, roomId, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function updateLastRead(roomId: string, userId: number): Promise<void> {
+  await getPgPool().query(
+    'UPDATE room_members SET last_read_at = NOW() WHERE room_id = $1 AND user_id = $2',
+    [roomId, userId],
+  );
+}
+
+export async function isMember(roomId: string, userId: number): Promise<boolean> {
+  const { rows } = await getPgPool().query(
+    'SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2',
+    [roomId, userId],
+  );
+  return rows.length > 0;
+}
+
+export async function getMemberRole(roomId: string, userId: number): Promise<string | null> {
+  const { rows } = await getPgPool().query(
+    'SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2',
+    [roomId, userId],
+  );
+  return rows.length > 0 ? rows[0].role : null;
+}
+
+// ── Messages ─────────────────────────────────────────────────────────
+
+export async function sendMessage(
+  roomId: string,
+  senderId: number | null,
+  content: string,
+  msgType: string = 'human',
+  metadata: Record<string, unknown> = {},
+  taskId?: string,
+  replyTo?: string,
+): Promise<RoomMessage> {
+  assertMsgType(msgType);
+  const { rows } = await getPgPool().query(
+    `INSERT INTO room_messages (room_id, sender_id, msg_type, content, metadata, task_id, reply_to)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+     RETURNING *`,
+    [roomId, senderId, msgType, content, JSON.stringify(metadata), taskId ?? null, replyTo ?? null],
+  );
+  return rowToMessage(rows[0]);
+}
+
+export async function getMessages(
+  roomId: string,
+  options: { limit?: number; before?: string; after?: string } = {},
+): Promise<RoomMessage[]> {
+  const limit = Math.min(options.limit ?? 50, 200);
+  const conditions = ['room_id = $1', 'deleted_at IS NULL'];
+  const vals: any[] = [roomId];
+  let idx = 2;
+
+  if (options.before) {
+    // before = seq cursor
+    conditions.push(`seq < $${idx++}`);
+    vals.push(options.before);
+  }
+  if (options.after) {
+    conditions.push(`seq > $${idx++}`);
+    vals.push(options.after);
+  }
+
+  vals.push(limit);
+
+  const { rows } = await getPgPool().query(
+    `SELECT * FROM room_messages
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY seq ASC
+     LIMIT $${idx}`,
+    vals,
+  );
+  return rows.map(rowToMessage);
+}
+
+export async function editMessage(messageId: string, content: string): Promise<RoomMessage | null> {
+  const { rows } = await getPgPool().query(
+    `UPDATE room_messages SET content = $1, edited_at = NOW()
+     WHERE id = $2 AND deleted_at IS NULL
+     RETURNING *`,
+    [content, messageId],
+  );
+  return rows.length > 0 ? rowToMessage(rows[0]) : null;
+}
+
+export async function deleteMessage(messageId: string): Promise<boolean> {
+  const { rowCount } = await getPgPool().query(
+    'UPDATE room_messages SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL',
+    [messageId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function getMessage(messageId: string): Promise<RoomMessage | null> {
+  const { rows } = await getPgPool().query(
+    'SELECT * FROM room_messages WHERE id = $1',
+    [messageId],
+  );
+  return rows.length > 0 ? rowToMessage(rows[0]) : null;
+}
+
+// ── Unread Counts ────────────────────────────────────────────────────
+
+export async function getUnreadCounts(userId: number): Promise<Map<string, number>> {
+  const { rows } = await getPgPool().query(
+    `SELECT m.room_id, COUNT(msg.id)::INTEGER AS unread
+     FROM room_members m
+     JOIN room_messages msg
+       ON msg.room_id = m.room_id
+       AND msg.created_at > m.last_read_at
+       AND msg.deleted_at IS NULL
+     WHERE m.user_id = $1
+     GROUP BY m.room_id`,
+    [userId],
+  );
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(row.room_id, row.unread);
+  }
+  return counts;
+}
+
+// ── AI Context ───────────────────────────────────────────────────────
+
+export async function saveAiContext(
+  roomId: string,
+  content: string,
+  tokenCount: number,
+  sourceTaskId: string,
+): Promise<string> {
+  const { rows } = await getPgPool().query(
+    `INSERT INTO room_ai_context (room_id, context_type, content, token_count, source_task_id)
+     VALUES ($1, 'task_summary', $2, $3, $4)
+     RETURNING id`,
+    [roomId, content, tokenCount, sourceTaskId],
+  );
+  return rows[0].id;
+}
+
+export async function getAiContexts(
+  roomId: string,
+  limit: number = 10,
+): Promise<{ id: string; content: string; tokenCount: number; sourceTaskId: string | null; createdAt: string; expiresAt: string | null }[]> {
+  const { rows } = await getPgPool().query(
+    `SELECT id, content, token_count, source_task_id, created_at, expires_at
+     FROM room_ai_context
+     WHERE room_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [roomId, limit],
+  );
+  return rows.map((r: any) => ({
+    id: r.id,
+    content: r.content,
+    tokenCount: r.token_count,
+    sourceTaskId: r.source_task_id ?? null,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    expiresAt: r.expires_at ? (r.expires_at instanceof Date ? r.expires_at.toISOString() : String(r.expires_at)) : null,
+  }));
+}
+
+export async function cleanupExpiredContexts(): Promise<number> {
+  const { rowCount } = await getPgPool().query(
+    'DELETE FROM room_ai_context WHERE expires_at IS NOT NULL AND expires_at <= NOW()',
+  );
+  return rowCount ?? 0;
+}
+
+// ── Notifications ────────────────────────────────────────────────────
+
+export async function createNotification(
+  userId: number,
+  roomId: string | null,
+  type: string,
+  title: string,
+  body?: string,
+  metadata?: Record<string, unknown>,
+): Promise<string> {
+  const id = uuidv4();
+  await getPgPool().query(
+    `INSERT INTO notifications (id, user_id, room_id, notif_type, title, body, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+    [id, userId, roomId, type, title, body ?? null, JSON.stringify(metadata ?? {})],
+  );
+  return id;
+}
+
+export async function getNotifications(
+  userId: number,
+  options: { unreadOnly?: boolean; limit?: number } = {},
+): Promise<any[]> {
+  const limit = options.limit ?? 50;
+  const conditions = ['user_id = $1'];
+  const vals: any[] = [userId];
+
+  if (options.unreadOnly) {
+    conditions.push('read = false');
+  }
+
+  vals.push(limit);
+
+  const { rows } = await getPgPool().query(
+    `SELECT * FROM notifications
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY created_at DESC
+     LIMIT $${vals.length}`,
+    vals,
+  );
+  return rows.map((r: any) => ({
+    id: r.id,
+    userId: r.user_id,
+    roomId: r.room_id,
+    type: r.notif_type,
+    title: r.title,
+    body: r.body,
+    metadata: r.metadata ?? {},
+    read: !!r.read,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+  }));
+}
+
+export async function markNotificationRead(notifId: string): Promise<boolean> {
+  const { rowCount } = await getPgPool().query(
+    'UPDATE notifications SET read = true WHERE id = $1',
+    [notifId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function markAllNotificationsRead(userId: number): Promise<number> {
+  const { rowCount } = await getPgPool().query(
+    'UPDATE notifications SET read = true WHERE user_id = $1 AND read = false',
+    [userId],
+  );
+  return rowCount ?? 0;
+}
+
+export async function getUnreadCount(userId: number): Promise<number> {
+  const { rows } = await getPgPool().query(
+    'SELECT COUNT(*)::int AS cnt FROM notifications WHERE user_id = $1 AND read = false',
+    [userId],
+  );
+  return rows[0].cnt;
+}
+
+// ── PgAdapter Implementation (for cross-db.ts) ──────────────────────
+
+export function createPgAdapter(): PgAdapter {
+  const pool = getPgPool();
+
+  return {
+    async getRoomMemberUserIds(roomId: string): Promise<number[]> {
+      const { rows } = await pool.query(
+        'SELECT user_id FROM room_members WHERE room_id = $1',
+        [roomId],
+      );
+      return rows.map((r: any) => r.user_id);
+    },
+
+    async getAllMemberUserIds(): Promise<number[]> {
+      const { rows } = await pool.query('SELECT DISTINCT user_id FROM room_members');
+      return rows.map((r: any) => r.user_id);
+    },
+
+    async removeRoomMember(roomId: string, userId: number): Promise<void> {
+      await pool.query(
+        'DELETE FROM room_members WHERE room_id = $1 AND user_id = $2',
+        [roomId, userId],
+      );
+    },
+
+    async removeUserFromAllRooms(userId: number): Promise<void> {
+      await pool.query(
+        'DELETE FROM room_members WHERE user_id = $1',
+        [userId],
+      );
+    },
+
+    async roomExists(roomId: string): Promise<boolean> {
+      const { rows } = await pool.query(
+        'SELECT 1 FROM chat_rooms WHERE id = $1',
+        [roomId],
+      );
+      return rows.length > 0;
+    },
+
+    async getAllRoomIds(): Promise<string[]> {
+      const { rows } = await pool.query('SELECT id FROM chat_rooms');
+      return rows.map((r: any) => r.id);
+    },
+
+    async insertRoomMessage(
+      roomId: string,
+      msgType: string,
+      content: string,
+      metadata?: Record<string, unknown>,
+    ): Promise<string> {
+      const { rows } = await pool.query(
+        `INSERT INTO room_messages (room_id, sender_id, msg_type, content, metadata)
+         VALUES ($1, NULL, $2, $3, $4::jsonb)
+         RETURNING id`,
+        [roomId, msgType, content, JSON.stringify(metadata ?? {})],
+      );
+      return rows[0].id;
+    },
+
+    async insertRoomAiContext(
+      roomId: string,
+      content: string,
+      tokenCount: number,
+      sourceTaskId: string,
+    ): Promise<string> {
+      const { rows } = await pool.query(
+        `INSERT INTO room_ai_context (room_id, context_type, content, token_count, source_task_id)
+         VALUES ($1, 'task_summary', $2, $3, $4)
+         RETURNING id`,
+        [roomId, content, tokenCount, sourceTaskId],
+      );
+      return rows[0].id;
+    },
+
+    async getMessageById(messageId: string): Promise<{ id: string; roomId: string } | null> {
+      const { rows } = await pool.query(
+        'SELECT id, room_id FROM room_messages WHERE id = $1',
+        [messageId],
+      );
+      if (rows.length === 0) return null;
+      return { id: rows[0].id, roomId: rows[0].room_id };
+    },
+
+    async getTaskRefMessageIds(): Promise<{ messageId: string; taskId: string }[]> {
+      const { rows } = await pool.query(
+        `SELECT id AS message_id, task_id FROM room_messages
+         WHERE msg_type = 'ai_task_ref' AND task_id IS NOT NULL AND deleted_at IS NULL`,
+      );
+      return rows.map((r: any) => ({ messageId: r.message_id, taskId: r.task_id }));
+    },
+  };
+}

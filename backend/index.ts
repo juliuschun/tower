@@ -9,6 +9,7 @@ import { config, validateConfig } from './config.js';
 import apiRouter from './routes/api.js';
 import { setupWebSocket, broadcastToAll } from './routes/ws-handler.js';
 import { closeDb } from './db/schema.js';
+import { initPg, closePgPool, isPgEnabled } from './db/pg.js';
 import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';
 import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from './services/task-runner.js';
@@ -80,7 +81,7 @@ initWorkspaceRepo(config.workspaceRoot).catch((err) => {
   console.error('[Git] Failed to initialize workspace repo:', err);
 });
 
-server.listen(config.port, config.host, () => {
+server.listen(config.port, config.host, async () => {
   console.log(`
 ╔══════════════════════════════════════════╗
 ║         Tower v0.1.0                    ║
@@ -90,6 +91,18 @@ server.listen(config.port, config.host, () => {
 ║  CWD: ${config.defaultCwd.slice(0, 30)}  ║
 ╚══════════════════════════════════════════╝
   `);
+
+  // Initialize PostgreSQL (restart trigger) (chat rooms — v3.0 dual DB)
+  if (isPgEnabled()) {
+    try {
+      await initPg();
+      console.log('[pg] PostgreSQL initialized — chat rooms enabled');
+    } catch (err) {
+      console.error('[pg] Failed to initialize — chat rooms will be unavailable:', err);
+    }
+  } else {
+    console.log('[pg] DATABASE_URL not set — chat rooms disabled');
+  }
 
   // Clean up stale chat session claudeSessionIds where .jsonl is gone.
   // Must run BEFORE orphan monitoring — ensures chat sessions don't attempt
@@ -115,7 +128,7 @@ process.on('SIGINT', () => {
   stopAllMonitors();
   stopFileWatcher();
   closeDb();
-  server.close(() => process.exit(0));
+  closePgPool().finally(() => server.close(() => process.exit(0)));
 });
 
 process.on('SIGTERM', () => {
@@ -125,7 +138,7 @@ process.on('SIGTERM', () => {
   stopAllMonitors();
   stopFileWatcher();
   closeDb();
-  server.close(() => process.exit(0));
+  closePgPool().finally(() => server.close(() => process.exit(0)));
 });
 
 // Prevent SDK "Operation aborted" errors from crashing the entire backend.

@@ -32,6 +32,7 @@ import { generateUUID } from './utils/uuid';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
 import { HistoryPanel } from './components/history/HistoryPanel';
+import { RoomPanel } from './components/rooms/RoomPanel';
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
 import { SharedViewer } from './components/shared/SharedViewer';
 
@@ -199,6 +200,8 @@ function App() {
         return;
       }
       localStorage.setItem('token', data.token);
+      if (data.user?.id) localStorage.setItem('userId', String(data.user.id));
+      if (data.user?.username) localStorage.setItem('username', data.user.username);
       if (data.user?.role) localStorage.setItem('userRole', data.user.role);
       setToken(data.token);
       // 로그인 성공 시 캐시 갱신 → 다음 앱 시작 시 로딩 없이 바로 메인 화면
@@ -890,6 +893,8 @@ function App() {
                     <KanbanBoard />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
+                  ) : activeView === 'rooms' ? (
+                    <RoomPanel />
                   ) : (
                     <ChatPanel
                       onSend={handleSendMessage}
@@ -912,6 +917,8 @@ function App() {
                     <KanbanBoard />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
+                  ) : activeView === 'rooms' ? (
+                    <RoomPanel />
                   ) : (
                     <ChatPanel
                       onSend={handleSendMessage}
@@ -954,6 +961,8 @@ function App() {
                   <KanbanBoard />
                 ) : activeView === 'history' ? (
                   <HistoryPanel />
+                ) : activeView === 'rooms' ? (
+                  <RoomPanel />
                 ) : (
                   <ChatPanel
                     onSend={handleSendMessage}

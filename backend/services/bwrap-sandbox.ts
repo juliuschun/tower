@@ -85,6 +85,12 @@ export function createBwrapWrapper(
   if (fs.existsSync(claudeProjectsDir)) {
     bwrapArgs.push(`--bind ${claudeProjectsDir} ${claudeProjectsDir}`);
   }
+  // Session env (write) — SDK creates session-env/{session-id}/ before Bash execution
+  const claudeSessionEnvDir = path.join(home, '.claude', 'session-env');
+  if (!fs.existsSync(claudeSessionEnvDir)) {
+    fs.mkdirSync(claudeSessionEnvDir, { recursive: true });
+  }
+  bwrapArgs.push(`--bind ${claudeSessionEnvDir} ${claudeSessionEnvDir}`);
   // ── Isolated temp ──
   bwrapArgs.push('--tmpfs /tmp', '--tmpfs /run', '--dev /dev');
 

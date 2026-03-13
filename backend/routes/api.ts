@@ -1203,4 +1203,184 @@ router.delete('/tasks/:id/permanent', (req, res) => {
   }
 });
 
+// ── Chat Rooms (PG) ──────────────────────────────────────────────────
+
+router.get('/rooms', authMiddleware, async (req, res) => {
+  try {
+    const { isPgEnabled } = await import('../db/pg.js');
+    if (!isPgEnabled()) return res.json({ rooms: [], pgEnabled: false, unreadCounts: {} });
+    const { listRooms, getUnreadCounts } = await import('../services/room-manager.js');
+    const userId = (req as any).user.userId;
+    const [rooms, unreadMap] = await Promise.all([
+      listRooms(userId),
+      getUnreadCounts(userId),
+    ]);
+    // Convert Map to plain object for JSON serialization
+    const unreadCounts: Record<string, number> = {};
+    for (const [roomId, count] of unreadMap) {
+      if (count > 0) unreadCounts[roomId] = count;
+    }
+    res.json({ rooms, pgEnabled: true, unreadCounts });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/rooms', authMiddleware, async (req, res) => {
+  try {
+    const { isPgEnabled } = await import('../db/pg.js');
+    if (!isPgEnabled()) return res.status(503).json({ error: 'Chat rooms require PostgreSQL' });
+    const { createRoom } = await import('../services/room-manager.js');
+    const { name, description, roomType, projectId } = req.body;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const room = await createRoom(name, description ?? null, roomType || 'team', (req as any).user.userId, projectId);
+    res.json(room);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/rooms/:id', authMiddleware, async (req, res) => {
+  try {
+    const { getRoom, getMembers, isMember } = await import('../services/room-manager.js');
+    const room = await getRoom(req.params.id);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+    const userId = (req as any).user.userId;
+    if (!(await isMember(req.params.id, userId))) return res.status(403).json({ error: 'Not a member' });
+    const members = await getMembers(req.params.id);
+    res.json({ ...room, members });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/rooms/:id', authMiddleware, async (req, res) => {
+  try {
+    const { updateRoom } = await import('../services/room-manager.js');
+    const room = await updateRoom(req.params.id, req.body);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+    res.json(room);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/rooms/:id', authMiddleware, async (req, res) => {
+  try {
+    const { deleteRoom } = await import('../services/room-manager.js');
+    const ok = await deleteRoom(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Room not found' });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/rooms/:id/invitable-users', authMiddleware, async (req, res) => {
+  try {
+    const { getMembers } = await import('../services/room-manager.js');
+    const members = await getMembers(req.params.id);
+    const memberUserIds = new Set(members.map(m => m.userId));
+
+    // Get all active users from SQLite, exclude current members
+    const db = (await import('../db/schema.js')).getDb();
+    const allUsers = db.prepare(
+      'SELECT id, username, role FROM users WHERE disabled = 0 ORDER BY username'
+    ).all() as { id: number; username: string; role: string }[];
+
+    const invitable = allUsers
+      .filter(u => !memberUserIds.has(u.id))
+      .map(u => ({ id: u.id, username: u.username, role: u.role }));
+
+    res.json({ users: invitable });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/rooms/:id/members', authMiddleware, async (req, res) => {
+  try {
+    const { addMember, getRoom } = await import('../services/room-manager.js');
+    const { userId, role } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const member = await addMember(req.params.id, userId, role);
+    res.json(member);
+
+    // Notify room members about new member (real-time update)
+    try {
+      const { broadcastToRoom, broadcastToUser } = await import('./ws-handler.js');
+      broadcastToRoom(req.params.id, {
+        type: 'room_member_added',
+        roomId: req.params.id,
+        member,
+      });
+
+      // Notify the invited user so they see the room in their list
+      const room = await getRoom(req.params.id);
+      if (room) {
+        broadcastToUser(userId, {
+          type: 'room_added',
+          room,
+        });
+      }
+    } catch { /* WS notification is best-effort */ }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/rooms/:id/members/:userId', authMiddleware, async (req, res) => {
+  try {
+    const { removeMember } = await import('../services/room-manager.js');
+    const removedUserId = parseInt(req.params.userId);
+    const ok = await removeMember(req.params.id, removedUserId);
+    if (!ok) return res.status(404).json({ error: 'Member not found' });
+    res.json({ success: true });
+
+    // Notify room members about removed member
+    try {
+      const { broadcastToRoom, broadcastToUser } = await import('./ws-handler.js');
+      broadcastToRoom(req.params.id, {
+        type: 'room_member_removed',
+        roomId: req.params.id,
+        userId: removedUserId,
+      });
+      // Notify the removed user
+      broadcastToUser(removedUserId, {
+        type: 'room_removed',
+        roomId: req.params.id,
+      });
+    } catch { /* WS notification is best-effort */ }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/rooms/:id/messages', authMiddleware, async (req, res) => {
+  try {
+    const { getMessages: getRoomMessages, isMember } = await import('../services/room-manager.js');
+    const userId = (req as any).user.userId;
+    if (!(await isMember(req.params.id, userId))) return res.status(403).json({ error: 'Not a member' });
+    const messages = await getRoomMessages(req.params.id, {
+      limit: parseInt(req.query.limit as string) || 50,
+      before: req.query.before as string,
+      after: req.query.after as string,
+    });
+    res.json({ messages });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/notifications', authMiddleware, async (req, res) => {
+  try {
+    const { isPgEnabled } = await import('../db/pg.js');
+    if (!isPgEnabled()) return res.json({ notifications: [], unreadCount: 0 });
+    const { getNotifications, getUnreadCount } = await import('../services/room-manager.js');
+    const userId = (req as any).user.userId;
+    const unreadOnly = req.query.unreadOnly === 'true';
+    const notifications = await getNotifications(userId, { unreadOnly });
+    const unreadCount = await getUnreadCount(userId);
+    res.json({ notifications, unreadCount });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/notifications/:id/read', authMiddleware, async (req, res) => {
+  try {
+    const { markNotificationRead } = await import('../services/room-manager.js');
+    await markNotificationRead(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/notifications/read-all', authMiddleware, async (req, res) => {
+  try {
+    const { markAllNotificationsRead } = await import('../services/room-manager.js');
+    const count = await markAllNotificationsRead((req as any).user.userId);
+    res.json({ success: true, count });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 export default router;

@@ -76,7 +76,7 @@ export const config = {
   permissionMode: (process.env.PERMISSION_MODE || 'bypassPermissions') as PermissionMode,
 
   // Concurrency
-  maxConcurrentSessions: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '10'),
+  maxConcurrentSessions: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '30'),
 
   // Auth
   jwtSecret: process.env.JWT_SECRET || 'tower-secret-change-me',
