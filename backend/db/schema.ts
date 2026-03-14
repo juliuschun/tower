@@ -323,6 +323,9 @@ function initSchema(db: Database.Database) {
   try { db.exec(`ALTER TABLE sessions ADD COLUMN project_id TEXT REFERENCES projects(id)`); } catch {}
   try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)`); } catch {}
 
+  // ── Engine support ──
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN engine TEXT DEFAULT 'claude'`); } catch {}
+
   // ── Session identity: UNIQUE claude_session_id (Tower = SSOT) ──
   // 1. Normalize empty strings → NULL
   db.exec(`UPDATE sessions SET claude_session_id = NULL WHERE claude_session_id = ''`);

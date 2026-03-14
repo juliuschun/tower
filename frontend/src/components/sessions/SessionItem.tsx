@@ -201,7 +201,12 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
             className="flex-1 min-w-0 h-[20px] bg-surface-700 text-gray-100 text-[13px] px-1.5 py-0 rounded border border-surface-600 outline-none focus:border-primary-500"
           />
         ) : (
-          <span className="flex-1 min-w-0 truncate font-medium leading-[20px]">{session.name}</span>
+          <span className="flex-1 min-w-0 truncate font-medium leading-[20px]">
+            {session.name}
+            {(session as any).engine === 'pi' && (
+              <span className="ml-1 text-[8px] font-bold text-violet-300 bg-violet-500/20 px-1 rounded align-middle">PI</span>
+            )}
+          </span>
         )}
 
         {/* Time (default) → action buttons (on hover) */}

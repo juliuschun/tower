@@ -448,9 +448,9 @@ router.get('/sessions', (req, res) => {
 });
 
 router.post('/sessions', (req, res) => {
-  const { name, cwd, projectId } = req.body;
+  const { name, cwd, projectId, engine } = req.body;
   const userId = (req as any).user?.userId;
-  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId);
+  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine);
   res.json(session);
 });
 
@@ -973,6 +973,8 @@ router.get('/config', (_req, res) => {
     claudeExecutable: config.claudeExecutable,
     models: availableModels,
     connectionType: 'MAX',
+    piEnabled: config.piEnabled,
+    piModels: config.piEnabled ? config.piModels : [],
   });
 });
 

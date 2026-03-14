@@ -2,19 +2,20 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'os';
-import { executeQuery, abortSession, cleanupSession, getClaudeSessionId, getActiveSessionCount, getSession as getSDKSession, getRunningSessionIds, backupSessionFile } from '../services/claude-sdk.js';
+import { getEngine, getTotalActiveCount, getAllRunningSessionIds } from '../engines/index.js';
+import type { EngineCallbacks, TowerMessage } from '../engines/types.js';
+// Legacy: still needed for handleSetActiveSession idle cleanup until full engine migration
+import { getSession as getSDKSession, cleanupSession } from '../services/claude-sdk.js';
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken, getUserAllowedPath } from '../services/auth.js';
 import { isPathSafe } from '../services/file-system.js';
 import { saveMessage, updateMessageContent, attachToolResultInDb, updateMessageMetrics } from '../services/message-store.js';
 import { getSession, updateSession } from '../services/session-manager.js';
 import { getDb } from '../db/schema.js';
-import { config, getPermissionMode } from '../config.js';
-import { autoCommit } from '../services/git-manager.js';
-import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient, type SessionClient } from './session-guards.js';
+import { config } from '../config.js';
+import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient } from './session-guards.js';
 import { spawnTask, abortTask } from '../services/task-runner.js';
-import { buildDamageControl, buildPathEnforcement, type TowerRole } from '../services/damage-control.js';
-import { buildSystemPrompt } from '../services/system-prompt.js';
+// damage-control moved to engines/claude-engine.ts
 import { getTasks } from '../services/task-manager.js';
 import { addRoomClient, removeRoomClient, removeClientFromAllRooms, getRoomClientIds } from '../services/room-guards.js';
 import type { RoomClient } from '../services/room-guards.js';
@@ -60,6 +61,69 @@ function claimClaudeSessionId(towerSessionId: string, claudeSessionId: string) {
      WHERE claude_session_id = ? AND id != ?`
   ).run(claudeSessionId, towerSessionId);
   updateSession(towerSessionId, { claudeSessionId });
+}
+
+/**
+ * Legacy bridge: convert TowerMessage → old frontend WS format.
+ * Temporary — removed in Phase 3 when frontend handles TowerMessage directly.
+ */
+function towerToLegacy(msg: TowerMessage, sessionId: string): any {
+  switch (msg.type) {
+    case 'assistant':
+      // Convert TowerContentBlock[] back to SDK content format
+      return {
+        type: 'sdk_message',
+        sessionId,
+        data: {
+          type: 'assistant',
+          uuid: msg.msgId,
+          message: {
+            content: msg.content.map(b => {
+              if (b.type === 'text') return { type: 'text', text: b.text };
+              if (b.type === 'thinking') return { type: 'thinking', thinking: b.text };
+              if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
+              return b;
+            }),
+          },
+          parent_tool_use_id: msg.parentToolUseId,
+          session_id: sessionId,
+        },
+      };
+    case 'turn_done':
+      return {
+        type: 'sdk_message',
+        sessionId,
+        data: {
+          type: 'result',
+          duration_ms: msg.usage.durationMs,
+          usage: {
+            input_tokens: msg.usage.inputTokens,
+            output_tokens: msg.usage.outputTokens,
+          },
+        },
+      };
+    case 'engine_done':
+      return {
+        type: 'sdk_done',
+        sessionId,
+        claudeSessionId: msg.engineSessionId,
+      };
+    case 'engine_error':
+      if (msg.recoverable) {
+        return {
+          type: 'resume_failed',
+          sessionId,
+          message: msg.message,
+        };
+      }
+      return {
+        type: 'error',
+        sessionId,
+        message: msg.message,
+      };
+    default:
+      return null;
+  }
 }
 
 /**
@@ -125,103 +189,7 @@ function sendToClient(client: WsClient, sessionId: string, data: any) {
   }
 }
 
-function createCanUseTool(sessionId: string, userRole: TowerRole, allowedPath?: string) {
-  const damageCheck = buildDamageControl(userRole);
-  const pathCheck = allowedPath ? buildPathEnforcement(allowedPath) : null;
-
-  return async (toolName: string, input: Record<string, unknown>, options: { signal: AbortSignal }) => {
-    // Damage control check (role-based restrictions) — before everything else
-    const dc = damageCheck(toolName, input);
-    if (!dc.allowed) {
-      return { behavior: 'deny' as const, message: dc.message };
-    }
-
-    // Block agent teams — TeamCreate causes zombie polling loops → CPU spikes
-    if (toolName === 'TeamCreate') {
-      return { behavior: 'deny' as const, message: 'Agent teams are disabled on this server. Use sequential task execution instead.' };
-    }
-
-    // Path enforcement (per-user workspace restriction)
-    if (pathCheck) {
-      const pc = pathCheck(toolName, input);
-      if (!pc.allowed) {
-        return { behavior: 'deny' as const, message: pc.message };
-      }
-    }
-
-    // Allow all tools except AskUserQuestion
-    if (toolName !== 'AskUserQuestion') {
-      return { behavior: 'allow' as const, updatedInput: input };
-    }
-
-    // Intercept AskUserQuestion — send to frontend and wait for user response.
-    // IMPORTANT: Must return 'allow' with updatedInput containing answers.
-    // Returning 'deny' causes SDK to treat it as tool denial → error/crash.
-    const questionId = `q-${uuidv4()}`;
-    const questions = (input as any).questions || [];
-
-    // Helper: build answers object from structured answer data
-    const buildAnswersInput = (answersObj: Record<string, string>) => ({
-      behavior: 'allow' as const,
-      updatedInput: { ...input, answers: answersObj },
-    });
-
-    return new Promise<{ behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string; interrupt?: boolean }>((resolve) => {
-      // Auto-select first option on timeout
-      const timer = setTimeout(() => {
-        const pq = pendingQuestions.get(questionId);
-        if (pq) {
-          pendingQuestions.delete(questionId);
-          const defaultAnswers: Record<string, string> = {};
-          for (const q of questions) {
-            defaultAnswers[q.question] = q.options?.[0]?.label || 'No response';
-          }
-          broadcastToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
-          resolve(buildAnswersInput(defaultAnswers));
-        }
-      }, ASK_USER_TIMEOUT);
-
-      pendingQuestions.set(questionId, {
-        questionId,
-        sessionId,
-        questions,
-        resolve: (answer: string) => {
-          clearTimeout(timer);
-          pendingQuestions.delete(questionId);
-          // Parse structured "question: answer" lines into answers object
-          const answersObj: Record<string, string> = {};
-          const lines = answer.split('\n');
-          for (const line of lines) {
-            const colonIdx = line.indexOf(': ');
-            if (colonIdx > -1) {
-              answersObj[line.substring(0, colonIdx)] = line.substring(colonIdx + 2);
-            }
-          }
-          resolve(buildAnswersInput(answersObj));
-        },
-        timer,
-      });
-
-      // Clean up on abort
-      options.signal.addEventListener('abort', () => {
-        const pq = pendingQuestions.get(questionId);
-        if (pq) {
-          clearTimeout(pq.timer);
-          pendingQuestions.delete(questionId);
-          resolve({ behavior: 'deny', message: 'Session aborted', interrupt: true });
-        }
-      }, { once: true });
-
-      // Broadcast question to ALL tabs viewing this session — first answer wins
-      broadcastToSession(sessionId, {
-        type: 'ask_user',
-        sessionId,
-        questionId,
-        questions,
-      });
-    });
-  };
-}
+// createCanUseTool → moved to engines/claude-engine.ts
 
 export function broadcast(data: any) {
   const payload = JSON.stringify(data);
@@ -272,7 +240,7 @@ export function setupWebSocket(server: Server) {
 
     clients.set(clientId, client);
 
-    send(ws, { type: 'connected', clientId, serverEpoch: config.serverEpoch, streamingSessions: getRunningSessionIds() });
+    send(ws, { type: 'connected', clientId, serverEpoch: config.serverEpoch, streamingSessions: getAllRunningSessionIds() });
 
     // ── Protocol-level ping (binary frame) ──────────────────────────────
     // Cloudflare and mobile networks need WS protocol pings to keep alive.
@@ -490,14 +458,20 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     return;
   }
   client.sessionId = sessionId;
-  console.log(`[ws] handleChat START session=${sessionId.slice(0, 8)} client=${client.id.slice(0, 8)} resume=${data.claudeSessionId?.slice(0, 12) || 'none'} activeSDK=${getActiveSessionCount()}`);
 
   // Add this client to the session's viewer set
   addSessionClient(sessionClients, sessionId, client.id);
 
-  // Guard: reject if SDK is already running for this session
-  const sdkSession = getSDKSession(sessionId);
-  if (sdkSession?.isRunning) {
+  // Resolve engine for this session
+  let dbSession: ReturnType<typeof getSession> | undefined;
+  try { dbSession = getSession(sessionId); } catch {}
+  const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
+  const engine = await getEngine(engineName);
+
+  console.log(`[ws] handleChat START session=${sessionId.slice(0, 8)} client=${client.id.slice(0, 8)} engine=${engineName} active=${getTotalActiveCount()}`);
+
+  // Guard: reject if engine is already running for this session
+  if (engine.isRunning(sessionId)) {
     sendToClient(client, sessionId, {
       type: 'error',
       message: 'A conversation is already in progress for this session. Please wait until it finishes.',
@@ -507,8 +481,8 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     return;
   }
 
-  // Check concurrent session limit
-  if (getActiveSessionCount() >= config.maxConcurrentSessions) {
+  // Check concurrent session limit (across all engines)
+  if (getTotalActiveCount() >= config.maxConcurrentSessions) {
     sendToClient(client, sessionId, {
       type: 'error',
       message: `Concurrent session limit exceeded (max ${config.maxConcurrentSessions})`,
@@ -528,26 +502,76 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
   } catch (err) { console.error('[ws] saveMessage (user) failed:', err); }
 
-  // Always fetch DB session — we need both claudeSessionId and cwd for reliable resume.
-  // CWD must match the directory where .jsonl was created, otherwise SDK can't find it.
-  let dbSession: ReturnType<typeof getSession> | undefined;
-  try { dbSession = getSession(sessionId); } catch {}
+  // Resume session ID (engine-specific, stored in DB)
+  const engineSessionId = data.claudeSessionId || dbSession?.claudeSessionId || undefined;
 
-  let resumeSessionId = data.claudeSessionId || dbSession?.claudeSessionId || undefined;
-  if (!data.claudeSessionId && resumeSessionId) {
-    console.log(`[ws] resume fallback from DB: claudeSid=${resumeSessionId.slice(0, 12)}… for session=${sessionId.slice(0, 8)}`);
-  }
-  let loopClaudeSessionId: string | undefined; // track locally — client may switch sessions mid-stream
-  let currentAssistantId: string | null = null;
-  let currentAssistantContent: any[] = [];
-  const editedFiles = new Set<string>();
+  // Engine callbacks — ws-handler owns WS routing and DB access
+  const callbacks: EngineCallbacks = {
+    askUser: (questionId: string, questions: any[]) => {
+      return new Promise<string>((resolve) => {
+        const timer = setTimeout(() => {
+          const pq = pendingQuestions.get(questionId);
+          if (pq) {
+            pendingQuestions.delete(questionId);
+            broadcastToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
+            // Auto-select first option
+            const defaultAnswers = questions.map((q: any) =>
+              `${q.question}: ${q.options?.[0]?.label || 'No response'}`
+            ).join('\n');
+            resolve(defaultAnswers);
+          }
+        }, ASK_USER_TIMEOUT);
+
+        pendingQuestions.set(questionId, {
+          questionId,
+          sessionId,
+          questions,
+          resolve: (answer: string) => {
+            clearTimeout(timer);
+            pendingQuestions.delete(questionId);
+            resolve(answer);
+          },
+          timer,
+        });
+
+        // Broadcast question to ALL tabs viewing this session
+        broadcastToSession(sessionId, {
+          type: 'ask_user',
+          sessionId,
+          questionId,
+          questions,
+        });
+      });
+    },
+    claimSessionId: (esid: string) => {
+      try { claimClaudeSessionId(sessionId, esid); } catch {}
+    },
+    saveMessage: (msg) => {
+      try { saveMessage(sessionId, msg); } catch {}
+    },
+    updateMessageContent: (msgId, content) => {
+      try { updateMessageContent(msgId, content); } catch {}
+    },
+    attachToolResult: (toolUseId, result) => {
+      try { attachToolResultInDb(sessionId, toolUseId, result); } catch {}
+    },
+    updateMessageMetrics: (msgId, metrics) => {
+      try {
+        updateMessageMetrics(msgId, {
+          duration_ms: metrics.durationMs,
+          input_tokens: metrics.inputTokens,
+          output_tokens: metrics.outputTokens,
+        });
+      } catch {}
+    },
+  };
 
   // Hang detection timer
   let hangTimer: ReturnType<typeof setTimeout> | null = null;
   const resetHangTimer = () => {
     if (hangTimer) clearTimeout(hangTimer);
     hangTimer = setTimeout(() => {
-      abortSession(sessionId);
+      engine.abort(sessionId);
       broadcastToSession(sessionId, {
         type: 'error',
         message: 'SDK response timed out. Session has been aborted.',
@@ -557,234 +581,63 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     }, SDK_HANG_TIMEOUT);
   };
 
-  // Notify all clients that this session started streaming (for sidebar indicators)
+  // Notify all clients that this session started streaming
   broadcastToAll({ type: 'session_status', sessionId, status: 'streaming' });
 
   try {
-    const permissionMode = getPermissionMode(client.userRole);
     resetHangTimer();
 
-    // Create canUseTool to intercept AskUserQuestion
-    const canUseTool = createCanUseTool(sessionId, (client.userRole || 'member') as TowerRole, client.allowedPath);
-
-    // Build system prompt (Layer 2: team rules + role context)
-    const systemPrompt = buildSystemPrompt({
-      userId: client.userId,
-      username: client.username || 'anonymous',
-      role: client.userRole || 'member',
-      allowedPath: client.allowedPath,
-    });
-
-    for await (const message of executeQuery(sessionId, data.message, {
+    for await (const towerMsg of engine.run(sessionId, data.message, {
       cwd: data.cwd || dbSession?.cwd || client.allowedPath || config.defaultCwd,
-      resumeSessionId,
-      permissionMode,
       model: data.model,
-      canUseTool,
-      systemPrompt,
+      userId: client.userId,
+      username: client.username,
       userRole: client.userRole,
-    })) {
-      // Reset hang timer on each message
+      allowedPath: client.allowedPath,
+      engineSessionId,
+    }, callbacks)) {
       resetHangTimer();
-      // Track Claude session ID locally (NOT on client — client may have switched sessions)
-      if ('session_id' in message && message.session_id) {
-        // Persist claudeSessionId to DB immediately on first capture.
-        // This prevents the Stop hook (tower-sync-stop.mjs) from creating
-        // a duplicate session before streaming completes.
-        if (!loopClaudeSessionId) {
-          try {
-            claimClaudeSessionId(sessionId, message.session_id);
-          } catch (err) { console.error('[ws] early claudeSessionId persist failed:', err); }
-        }
-        loopClaudeSessionId = message.session_id;
+
+      // ── Legacy bridge: convert TowerMessage → old frontend format ──
+      // This will be removed in Phase 3 when frontend handles TowerMessage directly.
+      const legacyMsg = towerToLegacy(towerMsg, sessionId);
+      if (legacyMsg) {
+        broadcastToSession(sessionId, legacyMsg);
       }
 
-      // Forward resume failure notification to the client and clear stale DB value
-      if ((message as any).type === 'system' && (message as any).subtype === 'resume_failed') {
-        // Clear the stale claudeSessionId from DB so future messages don't retry
-        if (resumeSessionId) {
-          try { updateSession(sessionId, { claudeSessionId: '' }); } catch {}
-          console.warn(`[ws] resume_failed: cleared stale claudeSessionId for session=${sessionId.slice(0,8)}`);
+      // Update session metadata on engine_done
+      if (towerMsg.type === 'engine_done') {
+        const esid = towerMsg.engineSessionId;
+        if (client.sessionId === sessionId && esid) {
+          client.claudeSessionId = esid;
         }
-        broadcastToSession(sessionId, {
-          type: 'resume_failed',
-          sessionId,
-          message: (message as any).message || 'Previous conversation context could not be restored.',
-        });
-        continue;
-      }
-
-      // Save tool results to DB (from SDK user messages)
-      if ((message as any).type === 'user') {
-        const userContent = (message as any).message?.content;
-        if (Array.isArray(userContent)) {
-          for (const block of userContent) {
-            if (block.type === 'tool_result' && block.tool_use_id) {
-              const resultText = typeof block.content === 'string'
-                ? block.content
-                : Array.isArray(block.content)
-                  ? block.content.map((c: any) => c.text || '').join('\n')
-                  : JSON.stringify(block.content);
-              const structured = (message as any).tool_use_result;
-              const finalResult = structured?.stdout || structured?.stderr
-                ? [structured.stdout, structured.stderr].filter(Boolean).join('\n')
-                : resultText;
-              try { attachToolResultInDb(sessionId, block.tool_use_id, finalResult); } catch (err) { console.error('[ws] attachToolResultInDb failed:', err); }
-            }
-          }
-
-          // Save user tool_result message to DB (so session history is complete)
-          const parentToolUseId = userContent.find((b: any) => b.tool_use_id)?.tool_use_id || null;
-          if (parentToolUseId) {
-            const msgId = (message as any).uuid || uuidv4();
-            try {
-              saveMessage(sessionId, {
-                id: msgId,
-                role: 'user',
-                content: userContent,
-                parentToolUseId,
-              });
-            } catch (err) { console.error('[ws] saveMessage (user tool_result) failed:', err); }
-          }
-        }
-      }
-
-      // Save assistant messages to DB
-      if ((message as any).type === 'assistant') {
-        const msgId = (message as any).uuid || uuidv4();
-        const content = (message as any).message?.content || [];
-        const contentTypes = Array.isArray(content) ? content.map((b: any) => b.type).join(',') : 'non-array';
-        if (msgId !== currentAssistantId) {
-          // New assistant message
-          currentAssistantId = msgId;
-          currentAssistantContent = content;
-          console.log(`[ws] saveMessage assistant id=${msgId.slice(0, 8)} session=${sessionId.slice(0, 8)} blocks=${content.length} types=[${contentTypes}]`);
-          try {
-            saveMessage(sessionId, {
-              id: msgId,
-              role: 'assistant',
-              content,
-              parentToolUseId: (message as any).parent_tool_use_id,
-            });
-          } catch (err) { console.error('[ws] saveMessage (assistant) failed:', err); }
-        } else {
-          // Streaming update
-          currentAssistantContent = content;
-          try {
-            updateMessageContent(msgId, content);
-          } catch (err) { console.error('[ws] updateMessageContent failed:', err); }
-        }
-      }
-
-      // Track edited files from tool_use blocks
-      if ((message as any).type === 'assistant') {
-        const content = (message as any).message?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'tool_use') {
-              const toolName = block.name?.toLowerCase() || '';
-              if ((toolName === 'write' || toolName === 'edit') && block.input?.file_path) {
-                editedFiles.add(block.input.file_path);
-              }
-            }
-          }
-        }
-      }
-
-      // Save turn metrics to the current assistant message in DB
-      if ((message as any).type === 'result' && currentAssistantId) {
-        const usage = (message as any).usage;
+        // Update turn_count, files_edited in DB
         try {
-          updateMessageMetrics(currentAssistantId, {
-            duration_ms: (message as any).duration_ms,
-            input_tokens: usage?.input_tokens,
-            output_tokens: usage?.output_tokens,
-          });
-        } catch (err) { console.error('[ws] updateMessageMetrics failed:', err); }
-      }
-
-      // Broadcast to ALL tabs viewing this session
-      broadcastToSession(sessionId, {
-        type: 'sdk_message',
-        sessionId,
-        data: message,
-      });
-    }
-
-    // Get final Claude session ID (prefer SDK's value, fall back to loop-tracked value)
-    const finalClaudeSessionId = getClaudeSessionId(sessionId) || loopClaudeSessionId;
-    // Only update client if still on the same session (avoid cross-contamination)
-    if (client.sessionId === sessionId && finalClaudeSessionId) {
-      client.claudeSessionId = finalClaudeSessionId;
-    }
-
-    // Update turn_count, files_edited, and claudeSessionId in DB
-    try {
-      const currentSession = getSession(sessionId);
-      if (currentSession) {
-        const newTurnCount = (currentSession.turnCount ?? 0) + 1;
-        const existingFiles: string[] = currentSession.filesEdited || [];
-        const mergedFiles = [...new Set([...existingFiles, ...editedFiles])];
-        updateSession(sessionId, {
-          turnCount: newTurnCount,
-          filesEdited: mergedFiles,
-          modelUsed: data.model,
-        });
-        if (finalClaudeSessionId) {
-          claimClaudeSessionId(sessionId, finalClaudeSessionId);
-          console.log(`[ws] persisted claudeSessionId=${finalClaudeSessionId.slice(0, 12)}… for session=${sessionId.slice(0, 8)}`);
-          // Back up the .jsonl file so we can restore if Claude Code deletes it
-          const sessionCwd = data.cwd || currentSession.cwd || config.defaultCwd;
-          backupSessionFile(finalClaudeSessionId, sessionCwd);
-        }
-      }
-    } catch (err) { console.error('[ws] updateSession failed:', err); }
-
-    // Auto-commit edited files
-    if (config.gitAutoCommit && editedFiles.size > 0) {
-      try {
-        const commitResult = await autoCommit(
-          config.workspaceRoot,
-          client.username || 'anonymous',
-          sessionId,
-          [...editedFiles]
-        );
-        if (commitResult) {
-          broadcast({ type: 'git_commit', commit: commitResult });
-        }
-      } catch (err) {
-        console.error('[Git] Auto-commit failed:', err);
+          const currentSession = getSession(sessionId);
+          if (currentSession) {
+            const newTurnCount = (currentSession.turnCount ?? 0) + 1;
+            const existingFiles: string[] = currentSession.filesEdited || [];
+            const newFiles = towerMsg.editedFiles || [];
+            const mergedFiles = [...new Set([...existingFiles, ...newFiles])];
+            updateSession(sessionId, {
+              turnCount: newTurnCount,
+              filesEdited: mergedFiles,
+              modelUsed: towerMsg.model || data.model,
+            });
+          }
+        } catch {}
       }
     }
-
-    // Broadcast done to ALL tabs viewing this session
-    broadcastToSession(sessionId, {
-      type: 'sdk_done',
-      sessionId,
-      claudeSessionId: finalClaudeSessionId,
-    });
   } catch (error: any) {
     console.error(`[ws] handleChat ERROR session=${sessionId}:`, error.message || error);
-    const isAbort = /aborted by user|abort/i.test(error.message || '') || error.name === 'AbortError';
-    // Clear stale claudeSessionId so next attempt doesn't retry the same broken resume.
-    // But NOT on abort — abort means the session was running fine and we should keep
-    // the claudeSessionId for future resume.
-    // Also NOT on ENOENT — that means the claude binary is temporarily missing,
-    // not that the session data is corrupt. Clearing would lose resume ability.
-    const isSpawnError = /ENOENT|spawn.*failed/i.test(error.message || '');
-    if (!isAbort && !isSpawnError && resumeSessionId && /exited with code|session.*not found/i.test(error.message || '')) {
-      try { updateSession(sessionId, { claudeSessionId: '' }); } catch {}
-      console.warn(`[ws] cleared stale claudeSessionId for session=${sessionId}`);
-    }
     broadcastToSession(sessionId, {
       type: 'error',
-      message: error.message || 'Claude query failed',
+      message: error.message || 'Engine query failed',
       sessionId,
     });
   } finally {
-    console.log(`[ws] handleChat END session=${sessionId.slice(0, 8)} claudeSid=${loopClaudeSessionId?.slice(0, 12) || 'none'}`);
+    console.log(`[ws] handleChat END session=${sessionId.slice(0, 8)} engine=${engineName}`);
     if (hangTimer) clearTimeout(hangTimer);
-    // Notify all clients that this session stopped streaming
     broadcastToAll({ type: 'session_status', sessionId, status: 'idle' });
   }
 }
@@ -809,17 +662,21 @@ function handleAnswerQuestion(client: WsClient, data: { questionId: string; answ
   }
 }
 
-function handleAbort(client: WsClient, data: { sessionId?: string }) {
+async function handleAbort(client: WsClient, data: { sessionId?: string }) {
   const sessionId = data.sessionId || client.sessionId;
   if (sessionId) {
     console.log(`[ws] handleAbort session=${sessionId} client=${client.id}`);
-    const aborted = abortSession(sessionId);
+    // Resolve engine and abort
+    let dbSession: ReturnType<typeof getSession> | undefined;
+    try { dbSession = getSession(sessionId); } catch {}
+    const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
+    try {
+      const engine = await getEngine(engineName);
+      engine.abort(sessionId);
+    } catch {}
     // Pure: bump epoch + remove this client from session routing
     abortCleanup(client, sessionClients, sessionId);
-    // Keep claudeSessionId intact — abort only stops the current response,
-    // the CLI session file (.jsonl) remains valid for resume.
-    // If resume fails on next message, executeQuery's retry handles it gracefully.
-    send(client.ws, { type: 'abort_result', aborted, sessionId });
+    send(client.ws, { type: 'abort_result', aborted: true, sessionId });
   }
 }
 

@@ -3,7 +3,7 @@ import { useWebSocket } from './useWebSocket';
 import { useChatStore, type ChatMessage, type SlashCommandInfo } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
-import { useModelStore } from '../stores/model-store';
+import { useModelStore, getModelIdForBackend } from '../stores/model-store';
 import { useGitStore } from '../stores/git-store';
 import { parseSDKMessage, normalizeContentBlocks } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef, resolveAutoNameTarget, resolveSendSessionId, isServerRestarted } from '../utils/session-filters';
@@ -952,7 +952,7 @@ export function useClaudeChat() {
         sessionId: activeSid,
         claudeSessionId: useChatStore.getState().claudeSessionId,
         cwd,
-        model: useModelStore.getState().selectedModel,
+        model: getModelIdForBackend(useModelStore.getState().selectedModel),
       });
     },
     [send, addMessage, setStreaming, setTurnStartTime]

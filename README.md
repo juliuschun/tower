@@ -136,8 +136,23 @@ See **[INSTALL.md](INSTALL.md)** for details.
 |-------|------------|
 | **Frontend** | React 18 · TypeScript · Vite 6 · Zustand · Tailwind CSS 4 |
 | **Backend** | Express · TypeScript · WebSocket · SQLite (WAL + FTS5) |
-| **AI Engine** | Claude Agent SDK · MCP protocol · 20+ skills |
+| **AI Engine** | Multi-engine: Claude Agent SDK + Pi Agent SDK · OpenRouter · MCP protocol · 20+ skills |
 | **Auth** | JWT · bcrypt · Role-based (admin / owner / member / guest) |
+
+---
+
+## Multi-Engine AI
+
+Tower isn't locked to one AI provider. The Engine abstraction layer lets you run multiple AI backends side by side:
+
+| Engine | Provider | Billing | Models |
+|--------|----------|---------|--------|
+| **Claude Code** | Anthropic Agent SDK | Max subscription ($200/mo) | Opus, Sonnet, Haiku |
+| **Pi Agent** | Pi SDK via OpenRouter | Pay-per-token | Any OpenRouter model: Claude, GPT, Gemini, Grok, Kimi, MiniMax... |
+
+Switch models mid-conversation. Compare outputs across providers. Start with Claude Max, add OpenRouter models when you need them. Remove either engine by deleting one file.
+
+Configure available models in `backend/engines/pi-models.json` — no code changes needed.
 
 ---
 

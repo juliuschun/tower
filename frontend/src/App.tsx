@@ -24,7 +24,7 @@ import { useFileStore } from './stores/file-store';
 import { usePinStore, type Pin } from './stores/pin-store';
 import { usePromptStore, type PromptItem } from './stores/prompt-store';
 import { useSettingsStore } from './stores/settings-store';
-import { useModelStore } from './stores/model-store';
+import { useModelStore, getEngineFromModel } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
 import { useProjectStore } from './stores/project-store';
 import { normalizeContentBlocks } from './utils/message-parser';
@@ -233,7 +233,9 @@ function App() {
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      const body: Record<string, any> = { name: name || `Session ${new Date().toLocaleString('en-US')}`, cwd };
+      const selectedModel = useModelStore.getState().selectedModel;
+      const engine = getEngineFromModel(selectedModel);
+      const body: Record<string, any> = { name: name || `Session ${new Date().toLocaleString('en-US')}`, cwd, engine };
       if (projectId) body.projectId = projectId;
       const res = await fetch(`${API_BASE}/sessions`, {
         method: 'POST',
@@ -753,6 +755,7 @@ function App() {
         if (data) {
           useSettingsStore.getState().setServerConfig(data);
           if (data.models) useModelStore.getState().setAvailableModels(data.models);
+          if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
           if (data.connectionType) useModelStore.getState().setConnectionType(data.connectionType);
         }
       })

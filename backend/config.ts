@@ -60,6 +60,21 @@ export interface ModelInfo {
   badge: string;
 }
 
+/** Load Pi models from engines/pi-models.json. Returns frontend-ready format with pi: prefix. */
+function loadPiModels(): ModelInfo[] {
+  try {
+    const jsonPath = path.join(__dirname, 'engines', 'pi-models.json');
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    return (data.models || []).map((m: any) => ({
+      id: `pi:${m.provider}/${m.modelId}`,
+      name: m.name,
+      badge: m.badge || m.provider.toUpperCase().slice(0, 2),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export const availableModels: ModelInfo[] = [
   { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', badge: 'MAX' },
   { id: 'claude-opus-4-6', name: 'Opus 4.6', badge: 'MAX' },
@@ -95,6 +110,11 @@ export const config = {
 
   // Git auto-commit
   gitAutoCommit: process.env.GIT_AUTO_COMMIT !== 'false',
+
+  // Engine
+  defaultEngine: process.env.DEFAULT_ENGINE || 'claude',
+  piEnabled: process.env.PI_ENABLED === 'true',
+  piModels: loadPiModels(),
 
   // Frontend (for production)
   frontendDir: path.join(PROJECT_ROOT, 'dist', 'frontend'),

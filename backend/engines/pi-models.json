@@ -1,0 +1,35 @@
+{
+  "models": [
+    {
+      "provider": "openrouter",
+      "modelId": "anthropic/claude-sonnet-4.6",
+      "name": "Sonnet 4.6",
+      "badge": "OR"
+    },
+    {
+      "provider": "openrouter",
+      "modelId": "google/gemini-3.1-pro-preview",
+      "name": "Gemini 3.1 Pro",
+      "badge": "OR"
+    },
+    {
+      "provider": "openrouter",
+      "modelId": "x-ai/grok-4.1-fast",
+      "name": "Grok 4.1 Fast",
+      "badge": "OR"
+    },
+    {
+      "provider": "openrouter",
+      "modelId": "moonshotai/kimi-k2.5",
+      "name": "Kimi K2.5",
+      "badge": "OR"
+    },
+    {
+      "provider": "openrouter",
+      "modelId": "minimax/minimax-m2.5",
+      "name": "MiniMax M2.5",
+      "badge": "OR"
+    }
+  ],
+  "_comment": "Each entry: provider = Pi SDK provider name, modelId = model identifier within that provider. Badge shown in UI. To add Azure: provider='azure', modelId='gpt-4o', badge='AZ'"
+}
