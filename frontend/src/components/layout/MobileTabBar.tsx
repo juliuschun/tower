@@ -5,15 +5,6 @@ import { useRoomStore } from '../../stores/room-store';
 
 const tabs: { id: MobileTab | 'settings'; label: string; icon: JSX.Element }[] = [
   {
-    id: 'sessions',
-    label: 'Sessions',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-      </svg>
-    ),
-  },
-  {
     id: 'chat',
     label: 'AI',
     icon: (
@@ -37,15 +28,6 @@ const tabs: { id: MobileTab | 'settings'; label: string; icon: JSX.Element }[] =
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'edit',
-    label: 'Edit',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
       </svg>
     ),
   },
@@ -78,7 +60,6 @@ export function MobileTabBar() {
   const setMobileContextOpen = useSessionStore((s) => s.setMobileContextOpen);
   const openSettings = useSettingsStore((s) => s.setOpen);
   const setActiveView = useSessionStore((s) => s.setActiveView);
-  const activeView = useSessionStore((s) => s.activeView);
   const pgEnabled = useRoomStore((s) => s.pgEnabled);
 
   // Filter out channel tab when pgEnabled is false
@@ -90,12 +71,7 @@ export function MobileTabBar() {
       return;
     }
     setMobileTab(tab);
-    if (tab === 'sessions') {
-      setSidebarOpen(true);
-      setSidebarTab('sessions');
-      setMobileContextOpen(false);
-      setActiveView('chat');
-    } else if (tab === 'chat') {
+    if (tab === 'chat') {
       setSidebarOpen(false);
       setMobileContextOpen(false);
       setActiveView('chat');
@@ -107,13 +83,6 @@ export function MobileTabBar() {
     } else if (tab === 'files') {
       setSidebarOpen(true);
       setSidebarTab('files');
-      setMobileContextOpen(false);
-    } else if (tab === 'edit') {
-      setSidebarOpen(false);
-      setMobileContextOpen(true);
-    } else if (tab === 'pins') {
-      setSidebarOpen(true);
-      setSidebarTab('pins');
       setMobileContextOpen(false);
     } else if (tab === 'board') {
       setSidebarOpen(false);
