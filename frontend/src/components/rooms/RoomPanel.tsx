@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRoomStore } from '../../stores/room-store';
 import { RoomMessageBubble } from './RoomMessageBubble';
-import { RoomList } from './RoomList';
 import { RoomMembersPanel } from './RoomMembersPanel';
 import { getTokenUserId } from '../../utils/session-restore';
 
@@ -119,10 +118,6 @@ export function RoomPanel() {
     };
   }, [activeRoomId, clearUnread]);
 
-  const handleSelectRoom = useCallback((roomId: string) => {
-    setActiveRoomId(roomId);
-  }, [setActiveRoomId]);
-
   const handleSend = useCallback(() => {
     if (!input.trim() || !activeRoomId) return;
 
@@ -162,12 +157,13 @@ export function RoomPanel() {
     }
   }, [activeRoomId]);
 
-  // No active room — show room list
+  // No active room — prompt to select from sidebar
   if (!activeRoomId || !activeRoom) {
     return (
-      <div className="flex h-full">
-        <div className="w-full max-w-md mx-auto">
-          <RoomList onSelectRoom={handleSelectRoom} />
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <p className="text-[15px] text-gray-400">Select a room from the sidebar</p>
+          <p className="text-[12px] text-gray-600 mt-1">or create a new one in Admin</p>
         </div>
       </div>
     );
@@ -175,11 +171,6 @@ export function RoomPanel() {
 
   return (
     <div className="flex h-full">
-      {/* Sidebar: room list */}
-      <div className="w-64 shrink-0 border-r border-surface-800 hidden lg:block">
-        <RoomList onSelectRoom={handleSelectRoom} />
-      </div>
-
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}

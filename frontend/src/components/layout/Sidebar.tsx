@@ -11,6 +11,7 @@ import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
 import { toastError, toastSuccess } from '../../utils/toast';
 import { useRoomStore } from '../../stores/room-store';
 import { RoomList } from '../rooms/RoomList';
+import { HistoryPanel } from '../history/HistoryPanel';
 
 interface SidebarProps {
   onNewSession: (projectId?: string) => void;
@@ -283,23 +284,38 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Tab switcher — 4 tabs */}
-      <div className="flex border-b border-surface-800/50">
-        <button onClick={() => setSidebarTab('sessions')} className={tabClass('sessions')}>Sessions</button>
-        <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
-        <button onClick={() => setSidebarTab('prompts')} className={tabClass('prompts')}>Prompts</button>
-        <button onClick={() => setSidebarTab('pins')} className={tabClass('pins')}>Pins</button>
-        {pgEnabled && (
-          <button onClick={() => setSidebarTab('rooms')} className={`${tabClass('rooms')} relative`}>
-            Rooms
-            {totalRoomUnread > 0 && sidebarTab !== 'rooms' && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-[8px] font-bold text-white rounded-full leading-none">
-                {totalRoomUnread > 99 ? '99+' : totalRoomUnread}
-              </span>
-            )}
+      {/* Tab switcher — 3 tabs (Pins & History moved to footer) */}
+      {(sidebarTab === 'pins' || sidebarTab === 'history') ? (
+        <div className="flex items-center border-b border-surface-800/50 px-3 py-2 gap-2">
+          <button
+            onClick={() => setSidebarTab('sessions')}
+            className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back
           </button>
-        )}
-      </div>
+          <span className="text-[12px] font-semibold text-gray-300">
+            {sidebarTab === 'pins' ? 'Pins' : 'History'}
+          </span>
+        </div>
+      ) : (
+        <div className="flex border-b border-surface-800/50">
+          <button onClick={() => { setSidebarTab('sessions'); useSessionStore.getState().setActiveView('chat'); }} className={tabClass('sessions')}>Sessions</button>
+          {pgEnabled && (
+            <button onClick={() => { setSidebarTab('rooms'); useSessionStore.getState().setActiveView('rooms'); }} className={`${tabClass('rooms')} relative`}>
+              Channel
+              {totalRoomUnread > 0 && sidebarTab !== 'rooms' && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-[8px] font-bold text-white rounded-full leading-none">
+                  {totalRoomUnread > 99 ? '99+' : totalRoomUnread}
+                </span>
+              )}
+            </button>
+          )}
+          <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
+        </div>
+      )}
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto pt-2">
@@ -511,24 +527,60 @@ export function Sidebar({
             useRoomStore.getState().setActiveRoomId(roomId);
             useSessionStore.getState().setActiveView('rooms');
           }} />
-        ) : (
+        ) : sidebarTab === 'history' ? (
+          <HistoryPanel />
+        ) : sidebarTab === 'pins' ? (
           <PinList
             onPinClick={(pin) => onPinClick?.(pin)}
             onUnpin={(id) => onUnpinFile?.(id)}
           />
-        )}
+        ) : null}
       </div>
 
-      <div className="p-4 border-t border-surface-800/50 flex items-center justify-between">
-        <button
-          onClick={onSettingsClick}
-          className="flex items-center gap-2 text-surface-700 hover:text-surface-500 transition-colors cursor-pointer"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          <span className="text-[11px] font-medium">Settings</span>
-          <CurrentUser />
-        </button>
-        <span className="text-[10px] font-semibold text-surface-800">v0.1.0</span>
+      <div className="border-t border-surface-800/50">
+        {/* Pins & History quick-access buttons */}
+        <div className="flex items-center gap-1 px-4 pt-3 pb-1">
+          <button
+            onClick={() => setSidebarTab(sidebarTab === 'pins' ? 'sessions' : 'pins')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+              sidebarTab === 'pins'
+                ? 'bg-primary-600/15 text-primary-400'
+                : 'text-surface-600 hover:text-gray-300 hover:bg-surface-800'
+            }`}
+            title="Pins"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+            </svg>
+            Pins
+          </button>
+          <button
+            onClick={() => setSidebarTab(sidebarTab === 'history' ? 'sessions' : 'history')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+              sidebarTab === 'history'
+                ? 'bg-primary-600/15 text-primary-400'
+                : 'text-surface-600 hover:text-gray-300 hover:bg-surface-800'
+            }`}
+            title="History"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            History
+          </button>
+        </div>
+        {/* Settings row */}
+        <div className="px-4 pt-1 pb-3 flex items-center justify-between">
+          <button
+            onClick={onSettingsClick}
+            className="flex items-center gap-2 text-surface-700 hover:text-surface-500 transition-colors cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            <span className="text-[11px] font-medium">Settings</span>
+            <CurrentUser />
+          </button>
+          <span className="text-[10px] font-semibold text-surface-800">v0.1.0</span>
+        </div>
       </div>
     </aside>
   );

@@ -56,7 +56,7 @@ export function SettingsPanel({ onLogout, onBrowserOpen }: SettingsPanelProps) {
                       : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
                   }`}
                 >
-                  Chat
+                  AI
                 </button>
                 <button
                   onClick={() => setActiveView('kanban')}
@@ -66,7 +66,7 @@ export function SettingsPanel({ onLogout, onBrowserOpen }: SettingsPanelProps) {
                       : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
                   }`}
                 >
-                  Board
+                  Task
                 </button>
               </div>
             </section>

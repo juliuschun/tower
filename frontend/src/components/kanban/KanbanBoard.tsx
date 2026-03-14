@@ -183,7 +183,7 @@ export function KanbanBoard() {
     <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
       {/* Board header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-200">Agent Board</h2>
+        <h2 className="text-lg font-semibold text-gray-200">Task</h2>
         <button
           onClick={() => setShowNewTask(true)}
           className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"

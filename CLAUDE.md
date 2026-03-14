@@ -67,6 +67,19 @@ Projects group related chat sessions and provide context via CLAUDE.md files.
 - Missing rationale: "Recording the reason will help later" (principle 2)
 - Vague title: "A specific title makes it easier to find" (principle 3)
 
+## UI Navigation
+
+Sidebar is the single navigation point. No header view toggle.
+
+| Sidebar Tab | Internal `activeView` | Center Panel | Description |
+|-------------|----------------------|--------------|-------------|
+| **Sessions** | `chat` | `ChatPanel` | 1:1 AI conversation |
+| **Channel** | `rooms` | `RoomPanel` | Team chat channels |
+| **Files** | (no view change) | (file tree) | File browser |
+
+Header has a **Task board icon** (kanban grid) that toggles `activeView = 'kanban'`.
+Sidebar footer: Pins, History (toggle views), Settings.
+
 ## Communication Style
 
 When explaining architecture, systems, or technical decisions — use plain language and everyday analogies, as if explaining to a smart non-developer. Avoid jargon. If a technical term is necessary, explain it in one sentence right after. Default to the simplest possible explanation first, then add detail only if asked.

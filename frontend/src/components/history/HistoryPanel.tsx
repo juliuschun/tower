@@ -51,6 +51,7 @@ export function HistoryPanel() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const activeView = useSessionStore((s) => s.activeView);
+  const sidebarTab = useSessionStore((s) => s.sidebarTab);
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
@@ -68,10 +69,10 @@ export function HistoryPanel() {
     }
   }, []);
 
-  // Reload whenever user switches to History view
+  // Reload whenever user switches to History view (main area or sidebar)
   useEffect(() => {
-    if (activeView === 'history') loadHistory();
-  }, [activeView, loadHistory]);
+    if (activeView === 'history' || sidebarTab === 'history') loadHistory();
+  }, [activeView, sidebarTab, loadHistory]);
 
   const handleRestoreSession = async (id: string) => {
     try {

@@ -21,7 +21,7 @@ export interface SessionMeta {
   projectId?: string | null;
 }
 
-export type MobileTab = 'sessions' | 'chat' | 'files' | 'edit' | 'pins' | 'board';
+export type MobileTab = 'sessions' | 'chat' | 'files' | 'edit' | 'pins' | 'board' | 'channel';
 
 interface SessionState {
   sessions: SessionMeta[];
@@ -29,7 +29,7 @@ interface SessionState {
   streamingSessions: Set<string>;
   unreadSessions: Set<string>;
   sidebarOpen: boolean;
-  sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms';
+  sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history';
   searchQuery: string;
   isMobile: boolean;
   mobileTab: MobileTab;
@@ -45,7 +45,7 @@ interface SessionState {
   setSessionStreaming: (id: string, streaming: boolean) => void;
   markSessionRead: (id: string) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms') => void;
+  setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history') => void;
   setSearchQuery: (query: string) => void;
   setIsMobile: (v: boolean) => void;
   setMobileTab: (tab: MobileTab) => void;

@@ -4,7 +4,6 @@ import { useSettingsStore } from '../../stores/settings-store';
 import { useModelStore } from '../../stores/model-store';
 import { ModelSelector } from './ModelSelector';
 import { GitPanel } from '../git/GitPanel';
-import { useRoomStore } from '../../stores/room-store';
 
 interface HeaderProps {
   connected: boolean;
@@ -78,43 +77,26 @@ function MobileModelSelector({ currentModel, availableModels, selectedModel, onS
   );
 }
 
-function ViewToggle() {
+function TaskBoardButton() {
   const activeView = useSessionStore((s) => s.activeView);
   const setActiveView = useSessionStore((s) => s.setActiveView);
-  const pgEnabled = useRoomStore((s) => s.pgEnabled);
-  const unreadCounts = useRoomStore((s) => s.unreadCounts);
-
-  // Total unread messages across all rooms
-  const totalUnread = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
-
-  const tabs: { id: 'chat' | 'kanban' | 'history' | 'rooms'; label: string }[] = [
-    { id: 'chat', label: 'Chat' },
-    ...(pgEnabled ? [{ id: 'rooms' as const, label: 'Rooms' }] : []),
-    { id: 'kanban', label: 'Board' },
-    { id: 'history', label: 'History' },
-  ];
+  const isActive = activeView === 'kanban';
 
   return (
-    <div className="flex items-center gap-0.5 bg-surface-800/60 rounded-lg p-0.5">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          onClick={() => setActiveView(tab.id)}
-          className={`relative px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
-            activeView === tab.id
-              ? 'bg-surface-700 text-white shadow-sm'
-              : 'text-gray-500 hover:text-gray-300'
-          }`}
-        >
-          {tab.label}
-          {tab.id === 'rooms' && totalUnread > 0 && activeView !== 'rooms' && (
-            <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-500 text-[9px] font-bold text-white rounded-full leading-none">
-              {totalUnread > 99 ? '99+' : totalUnread}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={() => setActiveView(isActive ? 'chat' : 'kanban')}
+      className={`p-2 rounded-lg transition-all ${
+        isActive
+          ? 'bg-primary-600/20 text-primary-400 ring-1 ring-primary-500/30'
+          : 'text-gray-400 hover:bg-surface-800 hover:text-gray-200'
+      }`}
+      title={isActive ? 'Back to chat' : 'Task board'}
+      aria-label={isActive ? 'Back to chat' : 'Task board'}
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+      </svg>
+    </button>
   );
 }
 
@@ -278,9 +260,6 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
         {!isMobile && <span className="text-gray-100 font-bold text-[15px] tracking-tight">Tower</span>}
       </div>
 
-      {/* Chat / Board / History view toggle */}
-      <ViewToggle />
-
       {activeSession && (
         <>
           <span className="text-surface-700 -mx-1 shrink-0">/</span>
@@ -316,6 +295,8 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
         ) : (
           <ModelSelector />
         )}
+
+        <TaskBoardButton />
 
         {!isMobile && <VersionHistoryButton onViewDiff={onViewDiff} />}
 
