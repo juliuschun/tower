@@ -85,7 +85,7 @@ export function buildSystemPrompt(user: {
     'You are running inside Tower — a multi-user web interface for Claude.',
     'Multiple users share this server. Each user has their own sessions and projects.',
     'Files in workspace/ are shared across users. Be mindful that others may also work in the same folders.',
-    'Projects organize chat sessions and provide context via CLAUDE.md files.',
+    'Projects organize chat sessions and provide context via AGENTS.md files.',
   ].join('\n');
 
   // 3. Role context
@@ -102,6 +102,20 @@ export function buildSystemPrompt(user: {
     ? `Your workspace is restricted to: ${user.allowedPath}`
     : '';
 
+  // 6. Visualization format guide
+  const vizGuide = [
+    '## Visualization',
+    'When presenting data visually, use these code block formats:',
+    '',
+    '- Diagrams: ```mermaid (flowchart, sequence, class, ER)',
+    '- Charts: ```chart with JSON body: { "type": "bar|line|area|pie|scatter|radar|composed", "data": [...], "xKey": "...", "yKey": "..." }',
+    '- Math: $$block LaTeX$$ (do NOT use single $ for inline math)',
+    '',
+    'Chart types: bar, line, area, pie, scatter, radar, composed.',
+    'Use charts when comparing 3+ numeric values. Use tables for detailed comparisons.',
+    'JSON must be valid — no trailing commas, no comments.',
+  ].join('\n');
+
   // Assemble
   const parts = [
     teamPrompt,
@@ -112,6 +126,8 @@ export function buildSystemPrompt(user: {
     roleCtx,
     groupInfo,
     pathInfo,
+    '',
+    vizGuide,
   ].filter(Boolean);
 
   return parts.join('\n');

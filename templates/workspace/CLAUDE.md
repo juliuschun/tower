@@ -58,6 +58,23 @@ When explaining technical decisions or architecture:
 | **Monthly** | Review `docs/` — still accurate? |
 | **Quarterly** | Update `memory/MEMORY.md` — reprioritize |
 
+## 시각화 포맷
+
+Tower 채팅에서 데이터를 시각적으로 보여줄 때 다음 코드블록을 사용하세요:
+
+- **다이어그램**: ` ```mermaid ` (flowchart, sequence, class, ER 등)
+- **차트**: ` ```chart ` (JSON: type, data, xKey, yKey)
+- **수식**: `$$블록$$` (LaTeX — 인라인 `$`는 사용하지 마세요)
+- **데이터 테이블**: ` ```datatable ` (JSON: columns, data)
+- **타임라인**: ` ```timeline ` (JSON: items)
+
+차트 type: `bar`, `line`, `area`, `pie`, `scatter`, `radar`, `composed`
+
+규칙:
+- 숫자 비교 3행 이상 → 차트 사용
+- 항목 비교 → datatable 사용
+- JSON은 반드시 valid JSON (trailing comma, 주석 금지)
+
 ## Warnings
 
 - **Never commit `.env`, credentials, or secret files** (check `.gitignore`)

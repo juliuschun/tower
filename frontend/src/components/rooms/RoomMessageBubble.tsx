@@ -1,8 +1,11 @@
+import { RichContent } from '../shared/RichContent';
 import type { RoomMessage } from '../../stores/room-store';
 
 interface RoomMessageBubbleProps {
   message: RoomMessage;
   isOwnMessage: boolean;
+  parentMessage?: RoomMessage | null;
+  onReply?: (message: RoomMessage) => void;
 }
 
 function formatTime(iso: string): string {
@@ -10,8 +13,37 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function RoomMessageBubble({ message, isOwnMessage }: RoomMessageBubbleProps) {
-  // System message — centered gray text
+/** Reply button shown on hover — small arrow icon */
+function ReplyButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="opacity-0 group-hover:opacity-100 absolute -top-2 right-2 p-1 bg-surface-700 border border-surface-600 rounded-md text-gray-400 hover:text-gray-200 hover:bg-surface-600 transition-all shadow-sm"
+      title="Reply"
+    >
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v3M3 10l6-6M3 10l6 6" />
+      </svg>
+    </button>
+  );
+}
+
+/** Shows the parent message being replied to */
+function ParentPreview({ parent }: { parent: RoomMessage }) {
+  const name = parent.senderName || (parent.msgType === 'ai_reply' || parent.msgType === 'ai_summary' ? 'AI' : 'Unknown');
+  const preview = parent.content.length > 80 ? parent.content.slice(0, 80) + '...' : parent.content;
+  return (
+    <div className="flex items-center gap-1.5 mb-1 pl-2 border-l-2 border-surface-600">
+      <span className="text-[11px] font-semibold text-gray-500">{name}</span>
+      <span className="text-[11px] text-gray-600 truncate">{preview}</span>
+    </div>
+  );
+}
+
+export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onReply }: RoomMessageBubbleProps) {
+  const canReply = onReply && message.msgType !== 'system';
+
+  // System message — centered gray text (no reply)
   if (message.msgType === 'system') {
     return (
       <div className="flex justify-center py-1.5">
@@ -23,17 +55,19 @@ export function RoomMessageBubble({ message, isOwnMessage }: RoomMessageBubblePr
   // AI summary — green accent
   if (message.msgType === 'ai_summary') {
     return (
-      <div className="flex gap-2.5 px-4 py-2">
+      <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
+        {canReply && <ReplyButton onClick={() => onReply(message)} />}
         <div className="w-7 h-7 rounded-full bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
           <span className="text-[11px] font-bold text-emerald-400">AI</span>
         </div>
         <div className="flex-1 min-w-0">
+          {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
             <span className="text-[12px] font-semibold text-emerald-400">AI Summary</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
-          <div className="text-[13px] text-gray-300 leading-relaxed bg-emerald-950/20 border border-emerald-900/30 rounded-lg px-3 py-2 whitespace-pre-wrap">
-            {message.content}
+          <div className="text-[13px] text-gray-300 leading-relaxed bg-emerald-950/20 border border-emerald-900/30 rounded-lg px-3 py-2">
+            <RichContent text={message.content} />
           </div>
         </div>
       </div>
@@ -43,17 +77,44 @@ export function RoomMessageBubble({ message, isOwnMessage }: RoomMessageBubblePr
   // AI error — red accent
   if (message.msgType === 'ai_error') {
     return (
-      <div className="flex gap-2.5 px-4 py-2">
+      <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
+        {canReply && <ReplyButton onClick={() => onReply(message)} />}
         <div className="w-7 h-7 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center shrink-0 mt-0.5">
           <span className="text-[11px] font-bold text-red-400">!</span>
         </div>
         <div className="flex-1 min-w-0">
+          {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
             <span className="text-[12px] font-semibold text-red-400">Error</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
           <div className="text-[13px] text-red-300 leading-relaxed bg-red-950/20 border border-red-900/30 rounded-lg px-3 py-2 whitespace-pre-wrap">
             {message.content}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // AI quick reply — blue accent
+  if (message.msgType === 'ai_reply') {
+    return (
+      <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
+        {canReply && <ReplyButton onClick={() => onReply(message)} />}
+        <div className="w-7 h-7 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0 mt-0.5">
+          <span className="text-[11px] font-bold text-blue-400">AI</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          {parentMessage && <ParentPreview parent={parentMessage} />}
+          <div className="flex items-baseline gap-2 mb-0.5">
+            <span className="text-[12px] font-semibold text-blue-400">AI</span>
+            <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
+          </div>
+          <div className="text-[13px] text-gray-300 leading-relaxed bg-blue-950/20 border border-blue-900/30 rounded-lg px-3 py-2">
+            {message.content
+              ? <RichContent text={message.content} />
+              : <span className="text-gray-500 italic">typing...</span>
+            }
           </div>
         </div>
       </div>
@@ -70,13 +131,15 @@ export function RoomMessageBubble({ message, isOwnMessage }: RoomMessageBubblePr
       taskStatus === 'failed' ? 'text-red-400' : 'text-gray-400';
 
     return (
-      <div className="flex gap-2.5 px-4 py-2">
+      <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
+        {canReply && <ReplyButton onClick={() => onReply(message)} />}
         <div className="w-7 h-7 rounded-full bg-primary-600/20 border border-primary-500/30 flex items-center justify-center shrink-0 mt-0.5">
           <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
           </svg>
         </div>
         <div className="flex-1 min-w-0">
+          {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
             <span className="text-[12px] font-semibold text-primary-400">AI Task</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
@@ -99,11 +162,13 @@ export function RoomMessageBubble({ message, isOwnMessage }: RoomMessageBubblePr
   const initial = (message.senderName || '?')[0].toUpperCase();
 
   return (
-    <div className={`flex gap-2.5 px-4 py-2 ${isOwnMessage ? '' : ''}`}>
+    <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
+      {canReply && <ReplyButton onClick={() => onReply(message)} />}
       <div className="w-7 h-7 rounded-full bg-surface-700 border border-surface-600 flex items-center justify-center shrink-0 mt-0.5">
         <span className="text-[11px] font-bold text-gray-300">{initial}</span>
       </div>
       <div className="flex-1 min-w-0">
+        {parentMessage && <ParentPreview parent={parentMessage} />}
         <div className="flex items-baseline gap-2 mb-0.5">
           <span className="text-[12px] font-semibold text-gray-200">{message.senderName || 'Unknown'}</span>
           <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>

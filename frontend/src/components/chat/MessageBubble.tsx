@@ -1,31 +1,10 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
-import { MermaidBlock } from './MermaidBlock';
+import { RichContent } from '../shared/RichContent';
+import { splitDynamicBlocks } from '../shared/split-dynamic-blocks';
 import { toastSuccess } from '../../utils/toast';
-import { useChatStore, type ChatMessage, type ContentBlock, type TurnMetrics } from '../../stores/chat-store';
-
-/** Progressively reveal characters via requestAnimationFrame at ~100 tokens/sec */
-// ~4 chars per token × 100 t/s = 400 chars/sec = 0.4 chars/ms
-function StreamingText({ content, mdComponents }: {
-  content: string;
-  mdComponents: Record<string, any>;
-}) {
-  return (
-    <div className="prose prose-invert prose-sm max-w-none overflow-hidden">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-        components={mdComponents}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
-}
+import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -100,81 +79,14 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
       const blocks = groups[gi].blocks;
       for (let bi = blocks.length - 1; bi >= 0; bi--) {
         if (!blocks[bi].text) continue;
-        const segs = splitMermaidBlocks(blocks[bi].text!);
+        const segs = splitDynamicBlocks(blocks[bi].text!);
         for (let si = segs.length - 1; si >= 0; si--) {
-          if (segs[si].type !== 'mermaid') return `${gi}-${bi}-t${si}`;
+          if (segs[si].type === 'text') return `${gi}-${bi}-t${si}`;
         }
       }
     }
     return '';
   }, [groups]);
-
-  // Memoize ReactMarkdown components to prevent MermaidBlock unmount/remount loop
-  const mdComponents = useMemo(() => ({
-    img({ src, alt, ...props }: Record<string, any>) {
-      // Convert local file paths to authenticated API URLs
-      let imgSrc = src || '';
-      if (imgSrc.startsWith('/home/') || imgSrc.startsWith('/tmp/') || imgSrc.startsWith('/workspace/')) {
-        const token = localStorage.getItem('token') || '';
-        imgSrc = `/api/files/serve?path=${encodeURIComponent(imgSrc)}&token=${encodeURIComponent(token)}`;
-      } else if (imgSrc.startsWith('/api/files/serve') && !imgSrc.includes('token=')) {
-        const token = localStorage.getItem('token') || '';
-        const sep = imgSrc.includes('?') ? '&' : '?';
-        imgSrc = `${imgSrc}${sep}token=${encodeURIComponent(token)}`;
-      }
-      return (
-        <img
-          src={imgSrc}
-          alt={alt || ''}
-          loading="lazy"
-          className="max-w-full rounded-lg border border-surface-700/40 cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => window.open(imgSrc, '_blank')}
-          {...props}
-        />
-      );
-    },
-    code({ children, className, ...props }: Record<string, any>) {
-      const isInline = !className;
-      const text = String(children).trim();
-
-      // Inline code — file path click
-      if (isInline && text.startsWith('/') && onFileClick) {
-        return (
-          <code
-            {...props}
-            className="cursor-pointer hover:text-primary-400 transition-colors"
-            onClick={() => onFileClick(text)}
-          >
-            {children}
-          </code>
-        );
-      }
-
-      // Block code — with copy button
-      if (!isInline) {
-        return (
-          <code className={className} {...props}>{children}</code>
-        );
-      }
-
-      return <code className={className} {...props}>{children}</code>;
-    },
-    pre({ children }: { children?: React.ReactNode }) {
-      // Extract text from the code child for copying
-      const codeText = extractCodeText(children);
-      return (
-        <pre className="relative group/code">
-          {children}
-          {codeText && (
-            <CopyButton
-              text={codeText}
-              className="absolute top-2 right-2 opacity-60 hover:opacity-100 transition-opacity"
-            />
-          )}
-        </pre>
-      );
-    },
-  }), [onFileClick]);
 
   return (
     <div className={`flex gap-3 my-5 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>
@@ -245,24 +157,17 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
                 );
               }
 
-              // Text — extract mermaid blocks and render them outside prose
+              // Text — render with RichContent (markdown + mermaid + chart + …)
               if (group.type === 'text') {
                 return group.blocks.map((block, bi) => {
                   if (!block.text) return null;
-                  const segments = splitMermaidBlocks(block.text);
-                  return segments.map((seg, si) => {
-                    if (seg.type === 'mermaid') {
-                      return <MermaidBlock key={`${gi}-${bi}-m${si}`} code={seg.content} />;
-                    }
-                    const segKey = `${gi}-${bi}-t${si}`;
-                    return (
-                      <StreamingText
-                        key={segKey}
-                        content={seg.content}
-                        mdComponents={mdComponents}
-                      />
-                    );
-                  });
+                  return (
+                    <RichContent
+                      key={`${gi}-${bi}`}
+                      text={block.text}
+                      onFileClick={onFileClick}
+                    />
+                  );
                 });
               }
 
@@ -368,44 +273,6 @@ function ThinkingChipGroup({ blocks }: { blocks: ContentBlock[] }) {
       )}
     </div>
   );
-}
-
-/** Extract text content from <pre> children (the inner <code> element) */
-function extractCodeText(children: React.ReactNode): string {
-  let text = '';
-  React.Children.forEach(children, (child) => {
-    if (React.isValidElement(child) && child.props) {
-      const props = child.props as Record<string, unknown>;
-      if (props.children) {
-        text += String(props.children);
-      }
-    }
-  });
-  return text.trim();
-}
-
-/** Split markdown text into regular text and mermaid code blocks */
-function splitMermaidBlocks(text: string): Array<{ type: 'text' | 'mermaid'; content: string }> {
-  const segments: Array<{ type: 'text' | 'mermaid'; content: string }> = [];
-  const regex = /```mermaid\n([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      const before = text.slice(lastIndex, match.index).trim();
-      if (before) segments.push({ type: 'text', content: before });
-    }
-    segments.push({ type: 'mermaid', content: match[1].trim() });
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    const rest = text.slice(lastIndex).trim();
-    if (rest) segments.push({ type: 'text', content: rest });
-  }
-
-  return segments.length > 0 ? segments : [{ type: 'text', content: text }];
 }
 
 function fmtDuration(ms: number): string {

@@ -468,3 +468,7 @@ code, pre, .font-mono {
     opacity: 0.6 !important;
   }
 }
+
+/* ─── KaTeX dark mode overrides ─── */
+.katex { color: var(--th-text-primary); }
+.katex .mord, .katex .mrel, .katex .mop, .katex .mbin { color: inherit; }
