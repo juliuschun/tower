@@ -83,11 +83,14 @@ export function createProject(
     // Avoid collision with existing slugs by appending id prefix
     const finalDir = fs.existsSync(projectDir) ? `${projectDir}-${id.slice(0, 8)}` : projectDir;
     fs.mkdirSync(finalDir, { recursive: true });
-    // Create CLAUDE.md with project context
-    const claudeMd = `# ${name}\n\n${opts?.description || 'Project context goes here. Edit this file to set instructions for all chats in this project.'}\n`;
-    const claudeMdPath = path.join(finalDir, 'CLAUDE.md');
-    if (!fs.existsSync(claudeMdPath)) {
-      fs.writeFileSync(claudeMdPath, claudeMd, 'utf-8');
+    // Create AGENTS.md (open standard) with project context + CLAUDE.md symlink for backward compat
+    const agentsMd = `# ${name}\n\n${opts?.description || 'Project context goes here. Edit this file to set instructions for all chats in this project.'}\n`;
+    const agentsMdPath = path.join(finalDir, 'AGENTS.md');
+    if (!fs.existsSync(agentsMdPath)) {
+      fs.writeFileSync(agentsMdPath, agentsMd, 'utf-8');
+      // Symlink so Claude SDK still discovers CLAUDE.md
+      const claudeLink = path.join(finalDir, 'CLAUDE.md');
+      try { fs.symlinkSync('AGENTS.md', claudeLink); } catch {}
     }
     rootPath = finalDir;
   }
@@ -157,7 +160,7 @@ function _cascadeRename(
   const isWorkspaceManaged = oldRootPath.startsWith(workspaceProjectsDir + path.sep);
 
   // 1. Update CLAUDE.md title (works for both workspace-managed and external folders)
-  _updateClaudeMdTitle(oldRootPath, current.name, newName);
+  _updateAgentsMdTitle(oldRootPath, current.name, newName);
 
   // 2. For external rootPaths (e.g. ~/claude-desk), don't move the folder
   if (!isWorkspaceManaged) {
@@ -227,22 +230,26 @@ function _cascadeRename(
 }
 
 /**
- * Update the first H1 title in CLAUDE.md to reflect the new project name.
+ * Update the first H1 title in AGENTS.md (or CLAUDE.md) to reflect the new project name.
  */
-function _updateClaudeMdTitle(rootPath: string, oldName: string, newName: string): void {
-  const claudeMdPath = path.join(rootPath, 'CLAUDE.md');
-  try {
-    if (!fs.existsSync(claudeMdPath)) return;
-    let content = fs.readFileSync(claudeMdPath, 'utf-8');
-    // Replace the first H1 line that matches the old project name
-    const oldTitle = `# ${oldName}`;
-    const newTitle = `# ${newName}`;
-    if (content.startsWith(oldTitle)) {
-      content = newTitle + content.slice(oldTitle.length);
-      fs.writeFileSync(claudeMdPath, content, 'utf-8');
+function _updateAgentsMdTitle(rootPath: string, oldName: string, newName: string): void {
+  // Prefer AGENTS.md, fall back to CLAUDE.md for older projects
+  const candidates = ['AGENTS.md', 'CLAUDE.md'];
+  for (const filename of candidates) {
+    const filePath = path.join(rootPath, filename);
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      let content = fs.readFileSync(filePath, 'utf-8');
+      const oldTitle = `# ${oldName}`;
+      const newTitle = `# ${newName}`;
+      if (content.startsWith(oldTitle)) {
+        content = newTitle + content.slice(oldTitle.length);
+        fs.writeFileSync(filePath, content, 'utf-8');
+      }
+      return; // Updated one file — done
+    } catch {
+      // Non-critical — don't fail the rename if context file update fails
     }
-  } catch {
-    // Non-critical — don't fail the rename if CLAUDE.md update fails
   }
 }
 

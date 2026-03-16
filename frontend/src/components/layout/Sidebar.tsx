@@ -52,6 +52,7 @@ export function Sidebar({
   const [ungroupedCollapsed, setUngroupedCollapsed] = useState(false);
   const [ungroupedExpanded, setUngroupedExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const tree = useFileStore((s) => s.tree);
   const treeRoot = useFileStore((s) => s.treeRoot);
@@ -309,7 +310,24 @@ export function Sidebar({
       )}
 
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto"
+        onDragOver={(e) => {
+          // Auto-scroll when dragging near top/bottom edges
+          const container = scrollContainerRef.current;
+          if (!container) return;
+          const rect = container.getBoundingClientRect();
+          const y = e.clientY - rect.top;
+          const EDGE = 40;
+          const SPEED = 8;
+          if (y < EDGE) {
+            container.scrollTop -= SPEED;
+          } else if (y > rect.height - EDGE) {
+            container.scrollTop += SPEED;
+          }
+        }}
+      >
         {sidebarTab === 'sessions' ? (
           <div className="px-3">
             {/* New Chat + New Project buttons */}
@@ -1432,7 +1450,7 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
           rows={2}
           className={`${inputClass} resize-none`}
         />
-        <p className="text-[9px] text-surface-600 mt-0.5">Also saved to CLAUDE.md in the project folder</p>
+        <p className="text-[9px] text-surface-600 mt-0.5">Also saved to AGENTS.md in the project folder</p>
       </div>
 
       {/* Root Path */}

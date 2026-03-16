@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { Engine, RunOpts, EngineCallbacks, TowerMessage, TowerContentBlock } from './types.js';
+import type { Engine, RunOpts, EngineCallbacks, TowerMessage, TowerContentBlock, QuickReplyOpts } from './types.js';
 import {
   createAgentSession,
   AuthStorage,
@@ -24,6 +24,7 @@ import {
 import { buildSystemPrompt } from '../services/system-prompt.js';
 import { createAgentTool } from './pi-agent-tool.js';
 import { excelReadTool, excelQueryTool } from './pi-finance-tools.js';
+import { pdfReadTool, excelWriteTool, excelDiffTool } from './pi-finance-tools-extra.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -345,7 +346,7 @@ export class PiEngine implements Engine {
       cwd: opts.cwd,
       model,
       tools: [readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool],
-      customTools: [createAgentTool(auth, registry), excelReadTool, excelQueryTool],
+      customTools: [createAgentTool(auth, registry), excelReadTool, excelQueryTool, pdfReadTool, excelWriteTool, excelDiffTool],
       authStorage: auth,
       modelRegistry: registry,
       resourceLoader,
@@ -360,6 +361,78 @@ export class PiEngine implements Engine {
     this.sessions.set(sessionId, entry);
     console.log(`[Pi] Session created: ${sessionId.slice(0, 8)} model=${model?.provider}/${model?.id}`);
     return entry;
+  }
+
+  async quickReply(prompt: string, opts: QuickReplyOpts): Promise<string> {
+    // Pi quick reply: use OpenRouter API directly (lightweight, no session needed)
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) throw new Error('OPENROUTER_API_KEY not configured for Pi quick reply');
+
+    // Parse model: "openrouter/anthropic/claude-sonnet-4.6" → "anthropic/claude-sonnet-4.6"
+    let modelId = opts.model || '';
+    if (modelId.startsWith('openrouter/')) modelId = modelId.slice('openrouter/'.length);
+    if (!modelId) {
+      // Fallback to first available Pi model
+      const registry = this.getModelRegistry();
+      const available = registry.getAvailable();
+      if (available.length > 0) modelId = `${available[0].provider === 'openrouter' ? '' : ''}${available[0].id}`;
+      else throw new Error('No Pi models available');
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelId,
+        max_tokens: 2048,
+        stream: true,
+        messages: [
+          { role: 'system', content: opts.systemPrompt },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`OpenRouter API error ${response.status}: ${errBody.slice(0, 200)}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === '[DONE]') continue;
+
+        try {
+          const event = JSON.parse(jsonStr);
+          const delta = event.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullContent += delta;
+            opts.onChunk(delta, fullContent);
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    return fullContent;
   }
 
   abort(sessionId: string): void {
