@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 import { useSettingsStore } from '../../stores/settings-store';
 import type { SkillMeta } from '@tower/shared';
 
@@ -6,6 +9,7 @@ const API = '/api';
 
 interface SkillDetail extends SkillMeta {
   content: string;
+  files?: string[];
 }
 
 export function SkillsBrowser() {
@@ -308,6 +312,34 @@ export function SkillsBrowser() {
                   <p className="text-[13px] text-gray-300 leading-relaxed">{selected.description}</p>
                 </div>
 
+                {/* Files */}
+                {selected.files && selected.files.length > 0 && (
+                  <div className="mb-5">
+                    <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Files</h4>
+                    <div className="bg-surface-800/30 border border-surface-700 rounded-lg p-3 font-mono text-[12px]">
+                      {selected.files.map((f, i) => {
+                        const depth = f.split('/').length - 1;
+                        const name = f.split('/').pop() || f;
+                        const isDir = selected.files!.some(other => other.startsWith(f + '/'));
+                        return (
+                          <div key={i} className="flex items-center gap-1.5 py-0.5" style={{ paddingLeft: `${depth * 16}px` }}>
+                            {isDir ? (
+                              <svg className="w-3.5 h-3.5 text-amber-500/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                              </svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5 text-gray-500/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                            )}
+                            <span className={isDir ? 'text-gray-300' : 'text-gray-400'}>{name}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {editing ? (
                   /* Edit form */
                   <div className="space-y-3">
@@ -354,8 +386,18 @@ export function SkillsBrowser() {
                       {viewMode === 'code' ? (
                         <pre className="text-[12px] text-gray-300 font-mono whitespace-pre-wrap">{selected.content}</pre>
                       ) : (
-                        <div className="text-[13px] text-gray-300 leading-relaxed whitespace-pre-wrap">
-                          {selected.content.replace(/^---[\s\S]*?---\n*/, '')}
+                        <div className="prose prose-invert prose-sm max-w-none
+                          prose-headings:text-gray-100 prose-headings:font-bold prose-headings:border-b prose-headings:border-surface-700 prose-headings:pb-2 prose-headings:mb-3
+                          prose-p:text-gray-300 prose-p:leading-relaxed
+                          prose-li:text-gray-300 prose-li:marker:text-gray-500
+                          prose-code:text-primary-300 prose-code:bg-surface-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px]
+                          prose-pre:bg-surface-900 prose-pre:border prose-pre:border-surface-700 prose-pre:rounded-lg
+                          prose-strong:text-gray-100
+                          prose-a:text-primary-400 prose-a:no-underline hover:prose-a:underline
+                          text-[13px]">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                            {selected.content.replace(/^---[\s\S]*?---\n*/, '')}
+                          </ReactMarkdown>
                         </div>
                       )}
                     </div>

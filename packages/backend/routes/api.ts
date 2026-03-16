@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
+import os from 'os';
 import {
   authenticateUser, createUser, hasUsers, generateToken, verifyToken, authMiddleware, extractToken,
   adminMiddleware, listUsers, updateUserRole, updateUserPath,
@@ -1041,7 +1042,28 @@ router.get('/skills/:id', (req, res) => {
   try {
     const skill = getSkill(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
-    res.json(skill);
+
+    // Scan filesystem for skill directory structure
+    const files: string[] = [];
+    const scanDirs = [
+      path.join(os.homedir(), '.claude', 'skills', skill.name),
+      path.join(path.dirname(config.dbPath), 'skills', 'company', skill.name),
+    ];
+    for (const dir of scanDirs) {
+      if (fs.existsSync(dir)) {
+        const walk = (d: string, prefix: string) => {
+          for (const item of fs.readdirSync(d, { withFileTypes: true })) {
+            const rel = prefix ? `${prefix}/${item.name}` : item.name;
+            files.push(rel);
+            if (item.isDirectory()) walk(path.join(d, item.name), rel);
+          }
+        };
+        walk(dir, '');
+        break; // first found dir is enough
+      }
+    }
+
+    res.json({ ...skill, files });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
