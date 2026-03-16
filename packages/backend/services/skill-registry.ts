@@ -18,6 +18,7 @@ const DATA_SKILLS_DIR = path.join(path.dirname(config.dbPath), 'skills');
 const COMPANY_SKILLS_DIR = path.join(DATA_SKILLS_DIR, 'company');
 const PERSONAL_SKILLS_DIR = path.join(DATA_SKILLS_DIR, 'personal');
 const CLAUDE_SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills');
+const PLUGINS_DIR = path.join(os.homedir(), '.claude', 'plugins');
 
 // ═══════════════════════════════════════════════════════════════
 // Seed bundled skills → DB (idempotent)
@@ -58,6 +59,88 @@ export function seedBundledSkills(bundledDir: string): number {
 
   tx();
   if (count > 0) console.log(`[skills] Seeded ${count} bundled skills`);
+  return count;
+}
+
+/**
+ * Seed skills from ~/.claude/plugins/ (marketplace + installed).
+ * Scans cache (versioned) and installed dirs. Stores skill_path for folder reference.
+ */
+export function seedPluginSkills(): number {
+  const db = getDb();
+  const upsert = db.prepare(`
+    INSERT INTO skill_registry (id, name, scope, description, category, content, source, skill_path)
+    VALUES (?, ?, 'company', ?, ?, ?, ?, ?)
+    ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
+    DO UPDATE SET content = excluded.content, description = excluded.description,
+                  skill_path = excluded.skill_path, source = excluded.source,
+                  updated_at = CURRENT_TIMESTAMP
+  `);
+
+  // Sources to scan: [dir, source_tag, category_hint]
+  const sources: [string, string, string][] = [
+    [path.join(PLUGINS_DIR, 'cache', 'internal-skills'), 'marketplace', 'general'],
+    [path.join(PLUGINS_DIR, 'installed', 'superpowers', 'skills'), 'marketplace', 'dev'],
+  ];
+
+  // Also scan official plugins
+  const officialDir = path.join(PLUGINS_DIR, 'marketplaces', 'claude-plugins-official', 'plugins');
+  if (fs.existsSync(officialDir)) {
+    try {
+      for (const plugin of fs.readdirSync(officialDir, { withFileTypes: true })) {
+        if (!plugin.isDirectory()) continue;
+        const skillsDir = path.join(officialDir, plugin.name, 'skills');
+        if (fs.existsSync(skillsDir)) {
+          sources.push([skillsDir, 'official', 'dev']);
+        }
+      }
+    } catch {}
+  }
+
+  let count = 0;
+  const tx = db.transaction(() => {
+    for (const [dir, sourceTag, categoryHint] of sources) {
+      if (!fs.existsSync(dir)) continue;
+
+      try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const skillDir = path.join(dir, entry.name);
+
+          // Cache entries have version subdirs: cache/internal-skills/offer-plan/1.0.0/
+          let skillFile = path.join(skillDir, 'SKILL.md');
+          let actualDir = skillDir;
+
+          if (!fs.existsSync(skillFile)) {
+            // Try version subdir
+            try {
+              const versions = fs.readdirSync(skillDir, { withFileTypes: true })
+                .filter(v => v.isDirectory())
+                .map(v => v.name)
+                .sort()
+                .reverse();
+              if (versions.length > 0) {
+                actualDir = path.join(skillDir, versions[0]);
+                skillFile = path.join(actualDir, 'SKILL.md');
+              }
+            } catch {}
+          }
+
+          if (!fs.existsSync(skillFile)) continue;
+
+          const content = fs.readFileSync(skillFile, 'utf-8');
+          const name = parseFrontmatterField(content, 'name') || entry.name;
+          const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
+
+          upsert.run(uuidv4(), name, description, categoryHint, content, sourceTag, actualDir);
+          count++;
+        }
+      } catch {}
+    }
+  });
+
+  tx();
+  if (count > 0) console.log(`[skills] Seeded ${count} plugin skills`);
   return count;
 }
 
@@ -414,6 +497,7 @@ function rowToMeta(row: any): SkillMeta {
     category: row.category || 'general',
     enabled: !!row.enabled,
     source: row.source || 'bundled',
+    skillPath: row.skill_path || null,
     projectId: row.project_id || null,
     userId: row.user_id || null,
     createdAt: row.created_at,

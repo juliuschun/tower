@@ -16,7 +16,7 @@ import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from
 import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown } from './services/claude-sdk.js';
 import { startScheduler, stopScheduler } from './services/task-scheduler.js';
 import { cleanupStaleSessions } from './services/session-manager.js';
-import { seedBundledSkills, syncCompanySkillsToFs } from './services/skill-registry.js';
+import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs } from './services/skill-registry.js';
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
 delete process.env.CLAUDECODE;
@@ -108,6 +108,7 @@ server.listen(config.port, config.host, async () => {
   // Seed bundled skills into DB + sync to filesystem
   const bundledDir = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'claude-skills', 'skills');
   seedBundledSkills(bundledDir);
+  seedPluginSkills();
   syncCompanySkillsToFs();
 
   // Clean up stale chat session claudeSessionIds where .jsonl is gone.

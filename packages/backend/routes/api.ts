@@ -1046,20 +1046,24 @@ router.get('/skills/:id', (req, res) => {
     // Scan filesystem for skill directory structure
     const files: string[] = [];
     const scanDirs = [
+      skill.skillPath,  // plugin cache path (has full folder structure)
       path.join(os.homedir(), '.claude', 'skills', skill.name),
       path.join(path.dirname(config.dbPath), 'skills', 'company', skill.name),
-    ];
+    ].filter(Boolean) as string[];
     for (const dir of scanDirs) {
       if (fs.existsSync(dir)) {
         const walk = (d: string, prefix: string) => {
-          for (const item of fs.readdirSync(d, { withFileTypes: true })) {
-            const rel = prefix ? `${prefix}/${item.name}` : item.name;
-            files.push(rel);
-            if (item.isDirectory()) walk(path.join(d, item.name), rel);
-          }
+          try {
+            for (const item of fs.readdirSync(d, { withFileTypes: true })) {
+              if (item.name.startsWith('.')) continue; // skip hidden
+              const rel = prefix ? `${prefix}/${item.name}` : item.name;
+              files.push(rel);
+              if (item.isDirectory()) walk(path.join(d, item.name), rel);
+            }
+          } catch {}
         };
         walk(dir, '');
-        break; // first found dir is enough
+        break;
       }
     }
 

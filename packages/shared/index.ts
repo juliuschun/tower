@@ -116,7 +116,8 @@ export interface SkillMeta {
   enabled: boolean;
   /** Per-user toggle (null = no pref set, defaults to enabled) */
   userEnabled?: boolean | null;
-  source: 'bundled' | 'custom';
+  source: 'bundled' | 'custom' | 'marketplace' | 'official';
+  skillPath?: string | null;
   projectId?: string | null;
   userId?: number | null;
   createdAt: string;

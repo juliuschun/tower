@@ -346,6 +346,8 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_skill_project ON skill_registry(project_id) WHERE project_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_skill_user ON skill_registry(user_id) WHERE user_id IS NOT NULL;
   `);
+  // Migration: add skill_path for filesystem-backed skills (plugins, etc.)
+  try { db.exec(`ALTER TABLE skill_registry ADD COLUMN skill_path TEXT`); } catch {}
 
   // ── User skill preferences (per-user toggle for company/project skills) ──
   db.exec(`
