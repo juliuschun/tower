@@ -14,6 +14,7 @@ import {
 import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
 import { loadCommands } from '../services/command-loader.js';
+import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref } from '../services/skill-registry.js';
 import { getMessages } from '../services/message-store.js';
 import { generateSessionName } from '../services/auto-namer.js';
 import { generateSummary } from '../services/summarizer.js';
@@ -1014,7 +1015,6 @@ router.get('/commands', (req, res) => {
 
   // Try DB-backed registry first, fall back to filesystem scan
   try {
-    const { getCommandsForUser } = require('../services/skill-registry.js');
     const commands = getCommandsForUser(userId, projectId || null);
     if (commands.length > 0) {
       return res.json(commands);
@@ -1028,9 +1028,8 @@ router.get('/commands', (req, res) => {
 // ───── Skills Registry ─────
 router.get('/skills', (req, res) => {
   try {
-    const { listSkills } = require('../services/skill-registry.js');
     const userId = (req as any).user?.userId;
-    const scope = req.query.scope as string | undefined;
+    const scope = req.query.scope as 'company' | 'project' | 'personal' | undefined;
     const projectId = req.query.projectId as string | undefined;
     res.json(listSkills(scope, projectId, userId));
   } catch (err: any) {
@@ -1040,7 +1039,6 @@ router.get('/skills', (req, res) => {
 
 router.get('/skills/:id', (req, res) => {
   try {
-    const { getSkill } = require('../services/skill-registry.js');
     const skill = getSkill(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     res.json(skill);
@@ -1051,7 +1049,6 @@ router.get('/skills/:id', (req, res) => {
 
 router.post('/skills', (req, res) => {
   try {
-    const { createSkill } = require('../services/skill-registry.js');
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
     const { name, scope, content, description, category, projectId } = req.body;
@@ -1078,7 +1075,6 @@ router.post('/skills', (req, res) => {
 
 router.put('/skills/:id', (req, res) => {
   try {
-    const { updateSkill, getSkill } = require('../services/skill-registry.js');
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
 
@@ -1102,7 +1098,6 @@ router.put('/skills/:id', (req, res) => {
 
 router.delete('/skills/:id', (req, res) => {
   try {
-    const { deleteSkill, getSkill } = require('../services/skill-registry.js');
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
 
@@ -1126,7 +1121,6 @@ router.delete('/skills/:id', (req, res) => {
 // Per-user skill toggle (enable/disable a skill for yourself)
 router.post('/skills/:id/toggle', (req, res) => {
   try {
-    const { setUserSkillPref, getUserSkillPref } = require('../services/skill-registry.js');
     const userId = (req as any).user?.userId;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
