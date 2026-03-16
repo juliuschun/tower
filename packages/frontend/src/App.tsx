@@ -985,7 +985,7 @@ function App() {
       {isMobile ? <MobileTabBar /> : <BottomBar requestFileTree={requestFileTree} />}
 
       {/* Settings modal */}
-      <SettingsPanel onLogout={handleLogout} onBrowserOpen={() => setBrowserOpen(true)} />
+      <SettingsPanel onLogout={handleLogout} />
       <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
       <SkillsBrowser />
       <BrowserPanel open={browserOpen} onClose={() => setBrowserOpen(false)} />

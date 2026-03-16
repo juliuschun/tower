@@ -4,10 +4,9 @@ import { useSessionStore } from '../../stores/session-store';
 
 interface SettingsPanelProps {
   onLogout: () => void;
-  onBrowserOpen?: () => void;
 }
 
-export function SettingsPanel({ onLogout, onBrowserOpen }: SettingsPanelProps) {
+export function SettingsPanel({ onLogout }: SettingsPanelProps) {
   const isOpen = useSettingsStore((s) => s.isOpen);
   const setOpen = useSettingsStore((s) => s.setOpen);
   const theme = useSettingsStore((s) => s.theme);
@@ -100,30 +99,17 @@ export function SettingsPanel({ onLogout, onBrowserOpen }: SettingsPanelProps) {
             </div>
           </section>
 
-          {/* Dev Tools */}
-          {onBrowserOpen && (
-            <section>
-              <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Dev Tools</h3>
-              <button
-                onClick={() => {
-                  setOpen(false);
-                  onBrowserOpen();
-                }}
-                className="w-full py-2.5 text-xs font-semibold text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-all"
-              >
-                Browser Panel
-              </button>
-            </section>
-          )}
-
-          {/* Skills */}
+          {/* Skills Market */}
           <section>
             <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Skills</h3>
             <button
               onClick={() => { setOpen(false); setSkillsBrowserOpen(true); }}
-              className="w-full py-2.5 text-xs font-semibold text-primary-400 border border-primary-500/30 hover:bg-primary-500/10 rounded-lg transition-all"
+              className="w-full py-2.5 text-xs font-semibold text-violet-400 border border-violet-500/30 hover:bg-violet-500/10 rounded-lg transition-all flex items-center justify-center gap-2"
             >
-              Manage Skills
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Skills Market
             </button>
           </section>
 

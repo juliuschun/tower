@@ -28,11 +28,19 @@ export function SkillsBrowser() {
   const loadSkills = useCallback(() => {
     fetch(`${API}/skills`, { headers: hdrs })
       .then(r => r.ok ? r.json() : [])
-      .then(setSkills)
+      .then((data: SkillMeta[]) => {
+        setSkills(data);
+        // Auto-select first skill if nothing selected
+        if (!selected && data.length > 0) {
+          loadDetail(data[0].id);
+        }
+      })
       .catch(() => {});
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { if (open) loadSkills(); }, [open, loadSkills]);
+  useEffect(() => {
+    if (open) { setSelected(null); loadSkills(); }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadDetail = async (id: string) => {
     const r = await fetch(`${API}/skills/${id}`, { headers: hdrs });
@@ -125,7 +133,7 @@ export function SkillsBrowser() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
-            <h2 className="text-[15px] font-bold text-gray-100">Skills</h2>
+            <h2 className="text-[15px] font-bold text-gray-100">Skills Market</h2>
             <span className="text-[11px] text-gray-500">{skills.length} skills</span>
           </div>
           <button onClick={() => setOpen(false)} className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-surface-800 rounded-lg transition-colors">
@@ -153,7 +161,7 @@ export function SkillsBrowser() {
             </button>
             <div className="flex-1" />
             <p className="text-[10px] text-gray-600 px-3 leading-relaxed">
-              Skills give Claude specialized expertise as reusable /commands
+              Browse, enable, and create /commands that give AI specialized expertise
             </p>
           </div>
 
@@ -357,12 +365,15 @@ export function SkillsBrowser() {
             ) : (
               /* Empty state */
               <div className="flex items-center justify-center h-full text-gray-600">
-                <div className="text-center">
+                <div className="text-center max-w-[280px]">
                   <svg className="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
-                  <p className="text-[13px]">Select a skill to view details</p>
-                  <p className="text-[11px] text-gray-700 mt-1">or click + to create a new one</p>
+                  <p className="text-[13px] font-medium text-gray-500">Select a skill to view details</p>
+                  <p className="text-[11px] text-gray-700 mt-2 leading-relaxed">
+                    Skills are reusable /commands that give AI specialized expertise.
+                    Toggle them on or off, or create your own.
+                  </p>
                 </div>
               </div>
             )}
