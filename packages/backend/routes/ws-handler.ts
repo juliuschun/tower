@@ -621,6 +621,8 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         const esid = towerMsg.engineSessionId;
         if (client.sessionId === sessionId && esid) {
           client.claudeSessionId = esid;
+          // Persist to DB so Pi sessions survive server restart
+          try { claimClaudeSessionId(sessionId, esid); } catch {}
         }
         // Update turn_count, files_edited in DB
         try {

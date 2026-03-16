@@ -249,17 +249,28 @@ export class PiEngine implements Engine {
         resolveWait?.();
       });
 
-    // 5. Yield loop
+    // 5. Yield loop (with abort detection)
+    // Store abort resolver on entry so abort() can break the loop
     try {
       while (!done || eventQueue.length > 0) {
+        if (!entry.isRunning) {
+          // Aborted externally
+          done = true;
+          break;
+        }
         if (eventQueue.length > 0) {
           yield eventQueue.shift()!;
         } else {
-          await new Promise<void>(r => { resolveWait = r; });
+          await new Promise<void>(r => {
+            resolveWait = r;
+            (entry as any)._abortResolve = r;
+          });
           resolveWait = null;
         }
       }
-      await promptPromise;
+      if (entry.isRunning) {
+        await promptPromise;
+      }
 
       // 6. Engine done — include session file path for persistence
       const piSessionFile = entry.session.sessionFile;
@@ -477,6 +488,11 @@ export class PiEngine implements Engine {
     const entry = this.sessions.get(sessionId);
     if (entry?.isRunning) {
       entry.session.abort();
+      // Force-resolve the yield loop in case SDK doesn't emit events after abort
+      entry.isRunning = false;
+      if ((entry as any)._abortResolve) {
+        (entry as any)._abortResolve();
+      }
     }
   }
 
