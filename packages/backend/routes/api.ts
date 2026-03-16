@@ -9,7 +9,7 @@ import {
 import {
   createSession, getSessions, getSession, updateSession, deleteSession,
   getArchivedSessions, restoreSession, permanentlyDeleteSession,
-  scanClaudeNativeSessions
+  scanClaudeNativeSessions, getPanelSessions,
 } from '../services/session-manager.js';
 import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
@@ -464,13 +464,22 @@ router.delete('/admin/groups/:id/users/:uid', adminMiddleware, (req, res) => {
 router.get('/sessions', (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
-  res.json(getSessions(userId, role));
+  const roomId = req.query.roomId as string | undefined;
+
+  // AI Panel: return panel sessions for specific room + user
+  if (roomId && userId) {
+    return res.json(getPanelSessions(roomId, userId));
+  }
+
+  // Default: return all accessible sessions (excluding panel sessions)
+  const sessions = getSessions(userId, role);
+  res.json(sessions.filter(s => !s.roomId));
 });
 
 router.post('/sessions', (req, res) => {
-  const { name, cwd, projectId, engine } = req.body;
+  const { name, cwd, projectId, engine, roomId } = req.body;
   const userId = (req as any).user?.userId;
-  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine);
+  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine, roomId);
   res.json(session);
 });
 
@@ -1109,6 +1118,22 @@ router.delete('/skills/:id', (req, res) => {
 
     const ok = deleteSkill(req.params.id);
     res.json({ ok });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Per-user skill toggle (enable/disable a skill for yourself)
+router.post('/skills/:id/toggle', (req, res) => {
+  try {
+    const { setUserSkillPref, getUserSkillPref } = require('../services/skill-registry.js');
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const { enabled } = req.body;
+    const newState = enabled !== undefined ? !!enabled : !(getUserSkillPref(userId, req.params.id) ?? true);
+    setUserSkillPref(userId, req.params.id, newState);
+    res.json({ ok: true, enabled: newState });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -28,6 +28,8 @@ export interface SessionMeta {
   filesEdited?: string[];
   projectId?: string | null;
   engine?: string;
+  visibility?: 'private' | 'project';
+  roomId?: string | null;
 }
 
 // ── Task ─────────────────────────────────────────────────────────
@@ -112,6 +114,8 @@ export interface SkillMeta {
   description: string;
   category: string;
   enabled: boolean;
+  /** Per-user toggle (null = no pref set, defaults to enabled) */
+  userEnabled?: boolean | null;
   source: 'bundled' | 'custom';
   projectId?: string | null;
   userId?: number | null;

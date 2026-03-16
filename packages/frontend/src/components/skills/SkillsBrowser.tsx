@@ -77,10 +77,20 @@ export function SkillsBrowser() {
 
   const handleToggle = async () => {
     if (!selected) return;
-    await fetch(`${API}/skills/${selected.id}`, {
-      method: 'PUT', headers: hdrs,
-      body: JSON.stringify({ enabled: !selected.enabled }),
-    });
+    if (role === 'admin' && selected.scope === 'company') {
+      // Admin toggles global enabled state
+      await fetch(`${API}/skills/${selected.id}`, {
+        method: 'PUT', headers: hdrs,
+        body: JSON.stringify({ enabled: !selected.enabled }),
+      });
+    } else {
+      // User toggles personal preference
+      const currentlyActive = selected.userEnabled !== false;
+      await fetch(`${API}/skills/${selected.id}/toggle`, {
+        method: 'POST', headers: hdrs,
+        body: JSON.stringify({ enabled: !currentlyActive }),
+      });
+    }
     loadSkills();
     loadDetail(selected.id);
   };
@@ -182,7 +192,7 @@ export function SkillsBrowser() {
                           selected?.id === s.id ? 'bg-surface-800 text-white' : 'text-gray-300 hover:bg-surface-800/50'
                         }`}>
                         <span className="text-primary-500/60 font-mono">/</span>
-                        <span className={`truncate ${!s.enabled ? 'opacity-40 line-through' : ''}`}>{s.name}</span>
+                        <span className={`truncate ${(!s.enabled || (s as any).userEnabled === false) ? 'opacity-40 line-through' : ''}`}>{s.name}</span>
                       </button>
                     ))}
                   </div>
@@ -236,11 +246,16 @@ export function SkillsBrowser() {
                     </h3>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={handleToggle}
-                      className={`w-10 h-5 rounded-full transition-colors relative ${selected.enabled ? 'bg-green-600' : 'bg-surface-700'}`}>
-                      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${selected.enabled ? 'left-5.5 translate-x-0' : 'left-0.5'}`}
-                        style={{ left: selected.enabled ? '22px' : '2px' }} />
-                    </button>
+                    {(() => {
+                      const isActive = selected.enabled && selected.userEnabled !== false;
+                      return (
+                        <button onClick={handleToggle} title={isActive ? 'Disable for me' : 'Enable for me'}
+                          className={`w-10 h-5 rounded-full transition-colors relative ${isActive ? 'bg-green-600' : 'bg-surface-700'}`}>
+                          <div className="absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform"
+                            style={{ left: isActive ? '22px' : '2px' }} />
+                        </button>
+                      );
+                    })()}
                     <div className="relative group">
                       <button className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-surface-800 rounded-lg transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

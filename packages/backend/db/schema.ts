@@ -347,8 +347,25 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_skill_user ON skill_registry(user_id) WHERE user_id IS NOT NULL;
   `);
 
+  // ── User skill preferences (per-user toggle for company/project skills) ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_skill_prefs (
+      user_id   INTEGER NOT NULL,
+      skill_id  TEXT NOT NULL,
+      enabled   INTEGER DEFAULT 1,
+      PRIMARY KEY (user_id, skill_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (skill_id) REFERENCES skill_registry(id) ON DELETE CASCADE
+    );
+  `);
+
   // ── Engine support ──
   try { db.exec(`ALTER TABLE sessions ADD COLUMN engine TEXT DEFAULT 'claude'`); } catch {}
+
+  // ── Unified visibility + AI Panel ──
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN visibility TEXT DEFAULT 'private'`); } catch {}
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN room_id TEXT`); } catch {}
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_room ON sessions(room_id) WHERE room_id IS NOT NULL`); } catch {}
 
   // ── Session identity: UNIQUE claude_session_id (Tower = SSOT) ──
   // 1. Normalize empty strings → NULL

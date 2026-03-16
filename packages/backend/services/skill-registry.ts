@@ -153,7 +153,18 @@ export function listSkills(scope?: SkillScope, projectId?: string, userId?: numb
   if (userId && scope === 'personal') { sql += ' AND user_id = ?'; params.push(userId); }
 
   sql += ' ORDER BY name';
-  return db.prepare(sql).all(...params).map(rowToMeta) as SkillMeta[];
+  const rows = db.prepare(sql).all(...params) as any[];
+
+  // Attach per-user pref if userId provided
+  const userPrefs = userId ? getUserSkillPrefs(userId) : new Map<string, boolean>();
+  return rows.map(row => {
+    const meta = rowToMeta(row);
+    if (userId) {
+      const pref = userPrefs.get(row.id);
+      meta.userEnabled = pref ?? null;
+    }
+    return meta;
+  });
 }
 
 export function getSkill(id: string): (SkillMeta & { content: string }) | null {
@@ -239,7 +250,43 @@ function syncAfterMutation(scope: string, projectId?: string, userId?: number) {
 // Query helpers (for engines and /api/commands)
 // ═══════════════════════════════════════════════════════════════
 
-/** Get merged skills for a session: company + project + personal (personal wins) */
+// ═══════════════════════════════════════════════════════════════
+// User skill preferences
+// ═══════════════════════════════════════════════════════════════
+
+/** Set user preference for a skill (overrides global enabled state) */
+export function setUserSkillPref(userId: number, skillId: string, enabled: boolean): void {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO user_skill_prefs (user_id, skill_id, enabled) VALUES (?, ?, ?)
+    ON CONFLICT (user_id, skill_id) DO UPDATE SET enabled = excluded.enabled
+  `).run(userId, skillId, enabled ? 1 : 0);
+}
+
+/** Get user preference for a skill. Returns null if no pref set (default = enabled). */
+export function getUserSkillPref(userId: number, skillId: string): boolean | null {
+  const db = getDb();
+  const row = db.prepare('SELECT enabled FROM user_skill_prefs WHERE user_id = ? AND skill_id = ?').get(userId, skillId) as any;
+  return row ? !!row.enabled : null;
+}
+
+/** Get all user prefs as a Map<skillId, enabled> */
+function getUserSkillPrefs(userId: number): Map<string, boolean> {
+  const db = getDb();
+  const rows = db.prepare('SELECT skill_id, enabled FROM user_skill_prefs WHERE user_id = ?').all(userId) as any[];
+  const map = new Map<string, boolean>();
+  for (const r of rows) map.set(r.skill_id, !!r.enabled);
+  return map;
+}
+
+/** Check if a skill is active for a user (global enabled AND user pref) */
+function isSkillActiveForUser(row: any, userPrefs: Map<string, boolean>): boolean {
+  if (!row.enabled) return false; // globally disabled by admin
+  const pref = userPrefs.get(row.id);
+  return pref !== false; // default = enabled (null/true → active, false → inactive)
+}
+
+/** Get merged skills for a session: company + project + personal, filtered by user prefs */
 export function getSkillsForSession(userId?: number, projectId?: string | null): SkillMeta[] {
   const db = getDb();
   let sql = `
@@ -257,14 +304,15 @@ export function getSkillsForSession(userId?: number, projectId?: string | null):
   if (userId) params.push(userId);
 
   const rows = db.prepare(sql).all(...params) as any[];
+  const userPrefs = userId ? getUserSkillPrefs(userId) : new Map<string, boolean>();
 
-  // Deduplicate: first occurrence wins (personal > project > company)
+  // Deduplicate + filter by user prefs
   const seen = new Set<string>();
   const result: SkillMeta[] = [];
   for (const row of rows) {
-    const name = row.name;
-    if (seen.has(name)) continue;
-    seen.add(name);
+    if (seen.has(row.name)) continue;
+    seen.add(row.name);
+    if (!isSkillActiveForUser(row, userPrefs)) continue;
     result.push(rowToMeta(row));
   }
   return result;
@@ -290,6 +338,7 @@ export function getCommandsForUser(userId?: number, projectId?: string | null): 
   if (userId) params.push(userId);
 
   const rows = db.prepare(sql).all(...params) as any[];
+  const userPrefs = userId ? getUserSkillPrefs(userId) : new Map<string, boolean>();
 
   const seen = new Set<string>();
   const result: { name: string; description: string; fullContent: string; source: string; scope: SkillScope }[] = [];
@@ -297,6 +346,7 @@ export function getCommandsForUser(userId?: number, projectId?: string | null): 
   for (const row of rows) {
     if (seen.has(row.name)) continue;
     seen.add(row.name);
+    if (!isSkillActiveForUser(row, userPrefs)) continue;
     result.push({
       name: `/${row.name}`,
       description: row.description || `Skill: ${row.name}`,
