@@ -212,7 +212,7 @@ def smart_read(path, sheet_name=None, max_rows=100):
 function ensureReaderScript(): void {
   const tmpPath = '/tmp/tower_excel_reader.py';
   try {
-    execSync(`cat > ${tmpPath} << 'PYEOF'\n${SMART_READER_PY}\nPYEOF`, { encoding: 'utf-8' });
+    require('fs').writeFileSync(tmpPath, SMART_READER_PY, 'utf-8');
   } catch { /* ignore */ }
 }
 
