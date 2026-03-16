@@ -123,11 +123,11 @@ export class PiEngine implements Engine {
     opts: RunOpts,
     callbacks: EngineCallbacks,
   ): AsyncGenerator<TowerMessage> {
-    // 1. Get or create AgentSession (cached per Tower session)
+    // 1. Get or create AgentSession (cached per Tower session, persisted to disk)
     let entry = this.sessions.get(sessionId);
     if (!entry) {
       try {
-        entry = await this.createSession(sessionId, opts);
+        entry = await this.createSession(sessionId, opts, callbacks);
       } catch (err: any) {
         yield { type: 'engine_error', sessionId, message: `Pi session creation failed: ${err.message}` };
         return;
@@ -261,10 +261,12 @@ export class PiEngine implements Engine {
       }
       await promptPromise;
 
-      // 6. Engine done
+      // 6. Engine done — include session file path for persistence
+      const piSessionFile = entry.session.sessionFile;
       yield {
         type: 'engine_done',
         sessionId,
+        engineSessionId: piSessionFile,
         editedFiles: [...editedFiles],
       };
     } finally {
@@ -297,7 +299,7 @@ export class PiEngine implements Engine {
     }
   }
 
-  private async createSession(sessionId: string, opts: RunOpts): Promise<PiSessionEntry> {
+  private async createSession(sessionId: string, opts: RunOpts, callbacks?: EngineCallbacks): Promise<PiSessionEntry> {
     const auth = this.getAuth();
     const registry = this.getModelRegistry();
 
@@ -336,11 +338,40 @@ export class PiEngine implements Engine {
       allowedPath: opts.allowedPath,
     });
 
+    // Build additional skill paths for 3-tier skill registry
+    const additionalSkillPaths: string[] = [];
+    try {
+      const { getCompanySkillsDir, getPersonalSkillPaths } = await import('../services/skill-registry.js');
+      additionalSkillPaths.push(getCompanySkillsDir());
+      additionalSkillPaths.push(...getPersonalSkillPaths(opts.userId));
+    } catch {}
+
     const resourceLoader = new DefaultResourceLoader({
       cwd: opts.cwd,
       appendSystemPrompt: towerPrompt,
+      additionalSkillPaths,
     });
     await resourceLoader.reload();
+
+    // ── Session persistence ──
+    // Use file-based SessionManager so Pi remembers conversation across server restarts.
+    // engineSessionId (from Tower DB) points to a Pi session file path.
+    const piSessionDir = path.join(opts.cwd, '.pi', 'sessions');
+    fs.mkdirSync(piSessionDir, { recursive: true });
+
+    let sessionMgr: ReturnType<typeof SessionManager.create>;
+    if (opts.engineSessionId) {
+      // Resume existing session
+      try {
+        sessionMgr = SessionManager.open(opts.engineSessionId, piSessionDir);
+        console.log(`[Pi] Resuming session: ${sessionId.slice(0, 8)} from ${opts.engineSessionId}`);
+      } catch (err: any) {
+        console.warn(`[Pi] Resume failed (${err.message}), creating new session`);
+        sessionMgr = SessionManager.create(opts.cwd, piSessionDir);
+      }
+    } else {
+      sessionMgr = SessionManager.create(opts.cwd, piSessionDir);
+    }
 
     const { session } = await createAgentSession({
       cwd: opts.cwd,
@@ -350,12 +381,19 @@ export class PiEngine implements Engine {
       authStorage: auth,
       modelRegistry: registry,
       resourceLoader,
-      sessionManager: SessionManager.inMemory(),
+      sessionManager: sessionMgr,
       settingsManager: SettingsManager.inMemory({
         compaction: { enabled: true },
         retry: { enabled: true, maxRetries: 2 },
       }),
     });
+
+    // Claim the session file path so Tower DB can restore it later
+    const sessionFile = sessionMgr.getSessionFile();
+    if (sessionFile && callbacks) {
+      callbacks.claimSessionId(sessionFile);
+      console.log(`[Pi] Session file: ${sessionFile}`);
+    }
 
     const entry: PiSessionEntry = { session, isRunning: false };
     this.sessions.set(sessionId, entry);
