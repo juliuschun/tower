@@ -86,6 +86,7 @@ export interface SlashCommandInfo {
   name: string;
   description: string;
   source: 'sdk' | 'commands' | 'skills';
+  scope?: 'company' | 'project' | 'personal';
 }
 
 export interface Attachment {

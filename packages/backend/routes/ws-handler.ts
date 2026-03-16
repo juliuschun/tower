@@ -592,13 +592,31 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     }, SDK_HANG_TIMEOUT);
   };
 
+  // ── Personal skill interception (Claude engine only) ──
+  // Pi handles all skills natively via additionalSkillPaths.
+  // Claude SDK can't load per-user skills (shared OS user), so we prepend content.
+  let finalMessage = data.message;
+  if (engineName === 'claude' && data.message.startsWith('/')) {
+    try {
+      const { getPersonalSkill } = await import('../services/skill-registry.js');
+      const skillName = data.message.split(' ')[0].slice(1);
+      if (client.userId) {
+        const personalSkill = getPersonalSkill(client.userId, skillName);
+        if (personalSkill) {
+          const args = data.message.slice(skillName.length + 2);
+          finalMessage = `${personalSkill.content}\n\n${args}`.trim();
+        }
+      }
+    } catch {}
+  }
+
   // Notify all clients that this session started streaming
   broadcastToAll({ type: 'session_status', sessionId, status: 'streaming' });
 
   try {
     resetHangTimer();
 
-    for await (const towerMsg of engine.run(sessionId, data.message, {
+    for await (const towerMsg of engine.run(sessionId, finalMessage, {
       cwd: data.cwd || dbSession?.cwd || client.allowedPath || config.defaultCwd,
       model: resolvedModel,
       userId: client.userId,

@@ -66,15 +66,19 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     const tk = localStorage.getItem('token');
     const hdrs: Record<string, string> = {};
     if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
-    fetch('/api/commands', { headers: hdrs })
+    const projectId = useSessionStore.getState().sessions.find(
+      s => s.id === currentSessionId
+    )?.projectId || '';
+    fetch(`/api/commands?projectId=${projectId}`, { headers: hdrs })
       .then((r) => r.ok ? r.json() : [])
-      .then((cmds: Array<{ name: string; description: string; source: string }>) => {
+      .then((cmds: Array<{ name: string; description: string; source: string; scope?: string }>) => {
         if (cmds.length > 0 && useChatStore.getState().slashCommands.length === 0) {
           useChatStore.getState().setSystemInfo({
             slashCommands: cmds.map((c) => ({
               name: c.name.replace(/^\//, ''),
               description: c.description,
               source: c.source as 'commands' | 'sdk' | 'skills',
+              scope: c.scope as 'company' | 'project' | 'personal' | undefined,
             })),
           });
         }
@@ -479,6 +483,17 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                 <span className="font-medium truncate">{cmd.name}</span>
                 {cmd.description && (
                   <span className="text-[11px] text-gray-500 truncate ml-1">{cmd.description}</span>
+                )}
+                {cmd.scope && (
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                    cmd.scope === 'personal'
+                      ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20'
+                      : cmd.scope === 'project'
+                        ? 'bg-green-900/30 text-green-400 border border-green-500/20'
+                        : 'bg-amber-900/30 text-amber-400 border border-amber-500/20'
+                  }`}>
+                    {cmd.scope === 'personal' ? 'my' : cmd.scope === 'project' ? 'proj' : 'co'}
+                  </span>
                 )}
                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-auto shrink-0 ${
                   cmd.source === 'commands'
