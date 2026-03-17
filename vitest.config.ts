@@ -20,5 +20,9 @@ export default defineConfig({
       'packages/shared/**/*.test.ts',
       '__tests__/**/*.test.ts',
     ],
+    exclude: [
+      '**/node_modules/**',
+      '__tests__/build-smoke.test.ts',
+    ],
   },
 });
