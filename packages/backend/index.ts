@@ -8,7 +8,7 @@ import fs from 'fs';
 import { config, validateConfig } from './config.js';
 import apiRouter from './routes/api.js';
 import { setupWebSocket, broadcastToAll } from './routes/ws-handler.js';
-import { closeDb } from './db/schema.js';
+// SQLite closeDb removed — all data now in PG (closePgPool handles shutdown)
 import { initPg, closePgPool, isPgEnabled } from './db/pg.js';
 import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';
@@ -107,9 +107,9 @@ server.listen(config.port, config.host, async () => {
 
   // Seed bundled skills into DB + sync to filesystem
   const bundledDir = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'claude-skills', 'skills');
-  seedBundledSkills(bundledDir);
-  seedPluginSkills();
-  syncCompanySkillsToFs();
+  await seedBundledSkills(bundledDir);
+  await seedPluginSkills();
+  await syncCompanySkillsToFs();
 
   // Clean up stale chat session claudeSessionIds where .jsonl is gone.
   // Must run BEFORE orphan monitoring — ensures chat sessions don't attempt
@@ -134,7 +134,6 @@ process.on('SIGINT', () => {
   stopOrphanMonitor();
   stopAllMonitors();
   stopFileWatcher();
-  closeDb();
   closePgPool().finally(() => server.close(() => process.exit(0)));
 });
 
@@ -144,7 +143,6 @@ process.on('SIGTERM', () => {
   stopOrphanMonitor();
   stopAllMonitors();
   stopFileWatcher();
-  closeDb();
   closePgPool().finally(() => server.close(() => process.exit(0)));
 });
 

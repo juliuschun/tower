@@ -1,4 +1,4 @@
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute, transaction, withClient } from '../db/pg-repo.js';
 import { loadCommands } from './command-loader.js';
 
 export type { PromptItem } from '@tower/shared';
@@ -10,25 +10,25 @@ export interface Pin extends PinBase {
   user_id: number | null;
 }
 
-export function getPins(userId?: number): Pin[] {
-  const db = getDb();
+export async function getPins(userId?: number): Promise<Pin[]> {
   if (userId) {
-    return db.prepare(
-      `SELECT * FROM pins WHERE user_id = ? ORDER BY sort_order ASC, created_at DESC`
-    ).all(userId) as Pin[];
+    return await query<Pin>(
+      `SELECT * FROM pins WHERE user_id = $1 ORDER BY sort_order ASC, created_at DESC`,
+      [userId]
+    );
   }
-  return db.prepare(
+  return await query<Pin>(
     `SELECT * FROM pins ORDER BY sort_order ASC, created_at DESC`
-  ).all() as Pin[];
+  );
 }
 
-export function createPin(title: string, filePath: string, fileType: string, userId?: number): Pin {
-  const db = getDb();
-  const result = db.prepare(
-    `INSERT INTO pins (title, file_path, file_type, user_id) VALUES (?, ?, ?, ?)`
-  ).run(title, filePath, fileType, userId || null);
+export async function createPin(title: string, filePath: string, fileType: string, userId?: number): Promise<Pin> {
+  const row = await queryOne<{ id: number }>(
+    `INSERT INTO pins (title, file_path, file_type, user_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [title, filePath, fileType, userId || null]
+  );
   return {
-    id: result.lastInsertRowid as number,
+    id: row!.id,
     title,
     file_path: filePath,
     file_type: fileType,
@@ -40,42 +40,39 @@ export function createPin(title: string, filePath: string, fileType: string, use
   };
 }
 
-export function updatePin(id: number, updates: { title?: string; sortOrder?: number }): void {
-  const db = getDb();
+export async function updatePin(id: number, updates: { title?: string; sortOrder?: number }): Promise<void> {
   const sets: string[] = [];
   const vals: any[] = [];
-  if (updates.title !== undefined) { sets.push('title = ?'); vals.push(updates.title); }
-  if (updates.sortOrder !== undefined) { sets.push('sort_order = ?'); vals.push(updates.sortOrder); }
+  let idx = 1;
+  if (updates.title !== undefined) { sets.push(`title = $${idx++}`); vals.push(updates.title); }
+  if (updates.sortOrder !== undefined) { sets.push(`sort_order = $${idx++}`); vals.push(updates.sortOrder); }
   if (sets.length === 0) return;
   vals.push(id);
-  db.prepare(`UPDATE pins SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  await execute(`UPDATE pins SET ${sets.join(', ')} WHERE id = $${idx}`, vals);
 }
 
-export function deletePin(id: number): void {
-  const db = getDb();
-  db.prepare(`DELETE FROM pins WHERE id = ?`).run(id);
+export async function deletePin(id: number): Promise<void> {
+  await execute(`DELETE FROM pins WHERE id = $1`, [id]);
 }
 
-export function reorderPins(orderedIds: number[]): void {
-  const db = getDb();
-  const stmt = db.prepare(`UPDATE pins SET sort_order = ? WHERE id = ?`);
-  const tx = db.transaction(() => {
-    orderedIds.forEach((id, index) => {
-      stmt.run(index, id);
-    });
+export async function reorderPins(orderedIds: number[]): Promise<void> {
+  await transaction(async (client) => {
+    const db = withClient(client);
+    for (let index = 0; index < orderedIds.length; index++) {
+      await db.execute(`UPDATE pins SET sort_order = $1 WHERE id = $2`, [index, orderedIds[index]]);
+    }
   });
-  tx();
 }
 
 // ───── Prompt CRUD ─────
 
-export function createPromptPin(title: string, content: string, userId?: number): Pin {
-  const db = getDb();
-  const result = db.prepare(
-    `INSERT INTO pins (title, file_path, file_type, pin_type, content, user_id) VALUES (?, '', 'text', 'prompt', ?, ?)`
-  ).run(title, content, userId || null);
+export async function createPromptPin(title: string, content: string, userId?: number): Promise<Pin> {
+  const row = await queryOne<{ id: number }>(
+    `INSERT INTO pins (title, file_path, file_type, pin_type, content, user_id) VALUES ($1, '', 'text', 'prompt', $2, $3) RETURNING id`,
+    [title, content, userId || null]
+  );
   return {
-    id: result.lastInsertRowid as number,
+    id: row!.id,
     title,
     file_path: '',
     file_type: 'text',
@@ -87,25 +84,24 @@ export function createPromptPin(title: string, content: string, userId?: number)
   };
 }
 
-export function updatePromptPin(id: number, updates: { title?: string; content?: string }): void {
-  const db = getDb();
+export async function updatePromptPin(id: number, updates: { title?: string; content?: string }): Promise<void> {
   const sets: string[] = [];
   const vals: any[] = [];
-  if (updates.title !== undefined) { sets.push('title = ?'); vals.push(updates.title); }
-  if (updates.content !== undefined) { sets.push('content = ?'); vals.push(updates.content); }
+  let idx = 1;
+  if (updates.title !== undefined) { sets.push(`title = $${idx++}`); vals.push(updates.title); }
+  if (updates.content !== undefined) { sets.push(`content = $${idx++}`); vals.push(updates.content); }
   if (sets.length === 0) return;
   vals.push(id);
-  db.prepare(`UPDATE pins SET ${sets.join(', ')} WHERE id = ? AND pin_type = 'prompt'`).run(...vals);
+  await execute(`UPDATE pins SET ${sets.join(', ')} WHERE id = $${idx} AND pin_type = 'prompt'`, vals);
 }
 
-export function getPromptsWithCommands(userId?: number): PromptItem[] {
-  const db = getDb();
+export async function getPromptsWithCommands(userId?: number): Promise<PromptItem[]> {
   const prompts: PromptItem[] = [];
 
   // DB prompts
   const rows = userId
-    ? db.prepare(`SELECT * FROM pins WHERE pin_type = 'prompt' AND user_id = ? ORDER BY sort_order ASC, created_at DESC`).all(userId) as Pin[]
-    : db.prepare(`SELECT * FROM pins WHERE pin_type = 'prompt' ORDER BY sort_order ASC, created_at DESC`).all() as Pin[];
+    ? await query<Pin>(`SELECT * FROM pins WHERE pin_type = 'prompt' AND user_id = $1 ORDER BY sort_order ASC, created_at DESC`, [userId])
+    : await query<Pin>(`SELECT * FROM pins WHERE pin_type = 'prompt' ORDER BY sort_order ASC, created_at DESC`);
 
   for (const row of rows) {
     prompts.push({

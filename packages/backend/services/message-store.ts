@@ -1,4 +1,4 @@
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute } from '../db/pg-repo.js';
 import { extractTextFromContent } from '../utils/text.js';
 import fs from 'fs';
 import path from 'path';
@@ -106,54 +106,39 @@ function extractBlobToDisk(base64Data: string, mediaType: string): string | null
   }
 }
 
-export function saveMessage(
+export async function saveMessage(
   sessionId: string,
   msg: { id: string; role: string; content: any; parentToolUseId?: string | null }
-): void {
-  const db = getDb();
+): Promise<void> {
   // Compact content before serializing
   const content = Array.isArray(msg.content) ? compactContent(msg.content) : msg.content;
   const contentStr = typeof content === 'string' ? content : JSON.stringify(content);
-  db.prepare(
-    `INSERT OR REPLACE INTO messages (id, session_id, role, content, parent_tool_use_id) VALUES (?, ?, ?, ?, ?)`
-  ).run(msg.id, sessionId, msg.role, contentStr, msg.parentToolUseId || null);
-
-  // FTS sync (index user/assistant text only)
-  if (msg.role === 'user' || msg.role === 'assistant') {
-    const text = extractTextFromContent(contentStr);
-    if (text.trim()) {
-      try {
-        const row = db.prepare('SELECT rowid FROM messages WHERE id = ?').get(msg.id) as any;
-        if (row) {
-          db.prepare('DELETE FROM messages_fts WHERE rowid = ?').run(row.rowid);
-          db.prepare('INSERT INTO messages_fts(rowid, body, session_id) VALUES (?, ?, ?)').run(row.rowid, text, sessionId);
-        }
-      } catch (err) { console.error('[msg-store] FTS sync failed:', err); }
-    }
-  }
+  await execute(
+    `INSERT INTO messages (id, session_id, role, content, parent_tool_use_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT(id) DO UPDATE SET content = EXCLUDED.content, parent_tool_use_id = EXCLUDED.parent_tool_use_id, duration_ms = EXCLUDED.duration_ms, input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens`,
+    [msg.id, sessionId, msg.role, contentStr, msg.parentToolUseId || null]
+  );
 }
 
-export function getMessages(sessionId: string): StoredMessage[] {
-  const db = getDb();
-  return db.prepare(
-    `SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`
-  ).all(sessionId) as StoredMessage[];
+export async function getMessages(sessionId: string): Promise<StoredMessage[]> {
+  return await query(
+    `SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at ASC`,
+    [sessionId]
+  ) as StoredMessage[];
 }
 
-export function updateMessageContent(messageId: string, content: any): void {
-  const db = getDb();
+export async function updateMessageContent(messageId: string, content: any): Promise<void> {
   const compacted = Array.isArray(content) ? compactContent(content) : content;
   const contentStr = typeof compacted === 'string' ? compacted : JSON.stringify(compacted);
-  db.prepare(`UPDATE messages SET content = ? WHERE id = ?`).run(contentStr, messageId);
+  await execute(`UPDATE messages SET content = $1 WHERE id = $2`, [contentStr, messageId]);
 }
 
 /** Attach a tool result to the matching tool_use block in DB */
-export function attachToolResultInDb(sessionId: string, toolUseId: string, result: string): void {
-  const db = getDb();
+export async function attachToolResultInDb(sessionId: string, toolUseId: string, result: string): Promise<void> {
   // Find assistant messages in this session that contain this tool_use_id
-  const rows = db.prepare(
-    `SELECT id, content FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY created_at DESC`
-  ).all(sessionId) as { id: string; content: string }[];
+  const rows = await query(
+    `SELECT id, content FROM messages WHERE session_id = $1 AND role = 'assistant' ORDER BY created_at DESC`,
+    [sessionId]
+  ) as { id: string; content: string }[];
 
   for (const row of rows) {
     try {
@@ -171,25 +156,23 @@ export function attachToolResultInDb(sessionId: string, toolUseId: string, resul
         }
       }
       if (found) {
-        db.prepare(`UPDATE messages SET content = ? WHERE id = ?`).run(JSON.stringify(content), row.id);
+        await execute(`UPDATE messages SET content = $1 WHERE id = $2`, [JSON.stringify(content), row.id]);
         return;
       }
     } catch {}
   }
 }
 
-export function updateMessageMetrics(
+export async function updateMessageMetrics(
   messageId: string,
   metrics: { duration_ms?: number; input_tokens?: number; output_tokens?: number }
-): void {
-  const db = getDb();
-  db.prepare(
-    `UPDATE messages SET duration_ms = ?, input_tokens = ?, output_tokens = ? WHERE id = ?`
-  ).run(metrics.duration_ms ?? null, metrics.input_tokens ?? null, metrics.output_tokens ?? null, messageId);
+): Promise<void> {
+  await execute(
+    `UPDATE messages SET duration_ms = $1, input_tokens = $2, output_tokens = $3 WHERE id = $4`,
+    [metrics.duration_ms ?? null, metrics.input_tokens ?? null, metrics.output_tokens ?? null, messageId]
+  );
 }
 
-export function deleteMessages(sessionId: string): void {
-  const db = getDb();
-  try { db.prepare('DELETE FROM messages_fts WHERE session_id = ?').run(sessionId); } catch {}
-  db.prepare(`DELETE FROM messages WHERE session_id = ?`).run(sessionId);
+export async function deleteMessages(sessionId: string): Promise<void> {
+  await execute(`DELETE FROM messages WHERE session_id = $1`, [sessionId]);
 }

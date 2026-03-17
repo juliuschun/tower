@@ -1,4 +1,4 @@
-import { getDb } from '../db/schema.js';
+import { query as pgQuery } from '../db/pg-repo.js';
 import { getAccessibleProjectIds } from './group-manager.js';
 
 export interface SearchResult {
@@ -10,15 +10,13 @@ export interface SearchResult {
   createdAt: string;
 }
 
-export function search(query: string, opts: { userId?: number; role?: string; limit?: number } = {}): SearchResult[] {
-  const db = getDb();
+export async function search(query: string, opts: { userId?: number; role?: string; limit?: number } = {}): Promise<SearchResult[]> {
   const limit = opts.limit || 20;
-  const escaped = trigramEscape(query);
   const results: SearchResult[] = [];
 
   // Determine accessible project IDs for group filtering
   const accessibleIds = (opts.userId && opts.role)
-    ? getAccessibleProjectIds(opts.userId, opts.role)
+    ? await getAccessibleProjectIds(opts.userId, opts.role)
     : null;
 
   // Filter function: same logic as sessions — project sessions by group, non-project by creator
@@ -33,15 +31,13 @@ export function search(query: string, opts: { userId?: number; role?: string; li
 
   // 1) Session search (name, summary)
   try {
-    const sessionHits = db.prepare(`
-      SELECT s.id, s.name, s.summary, s.created_at, s.user_id, s.project_id, f.rank
-      FROM sessions_fts f
-      JOIN sessions s ON s.rowid = f.rowid
-      WHERE sessions_fts MATCH ?
-        AND (s.archived IS NULL OR s.archived = 0)
-      ORDER BY f.rank
-      LIMIT ?
-    `).all(escaped, fetchLimit) as any[];
+    const sessionHits = await pgQuery(`
+      SELECT id, name, summary, created_at, user_id, project_id
+      FROM sessions
+      WHERE (name ILIKE '%' || $1 || '%' OR COALESCE(summary,'') ILIKE '%' || $1 || '%')
+        AND archived = 0
+      LIMIT $2
+    `, [query, fetchLimit]);
 
     for (const hit of sessionHits) {
       if (!isVisible(hit)) continue;
@@ -50,25 +46,25 @@ export function search(query: string, opts: { userId?: number; role?: string; li
         sessionId: hit.id,
         sessionName: hit.name,
         snippet: hit.summary || hit.name,
-        rank: hit.rank,
+        rank: 0,
         createdAt: hit.created_at,
       });
     }
-  } catch (err) { console.error('[search] sessions_fts error:', err); }
+  } catch (err) { console.error('[search] session search error:', err); }
 
   // 2) Message search (body)
   try {
-    const messageHits = db.prepare(`
-      SELECT m.id, m.session_id, m.role, m.created_at, f.body, f.rank,
-             s.name as session_name, s.user_id, s.project_id
-      FROM messages_fts f
-      JOIN messages m ON m.rowid = f.rowid
+    const messageHits = await pgQuery(`
+      SELECT m.id, m.content AS body, m.session_id, m.created_at,
+             s.name AS session_name, s.user_id, s.project_id
+      FROM messages m
       JOIN sessions s ON s.id = m.session_id
-      WHERE messages_fts MATCH ?
+      WHERE m.content ILIKE '%' || $1 || '%'
+        AND m.role IN ('user', 'assistant')
         AND (s.archived IS NULL OR s.archived = 0)
-      ORDER BY f.rank
-      LIMIT ?
-    `).all(escaped, fetchLimit) as any[];
+      ORDER BY m.created_at DESC
+      LIMIT $2
+    `, [query, fetchLimit]);
 
     for (const hit of messageHits) {
       if (!isVisible(hit)) continue;
@@ -83,15 +79,11 @@ export function search(query: string, opts: { userId?: number; role?: string; li
         sessionId: hit.session_id,
         sessionName: hit.session_name,
         snippet,
-        rank: hit.rank,
+        rank: 0,
         createdAt: hit.created_at,
       });
     }
-  } catch (err) { console.error('[search] messages_fts error:', err); }
+  } catch (err) { console.error('[search] message search error:', err); }
 
-  return results.sort((a, b) => a.rank - b.rank).slice(0, limit);
-}
-
-function trigramEscape(q: string): string {
-  return `"${q.replace(/"/g, '""')}"`;
+  return results.slice(0, limit);
 }

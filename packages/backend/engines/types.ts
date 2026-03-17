@@ -110,19 +110,19 @@ export interface EngineCallbacks {
   askUser(questionId: string, questions: any[]): Promise<string>;
 
   /** Persist engine-specific session ID for resume */
-  claimSessionId(engineSessionId: string): void;
+  claimSessionId(engineSessionId: string): void | Promise<void>;
 
   /** Save a message to DB */
-  saveMessage(msg: SavedMessage): void;
+  saveMessage(msg: SavedMessage): void | Promise<void>;
 
   /** Update message content (streaming updates) */
-  updateMessageContent(msgId: string, content: any[]): void;
+  updateMessageContent(msgId: string, content: any[]): void | Promise<void>;
 
   /** Attach tool result to an existing tool_use message in DB */
-  attachToolResult(toolUseId: string, result: string): void;
+  attachToolResult(toolUseId: string, result: string): void | Promise<void>;
 
   /** Update message metrics after turn completes */
-  updateMessageMetrics(msgId: string, metrics: MessageMetrics): void;
+  updateMessageMetrics(msgId: string, metrics: MessageMetrics): void | Promise<void>;
 }
 
 export interface SavedMessage {

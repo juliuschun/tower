@@ -1,4 +1,4 @@
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute, transaction, withClient } from '../db/pg-repo.js';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
@@ -32,41 +32,41 @@ function rowToProject(row: any): Project {
   };
 }
 
-export function getProjects(userId?: number, role?: string): Project[] {
-  const db = getDb();
-
+export async function getProjects(userId?: number, role?: string): Promise<Project[]> {
   if (userId && role) {
-    const accessibleIds = getAccessibleProjectIds(userId, role);
+    const accessibleIds = await getAccessibleProjectIds(userId, role);
     if (accessibleIds !== null) {
       // Non-admin: show only projects user is a member of or created
-      const allRows = db.prepare(
+      const allRows = await query(
         `SELECT * FROM projects WHERE archived = 0 ORDER BY sort_order, created_at`
-      ).all() as any[];
+      );
       return allRows.filter(r => accessibleIds.includes(r.id)).map(rowToProject);
     }
   }
 
   // admin or no auth: show all non-archived projects
-  const rows = db.prepare(
+  const rows = await query(
     `SELECT * FROM projects WHERE archived = 0 ORDER BY sort_order, created_at`
-  ).all() as any[];
+  );
   return rows.map(rowToProject);
 }
 
-export function getProject(id: string): Project | null {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as any;
+export async function getProject(id: string): Promise<Project | null> {
+  const row = await queryOne('SELECT * FROM projects WHERE id = $1', [id]);
   return row ? rowToProject(row) : null;
 }
 
-export function createProject(
+export async function createProject(
   name: string,
   userId?: number,
   opts?: { description?: string; rootPath?: string; color?: string }
-): Project {
-  const db = getDb();
+): Promise<Project> {
   const id = uuidv4();
-  const maxOrder = (db.prepare('SELECT MAX(sort_order) as m FROM projects WHERE user_id IS NULL OR user_id = ?').get(userId ?? null) as any)?.m ?? 0;
+  const maxOrderRow = await queryOne(
+    'SELECT MAX(sort_order) as m FROM projects WHERE user_id IS NULL OR user_id = $1',
+    [userId ?? null]
+  );
+  const maxOrder = maxOrderRow?.m ?? 0;
 
   // Determine rootPath: use provided path, or auto-create under workspace/projects/
   let rootPath = opts?.rootPath ?? null;
@@ -88,19 +88,20 @@ export function createProject(
     rootPath = finalDir;
   }
 
-  db.prepare(
-    `INSERT INTO projects (id, name, description, root_path, color, sort_order, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, name, opts?.description ?? null, rootPath, opts?.color ?? '#f59e0b', maxOrder + 1, userId ?? null);
+  await execute(
+    `INSERT INTO projects (id, name, description, root_path, color, sort_order, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [id, name, opts?.description ?? null, rootPath, opts?.color ?? '#f59e0b', maxOrder + 1, userId ?? null]
+  );
 
   // Auto-add creator as project owner
   if (userId) {
-    addProjectMember(id, userId, 'owner');
+    await addProjectMember(id, userId, 'owner');
   }
 
-  return getProject(id)!;
+  return (await getProject(id))!;
 }
 
-export function updateProject(id: string, updates: Partial<{
+export async function updateProject(id: string, updates: Partial<{
   name: string;
   description: string | null;
   rootPath: string | null;
@@ -108,14 +109,12 @@ export function updateProject(id: string, updates: Partial<{
   sortOrder: number;
   collapsed: number;
   archived: number;
-}>): Project | null {
-  const db = getDb();
-
+}>): Promise<Project | null> {
   // ── Safe Rename: when name changes, cascade folder + sessions + CLAUDE.md ──
   if (updates.name !== undefined) {
-    const current = getProject(id);
+    const current = await getProject(id);
     if (current && updates.name !== current.name && current.rootPath) {
-      const renamed = _cascadeRename(current, updates.name, db);
+      const renamed = await _cascadeRename(current, updates.name);
       if (renamed.newRootPath) {
         // Override rootPath so the DB update below picks it up
         updates.rootPath = renamed.newRootPath;
@@ -125,17 +124,18 @@ export function updateProject(id: string, updates: Partial<{
 
   const sets: string[] = [];
   const vals: any[] = [];
-  if (updates.name !== undefined) { sets.push('name = ?'); vals.push(updates.name); }
-  if (updates.description !== undefined) { sets.push('description = ?'); vals.push(updates.description); }
-  if (updates.rootPath !== undefined) { sets.push('root_path = ?'); vals.push(updates.rootPath); }
-  if (updates.color !== undefined) { sets.push('color = ?'); vals.push(updates.color); }
-  if (updates.sortOrder !== undefined) { sets.push('sort_order = ?'); vals.push(updates.sortOrder); }
-  if (updates.collapsed !== undefined) { sets.push('collapsed = ?'); vals.push(updates.collapsed); }
-  if (updates.archived !== undefined) { sets.push('archived = ?'); vals.push(updates.archived); }
-  if (sets.length === 0) return getProject(id);
+  let paramIdx = 1;
+  if (updates.name !== undefined) { sets.push(`name = $${paramIdx++}`); vals.push(updates.name); }
+  if (updates.description !== undefined) { sets.push(`description = $${paramIdx++}`); vals.push(updates.description); }
+  if (updates.rootPath !== undefined) { sets.push(`root_path = $${paramIdx++}`); vals.push(updates.rootPath); }
+  if (updates.color !== undefined) { sets.push(`color = $${paramIdx++}`); vals.push(updates.color); }
+  if (updates.sortOrder !== undefined) { sets.push(`sort_order = $${paramIdx++}`); vals.push(updates.sortOrder); }
+  if (updates.collapsed !== undefined) { sets.push(`collapsed = $${paramIdx++}`); vals.push(updates.collapsed); }
+  if (updates.archived !== undefined) { sets.push(`archived = $${paramIdx++}`); vals.push(updates.archived); }
+  if (sets.length === 0) return await getProject(id);
   vals.push(id);
-  db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  return getProject(id);
+  await execute(`UPDATE projects SET ${sets.join(', ')} WHERE id = $${paramIdx}`, vals);
+  return await getProject(id);
 }
 
 /**
@@ -143,11 +143,10 @@ export function updateProject(id: string, updates: Partial<{
  * Only applies to workspace-managed folders (under WORKSPACE_ROOT/projects/).
  * External rootPaths (e.g. ~/claude-desk) are left untouched — only CLAUDE.md title is updated.
  */
-function _cascadeRename(
+async function _cascadeRename(
   current: Project,
   newName: string,
-  db: ReturnType<typeof getDb>
-): { newRootPath: string | null } {
+): Promise<{ newRootPath: string | null }> {
   const oldRootPath = current.rootPath!;
   const workspaceProjectsDir = path.join(WORKSPACE_ROOT, 'projects');
   const isWorkspaceManaged = oldRootPath.startsWith(workspaceProjectsDir + path.sep);
@@ -186,19 +185,19 @@ function _cascadeRename(
   // 5. Update session cwd for all sessions that referenced the old path
   //    Exact match OR subpaths only (old/subdir → new/subdir).
   //    Must NOT match sibling folders that share a prefix (e.g. yujin vs yujinrfp).
-  const sessions = db.prepare(
-    `SELECT id, cwd FROM sessions WHERE cwd = ? OR cwd LIKE ? || '/%'`
-  ).all(oldRootPath, oldRootPath) as { id: string; cwd: string }[];
+  const sessions = await query<{ id: string; cwd: string }>(
+    `SELECT id, cwd FROM sessions WHERE cwd = $1 OR cwd LIKE $2 || '/%'`,
+    [oldRootPath, oldRootPath]
+  );
 
   if (sessions.length > 0) {
-    const updateStmt = db.prepare('UPDATE sessions SET cwd = ? WHERE id = ?');
-    const tx = db.transaction(() => {
+    await transaction(async (client) => {
+      const db = withClient(client);
       for (const s of sessions) {
         const newCwd = newDir + s.cwd.slice(oldRootPath.length);
-        updateStmt.run(newCwd, s.id);
+        await db.execute('UPDATE sessions SET cwd = $1 WHERE id = $2', [newCwd, s.id]);
       }
     });
-    tx();
   }
 
   // 6. Rename SDK project directory so resume (.jsonl files) keeps working.
@@ -246,30 +245,28 @@ function _updateAgentsMdTitle(rootPath: string, oldName: string, newName: string
   }
 }
 
-export function deleteProject(id: string): boolean {
-  const db = getDb();
+export async function deleteProject(id: string): Promise<boolean> {
   // Unassign all sessions from this project first
-  db.prepare('UPDATE sessions SET project_id = NULL WHERE project_id = ?').run(id);
-  const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+  await execute('UPDATE sessions SET project_id = NULL WHERE project_id = $1', [id]);
+  const result = await execute('DELETE FROM projects WHERE id = $1', [id]);
   return result.changes > 0;
 }
 
-export function moveSessionToProject(sessionId: string, projectId: string | null): boolean {
-  const db = getDb();
+export async function moveSessionToProject(sessionId: string, projectId: string | null): Promise<boolean> {
   // Validate projectId exists if not null
   if (projectId) {
-    const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+    const project = await queryOne('SELECT id FROM projects WHERE id = $1', [projectId]);
     if (!project) return false;
   }
-  const result = db.prepare('UPDATE sessions SET project_id = ? WHERE id = ?').run(projectId, sessionId);
+  const result = await execute('UPDATE sessions SET project_id = $1 WHERE id = $2', [projectId, sessionId]);
   return result.changes > 0;
 }
 
-export function reorderProjects(projectIds: string[]): void {
-  const db = getDb();
-  const stmt = db.prepare('UPDATE projects SET sort_order = ? WHERE id = ?');
-  const tx = db.transaction(() => {
-    projectIds.forEach((id, i) => stmt.run(i, id));
+export async function reorderProjects(projectIds: string[]): Promise<void> {
+  await transaction(async (client) => {
+    const db = withClient(client);
+    for (let i = 0; i < projectIds.length; i++) {
+      await db.execute('UPDATE projects SET sort_order = $1 WHERE id = $2', [i, projectIds[i]]);
+    }
   });
-  tx();
 }

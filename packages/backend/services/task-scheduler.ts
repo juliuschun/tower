@@ -3,7 +3,7 @@
  *
  * Design: see ~/workspace/decisions/2026-03-03-kanban-scheduled-tasks-design.md
  */
-import { getDb } from '../db/schema.js';
+import { query } from '../db/pg-repo.js';
 import { getTask, updateTask, type TaskMeta, type ScheduleCron } from './task-manager.js';
 import { spawnTask } from './task-runner.js';
 
@@ -63,19 +63,18 @@ export function calculateNextRun(cron: ScheduleCron, from: Date = new Date()): D
 /**
  * Single tick — find due tasks and spawn them.
  */
-function tick(broadcastFn: BroadcastFn, userId?: number, userRole?: string, allowedPath?: string) {
+async function tick(broadcastFn: BroadcastFn, userId?: number, userRole?: string, allowedPath?: string) {
   try {
-    const db = getDb();
     const now = new Date().toISOString();
-    const dueTasks = db.prepare(`
+    const dueTasks = await query<any>(`
       SELECT * FROM tasks
       WHERE status = 'todo'
         AND schedule_enabled = 1
         AND scheduled_at IS NOT NULL
-        AND scheduled_at <= ?
+        AND scheduled_at <= $1
         AND (archived IS NULL OR archived = 0)
       ORDER BY scheduled_at ASC
-    `).all(now) as any[];
+    `, [now]);
 
     if (dueTasks.length === 0) return;
 
@@ -89,13 +88,13 @@ function tick(broadcastFn: BroadcastFn, userId?: number, userRole?: string, allo
         // For recurring, the reset happens in task-runner after completion.
         if (!row.schedule_cron) {
           // One-time: clear schedule entirely
-          updateTask(taskId, {
+          await updateTask(taskId, {
             scheduledAt: null as any,
             scheduleEnabled: false,
           });
         } else {
           // Recurring: just disable until task-runner re-enables after completion
-          updateTask(taskId, { scheduleEnabled: false });
+          await updateTask(taskId, { scheduleEnabled: false });
         }
 
         spawnTask(taskId, broadcastFn, userId, userRole, allowedPath);
@@ -104,7 +103,7 @@ function tick(broadcastFn: BroadcastFn, userId?: number, userRole?: string, allo
         console.error(`[scheduler] Failed to spawn task ${taskId.slice(0, 8)}:`, err.message);
         // If spawn fails (e.g. max concurrent), re-enable so next tick retries
         if (row.schedule_cron) {
-          updateTask(taskId, { scheduleEnabled: true });
+          await updateTask(taskId, { scheduleEnabled: true });
         }
       }
     }

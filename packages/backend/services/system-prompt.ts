@@ -9,7 +9,7 @@
  * so all conversations start with consistent team rules + user context.
  */
 
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute } from '../db/pg-repo.js';
 import { getUserGroups } from './group-manager.js';
 
 // ─── DB Operations ──────────────────────────────────────────────────────────
@@ -22,33 +22,30 @@ export interface SystemPrompt {
 }
 
 /** Get a system prompt by name. Returns null if not found. */
-export function getSystemPrompt(name: string): SystemPrompt | null {
-  const db = getDb();
-  return db.prepare('SELECT * FROM system_prompts WHERE name = ?').get(name) as SystemPrompt | null;
+export async function getSystemPrompt(name: string): Promise<SystemPrompt | null> {
+  const row = await queryOne<SystemPrompt>('SELECT * FROM system_prompts WHERE name = $1', [name]);
+  return row ?? null;
 }
 
 /** List all system prompts. */
-export function listSystemPrompts(): SystemPrompt[] {
-  const db = getDb();
-  return db.prepare('SELECT * FROM system_prompts ORDER BY id').all() as SystemPrompt[];
+export async function listSystemPrompts(): Promise<SystemPrompt[]> {
+  return await query<SystemPrompt>('SELECT * FROM system_prompts ORDER BY id');
 }
 
 /** Create or update a system prompt by name. */
-export function upsertSystemPrompt(name: string, prompt: string): SystemPrompt {
-  const db = getDb();
-  db.prepare(`
+export async function upsertSystemPrompt(name: string, prompt: string): Promise<SystemPrompt> {
+  await execute(`
     INSERT INTO system_prompts (name, prompt, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
+    VALUES ($1, $2, CURRENT_TIMESTAMP)
     ON CONFLICT(name) DO UPDATE SET prompt = excluded.prompt, updated_at = CURRENT_TIMESTAMP
-  `).run(name, prompt);
-  return getSystemPrompt(name)!;
+  `, [name, prompt]);
+  return (await getSystemPrompt(name))!;
 }
 
 /** Delete a system prompt by name. Cannot delete 'default'. */
-export function deleteSystemPrompt(name: string): boolean {
+export async function deleteSystemPrompt(name: string): Promise<boolean> {
   if (name === 'default') return false;
-  const db = getDb();
-  const result = db.prepare('DELETE FROM system_prompts WHERE name = ?').run(name);
+  const result = await execute('DELETE FROM system_prompts WHERE name = $1', [name]);
   return result.changes > 0;
 }
 
@@ -69,14 +66,14 @@ const ROLE_CONTEXT: Record<string, string> = {
  *   - User identity + role context
  *   - Allowed path info (if restricted)
  */
-export function buildSystemPrompt(user: {
+export async function buildSystemPrompt(user: {
   userId?: number;
   username: string;
   role: string;
   allowedPath?: string;
-}): string {
+}): Promise<string> {
   // 1. Team base prompt
-  const base = getSystemPrompt('default');
+  const base = await getSystemPrompt('default');
   const teamPrompt = base?.prompt || '';
 
   // 2. Tower environment context
@@ -92,9 +89,9 @@ export function buildSystemPrompt(user: {
   const roleCtx = ROLE_CONTEXT[user.role] || ROLE_CONTEXT.member;
 
   // 4. User identity + groups
-  const groups = user.userId ? getUserGroups(user.userId) : [];
+  const groups = user.userId ? await getUserGroups(user.userId) : [];
   const groupInfo = groups.length > 0
-    ? `Groups: ${groups.map(g => g.name).join(', ')}`
+    ? `Groups: ${(groups as any[]).map(g => g.name).join(', ')}`
     : '';
 
   // 5. Path restriction info

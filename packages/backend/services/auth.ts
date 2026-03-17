@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute } from '../db/pg-repo.js';
 import { VALID_ROLES } from './damage-control.js';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -72,16 +72,20 @@ export function verifyToken(token: string): JwtPayload | null {
 
 // ───── User CRUD ─────
 
-export function createUser(username: string, password: string, role = 'member') {
-  const db = getDb();
+export async function createUser(username: string, password: string, role = 'member') {
   const encrypted = encryptPassword(password);
-  const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(username, encrypted, role);
-  return { id: result.lastInsertRowid as number, username, role };
+  const row = await queryOne<{ id: number }>(
+    'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id',
+    [username, encrypted, role]
+  );
+  return { id: row!.id, username, role };
 }
 
-export function authenticateUser(username: string, password: string): JwtPayload | null {
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ? AND disabled = 0').get(username) as any;
+export async function authenticateUser(username: string, password: string): Promise<JwtPayload | null> {
+  const user = await queryOne<any>(
+    'SELECT * FROM users WHERE username = $1 AND disabled = 0',
+    [username]
+  );
   if (!user) return null;
 
   const stored = user.password_hash;
@@ -97,7 +101,7 @@ export function authenticateUser(username: string, password: string): JwtPayload
     // Auto-migrate to AES on successful login
     if (ok) {
       const encrypted = encryptPassword(password);
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(encrypted, user.id);
+      await execute('UPDATE users SET password_hash = $1 WHERE id = $2', [encrypted, user.id]);
     }
   }
 
@@ -105,10 +109,9 @@ export function authenticateUser(username: string, password: string): JwtPayload
   return { userId: user.id, username: user.username, role: user.role };
 }
 
-export function hasUsers(): boolean {
-  const db = getDb();
-  const row = db.prepare('SELECT COUNT(*) as count FROM users WHERE disabled = 0').get() as any;
-  return row.count > 0;
+export async function hasUsers(): Promise<boolean> {
+  const row = await queryOne<{ count: string }>('SELECT COUNT(*) as count FROM users WHERE disabled = 0');
+  return Number(row!.count) > 0;
 }
 
 export function extractToken(req: Request): string | null {
@@ -142,11 +145,10 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 
 // ───── Admin user management ─────
 
-export function listUsers() {
-  const db = getDb();
-  const rows = db.prepare(
+export async function listUsers() {
+  const rows = await query<any>(
     'SELECT id, username, role, allowed_path, password_hash, created_at FROM users WHERE disabled = 0 ORDER BY id'
-  ).all() as any[];
+  );
 
   return rows.map(r => ({
     id: r.id,
@@ -159,33 +161,28 @@ export function listUsers() {
   }));
 }
 
-export function updateUserRole(userId: number, role: string) {
+export async function updateUserRole(userId: number, role: string) {
   if (!VALID_ROLES.has(role)) {
     throw new Error(`Invalid role: ${role}. Valid roles: ${[...VALID_ROLES].join(', ')}`);
   }
-  const db = getDb();
-  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+  await execute('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
 }
 
-export function updateUserPath(userId: number, allowedPath: string) {
-  const db = getDb();
-  db.prepare('UPDATE users SET allowed_path = ? WHERE id = ?').run(allowedPath, userId);
+export async function updateUserPath(userId: number, allowedPath: string) {
+  await execute('UPDATE users SET allowed_path = $1 WHERE id = $2', [allowedPath, userId]);
 }
 
-export function resetUserPassword(userId: number, newPassword: string) {
-  const db = getDb();
+export async function resetUserPassword(userId: number, newPassword: string) {
   const encrypted = encryptPassword(newPassword);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(encrypted, userId);
+  await execute('UPDATE users SET password_hash = $1 WHERE id = $2', [encrypted, userId]);
 }
 
-export function disableUser(userId: number) {
-  const db = getDb();
-  db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(userId);
+export async function disableUser(userId: number) {
+  await execute('UPDATE users SET disabled = 1 WHERE id = $1', [userId]);
 }
 
-export function getUserAllowedPath(userId: number): string {
-  const db = getDb();
-  const row = db.prepare('SELECT allowed_path FROM users WHERE id = ?').get(userId) as any;
+export async function getUserAllowedPath(userId: number): Promise<string> {
+  const row = await queryOne<{ allowed_path: string | null }>('SELECT allowed_path FROM users WHERE id = $1', [userId]);
   return row?.allowed_path || config.workspaceRoot;
 }
 

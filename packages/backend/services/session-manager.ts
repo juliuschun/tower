@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute } from '../db/pg-repo.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -7,20 +7,11 @@ import { getAccessibleProjectIds } from './group-manager.js';
 export type { SessionMeta } from '@tower/shared';
 import type { SessionMeta } from '@tower/shared';
 
-export function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string): SessionMeta {
+export async function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string, roomId?: string | null): Promise<SessionMeta> {
   const id = uuidv4();
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine) VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, name, cwd, userId || null, projectId || null, engine || 'claude');
-
-  // FTS sync
-  try {
-    const row = db.prepare('SELECT rowid FROM sessions WHERE id = ?').get(id) as any;
-    if (row) {
-      db.prepare('INSERT INTO sessions_fts(rowid, name, summary) VALUES (?, ?, ?)').run(row.rowid, name, '');
-    }
-  } catch {}
+  await execute(`
+    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
+  `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null]);
 
   return {
     id,
@@ -34,60 +25,57 @@ export function createSession(name: string, cwd: string, userId?: number, projec
     updatedAt: new Date().toISOString(),
     projectId: projectId || null,
     engine: engine || 'claude',
+    roomId: roomId || null,
   };
 }
 
-export function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited'>>) {
-  const db = getDb();
-  const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
-  const values: any[] = [];
-
-  if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
-  if (updates.cwd !== undefined) { sets.push('cwd = ?'); values.push(updates.cwd); }
-  if (updates.claudeSessionId !== undefined) { sets.push('claude_session_id = ?'); values.push(updates.claudeSessionId || null); }
-  if (updates.totalCost !== undefined) { sets.push('total_cost = ?'); values.push(updates.totalCost); }
-  if (updates.totalTokens !== undefined) { sets.push('total_tokens = ?'); values.push(updates.totalTokens); }
-  if (updates.tags !== undefined) { sets.push('tags = ?'); values.push(JSON.stringify(updates.tags)); }
-  if (updates.favorite !== undefined) { sets.push('favorite = ?'); values.push(updates.favorite ? 1 : 0); }
-  if (updates.modelUsed !== undefined) { sets.push('model_used = ?'); values.push(updates.modelUsed); }
-  if (updates.autoNamed !== undefined) { sets.push('auto_named = ?'); values.push(updates.autoNamed); }
-  if (updates.summary !== undefined) { sets.push('summary = ?'); values.push(updates.summary); }
-  if (updates.summaryAtTurn !== undefined) { sets.push('summary_at_turn = ?'); values.push(updates.summaryAtTurn); }
-  if (updates.turnCount !== undefined) { sets.push('turn_count = ?'); values.push(updates.turnCount); }
-  if (updates.filesEdited !== undefined) { sets.push('files_edited = ?'); values.push(JSON.stringify(updates.filesEdited)); }
-
-  values.push(id);
-  db.prepare(`UPDATE sessions SET ${sets.join(', ')} WHERE id = ?`).run(...values);
-
-  // FTS sync (name or summary changed)
-  if (updates.name !== undefined || updates.summary !== undefined) {
-    try {
-      const row = db.prepare('SELECT rowid, name, summary FROM sessions WHERE id = ?').get(id) as any;
-      if (row) {
-        db.prepare('DELETE FROM sessions_fts WHERE rowid = ?').run(row.rowid);
-        db.prepare('INSERT INTO sessions_fts(rowid, name, summary) VALUES (?, ?, ?)').run(row.rowid, row.name, row.summary || '');
-      }
-    } catch {}
-  }
+/** Get AI Panel sessions for a specific room + user */
+export async function getPanelSessions(roomId: string, userId: number): Promise<SessionMeta[]> {
+  const rows = await query(
+    `SELECT * FROM sessions WHERE room_id = $1 AND user_id = $2 AND (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
+    [roomId, userId]
+  ) as any[];
+  return rows.map(mapRow);
 }
 
-export function getSessions(userId?: number, role?: string): SessionMeta[] {
-  const db = getDb();
-  const query = db.prepare('SELECT * FROM sessions WHERE archived IS NULL OR archived = 0 ORDER BY updated_at DESC');
-  const rows = query.all() as any[];
+export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited'>>) {
+  const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+  const values: any[] = [];
+  let paramIndex = 1;
 
-  // Group 필터: 접근 가능한 프로젝트의 세션만 반환
-  if (userId && role) {
-    const accessibleIds = getAccessibleProjectIds(userId, role);
-    if (accessibleIds !== null) {
-      return rows.filter(r => {
-        // 프로젝트 없는 세션 = 본인 것만
-        if (!r.project_id) return r.user_id === userId;
-        // 프로젝트 있는 세션 = 접근 가능한 프로젝트면 보임
-        return accessibleIds.includes(r.project_id);
-      }).map(mapRow);
-    }
-  }
+  if (updates.name !== undefined) { sets.push(`name = $${paramIndex++}`); values.push(updates.name); }
+  if (updates.cwd !== undefined) { sets.push(`cwd = $${paramIndex++}`); values.push(updates.cwd); }
+  if (updates.claudeSessionId !== undefined) { sets.push(`claude_session_id = $${paramIndex++}`); values.push(updates.claudeSessionId || null); }
+  if (updates.totalCost !== undefined) { sets.push(`total_cost = $${paramIndex++}`); values.push(updates.totalCost); }
+  if (updates.totalTokens !== undefined) { sets.push(`total_tokens = $${paramIndex++}`); values.push(updates.totalTokens); }
+  if (updates.tags !== undefined) { sets.push(`tags = $${paramIndex++}`); values.push(JSON.stringify(updates.tags)); }
+  if (updates.favorite !== undefined) { sets.push(`favorite = $${paramIndex++}`); values.push(updates.favorite ? 1 : 0); }
+  if (updates.modelUsed !== undefined) { sets.push(`model_used = $${paramIndex++}`); values.push(updates.modelUsed); }
+  if (updates.autoNamed !== undefined) { sets.push(`auto_named = $${paramIndex++}`); values.push(updates.autoNamed); }
+  if (updates.summary !== undefined) { sets.push(`summary = $${paramIndex++}`); values.push(updates.summary); }
+  if (updates.summaryAtTurn !== undefined) { sets.push(`summary_at_turn = $${paramIndex++}`); values.push(updates.summaryAtTurn); }
+  if (updates.turnCount !== undefined) { sets.push(`turn_count = $${paramIndex++}`); values.push(updates.turnCount); }
+  if (updates.filesEdited !== undefined) { sets.push(`files_edited = $${paramIndex++}`); values.push(JSON.stringify(updates.filesEdited)); }
+
+  values.push(id);
+  await execute(`UPDATE sessions SET ${sets.join(', ')} WHERE id = $${paramIndex}`, values);
+}
+
+export async function getSessions(userId?: number, role?: string): Promise<SessionMeta[]> {
+  const rows = await query('SELECT * FROM sessions WHERE archived IS NULL OR archived = 0 ORDER BY updated_at DESC') as any[];
+
+  // NOTE: 테스트 기간 — 모든 사용자가 모든 세션을 볼 수 있도록 필터 비활성화
+  // 원래 로직은 아래 주석 참조 (복구 시 주석 해제)
+  // --- Original filter ---
+  // if (userId && role) {
+  //   const accessibleIds = await getAccessibleProjectIds(userId, role);
+  //   if (accessibleIds !== null) {
+  //     return rows.filter(r => {
+  //       if (!r.project_id) return r.user_id === userId;
+  //       return accessibleIds.includes(r.project_id);
+  //     }).map(mapRow);
+  //   }
+  // }
 
   return rows.map(mapRow);
 }
@@ -112,47 +100,38 @@ function mapRow(row: any): SessionMeta {
     filesEdited: JSON.parse(row.files_edited || '[]'),
     projectId: row.project_id || null,
     engine: row.engine || 'claude',
+    visibility: row.visibility || 'private',
+    roomId: row.room_id || null,
   };
 }
 
-export function getSession(id: string): SessionMeta | null {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
+export async function getSession(id: string): Promise<SessionMeta | null> {
+  const row = await queryOne('SELECT * FROM sessions WHERE id = $1', [id]) as any;
   if (!row) return null;
   return mapRow(row);
 }
 
-export function deleteSession(id: string): boolean {
-  const db = getDb();
+export async function deleteSession(id: string): Promise<boolean> {
   // Soft-delete: hide from sidebar, preserve data for recovery
-  const result = db.prepare('UPDATE sessions SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+  const result = await execute('UPDATE sessions SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
   return result.changes > 0;
 }
 
-export function getArchivedSessions(userId?: number): SessionMeta[] {
-  const db = getDb();
-  const query = userId
-    ? db.prepare('SELECT * FROM sessions WHERE user_id = ? AND archived = 1 ORDER BY updated_at DESC')
-    : db.prepare('SELECT * FROM sessions WHERE archived = 1 ORDER BY updated_at DESC');
+export async function getArchivedSessions(userId?: number): Promise<SessionMeta[]> {
+  const rows = userId
+    ? await query('SELECT * FROM sessions WHERE user_id = $1 AND archived = 1 ORDER BY updated_at DESC', [userId])
+    : await query('SELECT * FROM sessions WHERE archived = 1 ORDER BY updated_at DESC');
 
-  const rows = userId ? query.all(userId) : query.all();
   return (rows as any[]).map(mapRow);
 }
 
-export function restoreSession(id: string): boolean {
-  const db = getDb();
-  const result = db.prepare('UPDATE sessions SET archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+export async function restoreSession(id: string): Promise<boolean> {
+  const result = await execute('UPDATE sessions SET archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
   return result.changes > 0;
 }
 
-export function permanentlyDeleteSession(id: string): boolean {
-  const db = getDb();
-  // Clean FTS before deleting
-  try {
-    const row = db.prepare('SELECT rowid FROM sessions WHERE id = ?').get(id) as any;
-    if (row) db.prepare('DELETE FROM sessions_fts WHERE rowid = ?').run(row.rowid);
-  } catch {}
-  const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+export async function permanentlyDeleteSession(id: string): Promise<boolean> {
+  const result = await execute('DELETE FROM sessions WHERE id = $1', [id]);
   return result.changes > 0;
 }
 
@@ -163,13 +142,12 @@ export function permanentlyDeleteSession(id: string): boolean {
  * .jsonl file. Kanban tasks already handle this via recoverZombieTasks(), but regular chat
  * sessions had no equivalent — causing resume failures only for chat.
  */
-export function cleanupStaleSessions(): number {
-  const db = getDb();
-  const rows = db.prepare(
+export async function cleanupStaleSessions(): Promise<number> {
+  const rows = await query(
     `SELECT id, claude_session_id, cwd FROM sessions
      WHERE claude_session_id IS NOT NULL AND claude_session_id != ''
        AND (archived IS NULL OR archived = 0)`
-  ).all() as { id: string; claude_session_id: string; cwd: string }[];
+  ) as { id: string; claude_session_id: string; cwd: string }[];
 
   let cleared = 0;
   for (const row of rows) {
@@ -177,7 +155,7 @@ export function cleanupStaleSessions(): number {
     const jsonlPath = path.join(os.homedir(), '.claude', 'projects', encodedCwd, `${row.claude_session_id}.jsonl`);
 
     if (!fs.existsSync(jsonlPath)) {
-      db.prepare('UPDATE sessions SET claude_session_id = NULL WHERE id = ?').run(row.id);
+      await execute('UPDATE sessions SET claude_session_id = NULL WHERE id = $1', [row.id]);
       cleared++;
     }
   }

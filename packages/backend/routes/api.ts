@@ -39,7 +39,7 @@ import {
   hasInternalShareForUser,
 } from '../services/share-manager.js';
 import fsPromises from 'fs/promises';
-import { getDb } from '../db/schema.js';
+import { query } from '../db/pg-repo.js';
 import {
   getProjects, getProject, createProject, updateProject, deleteProject,
   moveSessionToProject, reorderProjects,
@@ -76,8 +76,8 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 const router = Router();
 
 // ───── Auth ─────
-router.get('/auth/status', (_req, res) => {
-  res.json({ authEnabled: config.authEnabled, hasUsers: hasUsers() });
+router.get('/auth/status', async (_req, res) => {
+  res.json({ authEnabled: config.authEnabled, hasUsers: await hasUsers() });
 });
 
 // nginx auth_request subrequest endpoint — returns 200 if valid token, 401 otherwise
@@ -101,20 +101,20 @@ function setTokenCookie(res: any, token: string) {
   });
 }
 
-router.post('/auth/setup', (req, res) => {
-  if (hasUsers()) return res.status(400).json({ error: 'Admin already exists' });
+router.post('/auth/setup', async (req, res) => {
+  if (await hasUsers()) return res.status(400).json({ error: 'Admin already exists' });
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  const user = createUser(username, password, 'admin');
+  const user = await createUser(username, password, 'admin');
   const token = generateToken({ userId: user.id, username: user.username, role: user.role });
   setTokenCookie(res, token);
   res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
 });
 
-router.post('/auth/login', (req, res) => {
+router.post('/auth/login', async (req, res) => {
   const { username, password } = req.body;
-  const payload = authenticateUser(username, password);
+  const payload = await authenticateUser(username, password);
   if (!payload) return res.status(401).json({ error: 'Invalid credentials' });
   const token = generateToken(payload);
   setTokenCookie(res, token);
@@ -137,7 +137,7 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 router.get('/shared/:token', async (req, res) => {
-  const share = getShareByToken(req.params.token as string);
+  const share = await getShareByToken(req.params.token as string);
   if (!share || !isTokenValid(share)) {
     return res.status(410).json({ error: 'This link has expired or been revoked.' });
   }
@@ -268,17 +268,15 @@ router.get('/browser/screenshot', async (_req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ───── Users list (for share modal dropdown) ─────
-router.get('/users', (req, res) => {
+router.get('/users', async (req, res) => {
   const currentUserId = (req as any).user?.userId;
-  const users = getDb()
-    .prepare('SELECT id, username FROM users WHERE disabled = 0 ORDER BY username')
-    .all()
+  const users = (await query('SELECT id, username FROM users WHERE disabled = 0 ORDER BY username'))
     .filter((u: any) => u.id !== currentUserId);
   res.json(users);
 });
 
 // ───── Shares ─────
-router.post('/shares', (req, res) => {
+router.post('/shares', async (req, res) => {
   const { shareType, filePath, targetUserId, expiresIn } = req.body;
   const ownerId = (req as any).user?.userId;
   if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
@@ -286,10 +284,10 @@ router.post('/shares', (req, res) => {
   try {
     if (shareType === 'internal') {
       if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
-      const share = createInternalShare(filePath, ownerId, targetUserId);
+      const share = await createInternalShare(filePath, ownerId, targetUserId);
       return res.json(share);
     } else if (shareType === 'external') {
-      const share = createExternalShare(filePath, ownerId, expiresIn || '24h');
+      const share = await createExternalShare(filePath, ownerId, expiresIn || '24h');
       const url = `/shared/${share.token}`;
       return res.json({ ...share, url });
     } else {
@@ -301,23 +299,23 @@ router.post('/shares', (req, res) => {
 });
 
 // IMPORTANT: register /shares/with-me BEFORE /shares/:id to avoid Express matching 'with-me' as :id
-router.get('/shares/with-me', (req, res) => {
+router.get('/shares/with-me', async (req, res) => {
   const userId = (req as any).user?.userId;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-  res.json(getSharesWithMe(userId));
+  res.json(await getSharesWithMe(userId));
 });
 
-router.get('/shares', (req, res) => {
+router.get('/shares', async (req, res) => {
   const ownerId = (req as any).user?.userId;
   const filePath = req.query.filePath as string;
   if (!ownerId || !filePath) return res.status(400).json({ error: 'filePath required' });
-  res.json(getSharesByFile(filePath, ownerId));
+  res.json(await getSharesByFile(filePath, ownerId));
 });
 
-router.delete('/shares/:id', (req, res) => {
+router.delete('/shares/:id', async (req, res) => {
   const ownerId = (req as any).user?.userId;
   if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
-  const ok = revokeShare(req.params.id as string, ownerId);
+  const ok = await revokeShare(req.params.id as string, ownerId);
   if (!ok) return res.status(404).json({ error: 'Share not found or no permission to revoke.' });
   res.json({ ok: true });
 });
@@ -345,36 +343,36 @@ router.put('/admin/models', adminMiddleware, (req, res) => {
 // ───── Admin: System Prompts ─────
 import { listSystemPrompts, upsertSystemPrompt, deleteSystemPrompt } from '../services/system-prompt.js';
 
-router.get('/admin/system-prompts', adminMiddleware, (_req, res) => {
-  res.json(listSystemPrompts());
+router.get('/admin/system-prompts', adminMiddleware, async (_req, res) => {
+  res.json(await listSystemPrompts());
 });
 
-router.put('/admin/system-prompts/:name', adminMiddleware, (req, res) => {
+router.put('/admin/system-prompts/:name', adminMiddleware, async (req, res) => {
   const name = req.params.name as string;
   const { prompt } = req.body;
   if (!prompt && prompt !== '') return res.status(400).json({ error: 'prompt is required' });
-  const result = upsertSystemPrompt(name, prompt);
+  const result = await upsertSystemPrompt(name, prompt);
   res.json(result);
 });
 
-router.delete('/admin/system-prompts/:name', adminMiddleware, (req, res) => {
+router.delete('/admin/system-prompts/:name', adminMiddleware, async (req, res) => {
   const name = req.params.name as string;
-  const ok = deleteSystemPrompt(name);
+  const ok = await deleteSystemPrompt(name);
   if (!ok) return res.status(400).json({ error: 'Cannot delete the default prompt' });
   res.json({ ok: true });
 });
 
 // ───── Admin: User Management ─────
-router.get('/admin/users', adminMiddleware, (_req, res) => {
-  res.json(listUsers());
+router.get('/admin/users', adminMiddleware, async (_req, res) => {
+  res.json(await listUsers());
 });
 
-router.post('/admin/users', adminMiddleware, (req, res) => {
+router.post('/admin/users', adminMiddleware, async (req, res) => {
   const { username, password, role, allowed_path } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'username and password required' });
   try {
-    const user = createUser(username, password, role || 'member');
-    if (allowed_path !== undefined) updateUserPath(user.id, allowed_path);
+    const user = await createUser(username, password, role || 'member');
+    if (allowed_path !== undefined) await updateUserPath(user.id, allowed_path);
     res.json({ ...user, allowed_path: allowed_path || '' });
   } catch (error: any) {
     if (error.message?.includes('UNIQUE')) return res.status(409).json({ error: 'Username already exists' });
@@ -382,44 +380,44 @@ router.post('/admin/users', adminMiddleware, (req, res) => {
   }
 });
 
-router.patch('/admin/users/:id', adminMiddleware, (req, res) => {
+router.patch('/admin/users/:id', adminMiddleware, async (req, res) => {
   const userId = parseInt(req.params.id as string);
   const currentUser = (req as any).user;
   const { role, allowed_path } = req.body;
   if (role !== undefined) {
     if (currentUser.userId === userId) return res.status(403).json({ error: 'Cannot change own role' });
-    updateUserRole(userId, role);
+    await updateUserRole(userId, role);
   }
-  if (allowed_path !== undefined) updateUserPath(userId, allowed_path);
+  if (allowed_path !== undefined) await updateUserPath(userId, allowed_path);
   res.json({ ok: true });
 });
 
-router.patch('/admin/users/:id/password', adminMiddleware, (req, res) => {
+router.patch('/admin/users/:id/password', adminMiddleware, async (req, res) => {
   const userId = parseInt(req.params.id as string);
   const { password } = req.body;
   if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  resetUserPassword(userId, password);
+  await resetUserPassword(userId, password);
   res.json({ ok: true });
 });
 
-router.delete('/admin/users/:id', adminMiddleware, (req, res) => {
+router.delete('/admin/users/:id', adminMiddleware, async (req, res) => {
   const userId = parseInt(req.params.id as string);
   const currentUser = (req as any).user;
   if (currentUser.userId === userId) return res.status(403).json({ error: 'Cannot delete yourself' });
-  disableUser(userId);
+  await disableUser(userId);
   res.json({ ok: true });
 });
 
 // ───── Admin: Groups ─────
-router.get('/admin/groups', adminMiddleware, (_req, res) => {
-  res.json(listGroups());
+router.get('/admin/groups', adminMiddleware, async (_req, res) => {
+  res.json(await listGroups());
 });
 
-router.post('/admin/groups', adminMiddleware, (req, res) => {
+router.post('/admin/groups', adminMiddleware, async (req, res) => {
   try {
     const { name, description, isGlobal } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-    const group = createGroup(name.trim(), description, isGlobal);
+    const group = await createGroup(name.trim(), description, isGlobal);
     res.json(group);
   } catch (err: any) {
     if (err.message?.includes('UNIQUE')) return res.status(409).json({ error: 'Group name already exists' });
@@ -427,10 +425,10 @@ router.post('/admin/groups', adminMiddleware, (req, res) => {
   }
 });
 
-router.patch('/admin/groups/:id', adminMiddleware, (req, res) => {
+router.patch('/admin/groups/:id', adminMiddleware, async (req, res) => {
   try {
     const groupId = parseInt(req.params.id as string);
-    const group = updateGroup(groupId, req.body);
+    const group = await updateGroup(groupId, req.body);
     if (!group) return res.status(404).json({ error: 'Group not found' });
     res.json(group);
   } catch (err: any) {
@@ -439,59 +437,59 @@ router.patch('/admin/groups/:id', adminMiddleware, (req, res) => {
   }
 });
 
-router.delete('/admin/groups/:id', adminMiddleware, (req, res) => {
-  const ok = deleteGroup(parseInt(req.params.id as string));
+router.delete('/admin/groups/:id', adminMiddleware, async (req, res) => {
+  const ok = await deleteGroup(parseInt(req.params.id as string));
   if (!ok) return res.status(404).json({ error: 'Group not found' });
   res.json({ ok: true });
 });
 
-router.post('/admin/groups/:id/users', adminMiddleware, (req, res) => {
+router.post('/admin/groups/:id/users', adminMiddleware, async (req, res) => {
   const groupId = parseInt(req.params.id as string);
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: 'userId required' });
-  addUserToGroup(userId, groupId);
+  await addUserToGroup(userId, groupId);
   res.json({ ok: true });
 });
 
-router.delete('/admin/groups/:id/users/:uid', adminMiddleware, (req, res) => {
+router.delete('/admin/groups/:id/users/:uid', adminMiddleware, async (req, res) => {
   const groupId = parseInt(req.params.id as string);
   const userId = parseInt(req.params.uid as string);
-  removeUserFromGroup(userId, groupId);
+  await removeUserFromGroup(userId, groupId);
   res.json({ ok: true });
 });
 
 // (project_groups endpoints removed — use project members API instead)
 
 // ───── Sessions ─────
-router.get('/sessions', (req, res) => {
+router.get('/sessions', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
   const roomId = req.query.roomId as string | undefined;
 
   // AI Panel: return panel sessions for specific room + user
   if (roomId && userId) {
-    return res.json(getPanelSessions(roomId, userId));
+    return res.json(await getPanelSessions(roomId, userId));
   }
 
   // Default: return all accessible sessions (excluding panel sessions)
-  const sessions = getSessions(userId, role);
+  const sessions = await getSessions(userId, role);
   res.json(sessions.filter(s => !s.roomId));
 });
 
-router.post('/sessions', (req, res) => {
+router.post('/sessions', async (req, res) => {
   const { name, cwd, projectId, engine, roomId } = req.body;
   const userId = (req as any).user?.userId;
-  const session = createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine, roomId);
+  const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine, roomId);
   res.json(session);
 });
 
-router.get('/sessions/:id', (req, res) => {
-  const session = getSession(req.params.id as string);
+router.get('/sessions/:id', async (req, res) => {
+  const session = await getSession(req.params.id as string);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   res.json(session);
 });
 
-router.patch('/sessions/:id', (req, res) => {
+router.patch('/sessions/:id', async (req, res) => {
   const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd } = req.body;
   const updates: any = { name, tags, favorite, totalCost, totalTokens, claudeSessionId };
   if (autoNamed !== undefined) updates.autoNamed = autoNamed;
@@ -501,14 +499,14 @@ router.patch('/sessions/:id', (req, res) => {
     }
     updates.cwd = cwd;
   }
-  updateSession(req.params.id as string, updates);
+  await updateSession(req.params.id as string, updates);
   res.json({ ok: true });
 });
 
 // Auto-name session based on first messages
 router.post('/sessions/:id/auto-name', async (req, res) => {
   try {
-    const messages = getMessages(req.params.id as string);
+    const messages = await getMessages(req.params.id as string);
     const userMsg = messages.find((m) => m.role === 'user');
     const assistantMsg = messages.find((m) => m.role === 'assistant');
     if (!userMsg || !assistantMsg) {
@@ -519,7 +517,7 @@ router.post('/sessions/:id/auto-name', async (req, res) => {
     const assistantText = extractTextFromContent(assistantMsg.content);
 
     const name = await generateSessionName(userText, assistantText);
-    updateSession(req.params.id as string, { name, autoNamed: 1 } as any);
+    await updateSession(req.params.id as string, { name, autoNamed: 1 } as any);
     res.json({ ok: true, name });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -529,7 +527,7 @@ router.post('/sessions/:id/auto-name', async (req, res) => {
 // Summarize session
 router.post('/sessions/:id/summarize', async (req, res) => {
   try {
-    const messages = getMessages(req.params.id as string);
+    const messages = await getMessages(req.params.id as string);
     if (messages.length === 0) {
       return res.status(400).json({ error: 'No messages to summarize' });
     }
@@ -556,17 +554,17 @@ router.post('/sessions/:id/summarize', async (req, res) => {
     const summary = await generateSummary(messagesText);
 
     // Get current session to read turnCount
-    const session = getSession(req.params.id as string);
+    const session = await getSession(req.params.id as string);
     const turnCount = session?.turnCount ?? 0;
-    updateSession(req.params.id as string, { summary, summaryAtTurn: turnCount });
+    await updateSession(req.params.id as string, { summary, summaryAtTurn: turnCount });
     res.json({ ok: true, summary, summaryAtTurn: turnCount });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-router.delete('/sessions/:id', (req, res) => {
-  const deleted = deleteSession(req.params.id as string);
+router.delete('/sessions/:id', async (req, res) => {
+  const deleted = await deleteSession(req.params.id as string);
   if (!deleted) return res.status(404).json({ error: 'Session not found' });
   res.json({ ok: true });
 });
@@ -577,7 +575,7 @@ router.get('/claude-sessions', (_req, res) => {
 });
 
 // ───── Search (FTS5) ─────
-router.get('/search', (req, res) => {
+router.get('/search', async (req, res) => {
   const q = (req.query.q as string || '').trim();
   if (!q || q.length < 2) {
     return res.json([]);
@@ -585,14 +583,14 @@ router.get('/search', (req, res) => {
   const userId = (req as any).user?.userId;
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
   const role = (req as any).user?.role;
-  const results = search(q, { userId, role, limit });
+  const results = await search(q, { userId, role, limit });
   res.json(results);
 });
 
 // ───── Session Messages ─────
-router.get('/sessions/:id/messages', (req, res) => {
+router.get('/sessions/:id/messages', async (req, res) => {
   try {
-    const messages = getMessages(req.params.id as string);
+    const messages = await getMessages(req.params.id as string);
     res.json(messages);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -600,10 +598,10 @@ router.get('/sessions/:id/messages', (req, res) => {
 });
 
 // ───── Directories ─────
-router.get('/directories', (req, res) => {
+router.get('/directories', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     const dirPath = (req.query.path as string) || userRoot;
     if (!isPathSafe(dirPath, userRoot)) {
       return res.status(403).json({ error: 'Access denied' });
@@ -625,10 +623,10 @@ router.get('/directories', (req, res) => {
 });
 
 // ───── Files ─────
-router.get('/files/tree', (req, res) => {
+router.get('/files/tree', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     const dirPath = (req.query.path as string) || userRoot;
     if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied: outside allowed path' });
     const entries = getFileTree(dirPath);
@@ -638,14 +636,14 @@ router.get('/files/tree', (req, res) => {
   }
 });
 
-router.get('/files/read', (req, res) => {
+router.get('/files/read', async (req, res) => {
   try {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) {
-      if (!userId || !hasInternalShareForUser(filePath, userId)) {
+      if (!userId || !(await hasInternalShareForUser(filePath, userId))) {
         return res.status(403).json({ error: 'Access denied' });
       }
       // internal share found — allow read to continue
@@ -657,12 +655,12 @@ router.get('/files/read', (req, res) => {
   }
 });
 
-router.post('/files/write', (req, res) => {
+router.post('/files/write', async (req, res) => {
   try {
     const { path: filePath, content } = req.body;
     if (!filePath || content === undefined) return res.status(400).json({ error: 'path and content required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     writeFile(filePath, content);
     res.json({ ok: true, path: filePath });
@@ -692,7 +690,7 @@ router.post('/files/upload', handleMulterUpload, async (req, res) => {
     const targetDir = req.body.targetDir as string;
     if (!targetDir) return res.status(400).json({ error: 'targetDir required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(targetDir, userRoot)) return res.status(403).json({ error: 'Access denied: target directory outside allowed path' });
 
     const files = req.files as Express.Multer.File[];
@@ -772,12 +770,12 @@ router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
 });
 
 // ───── File Management (create / mkdir / delete / rename) ─────
-router.post('/files/create', (req, res) => {
+router.post('/files/create', async (req, res) => {
   try {
     const { path: filePath, content } = req.body;
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     if (fs.existsSync(filePath)) return res.status(409).json({ error: 'File already exists' });
     writeFile(filePath, content || '');
@@ -787,12 +785,12 @@ router.post('/files/create', (req, res) => {
   }
 });
 
-router.post('/files/mkdir', (req, res) => {
+router.post('/files/mkdir', async (req, res) => {
   try {
     const { path: dirPath } = req.body;
     if (!dirPath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     if (fs.existsSync(dirPath)) return res.status(409).json({ error: 'Directory already exists' });
     createDirectory(dirPath);
@@ -802,12 +800,12 @@ router.post('/files/mkdir', (req, res) => {
   }
 });
 
-router.post('/files/delete', (req, res) => {
+router.post('/files/delete', async (req, res) => {
   try {
     const { path: targetPath } = req.body;
     if (!targetPath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(targetPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     deleteEntry(targetPath);
     res.json({ ok: true });
@@ -816,12 +814,12 @@ router.post('/files/delete', (req, res) => {
   }
 });
 
-router.post('/files/rename', (req, res) => {
+router.post('/files/rename', async (req, res) => {
   try {
     const { oldPath, newPath } = req.body;
     if (!oldPath || !newPath) return res.status(400).json({ error: 'oldPath and newPath required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(oldPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     if (!isPathSafe(newPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     renameEntry(oldPath, newPath);
@@ -831,45 +829,108 @@ router.post('/files/rename', (req, res) => {
   }
 });
 
-// ───── Pins ─────
-router.get('/pins', (req, res) => {
-  const userId = (req as any).user?.userId;
-  res.json(getPins(userId));
+// ───── Secure Input (.env writer) ─────
+router.post('/env', (req, res) => {
+  try {
+    const { target, entries } = req.body as {
+      target?: string;
+      entries: { key: string; value: string }[];
+    };
+    if (!entries || !Array.isArray(entries) || entries.length === 0) {
+      return res.status(400).json({ error: 'entries required' });
+    }
+
+    // Validate key names (prevent injection)
+    for (const e of entries) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(e.key)) {
+        return res.status(400).json({ error: `Invalid key name: ${e.key}` });
+      }
+    }
+
+    // Resolve target path — only allow .env files within known directories
+    const fileName = target || '.env';
+    if (!fileName.startsWith('.env')) {
+      return res.status(400).json({ error: 'Target must be a .env file' });
+    }
+    const envPath = path.resolve(process.cwd(), fileName);
+
+    // Read existing content
+    let content = '';
+    try {
+      content = fs.readFileSync(envPath, 'utf-8');
+    } catch {
+      // File doesn't exist yet — will be created
+    }
+
+    // Parse existing lines
+    const lines = content.split('\n');
+    const existingKeys = new Map<string, number>();
+    lines.forEach((line, i) => {
+      const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
+      if (match) existingKeys.set(match[1], i);
+    });
+
+    // Update or append
+    for (const { key, value } of entries) {
+      const newLine = `${key}=${value}`;
+      if (existingKeys.has(key)) {
+        lines[existingKeys.get(key)!] = newLine;
+      } else {
+        // Append (ensure newline before if needed)
+        if (lines.length > 0 && lines[lines.length - 1] !== '') {
+          lines.push(newLine);
+        } else {
+          lines.push(newLine);
+        }
+      }
+    }
+
+    fs.writeFileSync(envPath, lines.join('\n'));
+    res.json({ ok: true, saved: entries.length, path: envPath });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-router.post('/pins', (req, res) => {
+// ───── Pins ─────
+router.get('/pins', async (req, res) => {
+  const userId = (req as any).user?.userId;
+  res.json(await getPins(userId));
+});
+
+router.post('/pins', async (req, res) => {
   const { title, filePath, fileType } = req.body;
   if (!title || !filePath) return res.status(400).json({ error: 'title and filePath required' });
   const userId = (req as any).user?.userId;
-  const pin = createPin(title, filePath, fileType || 'markdown', userId);
+  const pin = await createPin(title, filePath, fileType || 'markdown', userId);
   res.json(pin);
 });
 
-router.patch('/pins/:id', (req, res) => {
+router.patch('/pins/:id', async (req, res) => {
   const { title, sortOrder } = req.body;
-  updatePin(parseInt(req.params.id as string), { title, sortOrder });
+  await updatePin(parseInt(req.params.id as string), { title, sortOrder });
   res.json({ ok: true });
 });
 
-router.delete('/pins/:id', (req, res) => {
-  deletePin(parseInt(req.params.id as string));
+router.delete('/pins/:id', async (req, res) => {
+  await deletePin(parseInt(req.params.id as string));
   res.json({ ok: true });
 });
 
-router.post('/pins/reorder', (req, res) => {
+router.post('/pins/reorder', async (req, res) => {
   const { orderedIds } = req.body;
   if (!Array.isArray(orderedIds)) return res.status(400).json({ error: 'orderedIds array required' });
-  reorderPins(orderedIds);
+  await reorderPins(orderedIds);
   res.json({ ok: true });
 });
 
 // ───── File Serve (for pin iframe) ─────
-router.get('/files/serve', (req, res) => {
+router.get('/files/serve', async (req, res) => {
   try {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
-    const userRoot = userId ? getUserAllowedPath(userId) : config.workspaceRoot;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
 
     const isDownload = req.query.download === '1';
@@ -925,27 +986,27 @@ router.get('/files/serve', (req, res) => {
 });
 
 // ───── Prompts ─────
-router.get('/prompts', (req, res) => {
+router.get('/prompts', async (req, res) => {
   const userId = (req as any).user?.userId;
-  res.json(getPromptsWithCommands(userId));
+  res.json(await getPromptsWithCommands(userId));
 });
 
-router.post('/prompts', (req, res) => {
+router.post('/prompts', async (req, res) => {
   const { title, content } = req.body;
   if (!title || content === undefined) return res.status(400).json({ error: 'title and content required' });
   const userId = (req as any).user?.userId;
-  const pin = createPromptPin(title, content, userId);
+  const pin = await createPromptPin(title, content, userId);
   res.json(pin);
 });
 
-router.patch('/prompts/:id', (req, res) => {
+router.patch('/prompts/:id', async (req, res) => {
   const { title, content } = req.body;
-  updatePromptPin(parseInt(req.params.id as string), { title, content });
+  await updatePromptPin(parseInt(req.params.id as string), { title, content });
   res.json({ ok: true });
 });
 
-router.delete('/prompts/:id', (req, res) => {
-  deletePin(parseInt(req.params.id as string));
+router.delete('/prompts/:id', async (req, res) => {
+  await deletePin(parseInt(req.params.id as string));
   res.json({ ok: true });
 });
 
@@ -1010,13 +1071,13 @@ router.get('/config', (_req, res) => {
 });
 
 // ───── Commands (now DB-backed via skill registry) ─────
-router.get('/commands', (req, res) => {
+router.get('/commands', async (req, res) => {
   const userId = (req as any).user?.userId;
   const projectId = req.query.projectId as string | undefined;
 
   // Try DB-backed registry first, fall back to filesystem scan
   try {
-    const commands = getCommandsForUser(userId, projectId || null);
+    const commands = await getCommandsForUser(userId, projectId || null);
     if (commands.length > 0) {
       return res.json(commands);
     }
@@ -1027,20 +1088,20 @@ router.get('/commands', (req, res) => {
 });
 
 // ───── Skills Registry ─────
-router.get('/skills', (req, res) => {
+router.get('/skills', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
     const scope = req.query.scope as 'company' | 'project' | 'personal' | undefined;
     const projectId = req.query.projectId as string | undefined;
-    res.json(listSkills(scope, projectId, userId));
+    res.json(await listSkills(scope, projectId, userId));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/skills/:id', (req, res) => {
+router.get('/skills/:id', async (req, res) => {
   try {
-    const skill = getSkill(req.params.id);
+    const skill = await getSkill(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     // Scan filesystem for skill directory structure
@@ -1073,7 +1134,7 @@ router.get('/skills/:id', (req, res) => {
   }
 });
 
-router.post('/skills', (req, res) => {
+router.post('/skills', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
@@ -1088,7 +1149,7 @@ router.post('/skills', (req, res) => {
       return res.status(403).json({ error: 'Admin only for company skills' });
     }
 
-    const skill = createSkill({
+    const skill = await createSkill({
       name, scope, content, description, category,
       projectId: scope === 'project' ? projectId : undefined,
       userId: scope === 'personal' ? userId : undefined,
@@ -1099,12 +1160,12 @@ router.post('/skills', (req, res) => {
   }
 });
 
-router.put('/skills/:id', (req, res) => {
+router.put('/skills/:id', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
 
-    const existing = getSkill(req.params.id);
+    const existing = await getSkill(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Skill not found' });
 
     // Permission check
@@ -1115,19 +1176,19 @@ router.put('/skills/:id', (req, res) => {
       return res.status(403).json({ error: 'Not your skill' });
     }
 
-    const ok = updateSkill(req.params.id, req.body);
+    const ok = await updateSkill(req.params.id, req.body);
     res.json({ ok });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.delete('/skills/:id', (req, res) => {
+router.delete('/skills/:id', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
 
-    const existing = getSkill(req.params.id);
+    const existing = await getSkill(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Skill not found' });
 
     if (existing.scope === 'company' && role !== 'admin') {
@@ -1137,7 +1198,7 @@ router.delete('/skills/:id', (req, res) => {
       return res.status(403).json({ error: 'Not your skill' });
     }
 
-    const ok = deleteSkill(req.params.id);
+    const ok = await deleteSkill(req.params.id);
     res.json({ ok });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1145,14 +1206,14 @@ router.delete('/skills/:id', (req, res) => {
 });
 
 // Per-user skill toggle (enable/disable a skill for yourself)
-router.post('/skills/:id/toggle', (req, res) => {
+router.post('/skills/:id/toggle', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
     const { enabled } = req.body;
-    const newState = enabled !== undefined ? !!enabled : !(getUserSkillPref(userId, req.params.id) ?? true);
-    setUserSkillPref(userId, req.params.id, newState);
+    const newState = enabled !== undefined ? !!enabled : !((await getUserSkillPref(userId, req.params.id)) ?? true);
+    await setUserSkillPref(userId, req.params.id, newState);
     res.json({ ok: true, enabled: newState });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1160,37 +1221,37 @@ router.post('/skills/:id/toggle', (req, res) => {
 });
 
 // ───── My Groups (for non-admin users) ─────
-router.get('/my/groups', (req, res) => {
+router.get('/my/groups', async (req, res) => {
   const userId = (req as any).user?.userId;
   if (!userId) return res.json([]);
-  res.json(getUserGroups(userId));
+  res.json(await getUserGroups(userId));
 });
 
 // ───── Projects ─────
-router.get('/projects', (req, res) => {
+router.get('/projects', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
-  res.json(getProjects(userId, role));
+  res.json(await getProjects(userId, role));
 });
 
-router.post('/projects', (req, res) => {
+router.post('/projects', async (req, res) => {
   try {
     const { name, description, rootPath, color, memberIds, groupId } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
     const userId = (req as any).user?.userId;
-    const project = createProject(name.trim(), userId, { description, rootPath, color });
+    const project = await createProject(name.trim(), userId, { description, rootPath, color });
 
     // Add individual members
     if (Array.isArray(memberIds)) {
       for (const mid of memberIds) {
         if (typeof mid === 'number' && mid !== userId) {
-          addProjectMember(project.id, mid, 'member');
+          await addProjectMember(project.id, mid, 'member');
         }
       }
     }
     // Invite group members (snapshot copy)
     if (groupId && typeof groupId === 'number') {
-      inviteGroupToProject(groupId, project.id);
+      await inviteGroupToProject(groupId, project.id);
     }
 
     res.json(project);
@@ -1199,9 +1260,9 @@ router.post('/projects', (req, res) => {
   }
 });
 
-router.patch('/projects/:id', (req, res) => {
+router.patch('/projects/:id', async (req, res) => {
   try {
-    const project = updateProject(req.params.id as string, req.body);
+    const project = await updateProject(req.params.id as string, req.body);
     if (!project) return res.status(404).json({ error: 'project not found' });
     res.json(project);
   } catch (err: any) {
@@ -1209,9 +1270,9 @@ router.patch('/projects/:id', (req, res) => {
   }
 });
 
-router.delete('/projects/:id', (req, res) => {
+router.delete('/projects/:id', async (req, res) => {
   try {
-    const ok = deleteProject(req.params.id as string);
+    const ok = await deleteProject(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'project not found' });
     res.json({ ok: true });
   } catch (err: any) {
@@ -1221,35 +1282,35 @@ router.delete('/projects/:id', (req, res) => {
 
 // ───── Project Members ─────
 
-router.get('/projects/:id/members', (req, res) => {
+router.get('/projects/:id/members', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
   const projectId = req.params.id as string;
   // Any member, owner, or admin can view members
   if (role !== 'admin' && userId) {
-    const project = getProject(projectId);
+    const project = await getProject(projectId);
     if (!project) return res.status(404).json({ error: 'project not found' });
-    if (project.userId !== userId && !isProjectMember(projectId, userId)) {
+    if (project.userId !== userId && !(await isProjectMember(projectId, userId))) {
       return res.status(403).json({ error: 'not a member' });
     }
   }
-  res.json(getProjectMembers(projectId));
+  res.json(await getProjectMembers(projectId));
 });
 
-router.post('/projects/:id/members', (req, res) => {
+router.post('/projects/:id/members', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
   const projectId = req.params.id as string;
 
   // Only owner or admin can add members
-  if (role !== 'admin' && !isProjectOwner(projectId, userId)) {
+  if (role !== 'admin' && !(await isProjectOwner(projectId, userId))) {
     return res.status(403).json({ error: 'only owner or admin can add members' });
   }
 
   const { userId: targetUserId, groupId: targetGroupId } = req.body;
 
   if (targetGroupId && typeof targetGroupId === 'number') {
-    const added = inviteGroupToProject(targetGroupId, projectId);
+    const added = await inviteGroupToProject(targetGroupId, projectId);
     return res.json({ ok: true, added });
   }
 
@@ -1257,53 +1318,53 @@ router.post('/projects/:id/members', (req, res) => {
     return res.status(400).json({ error: 'userId or groupId required' });
   }
 
-  addProjectMember(projectId, targetUserId, 'member');
+  await addProjectMember(projectId, targetUserId, 'member');
   res.json({ ok: true });
 });
 
-router.delete('/projects/:id/members/:uid', (req, res) => {
+router.delete('/projects/:id/members/:uid', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
   const projectId = req.params.id as string;
   const targetUserId = parseInt(req.params.uid as string);
 
   // Only owner or admin can remove members
-  if (role !== 'admin' && !isProjectOwner(projectId, userId)) {
+  if (role !== 'admin' && !(await isProjectOwner(projectId, userId))) {
     return res.status(403).json({ error: 'only owner or admin can remove members' });
   }
 
-  const ok = removeProjectMember(projectId, targetUserId);
+  const ok = await removeProjectMember(projectId, targetUserId);
   if (!ok) return res.status(400).json({ error: 'cannot remove last owner' });
   res.json({ ok: true });
 });
 
 // ───── User Search (for member invitation) ─────
 
-router.get('/users/search', (req, res) => {
+router.get('/users/search', async (req, res) => {
   const q = (req.query.q as string || '').trim();
   if (!q) return res.json([]);
-  const db = getDb();
-  const users = db.prepare(
-    `SELECT id, username FROM users WHERE disabled = 0 AND username LIKE ? ORDER BY username LIMIT 20`
-  ).all(`%${q}%`) as { id: number; username: string }[];
+  const users = await query<{ id: number; username: string }>(
+    `SELECT id, username FROM users WHERE disabled = 0 AND username LIKE $1 ORDER BY username LIMIT 20`,
+    [`%${q}%`]
+  );
   res.json(users);
 });
 
-router.post('/projects/reorder', (req, res) => {
+router.post('/projects/reorder', async (req, res) => {
   try {
     const { projectIds } = req.body;
     if (!Array.isArray(projectIds)) return res.status(400).json({ error: 'projectIds array required' });
-    reorderProjects(projectIds);
+    await reorderProjects(projectIds);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/sessions/:id/move', (req, res) => {
+router.post('/sessions/:id/move', async (req, res) => {
   try {
     const { projectId } = req.body;
-    const ok = moveSessionToProject(req.params.id as string, projectId ?? null);
+    const ok = await moveSessionToProject(req.params.id as string, projectId ?? null);
     if (!ok) return res.status(404).json({ error: 'session or project not found' });
     // Broadcast so all connected clients update their session lists
     broadcast({ type: 'session_moved', sessionId: req.params.id as string, projectId: projectId ?? null });
@@ -1314,32 +1375,32 @@ router.post('/sessions/:id/move', (req, res) => {
 });
 
 // ───── Kanban Tasks ─────
-router.get('/tasks', (req, res) => {
+router.get('/tasks', async (req, res) => {
   try {
-    const tasks = getTasks((req as any).user?.userId, (req as any).user?.role);
+    const tasks = await getTasks((req as any).user?.userId, (req as any).user?.role);
     res.json(tasks);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/tasks/meta', (req, res) => {
+router.get('/tasks/meta', async (req, res) => {
   try {
-    const cwds = getDistinctCwds((req as any).user?.userId);
+    const cwds = await getDistinctCwds((req as any).user?.userId);
     res.json({ cwds });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/tasks', (req, res) => {
+router.post('/tasks', async (req, res) => {
   try {
     const { title, description, cwd, model, scheduledAt, scheduleCron, scheduleEnabled, workflow, parentTaskId, projectId } = req.body;
     if (!title || !cwd) return res.status(400).json({ error: 'title and cwd required' });
     const schedule = (scheduledAt || scheduleCron || scheduleEnabled)
       ? { scheduledAt, scheduleCron, scheduleEnabled }
       : undefined;
-    const task = createTask(title, description || '', cwd, (req as any).user?.userId, model, schedule, workflow, parentTaskId, projectId);
+    const task = await createTask(title, description || '', cwd, (req as any).user?.userId, model, schedule, workflow, parentTaskId, projectId);
     // Broadcast to all connected clients so kanban boards update in real-time
     broadcast({ type: 'task_created', task });
     res.json(task);
@@ -1348,9 +1409,9 @@ router.post('/tasks', (req, res) => {
   }
 });
 
-router.patch('/tasks/:id', (req, res) => {
+router.patch('/tasks/:id', async (req, res) => {
   try {
-    const task = updateTask(req.params.id as string, req.body);
+    const task = await updateTask(req.params.id as string, req.body);
     if (!task) return res.status(404).json({ error: 'task not found' });
     res.json(task);
   } catch (err: any) {
@@ -1358,9 +1419,9 @@ router.patch('/tasks/:id', (req, res) => {
   }
 });
 
-router.delete('/tasks/:id', (req, res) => {
+router.delete('/tasks/:id', async (req, res) => {
   try {
-    const ok = deleteTask(req.params.id as string);
+    const ok = await deleteTask(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
   } catch (err: any) {
@@ -1368,25 +1429,25 @@ router.delete('/tasks/:id', (req, res) => {
   }
 });
 
-router.get('/tasks/:id/children', (req, res) => {
+router.get('/tasks/:id/children', async (req, res) => {
   try {
-    const children = getChildTasks(req.params.id as string);
+    const children = await getChildTasks(req.params.id as string);
     res.json(children);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/tasks/:id/cleanup-worktree', (req, res) => {
+router.post('/tasks/:id/cleanup-worktree', async (req, res) => {
   try {
-    const task = getTask(req.params.id as string);
+    const task = await getTask(req.params.id as string);
     if (!task) return res.status(404).json({ error: 'task not found' });
     if (task.status === 'in_progress') return res.status(400).json({ error: 'cannot cleanup worktree for running task' });
     if (!task.worktreePath) return res.status(400).json({ error: 'task has no worktree' });
 
     const ok = removeWorktree(task.worktreePath);
     if (ok) {
-      updateTask(req.params.id as string, { worktreePath: null });
+      await updateTask(req.params.id as string, { worktreePath: null });
     }
     res.json({ success: ok });
   } catch (err: any) {
@@ -1394,11 +1455,11 @@ router.post('/tasks/:id/cleanup-worktree', (req, res) => {
   }
 });
 
-router.post('/tasks/reorder', (req, res) => {
+router.post('/tasks/reorder', async (req, res) => {
   try {
     const { taskIds, status } = req.body;
     if (!taskIds || !status) return res.status(400).json({ error: 'taskIds and status required' });
-    reorderTasks(taskIds, status);
+    await reorderTasks(taskIds, status);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1406,20 +1467,20 @@ router.post('/tasks/reorder', (req, res) => {
 });
 
 // ── History (archived sessions + tasks) ──────────────────
-router.get('/history', (req, res) => {
+router.get('/history', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
-    const sessions = getArchivedSessions(userId);
-    const tasks = getArchivedTasks(userId);
+    const sessions = await getArchivedSessions(userId);
+    const tasks = await getArchivedTasks(userId);
     res.json({ sessions, tasks });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/sessions/:id/restore', (req, res) => {
+router.post('/sessions/:id/restore', async (req, res) => {
   try {
-    const ok = restoreSession(req.params.id as string);
+    const ok = await restoreSession(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'session not found' });
     res.json({ success: true });
   } catch (err: any) {
@@ -1427,9 +1488,9 @@ router.post('/sessions/:id/restore', (req, res) => {
   }
 });
 
-router.delete('/sessions/:id/permanent', (req, res) => {
+router.delete('/sessions/:id/permanent', async (req, res) => {
   try {
-    const ok = permanentlyDeleteSession(req.params.id as string);
+    const ok = await permanentlyDeleteSession(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'session not found' });
     res.json({ success: true });
   } catch (err: any) {
@@ -1437,9 +1498,9 @@ router.delete('/sessions/:id/permanent', (req, res) => {
   }
 });
 
-router.post('/tasks/:id/restore', (req, res) => {
+router.post('/tasks/:id/restore', async (req, res) => {
   try {
-    const ok = restoreTask(req.params.id as string);
+    const ok = await restoreTask(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
   } catch (err: any) {
@@ -1447,9 +1508,9 @@ router.post('/tasks/:id/restore', (req, res) => {
   }
 });
 
-router.delete('/tasks/:id/permanent', (req, res) => {
+router.delete('/tasks/:id/permanent', async (req, res) => {
   try {
-    const ok = permanentlyDeleteTask(req.params.id as string);
+    const ok = await permanentlyDeleteTask(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
   } catch (err: any) {
@@ -1526,11 +1587,10 @@ router.get('/rooms/:id/invitable-users', authMiddleware, async (req, res) => {
     const members = await getMembers(req.params.id as string);
     const memberUserIds = new Set(members.map(m => m.userId));
 
-    // Get all active users from SQLite, exclude current members
-    const db = (await import('../db/schema.js')).getDb();
-    const allUsers = db.prepare(
+    // Get all active users, exclude current members
+    const allUsers = await query<{ id: number; username: string; role: string }>(
       'SELECT id, username, role FROM users WHERE disabled = 0 ORDER BY username'
-    ).all() as { id: number; username: string; role: string }[];
+    );
 
     const invitable = allUsers
       .filter(u => !memberUserIds.has(u.id))

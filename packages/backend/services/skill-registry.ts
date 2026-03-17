@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute, transaction, withClient } from '../db/pg-repo.js';
 import { config } from '../config.js';
 import type { SkillMeta, SkillScope } from '@tower/shared';
 
@@ -24,25 +24,17 @@ const PLUGINS_DIR = path.join(os.homedir(), '.claude', 'plugins');
 // Seed bundled skills → DB (idempotent)
 // ═══════════════════════════════════════════════════════════════
 
-export function seedBundledSkills(bundledDir: string): number {
+export async function seedBundledSkills(bundledDir: string): Promise<number> {
   if (!fs.existsSync(bundledDir)) {
     console.log(`[skills] Bundled skills dir not found: ${bundledDir}`);
     return 0;
   }
 
-  const db = getDb();
-  const upsert = db.prepare(`
-    INSERT INTO skill_registry (id, name, scope, description, category, content, source)
-    VALUES (?, ?, 'company', ?, 'general', ?, 'bundled')
-    ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
-    DO UPDATE SET content = excluded.content, description = excluded.description,
-                  updated_at = CURRENT_TIMESTAMP
-  `);
-
-  let count = 0;
   const entries = fs.readdirSync(bundledDir, { withFileTypes: true });
 
-  const tx = db.transaction(() => {
+  let count = 0;
+  await transaction(async (client) => {
+    const db = withClient(client);
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const skillFile = path.join(bundledDir, entry.name, 'SKILL.md');
@@ -52,12 +44,17 @@ export function seedBundledSkills(bundledDir: string): number {
       const name = parseFrontmatterField(content, 'name') || entry.name;
       const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
 
-      upsert.run(uuidv4(), name, description, content);
+      await db.execute(`
+        INSERT INTO skill_registry (id, name, scope, description, category, content, source)
+        VALUES ($1, $2, 'company', $3, 'general', $4, 'bundled')
+        ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
+        DO UPDATE SET content = excluded.content, description = excluded.description,
+                      updated_at = CURRENT_TIMESTAMP
+      `, [uuidv4(), name, description, content]);
       count++;
     }
   });
 
-  tx();
   if (count > 0) console.log(`[skills] Seeded ${count} bundled skills`);
   return count;
 }
@@ -66,17 +63,7 @@ export function seedBundledSkills(bundledDir: string): number {
  * Seed skills from ~/.claude/plugins/ (marketplace + installed).
  * Scans cache (versioned) and installed dirs. Stores skill_path for folder reference.
  */
-export function seedPluginSkills(): number {
-  const db = getDb();
-  const upsert = db.prepare(`
-    INSERT INTO skill_registry (id, name, scope, description, category, content, source, skill_path)
-    VALUES (?, ?, 'company', ?, ?, ?, ?, ?)
-    ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
-    DO UPDATE SET content = excluded.content, description = excluded.description,
-                  skill_path = excluded.skill_path, source = excluded.source,
-                  updated_at = CURRENT_TIMESTAMP
-  `);
-
+export async function seedPluginSkills(): Promise<number> {
   // Sources to scan: [dir, source_tag, category_hint]
   const sources: [string, string, string][] = [
     [path.join(PLUGINS_DIR, 'cache', 'internal-skills'), 'marketplace', 'general'],
@@ -98,7 +85,8 @@ export function seedPluginSkills(): number {
   }
 
   let count = 0;
-  const tx = db.transaction(() => {
+  await transaction(async (client) => {
+    const db = withClient(client);
     for (const [dir, sourceTag, categoryHint] of sources) {
       if (!fs.existsSync(dir)) continue;
 
@@ -132,14 +120,20 @@ export function seedPluginSkills(): number {
           const name = parseFrontmatterField(content, 'name') || entry.name;
           const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
 
-          upsert.run(uuidv4(), name, description, categoryHint, content, sourceTag, actualDir);
+          await db.execute(`
+            INSERT INTO skill_registry (id, name, scope, description, category, content, source, skill_path)
+            VALUES ($1, $2, 'company', $3, $4, $5, $6, $7)
+            ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
+            DO UPDATE SET content = excluded.content, description = excluded.description,
+                          skill_path = excluded.skill_path, source = excluded.source,
+                          updated_at = CURRENT_TIMESTAMP
+          `, [uuidv4(), name, description, categoryHint, content, sourceTag, actualDir]);
           count++;
         }
       } catch {}
     }
   });
 
-  tx();
   if (count > 0) console.log(`[skills] Seeded ${count} plugin skills`);
   return count;
 }
@@ -149,11 +143,10 @@ export function seedPluginSkills(): number {
 // ═══════════════════════════════════════════════════════════════
 
 /** Sync company skills: DB → data/skills/company/ + ~/.claude/skills/ */
-export function syncCompanySkillsToFs(): void {
-  const db = getDb();
-  const skills = db.prepare(
+export async function syncCompanySkillsToFs(): Promise<void> {
+  const skills = await query<{ name: string; content: string }>(
     `SELECT name, content FROM skill_registry WHERE scope = 'company' AND enabled = 1`
-  ).all() as { name: string; content: string }[];
+  );
 
   // Write to data/skills/company/ (for Pi additionalSkillPaths)
   syncSkillsToDir(skills, COMPANY_SKILLS_DIR);
@@ -165,11 +158,11 @@ export function syncCompanySkillsToFs(): void {
 }
 
 /** Sync project skills: DB → {projectRootPath}/.claude/skills/ */
-export function syncProjectSkillsToFs(projectId: string, projectRootPath: string): void {
-  const db = getDb();
-  const skills = db.prepare(
-    `SELECT name, content FROM skill_registry WHERE scope = 'project' AND project_id = ? AND enabled = 1`
-  ).all(projectId) as { name: string; content: string }[];
+export async function syncProjectSkillsToFs(projectId: string, projectRootPath: string): Promise<void> {
+  const skills = await query<{ name: string; content: string }>(
+    `SELECT name, content FROM skill_registry WHERE scope = 'project' AND project_id = $1 AND enabled = 1`,
+    [projectId]
+  );
 
   if (skills.length === 0) return;
 
@@ -178,11 +171,11 @@ export function syncProjectSkillsToFs(projectId: string, projectRootPath: string
 }
 
 /** Sync personal skills: DB → data/skills/personal/{userId}/ */
-export function syncPersonalSkillsToFs(userId: number): void {
-  const db = getDb();
-  const skills = db.prepare(
-    `SELECT name, content FROM skill_registry WHERE scope = 'personal' AND user_id = ? AND enabled = 1`
-  ).all(userId) as { name: string; content: string }[];
+export async function syncPersonalSkillsToFs(userId: number): Promise<void> {
+  const skills = await query<{ name: string; content: string }>(
+    `SELECT name, content FROM skill_registry WHERE scope = 'personal' AND user_id = $1 AND enabled = 1`,
+    [userId]
+  );
 
   const targetDir = path.join(PERSONAL_SKILLS_DIR, String(userId));
   syncSkillsToDir(skills, targetDir);
@@ -226,20 +219,20 @@ function syncSkillsToDir(skills: { name: string; content: string }[], targetDir:
 // CRUD
 // ═══════════════════════════════════════════════════════════════
 
-export function listSkills(scope?: SkillScope, projectId?: string, userId?: number): SkillMeta[] {
-  const db = getDb();
+export async function listSkills(scope?: SkillScope, projectId?: string, userId?: number): Promise<SkillMeta[]> {
   let sql = 'SELECT * FROM skill_registry WHERE 1=1';
   const params: any[] = [];
+  let idx = 1;
 
-  if (scope) { sql += ' AND scope = ?'; params.push(scope); }
-  if (projectId) { sql += ' AND project_id = ?'; params.push(projectId); }
-  if (userId && scope === 'personal') { sql += ' AND user_id = ?'; params.push(userId); }
+  if (scope) { sql += ` AND scope = $${idx++}`; params.push(scope); }
+  if (projectId) { sql += ` AND project_id = $${idx++}`; params.push(projectId); }
+  if (userId && scope === 'personal') { sql += ` AND user_id = $${idx++}`; params.push(userId); }
 
   sql += ' ORDER BY name';
-  const rows = db.prepare(sql).all(...params) as any[];
+  const rows = await query(sql, params);
 
   // Attach per-user pref if userId provided
-  const userPrefs = userId ? getUserSkillPrefs(userId) : new Map<string, boolean>();
+  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
   return rows.map(row => {
     const meta = rowToMeta(row);
     if (userId) {
@@ -250,13 +243,12 @@ export function listSkills(scope?: SkillScope, projectId?: string, userId?: numb
   });
 }
 
-export function getSkill(id: string): (SkillMeta & { content: string }) | null {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM skill_registry WHERE id = ?').get(id) as any;
+export async function getSkill(id: string): Promise<(SkillMeta & { content: string }) | null> {
+  const row = await queryOne('SELECT * FROM skill_registry WHERE id = $1', [id]);
   return row ? { ...rowToMeta(row), content: row.content } : null;
 }
 
-export function createSkill(data: {
+export async function createSkill(data: {
   name: string;
   scope: SkillScope;
   content: string;
@@ -264,68 +256,65 @@ export function createSkill(data: {
   category?: string;
   projectId?: string;
   userId?: number;
-}): SkillMeta {
-  const db = getDb();
+}): Promise<SkillMeta> {
   const id = uuidv4();
-  db.prepare(`
+  await execute(`
     INSERT INTO skill_registry (id, name, scope, project_id, user_id, description, category, content, source)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'custom')
-  `).run(id, data.name, data.scope, data.projectId || null, data.userId || null,
-    data.description || '', data.category || 'general', data.content);
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'custom')
+  `, [id, data.name, data.scope, data.projectId || null, data.userId || null,
+    data.description || '', data.category || 'general', data.content]);
 
-  syncAfterMutation(data.scope, data.projectId, data.userId);
-  return getSkill(id)!;
+  await syncAfterMutation(data.scope, data.projectId, data.userId);
+  return (await getSkill(id))!;
 }
 
-export function updateSkill(id: string, data: {
+export async function updateSkill(id: string, data: {
   name?: string;
   content?: string;
   description?: string;
   category?: string;
   enabled?: boolean;
-}): boolean {
-  const db = getDb();
-  const existing = db.prepare('SELECT scope, project_id, user_id FROM skill_registry WHERE id = ?').get(id) as any;
+}): Promise<boolean> {
+  const existing = await queryOne<any>('SELECT scope, project_id, user_id FROM skill_registry WHERE id = $1', [id]);
   if (!existing) return false;
 
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const params: any[] = [];
+  let idx = 1;
 
-  if (data.name !== undefined) { sets.push('name = ?'); params.push(data.name); }
-  if (data.content !== undefined) { sets.push('content = ?'); params.push(data.content); }
-  if (data.description !== undefined) { sets.push('description = ?'); params.push(data.description); }
-  if (data.category !== undefined) { sets.push('category = ?'); params.push(data.category); }
-  if (data.enabled !== undefined) { sets.push('enabled = ?'); params.push(data.enabled ? 1 : 0); }
+  if (data.name !== undefined) { sets.push(`name = $${idx++}`); params.push(data.name); }
+  if (data.content !== undefined) { sets.push(`content = $${idx++}`); params.push(data.content); }
+  if (data.description !== undefined) { sets.push(`description = $${idx++}`); params.push(data.description); }
+  if (data.category !== undefined) { sets.push(`category = $${idx++}`); params.push(data.category); }
+  if (data.enabled !== undefined) { sets.push(`enabled = $${idx++}`); params.push(data.enabled ? 1 : 0); }
 
   params.push(id);
-  db.prepare(`UPDATE skill_registry SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  await execute(`UPDATE skill_registry SET ${sets.join(', ')} WHERE id = $${idx++}`, params);
 
-  syncAfterMutation(existing.scope, existing.project_id, existing.user_id);
+  await syncAfterMutation(existing.scope, existing.project_id, existing.user_id);
   return true;
 }
 
-export function deleteSkill(id: string): boolean {
-  const db = getDb();
-  const existing = db.prepare('SELECT scope, project_id, user_id FROM skill_registry WHERE id = ?').get(id) as any;
+export async function deleteSkill(id: string): Promise<boolean> {
+  const existing = await queryOne<any>('SELECT scope, project_id, user_id FROM skill_registry WHERE id = $1', [id]);
   if (!existing) return false;
 
-  db.prepare('DELETE FROM skill_registry WHERE id = ?').run(id);
-  syncAfterMutation(existing.scope, existing.project_id, existing.user_id);
+  await execute('DELETE FROM skill_registry WHERE id = $1', [id]);
+  await syncAfterMutation(existing.scope, existing.project_id, existing.user_id);
   return true;
 }
 
-function syncAfterMutation(scope: string, projectId?: string, userId?: number) {
+async function syncAfterMutation(scope: string, projectId?: string, userId?: number) {
   if (scope === 'company') {
-    syncCompanySkillsToFs();
+    await syncCompanySkillsToFs();
   } else if (scope === 'project' && projectId) {
     // Resolve project root path
-    const db = getDb();
-    const project = db.prepare('SELECT root_path FROM projects WHERE id = ?').get(projectId) as any;
+    const project = await queryOne<any>('SELECT root_path FROM projects WHERE id = $1', [projectId]);
     if (project?.root_path) {
-      syncProjectSkillsToFs(projectId, project.root_path);
+      await syncProjectSkillsToFs(projectId, project.root_path);
     }
   } else if (scope === 'personal' && userId) {
-    syncPersonalSkillsToFs(userId);
+    await syncPersonalSkillsToFs(userId);
   }
 }
 
@@ -338,25 +327,22 @@ function syncAfterMutation(scope: string, projectId?: string, userId?: number) {
 // ═══════════════════════════════════════════════════════════════
 
 /** Set user preference for a skill (overrides global enabled state) */
-export function setUserSkillPref(userId: number, skillId: string, enabled: boolean): void {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO user_skill_prefs (user_id, skill_id, enabled) VALUES (?, ?, ?)
+export async function setUserSkillPref(userId: number, skillId: string, enabled: boolean): Promise<void> {
+  await execute(`
+    INSERT INTO user_skill_prefs (user_id, skill_id, enabled) VALUES ($1, $2, $3)
     ON CONFLICT (user_id, skill_id) DO UPDATE SET enabled = excluded.enabled
-  `).run(userId, skillId, enabled ? 1 : 0);
+  `, [userId, skillId, enabled ? 1 : 0]);
 }
 
 /** Get user preference for a skill. Returns null if no pref set (default = enabled). */
-export function getUserSkillPref(userId: number, skillId: string): boolean | null {
-  const db = getDb();
-  const row = db.prepare('SELECT enabled FROM user_skill_prefs WHERE user_id = ? AND skill_id = ?').get(userId, skillId) as any;
+export async function getUserSkillPref(userId: number, skillId: string): Promise<boolean | null> {
+  const row = await queryOne<any>('SELECT enabled FROM user_skill_prefs WHERE user_id = $1 AND skill_id = $2', [userId, skillId]);
   return row ? !!row.enabled : null;
 }
 
 /** Get all user prefs as a Map<skillId, enabled> */
-function getUserSkillPrefs(userId: number): Map<string, boolean> {
-  const db = getDb();
-  const rows = db.prepare('SELECT skill_id, enabled FROM user_skill_prefs WHERE user_id = ?').all(userId) as any[];
+async function getUserSkillPrefs(userId: number): Promise<Map<string, boolean>> {
+  const rows = await query<any>('SELECT skill_id, enabled FROM user_skill_prefs WHERE user_id = $1', [userId]);
   const map = new Map<string, boolean>();
   for (const r of rows) map.set(r.skill_id, !!r.enabled);
   return map;
@@ -370,24 +356,27 @@ function isSkillActiveForUser(row: any, userPrefs: Map<string, boolean>): boolea
 }
 
 /** Get merged skills for a session: company + project + personal, filtered by user prefs */
-export function getSkillsForSession(userId?: number, projectId?: string | null): SkillMeta[] {
-  const db = getDb();
-  let sql = `
+export async function getSkillsForSession(userId?: number, projectId?: string | null): Promise<SkillMeta[]> {
+  const params: any[] = [];
+  let idx = 1;
+
+  let projectClause = '';
+  if (projectId) { projectClause = `OR (scope = 'project' AND project_id = $${idx++})`; params.push(projectId); }
+  let userClause = '';
+  if (userId) { userClause = `OR (scope = 'personal' AND user_id = $${idx++})`; params.push(userId); }
+
+  const sql = `
     SELECT * FROM skill_registry
     WHERE enabled = 1 AND (
       scope = 'company'
-      ${projectId ? "OR (scope = 'project' AND project_id = ?)" : ''}
-      ${userId ? "OR (scope = 'personal' AND user_id = ?)" : ''}
+      ${projectClause}
+      ${userClause}
     )
     ORDER BY CASE scope WHEN 'personal' THEN 0 WHEN 'project' THEN 1 WHEN 'company' THEN 2 END, name
   `;
 
-  const params: any[] = [];
-  if (projectId) params.push(projectId);
-  if (userId) params.push(userId);
-
-  const rows = db.prepare(sql).all(...params) as any[];
-  const userPrefs = userId ? getUserSkillPrefs(userId) : new Map<string, boolean>();
+  const rows = await query(sql, params);
+  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
 
   // Deduplicate + filter by user prefs
   const seen = new Set<string>();
@@ -402,26 +391,29 @@ export function getSkillsForSession(userId?: number, projectId?: string | null):
 }
 
 /** Get commands for /api/commands endpoint (with fullContent for dropdown) */
-export function getCommandsForUser(userId?: number, projectId?: string | null): {
+export async function getCommandsForUser(userId?: number, projectId?: string | null): Promise<{
   name: string; description: string; fullContent: string; source: string; scope: SkillScope;
-}[] {
-  const db = getDb();
-  let sql = `
+}[]> {
+  const params: any[] = [];
+  let idx = 1;
+
+  let projectClause = '';
+  if (projectId) { projectClause = `OR (scope = 'project' AND project_id = $${idx++})`; params.push(projectId); }
+  let userClause = '';
+  if (userId) { userClause = `OR (scope = 'personal' AND user_id = $${idx++})`; params.push(userId); }
+
+  const sql = `
     SELECT * FROM skill_registry
     WHERE enabled = 1 AND (
       scope = 'company'
-      ${projectId ? "OR (scope = 'project' AND project_id = ?)" : ''}
-      ${userId ? "OR (scope = 'personal' AND user_id = ?)" : ''}
+      ${projectClause}
+      ${userClause}
     )
     ORDER BY CASE scope WHEN 'personal' THEN 0 WHEN 'project' THEN 1 WHEN 'company' THEN 2 END, name
   `;
 
-  const params: any[] = [];
-  if (projectId) params.push(projectId);
-  if (userId) params.push(userId);
-
-  const rows = db.prepare(sql).all(...params) as any[];
-  const userPrefs = userId ? getUserSkillPrefs(userId) : new Map<string, boolean>();
+  const rows = await query(sql, params);
+  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
 
   const seen = new Set<string>();
   const result: { name: string; description: string; fullContent: string; source: string; scope: SkillScope }[] = [];
@@ -442,33 +434,35 @@ export function getCommandsForUser(userId?: number, projectId?: string | null): 
 }
 
 /** Get a personal skill by name (for Claude message prepend) */
-export function getPersonalSkill(userId: number, name: string): { content: string } | null {
-  const db = getDb();
-  const row = db.prepare(
-    `SELECT content FROM skill_registry WHERE scope = 'personal' AND user_id = ? AND name = ? AND enabled = 1`
-  ).get(userId, name) as any;
+export async function getPersonalSkill(userId: number, name: string): Promise<{ content: string } | null> {
+  const row = await queryOne<any>(
+    `SELECT content FROM skill_registry WHERE scope = 'personal' AND user_id = $1 AND name = $2 AND enabled = 1`,
+    [userId, name]
+  );
   return row || null;
 }
 
 /** Get skill by name from any scope (for Pi engine prepend fallback) */
-export function getSkillByName(name: string, userId?: number, projectId?: string | null): { content: string; scope: string } | null {
-  const db = getDb();
+export async function getSkillByName(name: string, userId?: number, projectId?: string | null): Promise<{ content: string; scope: string } | null> {
   // Check in priority order: personal → project → company
   if (userId) {
-    const personal = db.prepare(
-      `SELECT content, scope FROM skill_registry WHERE name = ? AND scope = 'personal' AND user_id = ? AND enabled = 1`
-    ).get(name, userId) as any;
+    const personal = await queryOne<any>(
+      `SELECT content, scope FROM skill_registry WHERE name = $1 AND scope = 'personal' AND user_id = $2 AND enabled = 1`,
+      [name, userId]
+    );
     if (personal) return personal;
   }
   if (projectId) {
-    const project = db.prepare(
-      `SELECT content, scope FROM skill_registry WHERE name = ? AND scope = 'project' AND project_id = ? AND enabled = 1`
-    ).get(name, projectId) as any;
+    const project = await queryOne<any>(
+      `SELECT content, scope FROM skill_registry WHERE name = $1 AND scope = 'project' AND project_id = $2 AND enabled = 1`,
+      [name, projectId]
+    );
     if (project) return project;
   }
-  const company = db.prepare(
-    `SELECT content, scope FROM skill_registry WHERE name = ? AND scope = 'company' AND enabled = 1`
-  ).get(name) as any;
+  const company = await queryOne<any>(
+    `SELECT content, scope FROM skill_registry WHERE name = $1 AND scope = 'company' AND enabled = 1`,
+    [name]
+  );
   return company || null;
 }
 

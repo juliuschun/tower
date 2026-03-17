@@ -11,7 +11,7 @@ import { verifyWsToken, getUserAllowedPath } from '../services/auth.js';
 import { isPathSafe } from '../services/file-system.js';
 import { saveMessage, updateMessageContent, attachToolResultInDb, updateMessageMetrics } from '../services/message-store.js';
 import { getSession, updateSession } from '../services/session-manager.js';
-import { getDb } from '../db/schema.js';
+import { execute } from '../db/pg-repo.js';
 import { config } from '../config.js';
 import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient } from './session-guards.js';
 import { spawnTask, abortTask } from '../services/task-runner.js';
@@ -54,13 +54,13 @@ const roomClients = new Map<string, Set<string>>(); // roomId → Set<clientId>
  * Claim a claudeSessionId for a Tower session.
  * If another session already holds it, clear theirs first (Tower = SSOT, latest wins).
  */
-function claimClaudeSessionId(towerSessionId: string, claudeSessionId: string) {
-  const db = getDb();
-  db.prepare(
+async function claimClaudeSessionId(towerSessionId: string, claudeSessionId: string) {
+  await execute(
     `UPDATE sessions SET claude_session_id = NULL
-     WHERE claude_session_id = ? AND id != ?`
-  ).run(claudeSessionId, towerSessionId);
-  updateSession(towerSessionId, { claudeSessionId });
+     WHERE claude_session_id = $1 AND id != $2`,
+    [claudeSessionId, towerSessionId]
+  );
+  await updateSession(towerSessionId, { claudeSessionId });
 }
 
 /**
@@ -217,7 +217,7 @@ export function setupWebSocket(server: Server) {
     broadcast({ type: 'file_changed', event, path: filePath });
   });
 
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', async (ws, req) => {
     const clientId = uuidv4();
     const client: WsClient = { id: clientId, ws, activeQueryEpoch: 0, joinedRooms: new Set() };
 
@@ -233,7 +233,7 @@ export function setupWebSocket(server: Server) {
         if (client.userId) {
           client.allowedPath = client.userRole === 'admin'
             ? os.homedir()
-            : getUserAllowedPath(client.userId);
+            : await getUserAllowedPath(client.userId);
         }
       }
     }
@@ -333,7 +333,7 @@ async function handleMessage(client: WsClient, data: any) {
       break;
     }
     case 'task_list': {
-      const tasks = getTasks(client.userId, client.userRole);
+      const tasks = await getTasks(client.userId, client.userRole);
       send(client.ws, { type: 'task_list', tasks });
       break;
     }
@@ -351,6 +351,9 @@ async function handleMessage(client: WsClient, data: any) {
       break;
     case 'room_read':
       await handleRoomRead(client, data);
+      break;
+    case 'share_to_channel':
+      await handleShareToChannel(client, data);
       break;
     default:
       send(client.ws, { type: 'error', message: `Unknown message type: ${data.type}` });
@@ -445,7 +448,7 @@ function handleSetActiveSession(client: WsClient, data: { sessionId: string; cla
   });
 }
 
-async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string }) {
+async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string; panelChat?: boolean }) {
   const sessionId = data.sessionId || client.sessionId;
   if (!sessionId) {
     console.error(`[ws] handleChat REJECTED: no sessionId from client=${client.id.slice(0, 8)} — frontend must create session first`);
@@ -457,14 +460,18 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
     return;
   }
-  client.sessionId = sessionId;
+
+  // Panel chat: don't change client's main sessionId — panel sessions are side-channels
+  if (!data.panelChat) {
+    client.sessionId = sessionId;
+  }
 
   // Add this client to the session's viewer set
   addSessionClient(sessionClients, sessionId, client.id);
 
   // Resolve engine for this session
-  let dbSession: ReturnType<typeof getSession> | undefined;
-  try { dbSession = getSession(sessionId); } catch {}
+  let dbSession: Awaited<ReturnType<typeof getSession>> | undefined;
+  try { dbSession = await getSession(sessionId); } catch {}
   const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
   const engine = await getEngine(engineName);
 
@@ -506,7 +513,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   // Save user message to DB
   const userMsgId = data.messageId || uuidv4();
   try {
-    saveMessage(sessionId, {
+    await saveMessage(sessionId, {
       id: userMsgId,
       role: 'user',
       content: [{ type: 'text', text: data.message }],
@@ -554,21 +561,21 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         });
       });
     },
-    claimSessionId: (esid: string) => {
-      try { claimClaudeSessionId(sessionId, esid); } catch {}
+    claimSessionId: async (esid: string) => {
+      try { await claimClaudeSessionId(sessionId, esid); } catch {}
     },
-    saveMessage: (msg) => {
-      try { saveMessage(sessionId, msg); } catch {}
+    saveMessage: async (msg) => {
+      try { await saveMessage(sessionId, msg); } catch {}
     },
-    updateMessageContent: (msgId, content) => {
-      try { updateMessageContent(msgId, content); } catch {}
+    updateMessageContent: async (msgId, content) => {
+      try { await updateMessageContent(msgId, content); } catch {}
     },
-    attachToolResult: (toolUseId, result) => {
-      try { attachToolResultInDb(sessionId, toolUseId, result); } catch {}
+    attachToolResult: async (toolUseId, result) => {
+      try { await attachToolResultInDb(sessionId, toolUseId, result); } catch {}
     },
-    updateMessageMetrics: (msgId, metrics) => {
+    updateMessageMetrics: async (msgId, metrics) => {
       try {
-        updateMessageMetrics(msgId, {
+        await updateMessageMetrics(msgId, {
           duration_ms: metrics.durationMs,
           input_tokens: metrics.inputTokens,
           output_tokens: metrics.outputTokens,
@@ -601,13 +608,33 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       const { getPersonalSkill } = await import('../services/skill-registry.js');
       const skillName = data.message.split(' ')[0].slice(1);
       if (client.userId) {
-        const personalSkill = getPersonalSkill(client.userId, skillName);
+        const personalSkill = await getPersonalSkill(client.userId, skillName);
         if (personalSkill) {
           const args = data.message.slice(skillName.length + 2);
           finalMessage = `${personalSkill.content}\n\n${args}`.trim();
         }
       }
     } catch {}
+  }
+
+  // ── Channel context injection for AI Panel sessions (first message only) ──
+  const roomId = (dbSession as any)?.roomId;
+  const isFirstTurn = (dbSession?.turnCount ?? 0) === 0;
+  if (roomId && isFirstTurn && isPgEnabled()) {
+    try {
+      const { getRoom, getMessages: getRoomMessages } = await import('../services/room-manager.js');
+      const room = await getRoom(roomId);
+      const recentMsgs = await getRoomMessages(roomId, { limit: 30 });
+      if (room && recentMsgs.length > 0) {
+        const contextLines = recentMsgs.map((m) => {
+          const sender = m.senderName || (m.msgType === 'ai_reply' ? 'AI' : 'System');
+          return `[${sender}]: ${m.content}`;
+        }).join('\n');
+        finalMessage = `[Channel Context: #${room.name}]\nRecent messages from the team channel (for reference):\n${contextLines}\n\nYou are assisting a team member privately in a side panel.\nFocus on answering their question below. Use the channel context only when relevant.\nThe conversation will continue in this thread — no need to re-read the channel on follow-up messages.\n\n---\n${finalMessage}`;
+      }
+    } catch (err: any) {
+      console.warn('[ws] Channel context injection failed:', err.message);
+    }
   }
 
   // Notify all clients that this session started streaming
@@ -640,17 +667,17 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         if (client.sessionId === sessionId && esid) {
           client.claudeSessionId = esid;
           // Persist to DB so Pi sessions survive server restart
-          try { claimClaudeSessionId(sessionId, esid); } catch {}
+          try { await claimClaudeSessionId(sessionId, esid); } catch {}
         }
         // Update turn_count, files_edited in DB
         try {
-          const currentSession = getSession(sessionId);
+          const currentSession = await getSession(sessionId);
           if (currentSession) {
             const newTurnCount = (currentSession.turnCount ?? 0) + 1;
             const existingFiles: string[] = currentSession.filesEdited || [];
             const newFiles = towerMsg.editedFiles || [];
             const mergedFiles = [...new Set([...existingFiles, ...newFiles])];
-            updateSession(sessionId, {
+            await updateSession(sessionId, {
               turnCount: newTurnCount,
               filesEdited: mergedFiles,
               modelUsed: towerMsg.model || data.model,
@@ -698,8 +725,8 @@ async function handleAbort(client: WsClient, data: { sessionId?: string }) {
   if (sessionId) {
     console.log(`[ws] handleAbort session=${sessionId} client=${client.id}`);
     // Resolve engine and abort
-    let dbSession: ReturnType<typeof getSession> | undefined;
-    try { dbSession = getSession(sessionId); } catch {}
+    let dbSession: Awaited<ReturnType<typeof getSession>> | undefined;
+    try { dbSession = await getSession(sessionId); } catch {}
     const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
     try {
       const engine = await getEngine(engineName);
@@ -969,7 +996,7 @@ async function handleRoomMessage(client: WsClient, data: { roomId: string; conte
           const room = await fetchRoom(data.roomId);
           const taskCwd = room?.projectId ? config.defaultCwd : config.defaultCwd; // TODO: resolve project root_path
 
-          const task = createTask(
+          const task = await createTask(
             taskTitle,
             mention.prompt,
             taskCwd,
@@ -1069,6 +1096,48 @@ export function broadcastToUser(userId: number, data: any) {
     if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(payload);
     }
+  }
+}
+
+async function handleShareToChannel(client: WsClient, data: { roomId: string; sessionId: string; messageId: string; content: string }) {
+  if (!isPgEnabled() || !client.userId) {
+    send(client.ws, { type: 'error', message: 'Cannot share: PG not enabled or not authenticated' });
+    return;
+  }
+  try {
+    const { getMemberRole, sendMessage } = await import('../services/room-manager.js');
+    const memberRole = await getMemberRole(data.roomId, client.userId);
+    if (!memberRole || memberRole === 'readonly') {
+      send(client.ws, { type: 'error', message: 'Not authorized to share to this channel' });
+      return;
+    }
+
+    const savedMsg = await sendMessage(
+      data.roomId,
+      client.userId,
+      data.content,
+      'ai_summary',
+      { shared_from_panel: true, thread_id: data.sessionId, source_message_id: data.messageId },
+    );
+
+    broadcastToRoom(data.roomId, {
+      type: 'room_message',
+      roomId: data.roomId,
+      message: {
+        id: savedMsg.id,
+        roomId: data.roomId,
+        senderId: client.userId,
+        senderName: client.username,
+        msgType: 'ai_summary',
+        content: data.content,
+        metadata: { shared_from_panel: true, thread_id: data.sessionId },
+        createdAt: new Date().toISOString(),
+      },
+    });
+
+    send(client.ws, { type: 'share_to_channel_ok', messageId: data.messageId });
+  } catch (err: any) {
+    send(client.ws, { type: 'error', message: err.message || 'Failed to share to channel' });
   }
 }
 

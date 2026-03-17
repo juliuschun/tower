@@ -1,4 +1,4 @@
-import { getDb } from '../db/schema.js';
+import { query, queryOne, execute, transaction, withClient } from '../db/pg-repo.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getAccessibleProjectIds } from './group-manager.js';
 export type { WorkflowMode } from '@tower/shared';
@@ -37,7 +37,7 @@ function mapRow(row: any): TaskMeta {
     userId: row.user_id,
     scheduledAt: row.scheduled_at || null,
     scheduleCron: row.schedule_cron || null,
-    scheduleEnabled: row.schedule_enabled === 1,
+    scheduleEnabled: row.schedule_enabled === 1 || row.schedule_enabled === true,
     workflow: (row.workflow as WorkflowMode) || 'auto',
     parentTaskId: row.parent_task_id || null,
     worktreePath: row.worktree_path || null,
@@ -48,7 +48,7 @@ function mapRow(row: any): TaskMeta {
   };
 }
 
-export function createTask(
+export async function createTask(
   title: string,
   description: string,
   cwd: string,
@@ -59,17 +59,16 @@ export function createTask(
   parentTaskId?: string,
   projectId?: string,
   roomInfo?: { roomId: string; triggeredBy: number; roomMessageId: string },
-): TaskMeta {
-  const db = getDb();
+): Promise<TaskMeta> {
   const id = uuidv4();
-  const maxOrder = db.prepare('SELECT MAX(sort_order) as max_order FROM tasks WHERE status = ?').get('todo') as any;
+  const maxOrder = await queryOne<any>('SELECT MAX(sort_order) as max_order FROM tasks WHERE status = $1', ['todo']);
   const sortOrder = (maxOrder?.max_order ?? -1) + 1;
   const resolvedModel = model || 'claude-opus-4-6';
 
-  db.prepare(`
+  await execute(`
     INSERT INTO tasks (id, title, description, cwd, model, status, sort_order, user_id, scheduled_at, schedule_cron, schedule_enabled, workflow, parent_task_id, project_id, room_id, triggered_by, room_message_id)
-    VALUES (?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, 'todo', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+  `, [
     id, title, description, cwd, resolvedModel, sortOrder, userId ?? null,
     schedule?.scheduledAt ?? null,
     schedule?.scheduleCron ?? null,
@@ -80,17 +79,16 @@ export function createTask(
     roomInfo?.roomId ?? null,
     roomInfo?.triggeredBy ?? null,
     roomInfo?.roomMessageId ?? null,
-  );
+  ]);
 
-  return getTask(id)!;
+  return (await getTask(id))!;
 }
 
-export function getTasks(userId?: number, role?: string): TaskMeta[] {
-  const db = getDb();
-  const rows = db.prepare('SELECT * FROM tasks WHERE (archived IS NULL OR archived = 0) ORDER BY status, sort_order').all() as any[];
+export async function getTasks(userId?: number, role?: string): Promise<TaskMeta[]> {
+  const rows = await query<any>('SELECT * FROM tasks WHERE (archived IS NULL OR archived = 0) ORDER BY status, sort_order');
 
   if (userId && role) {
-    const accessibleIds = getAccessibleProjectIds(userId, role);
+    const accessibleIds = await getAccessibleProjectIds(userId, role);
     if (accessibleIds !== null) {
       // Same pattern as sessions: project tasks visible by group, non-project tasks by creator
       return rows.filter(r => {
@@ -107,94 +105,85 @@ export function getTasks(userId?: number, role?: string): TaskMeta[] {
   return rows.map(mapRow);
 }
 
-export function getTask(id: string): TaskMeta | null {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+export async function getTask(id: string): Promise<TaskMeta | null> {
+  const row = await queryOne<any>('SELECT * FROM tasks WHERE id = $1', [id]);
   return row ? mapRow(row) : null;
 }
 
-export function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' | 'description' | 'cwd' | 'model' | 'status' | 'sessionId' | 'sortOrder' | 'progressSummary' | 'completedAt' | 'scheduledAt' | 'scheduleCron' | 'scheduleEnabled' | 'workflow' | 'parentTaskId' | 'worktreePath' | 'projectId' | 'roomId' | 'triggeredBy' | 'roomMessageId'>>): TaskMeta | null {
-  const db = getDb();
+export async function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' | 'description' | 'cwd' | 'model' | 'status' | 'sessionId' | 'sortOrder' | 'progressSummary' | 'completedAt' | 'scheduledAt' | 'scheduleCron' | 'scheduleEnabled' | 'workflow' | 'parentTaskId' | 'worktreePath' | 'projectId' | 'roomId' | 'triggeredBy' | 'roomMessageId'>>): Promise<TaskMeta | null> {
   const fields: string[] = [];
   const values: any[] = [];
+  let paramIndex = 1;
 
-  if (updates.title !== undefined) { fields.push('title = ?'); values.push(updates.title); }
-  if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
-  if (updates.cwd !== undefined) { fields.push('cwd = ?'); values.push(updates.cwd); }
-  if (updates.model !== undefined) { fields.push('model = ?'); values.push(updates.model); }
-  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
-  if (updates.sessionId !== undefined) { fields.push('session_id = ?'); values.push(updates.sessionId); }
-  if (updates.sortOrder !== undefined) { fields.push('sort_order = ?'); values.push(updates.sortOrder); }
-  if (updates.progressSummary !== undefined) { fields.push('progress_summary = ?'); values.push(JSON.stringify(updates.progressSummary)); }
-  if (updates.completedAt !== undefined) { fields.push('completed_at = ?'); values.push(updates.completedAt); }
-  if (updates.scheduledAt !== undefined) { fields.push('scheduled_at = ?'); values.push(updates.scheduledAt); }
-  if (updates.scheduleCron !== undefined) { fields.push('schedule_cron = ?'); values.push(updates.scheduleCron); }
-  if (updates.scheduleEnabled !== undefined) { fields.push('schedule_enabled = ?'); values.push(updates.scheduleEnabled ? 1 : 0); }
-  if (updates.workflow !== undefined) { fields.push('workflow = ?'); values.push(updates.workflow); }
-  if (updates.parentTaskId !== undefined) { fields.push('parent_task_id = ?'); values.push(updates.parentTaskId); }
-  if (updates.worktreePath !== undefined) { fields.push('worktree_path = ?'); values.push(updates.worktreePath); }
-  if (updates.projectId !== undefined) { fields.push('project_id = ?'); values.push(updates.projectId); }
-  if (updates.roomId !== undefined) { fields.push('room_id = ?'); values.push(updates.roomId); }
-  if (updates.triggeredBy !== undefined) { fields.push('triggered_by = ?'); values.push(updates.triggeredBy); }
-  if (updates.roomMessageId !== undefined) { fields.push('room_message_id = ?'); values.push(updates.roomMessageId); }
+  if (updates.title !== undefined) { fields.push(`title = $${paramIndex++}`); values.push(updates.title); }
+  if (updates.description !== undefined) { fields.push(`description = $${paramIndex++}`); values.push(updates.description); }
+  if (updates.cwd !== undefined) { fields.push(`cwd = $${paramIndex++}`); values.push(updates.cwd); }
+  if (updates.model !== undefined) { fields.push(`model = $${paramIndex++}`); values.push(updates.model); }
+  if (updates.status !== undefined) { fields.push(`status = $${paramIndex++}`); values.push(updates.status); }
+  if (updates.sessionId !== undefined) { fields.push(`session_id = $${paramIndex++}`); values.push(updates.sessionId); }
+  if (updates.sortOrder !== undefined) { fields.push(`sort_order = $${paramIndex++}`); values.push(updates.sortOrder); }
+  if (updates.progressSummary !== undefined) { fields.push(`progress_summary = $${paramIndex++}`); values.push(JSON.stringify(updates.progressSummary)); }
+  if (updates.completedAt !== undefined) { fields.push(`completed_at = $${paramIndex++}`); values.push(updates.completedAt); }
+  if (updates.scheduledAt !== undefined) { fields.push(`scheduled_at = $${paramIndex++}`); values.push(updates.scheduledAt); }
+  if (updates.scheduleCron !== undefined) { fields.push(`schedule_cron = $${paramIndex++}`); values.push(updates.scheduleCron); }
+  if (updates.scheduleEnabled !== undefined) { fields.push(`schedule_enabled = $${paramIndex++}`); values.push(updates.scheduleEnabled ? 1 : 0); }
+  if (updates.workflow !== undefined) { fields.push(`workflow = $${paramIndex++}`); values.push(updates.workflow); }
+  if (updates.parentTaskId !== undefined) { fields.push(`parent_task_id = $${paramIndex++}`); values.push(updates.parentTaskId); }
+  if (updates.worktreePath !== undefined) { fields.push(`worktree_path = $${paramIndex++}`); values.push(updates.worktreePath); }
+  if (updates.projectId !== undefined) { fields.push(`project_id = $${paramIndex++}`); values.push(updates.projectId); }
+  if (updates.roomId !== undefined) { fields.push(`room_id = $${paramIndex++}`); values.push(updates.roomId); }
+  if (updates.triggeredBy !== undefined) { fields.push(`triggered_by = $${paramIndex++}`); values.push(updates.triggeredBy); }
+  if (updates.roomMessageId !== undefined) { fields.push(`room_message_id = $${paramIndex++}`); values.push(updates.roomMessageId); }
 
   if (fields.length === 0) return getTask(id);
 
   fields.push('updated_at = CURRENT_TIMESTAMP');
   values.push(id);
 
-  db.prepare(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  await execute(`UPDATE tasks SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
   return getTask(id);
 }
 
-export function getChildTasks(parentTaskId: string): TaskMeta[] {
-  const db = getDb();
-  const rows = db.prepare('SELECT * FROM tasks WHERE parent_task_id = ? AND (archived IS NULL OR archived = 0) ORDER BY sort_order').all(parentTaskId);
+export async function getChildTasks(parentTaskId: string): Promise<TaskMeta[]> {
+  const rows = await query<any>('SELECT * FROM tasks WHERE parent_task_id = $1 AND (archived IS NULL OR archived = 0) ORDER BY sort_order', [parentTaskId]);
   return rows.map(mapRow);
 }
 
-export function deleteTask(id: string): boolean {
-  const db = getDb();
+export async function deleteTask(id: string): Promise<boolean> {
   // Soft-delete: archive instead of permanent removal
-  const result = db.prepare('UPDATE tasks SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+  const result = await execute('UPDATE tasks SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
   return result.changes > 0;
 }
 
-export function getArchivedTasks(userId?: number): TaskMeta[] {
-  const db = getDb();
+export async function getArchivedTasks(userId?: number): Promise<TaskMeta[]> {
   const rows = userId
-    ? db.prepare('SELECT * FROM tasks WHERE user_id = ? AND archived = 1 ORDER BY updated_at DESC').all(userId)
-    : db.prepare('SELECT * FROM tasks WHERE archived = 1 ORDER BY updated_at DESC').all();
+    ? await query<any>('SELECT * FROM tasks WHERE user_id = $1 AND archived = 1 ORDER BY updated_at DESC', [userId])
+    : await query<any>('SELECT * FROM tasks WHERE archived = 1 ORDER BY updated_at DESC');
   return rows.map(mapRow);
 }
 
-export function restoreTask(id: string): boolean {
-  const db = getDb();
-  const result = db.prepare('UPDATE tasks SET archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+export async function restoreTask(id: string): Promise<boolean> {
+  const result = await execute('UPDATE tasks SET archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
   return result.changes > 0;
 }
 
-export function permanentlyDeleteTask(id: string): boolean {
-  const db = getDb();
-  const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+export async function permanentlyDeleteTask(id: string): Promise<boolean> {
+  const result = await execute('DELETE FROM tasks WHERE id = $1', [id]);
   return result.changes > 0;
 }
 
-export function getDistinctCwds(userId?: number): string[] {
-  const db = getDb();
+export async function getDistinctCwds(userId?: number): Promise<string[]> {
   const rows = userId
-    ? db.prepare('SELECT DISTINCT cwd FROM tasks WHERE user_id = ? ORDER BY cwd').all(userId) as any[]
-    : db.prepare('SELECT DISTINCT cwd FROM tasks ORDER BY cwd').all() as any[];
+    ? await query<any>('SELECT DISTINCT cwd FROM tasks WHERE user_id = $1 ORDER BY cwd', [userId])
+    : await query<any>('SELECT DISTINCT cwd FROM tasks ORDER BY cwd');
   return rows.map((r) => r.cwd);
 }
 
-export function reorderTasks(taskIds: string[], status: string): void {
-  const db = getDb();
-  const stmt = db.prepare('UPDATE tasks SET sort_order = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-  const transaction = db.transaction(() => {
-    taskIds.forEach((id, index) => {
-      stmt.run(index, status, id);
-    });
+export async function reorderTasks(taskIds: string[], status: string): Promise<void> {
+  await transaction(async (client) => {
+    const db = withClient(client);
+    for (let index = 0; index < taskIds.length; index++) {
+      await db.execute('UPDATE tasks SET sort_order = $1, status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [index, status, taskIds[index]]);
+    }
   });
-  transaction();
 }

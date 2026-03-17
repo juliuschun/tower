@@ -8,7 +8,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { getPgPool } from '../db/pg.js';
-import { getDb } from '../db/schema.js';
+import { queryOne, query as pgRepoQuery } from '../db/pg-repo.js';
 import type { PgAdapter } from './cross-db.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -73,13 +73,13 @@ function assertMsgType(v: string): asserts v is RoomMessage['msgType'] {
 
 const usernameCache = new Map<number, string>();
 
-function lookupUsername(userId: number): string | null {
+async function lookupUsername(userId: number): Promise<string | null> {
   const cached = usernameCache.get(userId);
   if (cached !== undefined) return cached;
 
-  const row = getDb()
-    .prepare('SELECT username FROM users WHERE id = ?')
-    .get(userId) as { username: string } | undefined;
+  const row = await queryOne<{ username: string }>(
+    'SELECT username FROM users WHERE id = $1', [userId]
+  );
 
   if (row) {
     usernameCache.set(userId, row.username);
@@ -114,12 +114,12 @@ function rowToRoom(r: any): Room {
   };
 }
 
-function rowToMessage(r: any): RoomMessage {
+async function rowToMessage(r: any): Promise<RoomMessage> {
   return {
     id: r.id,
     roomId: r.room_id,
     senderId: r.sender_id ?? null,
-    senderName: r.sender_id != null ? lookupUsername(r.sender_id) : null,
+    senderName: r.sender_id != null ? await lookupUsername(r.sender_id) : null,
     seq: Number(r.seq),
     msgType: r.msg_type,
     content: r.content,
@@ -132,11 +132,11 @@ function rowToMessage(r: any): RoomMessage {
   };
 }
 
-function rowToMember(r: any): RoomMember {
+async function rowToMember(r: any): Promise<RoomMember> {
   return {
     roomId: r.room_id,
     userId: r.user_id,
-    username: lookupUsername(r.user_id) ?? `user_${r.user_id}`,
+    username: (await lookupUsername(r.user_id)) ?? `user_${r.user_id}`,
     role: r.role,
     joinedAt: r.joined_at instanceof Date ? r.joined_at.toISOString() : String(r.joined_at),
     lastReadAt: r.last_read_at instanceof Date ? r.last_read_at.toISOString() : String(r.last_read_at ?? r.joined_at),
@@ -172,16 +172,16 @@ export async function createRoom(
   // Auto-add fellow group members (from SQLite groups)
   try {
     const { getUserGroups } = await import('./group-manager.js');
-    const creatorGroups = getUserGroups(createdBy);
+    const creatorGroups = await getUserGroups(createdBy);
     if (creatorGroups.length > 0) {
-      const db = getDb();
-      const groupIds = creatorGroups.map(g => g.id);
-      const placeholders = groupIds.map(() => '?').join(',');
-      const fellowMembers = db.prepare(
+      const groupIds = creatorGroups.map((g: any) => g.id);
+      const placeholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(',');
+      const fellowMembers = await pgRepoQuery<{ id: number }>(
         `SELECT DISTINCT u.id FROM users u
          JOIN user_groups ug ON ug.user_id = u.id
-         WHERE ug.group_id IN (${placeholders}) AND u.id != ? AND u.disabled = 0`
-      ).all(...groupIds, createdBy) as { id: number }[];
+         WHERE ug.group_id IN (${placeholders}) AND u.id != $${groupIds.length + 1} AND u.disabled = 0`,
+        [...groupIds, createdBy]
+      );
 
       for (const member of fellowMembers) {
         await pool.query(
@@ -212,69 +212,35 @@ export async function getRoom(roomId: string): Promise<Room | null> {
 export async function listRooms(userId: number): Promise<Room[]> {
   const pool = getPgPool();
 
-  // Check if user is admin (SQLite)
-  const userRow = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | undefined;
+  // Check if user is admin
+  const userRow = await queryOne<{ role: string }>('SELECT role FROM users WHERE id = $1', [userId]);
   const isAdmin = userRow?.role === 'admin';
 
-  // Admin sees ALL rooms (no group filter needed)
-  if (isAdmin) {
+  // NOTE: 테스트 기간 — 모든 사용자가 모든 채널을 볼 수 있도록 설정
+  // 모든 사용자에게 전체 room 반환 + 자동 member 등록
+  {
     const { rows } = await pool.query(
       `SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`,
     );
-    // Auto-add admin as member to any rooms they're not in (so they can send messages)
+    const memberRole = isAdmin ? 'admin' : 'member';
     for (const room of rows) {
       await pool.query(
-        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`,
-        [room.id, userId],
+        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [room.id, userId, memberRole],
       );
     }
     return rows.map(rowToRoom);
   }
 
-  // Non-admin: auto-join rooms by fellow group members
-  try {
-    const { getUserGroups } = await import('./group-manager.js');
-    const userGroups = getUserGroups(userId);
-    if (userGroups.length > 0) {
-      const db = getDb();
-      const groupIds = userGroups.map(g => g.id);
-      const placeholders = groupIds.map(() => '?').join(',');
-      // Find fellow group members (SQLite)
-      const fellowIds = (db.prepare(
-        `SELECT DISTINCT user_id FROM user_groups WHERE group_id IN (${placeholders})`
-      ).all(...groupIds) as { user_id: number }[]).map(r => r.user_id);
-
-      if (fellowIds.length > 0) {
-        // Find rooms created by fellow members where this user is NOT yet a member (PG)
-        const pgPlaceholders = fellowIds.map((_, i) => `$${i + 1}`).join(',');
-        const { rows: missingRooms } = await pool.query(
-          `SELECT r.id FROM chat_rooms r
-           WHERE r.created_by IN (${pgPlaceholders}) AND r.archived = 0
-           AND r.id NOT IN (SELECT room_id FROM room_members WHERE user_id = $${fellowIds.length + 1})`,
-          [...fellowIds, userId],
-        );
-        // Auto-add user as member
-        for (const room of missingRooms) {
-          await pool.query(
-            `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
-            [room.id, userId],
-          );
-        }
-      }
-    }
-  } catch (err: any) {
-    console.error(`[room-manager] Auto-join group rooms failed:`, err.message);
-  }
-
-  // Now fetch all rooms user is a member of
-  const { rows } = await pool.query(
-    `SELECT r.* FROM chat_rooms r
-     JOIN room_members m ON m.room_id = r.id
-     WHERE m.user_id = $1 AND r.archived = 0
-     ORDER BY r.updated_at DESC`,
-    [userId],
-  );
-  return rows.map(rowToRoom);
+  // --- Original filter (복구 시 위 블록 제거하고 아래 주석 해제) ---
+  // if (isAdmin) {
+  //   const { rows } = await pool.query(`SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`);
+  //   for (const room of rows) {
+  //     await pool.query(`INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, [room.id, userId]);
+  //   }
+  //   return rows.map(rowToRoom);
+  // }
+  // ... (group-based auto-join + member-only fetch)
 }
 
 export async function updateRoom(
@@ -333,7 +299,7 @@ export async function addMember(
      RETURNING *`,
     [roomId, userId, role],
   );
-  return rowToMember(rows[0]);
+  return await rowToMember(rows[0]);
 }
 
 export async function removeMember(roomId: string, userId: number): Promise<boolean> {
@@ -349,7 +315,7 @@ export async function getMembers(roomId: string): Promise<RoomMember[]> {
     'SELECT * FROM room_members WHERE room_id = $1 ORDER BY joined_at ASC',
     [roomId],
   );
-  return rows.map(rowToMember);
+  return await Promise.all(rows.map(rowToMember));
 }
 
 export async function updateMemberRole(
@@ -406,7 +372,7 @@ export async function sendMessage(
      RETURNING *`,
     [roomId, senderId, msgType, content, JSON.stringify(metadata), taskId ?? null, replyTo ?? null],
   );
-  return rowToMessage(rows[0]);
+  return await rowToMessage(rows[0]);
 }
 
 export async function getMessages(
@@ -437,7 +403,7 @@ export async function getMessages(
      LIMIT $${idx}`,
     vals,
   );
-  return rows.map(rowToMessage);
+  return await Promise.all(rows.map(rowToMessage));
 }
 
 export async function editMessage(messageId: string, content: string): Promise<RoomMessage | null> {
@@ -447,7 +413,7 @@ export async function editMessage(messageId: string, content: string): Promise<R
      RETURNING *`,
     [content, messageId],
   );
-  return rows.length > 0 ? rowToMessage(rows[0]) : null;
+  return rows.length > 0 ? await rowToMessage(rows[0]) : null;
 }
 
 export async function deleteMessage(messageId: string): Promise<boolean> {
@@ -463,7 +429,7 @@ export async function getMessage(messageId: string): Promise<RoomMessage | null>
     'SELECT * FROM room_messages WHERE id = $1',
     [messageId],
   );
-  return rows.length > 0 ? rowToMessage(rows[0]) : null;
+  return rows.length > 0 ? await rowToMessage(rows[0]) : null;
 }
 
 // ── Unread Counts ────────────────────────────────────────────────────
