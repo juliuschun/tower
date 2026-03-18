@@ -38,7 +38,7 @@ interface SessionState {
 }
 
 // Detect mobile at store creation to avoid first-render layout flash
-const _initialIsMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+const _initialIsMobile = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches;
 
 export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
