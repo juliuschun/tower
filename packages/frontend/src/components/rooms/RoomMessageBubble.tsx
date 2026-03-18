@@ -63,7 +63,11 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
         <div className="flex-1 min-w-0">
           {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-[12px] font-semibold text-emerald-400">AI Summary</span>
+            <span className="text-[12px] font-semibold text-emerald-400">
+              {message.metadata?.shared_from_panel
+                ? `Shared from AI${message.senderName ? ` by ${message.senderName}` : ''}`
+                : 'AI Summary'}
+            </span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
           <div className="text-[13px] text-gray-300 leading-relaxed bg-emerald-950/20 border border-emerald-900/30 rounded-lg px-3 py-2">

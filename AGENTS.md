@@ -94,6 +94,7 @@ Sessions(1:1 대화)과 Rooms(팀 채널 AI 메시지) 양쪽에서 동작합니
 | 타임라인 | ` ```timeline ` | JSON: `{ "items": [{ "date", "title", "status" }] }` (Phase 5) |
 | HTML 샌드박스 | ` ```html-sandbox ` | iframe sandbox 실행 (Phase 4) |
 | 지도 | ` ```map ` | Leaflet 기반 마커/폴리곤 (Phase 6) |
+| 보안 입력 | ` ```secure-input ` | 민감 데이터 입력 위젯 → .env 직접 저장 |
 
 **차트 type**: `bar`, `line`, `area`, `pie`, `scatter`, `radar`, `composed`
 
@@ -104,6 +105,36 @@ Sessions(1:1 대화)과 Rooms(팀 채널 AI 메시지) 양쪽에서 동작합니
 - 인프라: `shared/RichContent.tsx` → `splitDynamicBlocks` → 블록별 컴포넌트
 
 **PRD**: `docs/plans/dynamic-visual.md`
+
+## Secure Input — 민감 데이터 입력
+
+API 키, 토큰, 시크릿 등 민감 데이터가 필요할 때 사용자에게 직접 알려달라고 하지 말 것.
+대신 `secure-input` 코드블록을 출력하면 채팅 안에 보안 입력 위젯이 렌더링된다.
+
+**사용 시점**:
+- 사용자가 API 연동을 요청했는데 필요한 키가 .env에 없을 때
+- "API 키 설정해줘", "환경변수 추가해줘" 등의 요청
+- 새로운 외부 서비스 연동 시 credential이 필요할 때
+
+**출력 포맷**:
+````
+```secure-input
+{
+  "target": ".env",
+  "fields": [
+    { "key": "NAVER_CLIENT_ID", "label": "네이버 Client ID", "required": true },
+    { "key": "NAVER_CLIENT_SECRET", "label": "네이버 Client Secret", "required": true }
+  ]
+}
+```
+````
+
+**규칙**:
+- `target`은 `.env`만 허용 (생략 시 기본값 `.env`)
+- `key`는 `[A-Za-z_][A-Za-z0-9_]*` 패턴만 허용
+- 값은 채팅 히스토리에 절대 저장되지 않음 (프론트→백엔드 직통)
+- 이미 존재하는 키는 업데이트, 새 키는 append
+- 위젯 출력 전후로 간단한 설명을 함께 제공할 것 (왜 이 키가 필요한지)
 
 ## Communication Style
 

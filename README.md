@@ -156,6 +156,53 @@ Configure available models in `backend/engines/pi-models.json` — no code chang
 
 ---
 
+## Changelog
+
+### 3/17 — AI Panel & Unified Visibility
+- AI Side Panel for channels — private AI threads alongside team chat
+- Channel context injection — AI reads recent 30 messages automatically
+- Share to channel — post AI answers back to the team
+- Unified visibility model — `private` / `project` session scoping
+- DB: `visibility`, `room_id` columns on sessions
+
+### 3/17 — Skills Market
+- Skills Market UI — 3-column marketplace-style browser
+- Per-user skill toggle — enable/disable company skills individually
+- 55 bundled plugin skills seeded on first run
+
+### 3/16 — Channel AI (@ai / @task)
+- `@ai` inline quick reply in channels (Engine.quickReply)
+- `@task` full task execution from channels
+- Admin default model config per context (session / ai_reply / ai_task)
+
+### 3/16 — Monorepo Migration
+- `packages/backend`, `packages/frontend`, `packages/shared` structure
+- `@tower/shared` package for cross-boundary types
+
+### 3/15 — 3-Tier Skill Registry
+- DB-backed skill management (company / project / personal scope)
+- Personal skill intercept for Claude engine
+
+### 3/14 — Multi-Engine Architecture
+- Engine abstraction layer (Claude + Pi)
+- Pi Agent SDK via OpenRouter — any model
+- Pi session persistence + hot-swap models within session
+- Pi models configurable via `pi-models.json`
+
+### 3/13 — Dynamic Visual
+- Mermaid diagrams, charts (Recharts), KaTeX math in chat
+- `RichContent` component with code-split lazy loading
+
+### Earlier
+- Agent Board (kanban) with autonomous task execution
+- File sharing (internal + external links)
+- Full-text search (FTS5 trigram for Korean)
+- Publishing Hub — one-click deploy from AI artifacts
+- Git auto-commit + browsable history
+- Role-based auth (admin / owner / member / guest)
+
+---
+
 ## Status: Research Alpha
 
 We use this every day in production. It works — and it's not finished.

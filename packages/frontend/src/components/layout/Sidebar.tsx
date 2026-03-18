@@ -571,6 +571,10 @@ export function Sidebar({
           <RoomList onSelectRoom={(roomId) => {
             useRoomStore.getState().setActiveRoomId(roomId);
             useSessionStore.getState().setActiveView('rooms');
+            // Mobile: close sidebar drawer after selecting a room
+            if (useSessionStore.getState().isMobile) {
+              useSessionStore.getState().setSidebarOpen(false);
+            }
           }} />
         ) : sidebarTab === 'history' ? (
           <HistoryPanel />
@@ -1205,6 +1209,12 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [allUsers, setAllUsers] = useState<{ id: number; username: string }[]>([]);
+  const [currentMembers, setCurrentMembers] = useState<number[]>([]);
+  const inviteInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -1213,12 +1223,96 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
+  // Fetch all users + current members when invite panel opens
+  useEffect(() => {
+    if (!showInvite) return;
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    // Fetch all users
+    fetch('/api/users/search?q=', { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(setAllUsers)
+      .catch(() => {});
+    // Fetch current members
+    fetch(`/api/projects/${project.id}/members`, { headers: { ...headers, 'Content-Type': 'application/json' } })
+      .then(r => r.ok ? r.json() : [])
+      .then((members: { userId: number }[]) => setCurrentMembers(members.map(m => m.userId)))
+      .catch(() => {});
+    setTimeout(() => inviteInputRef.current?.focus(), 50);
+  }, [showInvite, project.id]);
+
+  const handleInvite = async (userId: number) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/projects/${project.id}/members`, {
+        method: 'POST', headers, body: JSON.stringify({ userId }),
+      });
+      if (res.ok) {
+        setCurrentMembers(prev => [...prev, userId]);
+      }
+    } catch {}
+  };
+
+  const filteredUsers = allUsers.filter(u => {
+    if (currentMembers.includes(u.id)) return false;
+    if (!inviteQuery.trim()) return true;
+    return u.username.toLowerCase().includes(inviteQuery.toLowerCase());
+  });
+
   const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
 
   if (showSettings) {
     return (
       <div ref={ref} className="fixed z-50" style={{ left: x, top: y }}>
         <ProjectSettingsPanel project={project} onClose={onClose} />
+      </div>
+    );
+  }
+
+  if (showInvite) {
+    return (
+      <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl min-w-[220px]"
+        style={{ left: x, top: y }}>
+        <div className="px-3 py-2 border-b border-surface-700/50 flex items-center gap-2">
+          <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+          </svg>
+          <input
+            ref={inviteInputRef}
+            value={inviteQuery}
+            onChange={(e) => setInviteQuery(e.target.value)}
+            placeholder="Search members..."
+            className="flex-1 bg-transparent text-[12px] text-gray-200 placeholder-surface-600 outline-none"
+          />
+        </div>
+        <div className="max-h-[200px] overflow-y-auto py-1">
+          {filteredUsers.length === 0 ? (
+            <div className="px-3 py-2 text-[11px] text-surface-600">
+              {allUsers.length === 0 ? 'Loading...' : 'No users to invite'}
+            </div>
+          ) : (
+            filteredUsers.map(u => (
+              <button
+                key={u.id}
+                onClick={() => handleInvite(u.id)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-blue-600/20 hover:text-white transition-colors"
+              >
+                <span className="w-5 h-5 rounded-full bg-surface-700 flex items-center justify-center text-[9px] text-gray-400 shrink-0">
+                  {u.username[0]?.toUpperCase()}
+                </span>
+                {u.username}
+              </button>
+            ))
+          )}
+        </div>
+        {currentMembers.length > 0 && (
+          <div className="px-3 py-1.5 border-t border-surface-700/50">
+            <span className="text-[10px] text-surface-500">{currentMembers.length} member{currentMembers.length > 1 ? 's' : ''} in project</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -1243,6 +1337,13 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
         </button>
       )}
       <div className="border-t border-surface-700/50 my-1" />
+      {/* Invite Members */}
+      <button className={itemClass} onClick={() => setShowInvite(true)}>
+        <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+        </svg>
+        Invite Members
+      </button>
       {/* Rename */}
       <button className={itemClass} onClick={() => { onRename(); onClose(); }}>
         <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1282,7 +1383,7 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
   const [memberSearch, setMemberSearch] = useState('');
   const [searchResults, setSearchResults] = useState<{ id: number; username: string }[]>([]);
   const [isOwner, setIsOwner] = useState(false);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -1494,7 +1595,7 @@ function NewProjectButton() {
   const [inviteGroupId, setInviteGroupId] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (creating) {

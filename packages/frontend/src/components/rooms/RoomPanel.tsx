@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useRoomStore, type RoomMessage } from '../../stores/room-store';
 import { RoomMessageBubble } from './RoomMessageBubble';
 import { RoomMembersPanel } from './RoomMembersPanel';
+import { AiPanel } from './AiPanel';
+import { useAiPanelStore } from '../../stores/ai-panel-store';
 import { getTokenUserId } from '../../utils/session-restore';
 
 const EMPTY_TYPING: { userId: number; username: string; timestamp: number }[] = [];
@@ -203,7 +205,7 @@ export function RoomPanel() {
   return (
     <div className="flex h-full">
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0" style={{ minWidth: 0 }}>
         {/* Top bar */}
         <div className="h-12 border-b border-surface-800 flex items-center px-4 gap-3 shrink-0">
           {/* Back button on small screens */}
@@ -219,6 +221,15 @@ export function RoomPanel() {
           <div className="flex-1 min-w-0">
             <h2 className="text-[14px] font-semibold text-gray-200 truncate">{activeRoom.name}</h2>
           </div>
+          <button
+            onClick={() => useAiPanelStore.getState().toggle()}
+            className="p-1.5 hover:bg-surface-800 rounded-lg transition-colors group"
+            title="AI Panel"
+          >
+            <svg className="w-4 h-4 text-gray-500 group-hover:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+            </svg>
+          </button>
           <button
             onClick={() => setShowMembers(true)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-surface-800 rounded-lg transition-colors group"
@@ -333,6 +344,9 @@ export function RoomPanel() {
           </div>
         </div>
       </div>
+
+      {/* AI Side Panel */}
+      <AiPanel />
     </div>
   );
 }

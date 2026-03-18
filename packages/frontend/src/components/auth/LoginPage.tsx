@@ -26,7 +26,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
 
   return (
     <div
-      className="relative flex items-center justify-center"
+      className="relative flex items-center justify-center min-h-full"
       style={{
         minHeight: '100dvh',
         background: 'linear-gradient(135deg, #0a0e1a 0%, #0f1629 40%, #131b33 100%)',

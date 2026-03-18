@@ -192,6 +192,7 @@ html, body {
 #root {
   overflow: hidden;
   max-width: 100vw;
+  height: 100%;                /* #root 높이 보장 — dvh 미지원 폴백 */
 }
 
 body {

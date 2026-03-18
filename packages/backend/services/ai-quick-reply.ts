@@ -88,7 +88,15 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
 Read the recent conversation and respond naturally.
 Keep answers concise and relevant to the discussion.
 Do not execute code or modify files — just answer.
-Respond in the same language as the user's message.`;
+Respond in the same language as the user's message.
+
+When your answer involves data or processes, proactively use visualization code blocks:
+- Numeric comparisons → \`\`\`chart with JSON: { "type": "bar|line|pie|...", "data": [...], "xKey": "...", "yKey": "..." }
+- Processes/workflows → \`\`\`mermaid (flowchart, sequence, etc.)
+- Structured comparisons → \`\`\`datatable with JSON: { "columns": [...], "data": [[...]] }
+- Timelines/roadmaps → \`\`\`timeline with JSON: { "items": [{ "date", "title", "status" }] }
+- Math formulas → $$LaTeX$$ (no single $ for inline)
+Use these automatically when helpful — don't wait for the user to ask.`;
 
   const fullPrompt = contextMessages
     ? `Here are recent messages from the channel:\n\n${contextMessages}\n\nUser's question: ${prompt}`

@@ -37,15 +37,18 @@ interface SessionState {
   setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms') => void;
 }
 
+// Detect mobile at store creation to avoid first-render layout flash
+const _initialIsMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+
 export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
   activeSessionId: null,
   streamingSessions: new Set(),
   unreadSessions: new Set(),
-  sidebarOpen: true,
+  sidebarOpen: !_initialIsMobile,
   sidebarTab: 'sessions',
   searchQuery: '',
-  isMobile: false,
+  isMobile: _initialIsMobile,
   mobileTab: 'chat',
   mobileContextOpen: false,
   mobileTabBeforeContext: 'chat',

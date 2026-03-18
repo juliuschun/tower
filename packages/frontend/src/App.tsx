@@ -36,6 +36,7 @@ import { HistoryPanel } from './components/history/HistoryPanel';
 import { RoomPanel } from './components/rooms/RoomPanel';
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
 import { SharedViewer } from './components/shared/SharedViewer';
+import towerBg from './assets/tower-bg.png';
 
 const API_BASE = '/api';
 
@@ -99,7 +100,6 @@ function App() {
   const isMobileQuery = useMediaQuery('(max-width: 768px)');
   const isMobile = useSessionStore((s) => s.isMobile);
   const mobileContextOpen = useSessionStore((s) => s.mobileContextOpen);
-  const setMobileContextOpen = useSessionStore((s) => s.setMobileContextOpen);
 
   // Prevent browser from opening dropped files globally
   useEffect(() => {
@@ -122,7 +122,7 @@ function App() {
 
   // 모바일: 브라우저 뒤로가기로 파일 뷰어 닫기
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
+    const handlePopState = (_e: PopStateEvent) => {
       const store = useSessionStore.getState();
       if (store.isMobile && store.mobileContextOpen) {
         // popstate에서 호출 → history.back() 중복 방지를 위해 true 전달
@@ -771,7 +771,7 @@ function App() {
   // Auth gate
   if (authStatus === null) {
     return (
-      <div className="app-bg flex flex-col items-center justify-center" style={{ minHeight: '100dvh' }}>
+      <div className="app-bg flex flex-col items-center justify-center min-h-full" style={{ minHeight: '100dvh' }}>
         <div className="text-primary-500 text-lg font-bold mb-2">Tower</div>
         <div className="text-gray-400 text-sm">Loading...</div>
       </div>
@@ -789,7 +789,7 @@ function App() {
   }
 
   return (
-    <div className="flex flex-col overflow-hidden app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100" style={{ height: '100dvh' }}>
+    <div className="flex flex-col overflow-hidden app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100 h-full" style={{ height: '100dvh' }}>
       <Toaster position="top-right" theme={theme} richColors closeButton />
       <OfflineBanner />
       <Header
@@ -891,7 +891,10 @@ function App() {
             <HorizontalResizeHandle onResize={handleExpandedPanelResize} />
             {/* Bottom: ChatPanel, KanbanBoard, or HistoryPanel — compact */}
             <main className="flex-1 min-h-0 flex justify-center">
-              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'chat' ? 'bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
+              <div className={`relative overflow-hidden w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'chat' ? 'bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
+                {(activeView === 'chat' || activeView === 'rooms') && (
+                  <img src={towerBg} alt="" aria-hidden="true" className="pointer-events-none select-none absolute inset-0 w-full h-full object-cover opacity-[0.15] z-0" style={{ maskImage: 'radial-gradient(ellipse 90% 90% at 50% 50%, black 30%, transparent 75%)', WebkitMaskImage: 'radial-gradient(ellipse 90% 90% at 50% 50%, black 30%, transparent 75%)' }} />
+                )}
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
@@ -915,7 +918,10 @@ function App() {
           <>
             {/* Normal mode: horizontal split (left: chat/kanban/history, right: context) */}
             <main className="flex-1 min-w-0 flex justify-center">
-              <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 border-x border-surface-900/50 ${activeView === 'chat' ? 'max-w-4xl bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
+              <div className={`relative overflow-hidden w-full flex flex-col h-full shadow-xl shadow-black/20 border-x border-surface-900/50 ${activeView === 'chat' ? 'max-w-4xl bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
+                {(activeView === 'chat' || activeView === 'rooms') && (
+                  <img src={towerBg} alt="" aria-hidden="true" className="pointer-events-none select-none absolute inset-0 w-full h-full object-cover opacity-[0.15] z-0" style={{ maskImage: 'radial-gradient(ellipse 90% 90% at 50% 50%, black 30%, transparent 75%)', WebkitMaskImage: 'radial-gradient(ellipse 90% 90% at 50% 50%, black 30%, transparent 75%)' }} />
+                )}
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
@@ -959,7 +965,10 @@ function App() {
         ) : (
           /* Mobile: normal chat panel, kanban, or history */
           <main className="flex-1 min-w-0 flex justify-center">
-            <div className={`w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'chat' ? 'bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
+            <div className={`relative overflow-hidden w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'chat' ? 'bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
+              {(activeView === 'chat' || activeView === 'rooms') && (
+                <img src={towerBg} alt="" aria-hidden="true" className="pointer-events-none select-none absolute inset-0 w-full h-full object-cover opacity-[0.15] z-0" style={{ maskImage: 'radial-gradient(ellipse 90% 90% at 50% 50%, black 30%, transparent 75%)', WebkitMaskImage: 'radial-gradient(ellipse 90% 90% at 50% 50%, black 30%, transparent 75%)' }} />
+              )}
               <ErrorBoundary fallbackLabel="Chat error">
                 {activeView === 'kanban' ? (
                   <KanbanBoard />

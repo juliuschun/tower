@@ -13,6 +13,7 @@ const remarkMathOptions = { singleDollarTextMath: false };
 
 // Lazy-loaded visual blocks
 const ChartBlock = React.lazy(() => import('../chat/ChartBlock'));
+const SecureInputBlock = React.lazy(() => import('../chat/SecureInputBlock'));
 
 /* ── Skeleton / Fallback ── */
 
@@ -183,6 +184,13 @@ function RichSegment({ seg, mdComponents }: { seg: DynamicBlock; mdComponents: R
     return (
       <Suspense fallback={<BlockSkeleton type="chart" />}>
         <ChartBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'secure-input') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="secure-input" />}>
+        <SecureInputBlock raw={seg.content} fallbackCode={seg.raw} />
       </Suspense>
     );
   }
