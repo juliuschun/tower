@@ -91,10 +91,10 @@ function checkJsonlForCompletion(jsonlPath: string): {
  * Smart recovery: check .jsonl files for in-progress tasks instead of
  * blindly marking them all as failed. Returns task IDs still running.
  */
-function recoverZombieTasks(): string[] {
+async function recoverZombieTasks(): Promise<string[]> {
   const stillRunning: string[] = [];
   try {
-    const allTasks = getTasks();
+    const allTasks = await getTasks();
     const zombies = allTasks.filter(t => t.status === 'in_progress');
     if (zombies.length === 0) return stillRunning;
 
@@ -105,12 +105,12 @@ function recoverZombieTasks(): string[] {
       // Look up claudeSessionId from DB
       let claudeSessionId: string | undefined;
       if (task.sessionId) {
-        const session = getSession(task.sessionId);
+        const session = await getSession(task.sessionId);
         claudeSessionId = session?.claudeSessionId;
       }
 
       if (!claudeSessionId) {
-        updateTask(task.id, {
+        await updateTask(task.id, {
           status: 'failed',
           progressSummary: [...task.progressSummary, 'Server restarted — no session to recover'],
         });
@@ -128,7 +128,7 @@ function recoverZombieTasks(): string[] {
       }
 
       if (!fs.existsSync(jsonlPath)) {
-        updateTask(task.id, {
+        await updateTask(task.id, {
           status: 'failed',
           progressSummary: [...task.progressSummary, 'Server restarted — session file not found'],
         });
@@ -141,7 +141,7 @@ function recoverZombieTasks(): string[] {
       if (result.status === 'complete') {
         const newStages = result.stages.filter(s => !task.progressSummary.includes(s));
         const finalSummary = [...task.progressSummary, ...newStages, 'Completed successfully'];
-        updateTask(task.id, {
+        await updateTask(task.id, {
           status: 'done',
           progressSummary: finalSummary,
           completedAt: new Date().toISOString(),
@@ -150,7 +150,7 @@ function recoverZombieTasks(): string[] {
       } else if (result.status === 'failed') {
         const newStages = result.stages.filter(s => !task.progressSummary.includes(s));
         const finalSummary = [...task.progressSummary, ...newStages, `Failed: ${result.reason}`];
-        updateTask(task.id, {
+        await updateTask(task.id, {
           status: 'failed',
           progressSummary: finalSummary,
         });
@@ -166,7 +166,7 @@ function recoverZombieTasks(): string[] {
           // No orphan processes → task crashed
           const newStages = result.stages.filter(s => !task.progressSummary.includes(s));
           const finalSummary = [...task.progressSummary, ...newStages, 'Server restarted — process not found'];
-          updateTask(task.id, {
+          await updateTask(task.id, {
             status: 'failed',
             progressSummary: finalSummary,
           });
@@ -186,8 +186,8 @@ function recoverZombieTasks(): string[] {
  * Start monitoring .jsonl files for tasks that survived a backend restart.
  * Call from index.ts after WebSocket is ready.
  */
-export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
-  const stillRunning = recoverZombieTasks();
+export async function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): Promise<void> {
+  const stillRunning = await recoverZombieTasks();
 
   if (stillRunning.length === 0) {
     console.log('[task-runner] No orphaned tasks to monitor');
@@ -195,10 +195,10 @@ export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
   }
 
   for (const taskId of stillRunning) {
-    const task = getTask(taskId);
+    const task = await getTask(taskId);
     if (!task || !task.sessionId) continue;
 
-    const session = getSession(task.sessionId);
+    const session = await getSession(task.sessionId);
     if (!session?.claudeSessionId) continue;
 
     const jsonlPath = buildJsonlPath(task.cwd, session.claudeSessionId);
@@ -218,7 +218,7 @@ export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
         runningTasks.delete(taskId);
 
         const finalSummary = [...monitored.progressStages, 'Timed out after 60 minutes'];
-        updateTask(taskId, { status: 'failed', progressSummary: finalSummary });
+        await updateTask(taskId, { status: 'failed', progressSummary: finalSummary });
         broadcastFn('task_update', { taskId, status: 'failed', progressSummary: finalSummary });
         broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
         console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} timed out`);
@@ -232,7 +232,7 @@ export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
       for (const stage of result.stages) {
         if (!monitored.progressStages.includes(stage)) {
           monitored.progressStages.push(stage);
-          updateTask(taskId, { progressSummary: monitored.progressStages });
+          await updateTask(taskId, { progressSummary: monitored.progressStages });
           broadcastFn('task_update', { taskId, status: 'in_progress', progressSummary: monitored.progressStages });
         }
       }
@@ -243,7 +243,7 @@ export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
         runningTasks.delete(taskId);
 
         const finalSummary = [...monitored.progressStages, 'Completed successfully'];
-        updateTask(taskId, { status: 'done', progressSummary: finalSummary, completedAt: new Date().toISOString() });
+        await updateTask(taskId, { status: 'done', progressSummary: finalSummary, completedAt: new Date().toISOString() });
         broadcastFn('task_update', { taskId, status: 'done', sessionId: monitored.sessionId, progressSummary: finalSummary });
         broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
         console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} → done`);
@@ -253,7 +253,7 @@ export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
         runningTasks.delete(taskId);
 
         const finalSummary = [...monitored.progressStages, `Failed: ${result.reason}`];
-        updateTask(taskId, { status: 'failed', progressSummary: finalSummary });
+        await updateTask(taskId, { status: 'failed', progressSummary: finalSummary });
         broadcastFn('task_update', { taskId, status: 'failed', sessionId: monitored.sessionId, progressSummary: finalSummary });
         broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
         console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} → failed: ${result.reason}`);
@@ -275,7 +275,7 @@ export function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): void {
 
   // Broadcast current state to connected clients
   for (const taskId of stillRunning) {
-    const task = getTask(taskId);
+    const task = await getTask(taskId);
     if (task) {
       broadcastFn('task_update', {
         taskId,
@@ -323,7 +323,7 @@ export async function spawnTask(
   userRole?: string,
   allowedPath?: string,
 ): Promise<void> {
-  const task = getTask(taskId);
+  const task = await getTask(taskId);
   if (!task) throw new Error('Task not found');
   if (task.status !== 'todo' && task.status !== 'failed') throw new Error(`Task status is ${task.status}, expected todo or failed`);
 
@@ -334,17 +334,17 @@ export async function spawnTask(
   // If re-running a failed task, try to resume from the previous session
   let resumeClaudeSessionId: string | undefined;
   if (task.status === 'failed' && task.sessionId) {
-    const prevSession = getSession(task.sessionId);
+    const prevSession = await getSession(task.sessionId);
     if (prevSession?.claudeSessionId) {
       resumeClaudeSessionId = prevSession.claudeSessionId;
       console.log(`[task-runner] Will resume task "${task.title}" from claudeSessionId=${resumeClaudeSessionId}`);
     }
   }
 
-  const session = createSession(`🟢 ${task.title}`, task.cwd, userId);
+  const session = await createSession(`🟢 ${task.title}`, task.cwd, userId);
   const sessionId = session.id;
 
-  updateTask(taskId, {
+  await updateTask(taskId, {
     status: 'in_progress',
     sessionId,
     progressSummary: resumeClaudeSessionId ? ['Resuming task...'] : ['Starting task...'],
@@ -399,13 +399,13 @@ async function runTaskAgent(
     const wt = createWorktree(cwd, taskId, title);
     if (wt) {
       agentCwd = wt.worktreePath;
-      updateTask(taskId, { worktreePath: wt.worktreePath });
+      await updateTask(taskId, { worktreePath: wt.worktreePath });
       broadcastToAll('task_update', { taskId, worktreePath: wt.worktreePath });
       console.log(`[task-runner] Task "${title}" using worktree: ${wt.worktreePath}`);
     }
   } else if (resumeClaudeSessionId) {
     // Resume: use existing worktree if present
-    const existingTask = getTask(taskId);
+    const existingTask = await getTask(taskId);
     if (existingTask?.worktreePath && fs.existsSync(existingTask.worktreePath)) {
       agentCwd = existingTask.worktreePath;
     }
@@ -422,7 +422,7 @@ async function runTaskAgent(
   let completionSummary = ''; // Richer summary for room reporting
 
   // Save user prompt to DB so it's visible when viewing the session
-  saveMessage(sessionId, {
+  await saveMessage(sessionId, {
     id: uuidv4(),
     role: 'user',
     content: JSON.stringify([{ type: 'text', text: prompt }]),
@@ -468,7 +468,7 @@ async function runTaskAgent(
     });
 
     // Inject room context if this is a room-triggered task
-    const currentTask = getTask(taskId);
+    const currentTask = await getTask(taskId);
     if (currentTask?.roomId) {
       try {
         const { getMessages: getRoomMessages, getAiContexts, getRoom: fetchRoom } = await import('./room-manager.js');
@@ -536,7 +536,7 @@ async function runTaskAgent(
       // Track claude session ID — save immediately so resume works after crash
       if (msg.session_id && msg.session_id !== claudeSessionId) {
         claudeSessionId = msg.session_id;
-        updateSession(sessionId, { claudeSessionId });
+        await updateSession(sessionId, { claudeSessionId });
         // Notify frontend so session store has claudeSessionId for resume
         broadcastToAll('session_meta_update', {
           sessionId,
@@ -561,7 +561,7 @@ async function runTaskAgent(
           const parentToolUseId = userContent.find((b: any) => b.tool_use_id)?.tool_use_id || null;
           if (parentToolUseId) {
             try {
-              saveMessage(sessionId, {
+              await saveMessage(sessionId, {
                 id: (msg as any).uuid || uuidv4(),
                 role: 'user',
                 content: userContent,
@@ -576,7 +576,7 @@ async function runTaskAgent(
       if (msg.type === 'assistant' && msg.message) {
         const content = msg.message.content || [];
         const msgId = (msg.message as any).uuid || uuidv4();
-        saveMessage(sessionId, { id: msgId, role: 'assistant', content });
+        await saveMessage(sessionId, { id: msgId, role: 'assistant', content });
         turnCount++;
 
         // Extract progress from text blocks
@@ -589,7 +589,7 @@ async function runTaskAgent(
             const workflowMatch = text.match(/\[WORKFLOW:\s*(simple|default|feature|big_task)\]/);
             if (workflowMatch) {
               const classified = workflowMatch[1] as WorkflowMode;
-              updateTask(taskId, { workflow: classified });
+              await updateTask(taskId, { workflow: classified });
               broadcastToAll('task_update', { taskId, workflow: classified });
               console.log(`[task-runner] Task "${title}" triage → ${classified}`);
 
@@ -597,7 +597,7 @@ async function runTaskAgent(
               if ((classified === 'feature' || classified === 'big_task') && agentCwd === cwd) {
                 const wt = createWorktree(cwd, taskId, title);
                 if (wt) {
-                  updateTask(taskId, { worktreePath: wt.worktreePath });
+                  await updateTask(taskId, { worktreePath: wt.worktreePath });
                   broadcastToAll('task_update', { taskId, worktreePath: wt.worktreePath });
                   // Note: can't change SDK cwd mid-stream, but the agent can cd
                   console.log(`[task-runner] Late worktree created: ${wt.worktreePath} — agent should cd there`);
@@ -612,7 +612,7 @@ async function runTaskAgent(
             const stage = stageMatch[1];
             if (!progressStages.includes(stage)) {
               progressStages.push(stage);
-              updateTask(taskId, { progressSummary: progressStages });
+              await updateTask(taskId, { progressSummary: progressStages });
               broadcastToAll('task_update', {
                 taskId,
                 status: 'in_progress',
@@ -663,7 +663,7 @@ async function runTaskAgent(
     runningTasks.delete(taskId);
 
     if (wasAborted) {
-      updateTask(taskId, {
+      await updateTask(taskId, {
         status: 'todo',
         progressSummary: [...progressStages, 'Aborted by user'],
       });
@@ -676,14 +676,14 @@ async function runTaskAgent(
       const finalStatus = lastSummary.startsWith('Completed') || !lastSummary.includes('FAILED') ? 'done' : 'failed';
       const finalSummary = [...progressStages, lastSummary || 'Done'];
 
-      updateTask(taskId, {
+      await updateTask(taskId, {
         status: finalStatus,
         progressSummary: finalSummary,
         completedAt: new Date().toISOString(),
       });
 
       if (claudeSessionId) {
-        updateSession(sessionId, { claudeSessionId, turnCount });
+        await updateSession(sessionId, { claudeSessionId, turnCount });
       }
 
       broadcastToAll('task_update', {
@@ -695,7 +695,7 @@ async function runTaskAgent(
       });
 
       // ── Room task completion: post summary + save context ──
-      const completedTaskForRoom = getTask(taskId);
+      const completedTaskForRoom = await getTask(taskId);
       if (completedTaskForRoom?.roomId) {
         try {
           const { sendMessage: sendRoomMsg, saveAiContext } = await import('./room-manager.js');
@@ -760,12 +760,12 @@ async function runTaskAgent(
 
       // ── Recurring schedule reset ──
       // If this task has a cron pattern, reset it to 'todo' with next scheduled_at
-      const completedTask = getTask(taskId);
+      const completedTask = await getTask(taskId);
       if (completedTask?.scheduleCron) {
         try {
           const cronObj: ScheduleCron = JSON.parse(completedTask.scheduleCron);
           const nextRun = calculateNextRun(cronObj);
-          updateTask(taskId, {
+          await updateTask(taskId, {
             status: 'todo',
             scheduledAt: nextRun.toISOString(),
             scheduleEnabled: true,
@@ -797,7 +797,7 @@ async function runTaskAgent(
     runningTasks.delete(taskId);
     const errorSummary = [...progressStages, `Error: ${err.message}`];
 
-    updateTask(taskId, {
+    await updateTask(taskId, {
       status: 'failed',
       progressSummary: errorSummary,
     });
@@ -809,7 +809,7 @@ async function runTaskAgent(
     });
 
     // Post error to room if this was a room-triggered task
-    const failedTaskForRoom = getTask(taskId);
+    const failedTaskForRoom = await getTask(taskId);
     if (failedTaskForRoom?.roomId) {
       try {
         const { sendMessage: sendRoomMsg } = await import('./room-manager.js');
@@ -850,7 +850,7 @@ export function abortTask(taskId: string): boolean {
     clearInterval(monitored.timer);
     monitoredTasks.delete(taskId);
     runningTasks.delete(taskId);
-    updateTask(taskId, {
+    await updateTask(taskId, {
       status: 'todo',
       progressSummary: [...monitored.progressStages, 'Aborted by user'],
     });

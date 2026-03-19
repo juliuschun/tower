@@ -95,23 +95,39 @@ export function KanbanBoard() {
     if (!task) { setOverColumnId(null); return; }
 
     // Determine target: from over element, or fallback to tracked column
-    let targetStatus = over ? resolveTargetColumn(over.id) : overColumnId as TaskMeta['status'] | null;
+    const targetStatus = over ? resolveTargetColumn(over.id) : overColumnId as TaskMeta['status'] | null;
     setOverColumnId(null);
+
+    console.log('[kanban:dragEnd]', {
+      taskId: taskId.slice(0, 8),
+      from: task.status,
+      overId: over?.id,
+      overColumnFallback: overColumnId,
+      targetStatus,
+    });
 
     if (!targetStatus || task.status === targetStatus) return;
 
     // Trigger spawn or abort via WS
     if (targetStatus === 'in_progress' && (task.status === 'todo' || task.status === 'failed')) {
+      console.log('[kanban] → onSpawnTask', taskId.slice(0, 8));
       onSpawnTask(taskId);
     } else if (targetStatus === 'todo' && task.status === 'in_progress') {
+      console.log('[kanban] → onAbortTask', taskId.slice(0, 8));
       onAbortTask(taskId);
+    } else {
+      console.log('[kanban] → no action (status transition not handled)', task.status, '→', targetStatus);
     }
   };
 
   const onSpawnTask = (taskId: string) => {
     const ws = (window as any).__claudeWs;
+    console.log('[kanban:spawn] ws state:', ws?.readyState, 'OPEN=', WebSocket.OPEN);
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'task_spawn', taskId }));
+      console.log('[kanban:spawn] sent task_spawn for', taskId.slice(0, 8));
+    } else {
+      console.warn('[kanban:spawn] WS not open! Cannot send task_spawn');
     }
   };
 
