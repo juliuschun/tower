@@ -318,7 +318,23 @@ async function handleMessage(client: WsClient, data: any) {
     case 'task_spawn': {
       const { taskId } = data;
       try {
-        await spawnTask(taskId, (type, payload) => broadcastToAll({ type, ...payload }), client.userId, client.userRole, client.allowedPath);
+        await spawnTask(taskId, (type, payload) => {
+          broadcastToAll({ type, ...payload });
+          // Auto-create notification on task completion/failure
+          if (type === 'task_update' && (payload.status === 'done' || payload.status === 'failed') && client.userId) {
+            import('../services/notification-hub.js').then(({ notify }) => {
+              const title = payload.status === 'done' ? 'Task completed' : 'Task failed';
+              notify(
+                client.userId!,
+                null,
+                payload.status === 'done' ? 'task_done' : 'task_failed',
+                title,
+                payload.title || taskId.slice(0, 8),
+                { taskId },
+              ).catch(() => {});
+            });
+          }
+        }, client.userId, client.userRole, client.allowedPath);
       } catch (err: any) {
         send(client.ws, { type: 'error', message: err.message });
       }

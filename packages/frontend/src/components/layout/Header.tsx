@@ -4,6 +4,7 @@ import { useSettingsStore } from '../../stores/settings-store';
 import { useModelStore } from '../../stores/model-store';
 import { ModelSelector } from './ModelSelector';
 import { GitPanel } from '../git/GitPanel';
+import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
   connected: boolean;
@@ -297,6 +298,8 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
         )}
 
         <TaskBoardButton />
+
+        {!isMobile && <NotificationBell />}
 
         {!isMobile && <VersionHistoryButton onViewDiff={onViewDiff} />}
 

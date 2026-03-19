@@ -14,6 +14,20 @@ const remarkMathOptions = { singleDollarTextMath: false };
 // Lazy-loaded visual blocks
 const ChartBlock = React.lazy(() => import('../chat/ChartBlock'));
 const SecureInputBlock = React.lazy(() => import('../chat/SecureInputBlock'));
+const DataTableBlock = React.lazy(() => import('../chat/DataTableBlock'));
+const HtmlSandboxBlock = React.lazy(() => import('../chat/HtmlSandboxBlock'));
+const TimelineBlock = React.lazy(() => import('../chat/TimelineBlock'));
+const MapBlock = React.lazy(() => import('../chat/MapBlock'));
+const StepsBlock = React.lazy(() => import('../chat/StepsBlock'));
+const DiffBlock = React.lazy(() => import('../chat/DiffBlock'));
+const FormBlock = React.lazy(() => import('../chat/FormBlock'));
+const KanbanBlock = React.lazy(() => import('../chat/KanbanBlock'));
+const TerminalBlock = React.lazy(() => import('../chat/TerminalBlock'));
+const ComparisonBlock = React.lazy(() => import('../chat/ComparisonBlock'));
+const ApprovalBlock = React.lazy(() => import('../chat/ApprovalBlock'));
+const TreemapBlock = React.lazy(() => import('../chat/TreemapBlock'));
+const GalleryBlock = React.lazy(() => import('../chat/GalleryBlock'));
+const AudioBlock = React.lazy(() => import('../chat/AudioBlock'));
 
 /* ── Skeleton / Fallback ── */
 
@@ -268,7 +282,104 @@ function RichSegment({ seg, mdComponents }: { seg: DynamicBlock; mdComponents: R
       </Suspense>
     );
   }
-  // Future phases: datatable, html-sandbox, timeline, map
+  if (seg.type === 'datatable') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="datatable" />}>
+        <DataTableBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'html-sandbox') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="html-sandbox" />}>
+        <HtmlSandboxBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'timeline') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="timeline" />}>
+        <TimelineBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'map') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="map" />}>
+        <MapBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'steps') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="steps" />}>
+        <StepsBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'diff') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="diff" />}>
+        <DiffBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'form') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="form" />}>
+        <FormBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'kanban') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="kanban" />}>
+        <KanbanBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'terminal') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="terminal" />}>
+        <TerminalBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'comparison') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="comparison" />}>
+        <ComparisonBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'approval') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="approval" />}>
+        <ApprovalBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'treemap') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="treemap" />}>
+        <TreemapBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'gallery') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="gallery" />}>
+        <GalleryBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'audio') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="audio" />}>
+        <AudioBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
   return <BlockFallback raw={seg.raw} error={`${seg.type} renderer not yet available`} />;
 }
 

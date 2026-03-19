@@ -90,11 +90,21 @@ Sessions(1:1 대화)과 Rooms(팀 채널 AI 메시지) 양쪽에서 동작합니
 | 다이어그램 | ` ```mermaid ` | flowchart, sequence, class, ER 등 |
 | 차트 | ` ```chart ` | JSON: `{ "type": "bar", "data": [...], "xKey": "...", "yKey": "..." }` |
 | 수식 | `$$...$$` | LaTeX 블록 수식. **인라인 `$`는 비활성** (금융 달러 충돌 방지) |
-| 데이터 테이블 | ` ```datatable ` | JSON: `{ "columns": [...], "data": [[...]] }` (Phase 3) |
-| 타임라인 | ` ```timeline ` | JSON: `{ "items": [{ "date", "title", "status" }] }` (Phase 5) |
-| HTML 샌드박스 | ` ```html-sandbox ` | iframe sandbox 실행 (Phase 4) |
-| 지도 | ` ```map ` | Leaflet 기반 마커/폴리곤 (Phase 6) |
+| 데이터 테이블 | ` ```datatable ` | JSON: `{ "columns": [...], "data": [[...]] }` — 정렬, 페이징 |
+| 타임라인 | ` ```timeline ` | JSON: `{ "items": [{ "date", "title", "status" }] }` |
+| HTML 샌드박스 | ` ```html-sandbox ` | iframe sandbox 실행 |
+| 지도 | ` ```map ` | Leaflet CDN 기반 마커/폴리곤 |
 | 보안 입력 | ` ```secure-input ` | 민감 데이터 입력 위젯 → .env 직접 저장 |
+| 스텝 가이드 | ` ```steps ` | JSON: `{ "steps": [{ "title", "status" }], "current": 2 }` |
+| 코드 비교 | ` ```diff ` | JSON: `{ "before": "...", "after": "...", "mode": "split" }` |
+| 폼 | ` ```form ` | JSON: `{ "fields": [{ "key", "type", "options" }] }` |
+| 칸반 | ` ```kanban ` | JSON: `{ "columns": [...], "cards": [{ "title", "column" }] }` |
+| 터미널 | ` ```terminal ` | JSON: `{ "commands": [{ "cmd", "output", "status" }] }` |
+| 비교 카드 | ` ```comparison ` | JSON: `{ "items": [{ "name", "pros", "cons", "score" }] }` |
+| 승인 위젯 | ` ```approval ` | JSON: `{ "action", "description", "confirmLabel" }` |
+| 트리맵 | ` ```treemap ` | JSON: `{ "data": [{ "name", "value", "children" }] }` |
+| 갤러리 | ` ```gallery ` | JSON: `{ "images": [{ "src", "caption" }], "columns": 3 }` |
+| 오디오 | ` ```audio ` | JSON: `{ "src": "...", "title": "..." }` |
 
 **차트 type**: `bar`, `line`, `area`, `pie`, `scatter`, `radar`, `composed`
 

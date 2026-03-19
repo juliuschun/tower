@@ -3,15 +3,13 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
-  pointerWithin,
-  rectIntersection,
   PointerSensor,
   TouchSensor,
   useSensor,
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
-  type CollisionDetection,
+  type DragOverEvent,
 } from '@dnd-kit/core';
 import { useKanbanStore, type TaskMeta } from '../../stores/kanban-store';
 import { useSessionStore } from '../../stores/session-store';
@@ -38,15 +36,12 @@ export function KanbanBoard() {
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   );
 
-  // Custom collision detection: try card-level first, fall back to column-level
+  // Custom collision detection: pointer-based for reliable cross-column drops
   const collisionDetection: CollisionDetection = (args) => {
-    // First try closestCorners (finds cards)
-    const cornerCollisions = closestCorners(args);
-    if (cornerCollisions.length > 0) return cornerCollisions;
-    // Fall back to pointerWithin (finds columns even when empty)
-    const pointerCollisions = pointerWithin(args);
-    if (pointerCollisions.length > 0) return pointerCollisions;
-    // Last resort: rectangle intersection
+    // pointerWithin detects both cards and columns reliably
+    const collisions = pointerWithin(args);
+    if (collisions.length > 0) return collisions;
+    // Fallback to rectangle intersection for edge cases
     return rectIntersection(args);
   };
 
@@ -83,33 +78,49 @@ export function KanbanBoard() {
     if (task) setActiveTask(task);
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    setActiveTask(null);
-    const { active, over } = event;
-    if (!over) return;
+  // Track which column the drag is currently over
+  const [overColumnId, setOverColumnId] = useState<string | null>(null);
 
+  const resolveTargetColumn = (overId: string | number): TaskMeta['status'] | null => {
+    const columnIds = new Set(COLUMNS.map((c) => c.id));
+    const id = String(overId);
+    if (columnIds.has(id)) return id as TaskMeta['status'];
+    const overTask = tasks.find((t) => t.id === id);
+    if (overTask) return overTask.status;
+    return null;
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    const { over } = event;
+    if (over) {
+      const col = resolveTargetColumn(over.id);
+      setOverColumnId(col);
+    } else {
+      setOverColumnId(null);
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const draggedTask = activeTask;
+    setActiveTask(null);
+    setOverColumnId(null);
+
+    const { active, over } = event;
+
+    // Use tracked overColumnId as fallback if over is null
     const taskId = active.id as string;
-    const task = tasks.find((t) => t.id === taskId);
+    const task = draggedTask || tasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    // Determine target column
-    const columnIds = new Set(COLUMNS.map((c) => c.id));
-    let targetStatus: TaskMeta['status'];
-
-    if (columnIds.has(over.id as string)) {
-      // Dropped on column directly
-      targetStatus = over.id as TaskMeta['status'];
-    } else {
-      // Dropped on a card — use that card's status
-      const overTask = tasks.find((t) => t.id === over.id);
-      if (overTask) {
-        targetStatus = overTask.status;
-      } else {
-        return;
-      }
+    let targetStatus: TaskMeta['status'] | null = null;
+    if (over) {
+      targetStatus = resolveTargetColumn(over.id);
     }
-
-    if (task.status === targetStatus) return; // No change
+    // Fallback: use the last known column the drag was over
+    if (!targetStatus && overColumnId) {
+      targetStatus = overColumnId as TaskMeta['status'];
+    }
+    if (!targetStatus || task.status === targetStatus) return;
 
     // Trigger spawn or abort via WS
     if (targetStatus === 'in_progress' && (task.status === 'todo' || task.status === 'failed')) {
@@ -219,6 +230,7 @@ export function KanbanBoard() {
         sensors={sensors}
         collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
         <div className="flex-1 flex gap-4 overflow-x-auto">

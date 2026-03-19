@@ -1697,4 +1697,50 @@ router.post('/notifications/read-all', authMiddleware, async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Heartbeat ───────────────────────────────────────────────────────
+
+router.get('/heartbeats', authMiddleware, async (_req, res) => {
+  try {
+    const { listHeartbeats } = await import('../services/heartbeat.js');
+    res.json({ heartbeats: listHeartbeats() });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/heartbeats', authMiddleware, async (req, res) => {
+  try {
+    const { registerHeartbeat } = await import('../services/heartbeat.js');
+    const config = req.body;
+    if (!config.projectId || !config.projectName || !config.projectPath) {
+      return res.status(400).json({ error: 'projectId, projectName, projectPath required' });
+    }
+    registerHeartbeat({
+      intervalMinutes: 60,
+      autonomyLevel: 1,
+      enabled: true,
+      ...config,
+    });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/heartbeats/:projectId', authMiddleware, async (req, res) => {
+  try {
+    const { updateHeartbeat, getHeartbeatConfig } = await import('../services/heartbeat.js');
+    const { projectId } = req.params;
+    if (!getHeartbeatConfig(projectId as string)) {
+      return res.status(404).json({ error: 'Heartbeat not found' });
+    }
+    updateHeartbeat(projectId as string, req.body);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/heartbeats/:projectId', authMiddleware, async (req, res) => {
+  try {
+    const { unregisterHeartbeat } = await import('../services/heartbeat.js');
+    unregisterHeartbeat(req.params.projectId as string);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 export default router;

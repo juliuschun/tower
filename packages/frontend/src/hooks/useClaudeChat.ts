@@ -8,7 +8,7 @@ import { useGitStore } from '../stores/git-store';
 import { parseSDKMessage, normalizeContentBlocks } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef, resolveAutoNameTarget, resolveSendSessionId, isServerRestarted } from '../utils/session-filters';
 import { generateUUID } from '../utils/uuid';
-import { toastSuccess, toastError, toastWarning } from '../utils/toast';
+import { toastSuccess, toastError, toastWarning, toastInfo } from '../utils/toast';
 import { notifyTaskComplete, requestNotificationPermission } from '../utils/notify';
 import { useKanbanStore } from '../stores/kanban-store';
 import { useRoomStore } from '../stores/room-store';
@@ -928,6 +928,25 @@ export function useClaudeChat() {
         // We were removed from a room
         const { roomId } = data;
         useRoomStore.getState().removeRoom(roomId);
+        break;
+      }
+
+      // ── Notifications ─────────────────────────────────────────
+      case 'notification': {
+        const { notification: notif } = data;
+        if (notif) {
+          useRoomStore.getState().addNotification(notif);
+          // Show toast for important notification types
+          if (notif.type === 'task_done') {
+            notifyTaskComplete(notif.body || notif.title, 'done');
+          } else if (notif.type === 'task_failed') {
+            notifyTaskComplete(notif.body || notif.title, 'failed');
+          } else if (notif.type === 'heartbeat') {
+            toastInfo(`💓 ${notif.title}`);
+          } else if (notif.type === 'mention') {
+            toastInfo(`@${notif.title}`);
+          }
+        }
         break;
       }
     }

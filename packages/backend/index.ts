@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { config, validateConfig } from './config.js';
 import apiRouter from './routes/api.js';
-import { setupWebSocket, broadcastToAll } from './routes/ws-handler.js';
+import { setupWebSocket, broadcastToAll, broadcastToUser } from './routes/ws-handler.js';
 // SQLite closeDb removed — all data now in PG (closePgPool handles shutdown)
 import { initPg, closePgPool, isPgEnabled } from './db/pg.js';
 import { stopFileWatcher } from './services/file-system.js';
@@ -15,6 +15,8 @@ import { initWorkspaceRepo } from './services/git-manager.js';
 import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from './services/task-runner.js';
 import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown } from './services/claude-sdk.js';
 import { startScheduler, stopScheduler } from './services/task-scheduler.js';
+import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/heartbeat.js';
+import { initNotificationHub } from './services/notification-hub.js';
 import { cleanupStaleSessions } from './services/session-manager.js';
 import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs } from './services/skill-registry.js';
 
@@ -105,8 +107,8 @@ server.listen(config.port, config.host, async () => {
     console.log('[pg] DATABASE_URL not set — chat rooms disabled');
   }
 
-  // Seed bundled skills into DB + sync to filesystem
-  const bundledDir = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'claude-skills', 'skills');
+  // Seed skills from ~/.claude/skills/ (managed by /library)
+  const bundledDir = path.join(process.env.HOME || '/home/enterpriseai', '.claude', 'skills');
   await seedBundledSkills(bundledDir);
   await seedPluginSkills();
   await syncCompanySkillsToFs();
@@ -124,6 +126,21 @@ server.listen(config.port, config.host, async () => {
 
   // Start scheduled-task poller (checks every 30s for due tasks)
   startScheduler((type, payload) => broadcastToAll({ type, ...payload }));
+
+  // Initialize notification hub — routes notifications to specific users via WS
+  const notifBroadcast = (type: string, data: any) => {
+    if (type === 'notification' && data.targetUserId) {
+      broadcastToUser(data.targetUserId, { type: 'notification', notification: data.notification });
+    } else if (type === 'room_message') {
+      broadcastToAll({ type, ...data });
+    } else {
+      broadcastToAll({ type, ...data });
+    }
+  };
+  initNotificationHub(notifBroadcast);
+
+  // Start heartbeat scheduler (checks project HEARTBEAT.md files periodically)
+  startHeartbeatScheduler(notifBroadcast);
 });
 
 // Graceful shutdown — let orphan CLI processes keep running
@@ -131,6 +148,7 @@ process.on('SIGINT', () => {
   console.log('\nShutting down...');
   gracefulShutdown('SIGINT');
   stopScheduler();
+  stopHeartbeatScheduler();
   stopOrphanMonitor();
   stopAllMonitors();
   stopFileWatcher();
@@ -140,6 +158,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   gracefulShutdown('SIGTERM');
   stopScheduler();
+  stopHeartbeatScheduler();
   stopOrphanMonitor();
   stopAllMonitors();
   stopFileWatcher();
