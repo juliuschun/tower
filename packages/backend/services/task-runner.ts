@@ -839,7 +839,7 @@ async function runTaskAgent(
   }
 }
 
-export function abortTask(taskId: string): boolean {
+export async function abortTask(taskId: string): Promise<boolean> {
   const running = runningTasks.get(taskId);
   if (!running) return false;
   running.aborted = true;
