@@ -36,15 +36,6 @@ export function KanbanBoard() {
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   );
 
-  // Custom collision detection: pointer-based for reliable cross-column drops
-  const collisionDetection: CollisionDetection = (args) => {
-    // pointerWithin detects both cards and columns reliably
-    const collisions = pointerWithin(args);
-    if (collisions.length > 0) return collisions;
-    // Fallback to rectangle intersection for edge cases
-    return rectIntersection(args);
-  };
-
   // Load tasks on mount
   useEffect(() => {
     loadTasks();
@@ -78,7 +69,7 @@ export function KanbanBoard() {
     if (task) setActiveTask(task);
   };
 
-  // Track which column the drag is currently over
+  // Track which column the drag is currently over (fallback for dragEnd)
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
 
   const resolveTargetColumn = (overId: string | number): TaskMeta['status'] | null => {
@@ -92,34 +83,21 @@ export function KanbanBoard() {
 
   const handleDragOver = (event: DragOverEvent) => {
     const { over } = event;
-    if (over) {
-      const col = resolveTargetColumn(over.id);
-      setOverColumnId(col);
-    } else {
-      setOverColumnId(null);
-    }
+    setOverColumnId(over ? resolveTargetColumn(over.id) : null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const draggedTask = activeTask;
     setActiveTask(null);
-    setOverColumnId(null);
-
     const { active, over } = event;
 
-    // Use tracked overColumnId as fallback if over is null
     const taskId = active.id as string;
-    const task = draggedTask || tasks.find((t) => t.id === taskId);
-    if (!task) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) { setOverColumnId(null); return; }
 
-    let targetStatus: TaskMeta['status'] | null = null;
-    if (over) {
-      targetStatus = resolveTargetColumn(over.id);
-    }
-    // Fallback: use the last known column the drag was over
-    if (!targetStatus && overColumnId) {
-      targetStatus = overColumnId as TaskMeta['status'];
-    }
+    // Determine target: from over element, or fallback to tracked column
+    let targetStatus = over ? resolveTargetColumn(over.id) : overColumnId as TaskMeta['status'] | null;
+    setOverColumnId(null);
+
     if (!targetStatus || task.status === targetStatus) return;
 
     // Trigger spawn or abort via WS
@@ -128,7 +106,6 @@ export function KanbanBoard() {
     } else if (targetStatus === 'todo' && task.status === 'in_progress') {
       onAbortTask(taskId);
     }
-    // Note: manual move to 'done' is not allowed — agent does that
   };
 
   const onSpawnTask = (taskId: string) => {
@@ -228,7 +205,7 @@ export function KanbanBoard() {
       {/* Columns */}
       <DndContext
         sensors={sensors}
-        collisionDetection={collisionDetection}
+        collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
