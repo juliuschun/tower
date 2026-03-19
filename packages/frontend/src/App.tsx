@@ -861,9 +861,9 @@ function App() {
           </>
         )}
 
-        {/* Mobile: fullscreen context panel modal */}
+        {/* Mobile: fullscreen context panel modal with close button */}
         {isMobile && mobileContextOpen && (
-          <div className="fixed inset-0 z-40 bg-surface-950 flex flex-col">
+          <div className="fixed inset-0 z-40 bg-surface-950/95 backdrop-blur-sm flex flex-col">
             <div className="flex-1 overflow-hidden">
               <ErrorBoundary fallbackLabel="Context panel error">
                 <ContextPanel
@@ -882,7 +882,7 @@ function App() {
         {!isMobile && contextPanelExpanded && contextPanelOpen ? (
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
             {/* Top: ContextPanel — takes most space */}
-            <div className="shrink-0 bg-surface-900/90 backdrop-blur-md overflow-hidden" style={{ height: expandedPanelHeight }}>
+            <div className="shrink-0 bg-surface-900/80 backdrop-blur-md overflow-hidden border-b border-surface-700/50" style={{ height: expandedPanelHeight }}>
               <ErrorBoundary fallbackLabel="Context panel error">
                 <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
               </ErrorBoundary>

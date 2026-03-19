@@ -112,7 +112,6 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
   const setOpenFile = useFileStore((s) => s.setOpenFile);
   const updateContent = useFileStore((s) => s.updateOpenFileContent);
   const externalChange = useFileStore((s) => s.externalChange);
-  const reloadFromDisk = useFileStore((s) => s.reloadFromDisk);
   const keepLocalEdits = useFileStore((s) => s.keepLocalEdits);
   const contextPanelExpanded = useFileStore((s) => s.contextPanelExpanded);
   const setContextPanelExpanded = useFileStore((s) => s.setContextPanelExpanded);
@@ -276,7 +275,8 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
 
         <button
           onClick={handleClose}
-          className="p-0.5 hover:text-red-400 transition-colors"
+          className="p-1 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors text-gray-400"
+          title="Close file"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

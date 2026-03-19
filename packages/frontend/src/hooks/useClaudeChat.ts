@@ -116,10 +116,11 @@ export function useClaudeChat() {
   const currentAssistantSessionRef = useRef<string | null>(null);
   const sendRef = useRef<(data: any) => void>(() => {});
   const serverEpochRef = useRef<string | null>(null);
+  const lastConnectTs = useRef<number>(0);
 
   const {
     addMessage, setStreaming, setSessionId, setClaudeSessionId,
-    setSystemInfo, setCost, sessionId, claudeSessionId, setSessionStartTime,
+    setSystemInfo, setCost, setSessionStartTime,
     setTurnStartTime,
   } = useChatStore();
 
@@ -151,27 +152,36 @@ export function useClaudeChat() {
         }
         serverEpochRef.current = newEpoch || null;
 
-        // Request file tree on (re)connect so sidebar doesn't stay empty
-        // (send() silently drops messages before WS is OPEN)
-        setTimeout(() => sendRef.current({ type: 'file_tree' }), 100);
+        // Debounce reconnect data fetches — skip if reconnected within 10s
+        // (prevents flicker from rapid WS reconnects on mobile)
+        const now = Date.now();
+        const timeSinceLastConnect = now - lastConnectTs.current;
+        const shouldRefreshData = lastConnectTs.current === 0 || timeSinceLastConnect > 10_000;
+        lastConnectTs.current = now;
 
-        // Refresh kanban tasks on (re)connect — task_update messages may have
-        // been missed during a brief disconnection (mobile bg, Cloudflare, etc.)
-        setTimeout(() => sendRef.current({ type: 'task_list' }), 150);
+        if (shouldRefreshData) {
+          // Request file tree on (re)connect so sidebar doesn't stay empty
+          // (send() silently drops messages before WS is OPEN)
+          setTimeout(() => sendRef.current({ type: 'file_tree' }), 100);
 
-        // Fetch rooms on connect
-        setTimeout(() => {
-          const tk = localStorage.getItem('token');
-          const hdrs: Record<string, string> = {};
-          if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
-          fetch('/api/rooms', { headers: hdrs })
-            .then(r => r.ok ? r.json() : { rooms: [], pgEnabled: false })
-            .then(roomData => {
-              useRoomStore.getState().setRooms(roomData.rooms || []);
-              useRoomStore.getState().setPgEnabled(roomData.pgEnabled ?? false);
-            })
-            .catch(() => {});
-        }, 200);
+          // Refresh kanban tasks on (re)connect — task_update messages may have
+          // been missed during a brief disconnection (mobile bg, Cloudflare, etc.)
+          setTimeout(() => sendRef.current({ type: 'task_list' }), 150);
+
+          // Fetch rooms on connect
+          setTimeout(() => {
+            const tk = localStorage.getItem('token');
+            const hdrs: Record<string, string> = {};
+            if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+            fetch('/api/rooms', { headers: hdrs })
+              .then(r => r.ok ? r.json() : { rooms: [], pgEnabled: false })
+              .then(roomData => {
+                useRoomStore.getState().setRooms(roomData.rooms || []);
+                useRoomStore.getState().setPgEnabled(roomData.pgEnabled ?? false);
+              })
+              .catch(() => {});
+          }, 200);
+        }
 
         // Restore streaming indicators for all running sessions
         const runningSessions: string[] = data.streamingSessions || [];

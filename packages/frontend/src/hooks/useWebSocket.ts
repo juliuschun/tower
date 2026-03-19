@@ -10,12 +10,12 @@ const STREAMING_SAFETY_TIMEOUT = 15_000; // 15 seconds
 export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect?: ReconnectHandler) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const reconnectDelay = useRef(2000);
   const onMessageRef = useRef(onMessage);
   const onReconnectRef = useRef(onReconnect);
   const wasConnected = useRef(false);
-  const safetyTimer = useRef<ReturnType<typeof setTimeout>>();
+  const safetyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const safetyTimerFired = useRef(false);
   // 빠른 앱 전환 시 이전 zombie 검사를 취소하기 위한 ref
   const zombieCheckAbort = useRef<AbortController | null>(null);
@@ -135,8 +135,12 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
                 ponged = true;
                 clearTimeout(zombieTimer);
                 ws.onmessage = origOnMessage;
-                // 연결이 살아있음 → 세션 상태만 재동기화
-                onReconnectRef.current?.();
+                // 연결이 살아있음 → 스트리밍 중일 때만 세션 재동기화
+                // (idle 상태에서는 불필요한 state 업데이트 방지 → 깜빡임 방지)
+                const { isStreaming } = useChatStore.getState();
+                if (isStreaming) {
+                  onReconnectRef.current?.();
+                }
               }
               if (data.type === 'pong') return; // pong은 앱으로 전달 불필요
             } catch { /* ignore */ }

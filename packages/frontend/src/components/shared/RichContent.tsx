@@ -36,6 +36,67 @@ export function BlockFallback({ raw, error }: { raw: string; error?: string }) {
   );
 }
 
+/* ── File path detection ── */
+
+const PREVIEWABLE_EXTS = new Set([
+  'pdf', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp',
+  'html', 'htm', 'md', 'txt', 'json', 'yaml', 'yml',
+  'ts', 'tsx', 'js', 'jsx', 'py', 'sh', 'sql', 'css',
+  'mp4', 'webm',
+]);
+
+// Match absolute paths like /home/user/file.ext, ~/file.ext, ./file.ext
+// Must have a file extension to avoid false positives
+const FILE_PATH_REGEX = /(?:^|\s)((?:\/[\w.@-]+)+\/[\w.@-]+\.[\w]+|~\/[\w.@/-]+\.[\w]+|\.\/[\w.@/-]+\.[\w]+)/g;
+
+function hasPreviewableExt(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase();
+  return ext ? PREVIEWABLE_EXTS.has(ext) : false;
+}
+
+/** Split text into segments: plain text and file path links */
+function splitFilePathsInText(text: string, onFileClick: (path: string) => void): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  const regex = new RegExp(FILE_PATH_REGEX.source, 'g');
+
+  for (const match of text.matchAll(regex)) {
+    const fullMatch = match[0];
+    const filePath = match[1];
+    // Calculate position — the match may include leading whitespace
+    const pathStart = match.index! + fullMatch.indexOf(filePath);
+
+    if (!hasPreviewableExt(filePath)) {
+      continue;
+    }
+
+    if (pathStart > lastIndex) {
+      parts.push(text.slice(lastIndex, pathStart));
+    }
+
+    parts.push(
+      <span
+        key={pathStart}
+        className="text-primary-400 hover:text-primary-300 cursor-pointer underline decoration-primary-400/40 hover:decoration-primary-300/60 transition-colors"
+        onClick={(e) => {
+          e.stopPropagation();
+          onFileClick(filePath);
+        }}
+        title={`Open ${filePath}`}
+      >
+        {filePath}
+      </span>
+    );
+    lastIndex = pathStart + filePath.length;
+  }
+
+  if (lastIndex === 0) return []; // No file paths found
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
+}
+
 /* ── Shared markdown custom components ── */
 
 interface MdComponentsOptions {
@@ -80,6 +141,19 @@ function buildMdComponents({ onFileClick }: MdComponentsOptions = {}) {
         );
       }
       return <code className={className} {...props}>{children}</code>;
+    },
+    // Detect file paths in plain text paragraphs
+    p({ children, ...props }: Record<string, any>) {
+      if (!onFileClick) {
+        return <p {...props}>{children}</p>;
+      }
+      // Process string children to find file paths
+      const processed = React.Children.map(children, (child) => {
+        if (typeof child !== 'string') return child;
+        const parts = splitFilePathsInText(child, onFileClick);
+        return parts.length > 0 ? <>{parts}</> : child;
+      });
+      return <p {...props}>{processed}</p>;
     },
     pre({ children }: { children?: React.ReactNode }) {
       const codeText = extractCodeText(children);
