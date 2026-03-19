@@ -3,12 +3,15 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  pointerWithin,
+  rectIntersection,
   PointerSensor,
   TouchSensor,
   useSensor,
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
+  type CollisionDetection,
 } from '@dnd-kit/core';
 import { useKanbanStore, type TaskMeta } from '../../stores/kanban-store';
 import { useSessionStore } from '../../stores/session-store';
@@ -34,6 +37,18 @@ export function KanbanBoard() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   );
+
+  // Custom collision detection: try card-level first, fall back to column-level
+  const collisionDetection: CollisionDetection = (args) => {
+    // First try closestCorners (finds cards)
+    const cornerCollisions = closestCorners(args);
+    if (cornerCollisions.length > 0) return cornerCollisions;
+    // Fall back to pointerWithin (finds columns even when empty)
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    // Last resort: rectangle intersection
+    return rectIntersection(args);
+  };
 
   // Load tasks on mount
   useEffect(() => {
@@ -78,13 +93,20 @@ export function KanbanBoard() {
     if (!task) return;
 
     // Determine target column
+    const columnIds = new Set(COLUMNS.map((c) => c.id));
     let targetStatus: TaskMeta['status'];
-    const overTask = tasks.find((t) => t.id === over.id);
-    if (overTask) {
-      targetStatus = overTask.status;
-    } else {
+
+    if (columnIds.has(over.id as string)) {
       // Dropped on column directly
       targetStatus = over.id as TaskMeta['status'];
+    } else {
+      // Dropped on a card — use that card's status
+      const overTask = tasks.find((t) => t.id === over.id);
+      if (overTask) {
+        targetStatus = overTask.status;
+      } else {
+        return;
+      }
     }
 
     if (task.status === targetStatus) return; // No change
@@ -195,7 +217,7 @@ export function KanbanBoard() {
       {/* Columns */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >

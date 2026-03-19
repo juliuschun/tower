@@ -58,11 +58,17 @@ function ComboBox({
     ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase()))
     : options;
 
-  // Shorten path for display in suggestions
+  // Shorten path for display: keep home-relative format for readability
   const shortPath = (p: string) => {
+    // ~/workspace/projects/hantoo → ~/w/projects/hantoo
+    const home = '/home/enterpriseai';
+    if (p.startsWith(home)) {
+      const rel = p.slice(home.length);
+      return '~' + rel;
+    }
     const parts = p.split('/');
-    if (parts.length <= 3) return p;
-    return '.../' + parts.slice(-2).join('/');
+    if (parts.length <= 4) return p;
+    return '.../' + parts.slice(-3).join('/');
   };
 
   return (
@@ -105,7 +111,7 @@ function ComboBox({
         </button>
       </div>
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-surface-800 border border-surface-700 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-1 bg-surface-800 border border-surface-700 rounded-lg shadow-xl max-h-64 overflow-y-auto min-w-[320px]">
           {filtered.map((opt) => (
             <button
               key={opt}
@@ -116,12 +122,12 @@ function ComboBox({
                 setSearch('');
                 setOpen(false);
               }}
-              className={`w-full text-left px-3 py-2 text-sm font-mono hover:bg-surface-700 transition-colors ${
+              className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-700 transition-colors ${
                 opt === value ? 'text-blue-400' : 'text-gray-300'
               }`}
               title={opt}
             >
-              {shortPath(opt)}
+              <span className="font-mono">{shortPath(opt)}</span>
             </button>
           ))}
         </div>
@@ -390,17 +396,18 @@ export function NewTaskModal({ onClose, onCreated, editTask }: NewTaskModalProps
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div>
+            <label htmlFor="task-cwd" className="text-xs text-gray-400 mb-1 block">Working Directory</label>
+            <ComboBox
+              value={cwd}
+              onChange={setCwd}
+              options={pastCwds}
+              placeholder="/home/user/project"
+            />
+          </div>
+
+          <div className="flex gap-3">
             <div className="flex-1">
-              <label htmlFor="task-cwd" className="text-xs text-gray-400 mb-1 block">Working Directory</label>
-              <ComboBox
-                value={cwd}
-                onChange={setCwd}
-                options={pastCwds}
-                placeholder="/home/user/project"
-              />
-            </div>
-            <div className="w-full sm:w-32">
               <label htmlFor="task-model" className="text-xs text-gray-400 mb-1 block">Model</label>
               <Dropdown
                 value={model}
@@ -408,7 +415,7 @@ export function NewTaskModal({ onClose, onCreated, editTask }: NewTaskModalProps
                 options={AVAILABLE_MODELS}
               />
             </div>
-            <div className="w-full sm:w-32">
+            <div className="flex-1">
               <label htmlFor="task-workflow" className="text-xs text-gray-400 mb-1 block">Workflow</label>
               <Dropdown
                 value={workflow}
