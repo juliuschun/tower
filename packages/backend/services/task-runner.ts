@@ -207,7 +207,7 @@ export async function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): Pr
     const progressStages = [...task.progressSummary];
     const startTime = Date.now();
 
-    const timer = setInterval(() => {
+    const timer = setInterval(async () => {
       const monitored = monitoredTasks.get(taskId);
       if (!monitored) return;
 
