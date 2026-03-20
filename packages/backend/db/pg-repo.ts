@@ -1,5 +1,5 @@
 /**
- * pg-repo.ts — Async query helpers that mirror better-sqlite3 patterns.
+ * pg-repo.ts — Async query helpers for PostgreSQL.
  *
  * Usage:
  *   import { query, queryOne, execute, transaction } from '../db/pg-repo.js';

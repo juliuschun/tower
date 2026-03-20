@@ -51,14 +51,10 @@ vi.mock('../services/auth.js', () => ({
   getUserAllowedPath: vi.fn(() => null),
 }));
 
-vi.mock('../db/schema.js', () => ({
-  getDb: vi.fn(() => ({
-    prepare: vi.fn(() => ({
-      all: vi.fn(() => []),
-      get: vi.fn(() => null),
-      run: vi.fn(),
-    })),
-  })),
+vi.mock('../db/pg-repo.js', () => ({
+  query: vi.fn(async () => []),
+  queryOne: vi.fn(async () => undefined),
+  execute: vi.fn(async () => ({ changes: 0 })),
 }));
 
 vi.mock('../services/task-runner.js', () => ({

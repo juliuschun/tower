@@ -8,7 +8,6 @@ import fs from 'fs';
 import { config, validateConfig } from './config.js';
 import apiRouter from './routes/api.js';
 import { setupWebSocket, broadcastToAll, broadcastToUser } from './routes/ws-handler.js';
-// SQLite closeDb removed — all data now in PG (closePgPool handles shutdown)
 import { initPg, closePgPool, isPgEnabled } from './db/pg.js';
 import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';

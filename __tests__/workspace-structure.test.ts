@@ -36,10 +36,9 @@ describe('workspace structure', () => {
     expect(deps).toHaveProperty('katex');
   });
 
-  it('@tower/backend에 better-sqlite3, pg 있음', () => {
+  it('@tower/backend에 pg 있음', () => {
     const pkg = readPkg('packages/backend');
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-    expect(deps).toHaveProperty('better-sqlite3');
     expect(deps).toHaveProperty('pg');
   });
 
