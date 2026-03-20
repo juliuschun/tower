@@ -412,7 +412,27 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
       pendingQuestion: pendingQ || null,
     });
   } else {
-    send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
+    // Check if this session was interrupted by a server restart
+    const interruptedSet: Set<string> | undefined = (globalThis as any).__interruptedSessions;
+    const wasInterrupted = interruptedSet?.has(sessionId) ?? false;
+
+    if (wasInterrupted) {
+      // Consume the flag so it only fires once per reconnect
+      interruptedSet!.delete(sessionId);
+
+      // Look up claudeSessionId from DB for resume
+      const dbSession = await getSession(sessionId);
+      const claudeSessionId = data.claudeSessionId || dbSession?.claudeSessionId;
+
+      send(client.ws, {
+        type: 'reconnect_result',
+        status: 'interrupted',
+        sessionId,
+        claudeSessionId: claudeSessionId || null,
+      });
+    } else {
+      send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
+    }
   }
 }
 

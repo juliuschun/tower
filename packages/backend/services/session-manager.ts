@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { getAccessibleProjectIds } from './group-manager.js';
+import { findJsonlFile } from './jsonl-utils.js';
 export type { SessionMeta } from '@tower/shared';
 import type { SessionMeta } from '@tower/shared';
 
@@ -151,10 +152,11 @@ export async function cleanupStaleSessions(): Promise<number> {
 
   let cleared = 0;
   for (const row of rows) {
-    const encodedCwd = row.cwd.replace(/\//g, '-');
-    const jsonlPath = path.join(os.homedir(), '.claude', 'projects', encodedCwd, `${row.claude_session_id}.jsonl`);
+    // Search beyond the DB cwd — .jsonl may be in a different project directory
+    // (e.g. session created via project feature with project-specific cwd)
+    const found = findJsonlFile(row.claude_session_id, row.cwd);
 
-    if (!fs.existsSync(jsonlPath)) {
+    if (!found) {
       await execute('UPDATE sessions SET claude_session_id = NULL WHERE id = $1', [row.id]);
       cleared++;
     }

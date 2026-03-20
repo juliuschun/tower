@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+import { buildJsonlPath, checkJsonlForCompletion } from './jsonl-utils.js';
 
 const MAX_CONCURRENT_TASKS = 30;
 const runningTasks = new Map<string, { sessionId: string; aborted: boolean }>();
@@ -34,12 +34,6 @@ type BroadcastFn = (type: string, data: any) => void;
 
 // --- Helpers for .jsonl-based recovery ---
 
-/** Build .jsonl file path for a Claude session */
-function buildJsonlPath(cwd: string, claudeSessionId: string): string {
-  const cwdPath = cwd.replace(/\//g, '-');
-  return path.join(os.homedir(), '.claude', 'projects', cwdPath, `${claudeSessionId}.jsonl`);
-}
-
 /** Check if orphan Claude CLI processes exist */
 function hasOrphanProcesses(): boolean {
   try {
@@ -50,38 +44,6 @@ function hasOrphanProcesses(): boolean {
     return result.length > 0;
   } catch {
     return false;
-  }
-}
-
-/** Read a .jsonl file and check for task completion markers */
-function checkJsonlForCompletion(jsonlPath: string): {
-  status: 'complete' | 'failed' | 'running';
-  reason?: string;
-  stages: string[];
-} {
-  const stages: string[] = [];
-  try {
-    const content = fs.readFileSync(jsonlPath, 'utf8');
-
-    // Extract stage markers
-    const stageMatches = content.matchAll(/\[STAGE:\s*(.+?)\]/g);
-    for (const m of stageMatches) {
-      if (!stages.includes(m[1])) stages.push(m[1]);
-    }
-
-    // Check for completion markers
-    if (content.includes('[TASK COMPLETE]')) {
-      return { status: 'complete', stages };
-    }
-
-    const failMatch = content.match(/\[TASK FAILED:\s*(.+?)\]/);
-    if (failMatch) {
-      return { status: 'failed', reason: failMatch[1], stages };
-    }
-
-    return { status: 'running', stages };
-  } catch {
-    return { status: 'running', stages };
   }
 }
 

@@ -258,6 +258,46 @@ export function useClaudeChat() {
             });
           }
           // Stream silently re-attached — no toast distraction
+        } else if (data.status === 'interrupted') {
+          // Server restarted while this session was streaming — auto-resume
+          useChatStore.getState().setStreaming(false);
+          useChatStore.getState().setTurnStartTime(null);
+          safetyTimerFired.current = false;
+          currentAssistantMsg.current = null;
+
+          if (data.sessionId) {
+            // Recover partial messages from DB first
+            recoverMessagesFromDb(data.sessionId);
+
+            // Update claudeSessionId for resume
+            if (data.claudeSessionId) {
+              useChatStore.getState().setClaudeSessionId(data.claudeSessionId);
+              // Also update session store so resume works
+              useSessionStore.getState().updateSessionMeta(data.sessionId, {
+                claudeSessionId: data.claudeSessionId,
+              });
+            }
+
+            toastWarning('Server restarted — resuming conversation...');
+
+            // Auto-resume: send a continue message with resume context
+            const session = useSessionStore.getState().sessions.find(s => s.id === data.sessionId);
+            setTimeout(() => {
+              const messageId = generateUUID();
+              sendRef.current({
+                type: 'chat',
+                message: 'Continue from where you left off.',
+                messageId,
+                sessionId: data.sessionId,
+                claudeSessionId: data.claudeSessionId || session?.claudeSessionId,
+                cwd: session?.cwd,
+                model: useModelStore.getState().selectedModel,
+              });
+              useChatStore.getState().setStreaming(true);
+              useChatStore.getState().setTurnStartTime(Date.now());
+              useSessionStore.getState().setSessionStreaming(data.sessionId, true);
+            }, 500);
+          }
         } else {
           // status === 'idle'
           // Check wasStreaming OR safetyTimerFired (timer may have cleared isStreaming before reconnect)

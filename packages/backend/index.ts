@@ -13,7 +13,7 @@ import { initPg, closePgPool, isPgEnabled } from './db/pg.js';
 import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';
 import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from './services/task-runner.js';
-import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown } from './services/claude-sdk.js';
+import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown, consumeInterruptedSessions } from './services/claude-sdk.js';
 import { startScheduler, stopScheduler } from './services/task-scheduler.js';
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/heartbeat.js';
 import { initNotificationHub } from './services/notification-hub.js';
@@ -22,6 +22,7 @@ import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs } from './se
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
 delete process.env.CLAUDECODE;
+// Session resilience v1 — findJsonlFile + interrupted auto-resume
 
 // Refuse to start with insecure JWT secret
 validateConfig();
@@ -112,6 +113,13 @@ server.listen(config.port, config.host, async () => {
   await seedBundledSkills(bundledDir);
   await seedPluginSkills();
   await syncCompanySkillsToFs();
+
+  // Load interrupted sessions from previous shutdown (before stale cleanup)
+  const interruptedSessionIds = consumeInterruptedSessions();
+  if (interruptedSessionIds.length > 0) {
+    // Store globally so ws-handler can check during reconnect
+    (globalThis as any).__interruptedSessions = new Set(interruptedSessionIds);
+  }
 
   // Clean up stale chat session claudeSessionIds where .jsonl is gone.
   // Must run BEFORE orphan monitoring — ensures chat sessions don't attempt

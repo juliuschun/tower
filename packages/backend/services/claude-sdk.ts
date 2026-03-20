@@ -5,6 +5,7 @@ import path from 'path';
 import os from 'os';
 import { config } from '../config.js';
 import { createBwrapWrapper, shouldUseSandbox } from './bwrap-sandbox.js';
+import { findJsonlFile } from './jsonl-utils.js';
 
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
 delete process.env.CLAUDECODE;
@@ -92,16 +93,29 @@ export function stopOrphanMonitor() {
 // Graceful shutdown: mark sessions as not running but do NOT abort CLI processes.
 // Let them become orphans — the next startup's cleanupOrphanedSdkProcesses()
 // will SIGTERM them gracefully, giving them time to flush session files.
+// Also marks streaming sessions as "interrupted" in DB so frontend can auto-resume.
 export function gracefulShutdown(signal: string) {
-  let running = 0;
+  const interruptedSessions: string[] = [];
   for (const session of activeSessions.values()) {
     if (session.isRunning) {
       session.isRunning = false;
-      running++;
+      interruptedSessions.push(session.id);
     }
   }
-  if (running > 0) {
-    console.log(`[sdk] ${signal}: ${running} CLI process(es) will be cleaned up on next startup`);
+  if (interruptedSessions.length > 0) {
+    console.log(`[sdk] ${signal}: ${interruptedSessions.length} CLI process(es) will be cleaned up on next startup`);
+    // Write interrupted session IDs to a temp file for next startup to read.
+    // Can't use async DB calls in shutdown handler (process exits too fast).
+    try {
+      const dataDir = path.join(process.cwd(), 'data');
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dataDir, 'interrupted-sessions.json'),
+        JSON.stringify({ sessions: interruptedSessions, at: new Date().toISOString() }),
+      );
+    } catch (err: any) {
+      console.error(`[sdk] Failed to write interrupted sessions file:`, err.message);
+    }
   }
 }
 
@@ -134,7 +148,7 @@ function getBackupPath(claudeSessionId: string): string {
  * If the SDK or CLI later deletes the original, we can restore it.
  */
 export function backupSessionFile(claudeSessionId: string, cwd: string): boolean {
-  const jsonlPath = getJsonlPath(claudeSessionId, cwd);
+  const jsonlPath = findJsonlFile(claudeSessionId, cwd) || getJsonlPath(claudeSessionId, cwd);
   if (!fs.existsSync(jsonlPath)) return false;
 
   try {
@@ -290,18 +304,22 @@ export async function* executeQuery(
 
   if (options.resumeSessionId) {
     const resumeCwd = queryOptions.cwd || config.defaultCwd;
-    const jsonlPath = getJsonlPath(options.resumeSessionId, resumeCwd);
 
-    // If the original .jsonl is missing, try restoring from our backup
-    if (!fs.existsSync(jsonlPath)) {
+    // Search for .jsonl beyond the expected cwd path — may be in a different project directory
+    let jsonlPath = findJsonlFile(options.resumeSessionId, resumeCwd);
+
+    // If not found anywhere, try restoring from our backup to the expected path
+    if (!jsonlPath) {
       restoreSessionFile(options.resumeSessionId, resumeCwd);
+      const expectedPath = getJsonlPath(options.resumeSessionId, resumeCwd);
+      if (fs.existsSync(expectedPath)) jsonlPath = expectedPath;
     }
 
-    if (fs.existsSync(jsonlPath)) {
+    if (jsonlPath) {
       // Repair .jsonl before resume — removes corrupted trailing lines from killed processes
       repairSessionFile(options.resumeSessionId, resumeCwd);
       queryOptions.resume = options.resumeSessionId;
-      console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} cwd=${queryOptions.cwd}`);
+      console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} jsonl=${path.basename(path.dirname(jsonlPath))}`);
     } else {
       console.log(`[sdk] resume skipped (no file, no backup): session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} cwd=${queryOptions.cwd}`);
       session.claudeSessionId = undefined;
@@ -398,6 +416,27 @@ export function getRunningSessionIds(): string[] {
 
 export function getClaudeSessionId(sessionId: string): string | undefined {
   return activeSessions.get(sessionId)?.claudeSessionId;
+}
+
+/**
+ * Read and consume the interrupted-sessions.json file written during graceful shutdown.
+ * Returns session IDs that were streaming when the backend last shut down.
+ */
+export function consumeInterruptedSessions(): string[] {
+  const filePath = path.join(process.cwd(), 'data', 'interrupted-sessions.json');
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    // Delete the file so it's only consumed once
+    fs.unlinkSync(filePath);
+    const sessions: string[] = data.sessions || [];
+    if (sessions.length > 0) {
+      console.log(`[sdk] Recovered ${sessions.length} interrupted session(s) from previous shutdown`);
+    }
+    return sessions;
+  } catch {
+    return [];
+  }
 }
 
 export function cleanupSession(sessionId: string) {
