@@ -246,8 +246,13 @@ function _updateAgentsMdTitle(rootPath: string, oldName: string, newName: string
 }
 
 export async function deleteProject(id: string): Promise<boolean> {
-  // Unassign all sessions from this project first
+  // Unassign all sessions from this project
   await execute('UPDATE sessions SET project_id = NULL WHERE project_id = $1', [id]);
+  // Archive all channels belonging to this project
+  try {
+    const { getPgPool } = await import('../db/pg.js');
+    await getPgPool().query('UPDATE chat_rooms SET archived = 1, project_id = NULL WHERE project_id = $1', [id]);
+  } catch {}
   const result = await execute('DELETE FROM projects WHERE id = $1', [id]);
   return result.changes > 0;
 }

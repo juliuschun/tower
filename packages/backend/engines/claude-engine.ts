@@ -53,7 +53,7 @@ export class ClaudeEngine implements Engine {
     );
 
     // Build system prompt (Layer 2: team rules + role context)
-    const systemPrompt = buildSystemPrompt({
+    const systemPrompt = await buildSystemPrompt({
       userId: opts.userId,
       username: opts.username || 'anonymous',
       role: opts.userRole || 'member',

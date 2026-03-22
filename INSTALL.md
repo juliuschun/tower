@@ -283,9 +283,7 @@ Understanding this prevents most confusion:
 │       └── CLAUDE.md
 ├── decisions/                  ← Team decision records (from setup.sh)
 ├── docs/                       ← Process documentation
-├── notes/                      ← Temporary memos
-├── memory/MEMORY.md            ← Team context for Claude
-└── uploads/                    ← Chat file attachments (auto-created)
+└── published/                  ← Deployed outputs
 ```
 
 ### Key concepts:

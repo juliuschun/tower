@@ -423,7 +423,7 @@ async function runTaskAgent(
       : 'acceptEdits' as const;
 
     // Build system prompt for task agent (Layer 2)
-    let systemPrompt = buildSystemPrompt({
+    let systemPrompt = await buildSystemPrompt({
       username: 'task-agent',
       role: effectiveRole,
       allowedPath,

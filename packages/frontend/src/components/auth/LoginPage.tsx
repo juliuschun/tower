@@ -190,7 +190,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
               onChange={(e) => setUsername(e.target.value)}
               onFocus={() => setFocused('username')}
               onBlur={() => setFocused(null)}
-              className="w-full rounded-xl px-4 py-3 text-sm text-gray-100 transition-all duration-300 outline-none"
+              className="w-full rounded-xl px-4 py-3 text-sm text-white transition-all duration-300 outline-none [&:-webkit-autofill]:[-webkit-text-fill-color:white] [&:-webkit-autofill]:[transition:background-color_9999s]"
               style={{
                 background: 'rgba(10, 14, 26, 0.6)',
                 border: focused === 'username'
@@ -221,7 +221,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
               onChange={(e) => setPassword(e.target.value)}
               onFocus={() => setFocused('password')}
               onBlur={() => setFocused(null)}
-              className="w-full rounded-xl px-4 py-3 text-sm text-gray-100 transition-all duration-300 outline-none"
+              className="w-full rounded-xl px-4 py-3 text-sm text-white transition-all duration-300 outline-none [&:-webkit-autofill]:[-webkit-text-fill-color:white] [&:-webkit-autofill]:[transition:background-color_9999s]"
               style={{
                 background: 'rgba(10, 14, 26, 0.6)',
                 border: focused === 'password'

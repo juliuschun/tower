@@ -66,7 +66,7 @@ workspace/
 │   │   └── CLAUDE.md    ← "Use Go. Follow company style guide."
 │   └── onboarding-docs/
 │       └── CLAUDE.md    ← "Write for non-technical readers."
-└── memory/MEMORY.md      ← Shared context across all projects
+└── decisions/            ← Team decision records
 ```
 
 ---

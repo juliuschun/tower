@@ -7,6 +7,20 @@ AI command center for your team. Stack your own tower of AI and systems.
 - Frontend changes → instant, Backend changes → ~2s auto-restart
 - Ports: :32354 (Vite frontend) → proxy → :32355 (Backend)
 
+## Dev / Prod 분리
+
+| 환경 | 도메인 | 포트 | 프로세스 | 용도 |
+|------|--------|------|---------|------|
+| **Dev** | `desk-dev.moatai.app` | :32354/:32355 | tsx watch | 개발. 코드 수정 시 자동 재시작 |
+| **Prod** | `tower.moatai.app` | :32364 | PM2 `tower-prod` | 사용자용. 배포 시에만 재시작 |
+| **Redirect** | `desk.moatai.app` | — | Nginx 301 | → tower.moatai.app 으로 리다이렉트 |
+
+- DB(PostgreSQL), workspace, `~/.claude/` (세션 .jsonl), API 키 모두 **공유**
+- Dev에서 코드 수정 → tsx watch 재시작 → **Prod 영향 없음**
+- Prod 배포: `./start.sh prod-restart` (빌드 + PM2 restart)
+- DB 스키마 변경 시 Prod도 함께 배포 필요 (같은 DB 사용)
+- Nginx 설정: `/etc/nginx/sites-available/{tower,desk,desk-dev}.moatai.app`
+
 ## Key Conventions
 - Document learnings in `codify.md`
 - Environment variables → `.env` (copy from `.env.example`)
@@ -22,50 +36,36 @@ AI command center for your team. Stack your own tower of AI and systems.
 
 Each deployment has a workspace directory (set via `WORKSPACE_ROOT` env var).
 
-### Recommended Structure
+### Structure
 ```
 workspace/
 ├── principles.md          # Team principles
-├── memory/MEMORY.md       # Team context (keep up to date)
-├── decisions/             # Decision records (immutable, one file = one decision)
-├── docs/                  # Process docs, guides
-├── notes/                 # Temporary memos, ideas
-└── projects/              # Project folders (auto-created by Tower)
-    ├── etf-research/      # Each project gets its own folder
-    │   └── CLAUDE.md      # Project context — SDK reads this automatically
-    ├── marketing-plan/
-    │   └── CLAUDE.md
-    └── ...
+├── decisions/             # Decision records (immutable, append-only)
+├── docs/                  # Guides, SOPs, references
+├── projects/              # Project folders (Tower auto-creates)
+│   ├── kap/               # Each project = folder + AGENTS.md + CLAUDE.md
+│   └── ...
+└── published/             # Deployed outputs
 ```
 
-Run `bash setup.sh` to bootstrap this structure automatically.
+### Project-Centric Architecture
 
-### Projects
-
-Projects group related chat sessions and provide context via CLAUDE.md files.
+Project is the center of everything. A project groups channels, sessions, files, and AI context.
+Inviting someone to a project grants access to all of the above.
 
 - Each project has a folder under `workspace/projects/` (auto-created on project creation)
-- The `CLAUDE.md` inside defines project-specific instructions for Claude
-- New chats created in a project automatically work in that folder (cwd)
+- `AGENTS.md` + `CLAUDE.md` (symlink) define project-specific instructions
 - Codebase projects can point to external paths (e.g., `~/tower/`) instead
-- Edit `CLAUDE.md` to customize what Claude knows about each project
 
 ### Claude Behavior Rules
 
-**Context**: Read `workspace/memory/MEMORY.md` at conversation start for team context.
-
 **Documentation**: When decisions are made, suggest recording them.
-- Decision record → `decisions/YYYY-MM-DD-title.md` (use `.template.md` format)
+- Decision record → `decisions/YYYY-MM-DD-title.md`
 - Process/guide → `docs/title.md`
-- Temporary memo → `notes/YYYY-MM-DD.md`
 
 **Decision records**: Never delete files in decisions/. To change a decision, create a new file.
 
 **Search**: When asked about past decisions or docs, search decisions/ and docs/ and answer with context.
-
-**Gentle reminders**:
-- Missing rationale: "Recording the reason will help later" (principle 2)
-- Vague title: "A specific title makes it easier to find" (principle 3)
 
 ## UI Navigation
 

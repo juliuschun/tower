@@ -137,7 +137,7 @@ async function uploadFilesToDir(targetDir: string, e: React.DragEvent, onRefresh
 }
 
 // ─── Context Menu ───
-type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession' | 'shareFile' | 'download';
+type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession' | 'shareFile' | 'download' | 'copyPath';
 
 function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
   x: number; y: number; entry: FileEntry;
@@ -173,7 +173,7 @@ function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
     },
     {
       action: 'shareFile' as MenuAction,
-      label: '공유하기',
+      label: 'Share',
       show: !entry.isDirectory,
       icon: (
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -192,6 +192,10 @@ function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
       ),
+    },
+    {
+      action: 'copyPath', label: 'Copy path', show: true,
+      icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>,
     },
     {
       action: 'rename', label: 'Rename', show: true,
@@ -292,6 +296,16 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
 
     if (action === 'shareFile') {
       setShareFilePath(entry.path);
+      return;
+    }
+
+    if (action === 'copyPath') {
+      try {
+        await navigator.clipboard.writeText(entry.path);
+        toastSuccess('Path copied');
+      } catch {
+        toastError('Failed to copy path');
+      }
       return;
     }
 

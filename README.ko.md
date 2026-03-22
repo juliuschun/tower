@@ -61,7 +61,7 @@ workspace/
 │   │   └── CLAUDE.md    ← "Go 사용. 회사 스타일 가이드 준수."
 │   └── onboarding-docs/
 │       └── CLAUDE.md    ← "비개발자 눈높이로 작성."
-└── memory/MEMORY.md      ← 전체 프로젝트 공유 컨텍스트
+└── decisions/            ← 팀 결정 기록
 ```
 
 ---

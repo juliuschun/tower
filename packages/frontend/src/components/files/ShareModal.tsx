@@ -60,8 +60,11 @@ export function ShareModal({ filePath, onClose }: Props) {
         method: 'POST', headers: getAuthHeaders(),
         body: JSON.stringify({ shareType: 'internal', filePath, targetUserId: selectedUserId }),
       });
-      if (!res.ok) throw new Error((await res.json()).error);
-      toastSuccess('공유했습니다.');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error (${res.status})`);
+      }
+      toastSuccess('Shared.');
       setSelectedUserId('');
       loadShares();
     } catch (e: any) { toastError(e.message); }
@@ -75,7 +78,10 @@ export function ShareModal({ filePath, onClose }: Props) {
         method: 'POST', headers: getAuthHeaders(),
         body: JSON.stringify({ shareType: 'external', filePath, expiresIn }),
       });
-      if (!res.ok) throw new Error((await res.json()).error);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error (${res.status})`);
+      }
       const data = await res.json();
       const fullUrl = `${siteOrigin}${data.url}`;
       setGeneratedUrl(fullUrl);

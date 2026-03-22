@@ -43,11 +43,9 @@ Not a code project. For build/dev rules, see each repo's own CLAUDE.md.
 workspace/
 ├── CLAUDE.md              # ← This file
 ├── principles.md          # Team principles
-├── memory/MEMORY.md       # Team context (updated quarterly)
 ├── decisions/             # Decision records (immutable)
 ├── docs/                  # Process docs, guides
-├── notes/                 # Temporary memos
-└── projects/              # (Optional) Per-client outputs
+└── projects/              # Project folders (Tower auto-creates)
 ```
 
 > **역할**: Claude가 파일을 만들 때 어디에 넣을지 안다.
@@ -67,7 +65,7 @@ workspace/
 ## Agent Behavior Rules
 
 ### On Session Start
-1. Read `memory/MEMORY.md` — understand priorities and team status
+1. Search `decisions/` and `docs/` for relevant context
 2. Know `principles.md` — especially "Write it down" and "Record the why"
 3. Search `decisions/` before starting — check for prior art
 
@@ -178,7 +176,7 @@ When creating project outputs:
 |---|---|
 | **Weekly** | Scan notes/ → promote to decisions/ or docs/ |
 | **Monthly** | Review docs/ — still accurate? |
-| **Quarterly** | Update memory/MEMORY.md — reprioritize |
+| **Quarterly** | Review and update team priorities |
 ```
 
 > **역할**: Claude가 정리 작업을 제안할 때 이 리듬을 기준으로 한다.
@@ -236,7 +234,7 @@ Team brain: decisions, docs, memos. Not a code project.
 - memory/      MEMORY.md — team context
 
 ## Agent Rules
-1. Read memory/MEMORY.md at session start
+1. Search decisions/ and docs/ at session start
 2. Check decisions/ for prior art before working
 3. Suggest recording decisions: "Want to log this in decisions/?"
 4. decisions/ files are never deleted or modified
