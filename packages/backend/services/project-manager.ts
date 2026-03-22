@@ -38,7 +38,7 @@ export async function getProjects(userId?: number, role?: string): Promise<Proje
     if (accessibleIds !== null) {
       // Non-admin: show only projects user is a member of or created
       const allRows = await query(
-        `SELECT * FROM projects WHERE archived = 0 ORDER BY sort_order, created_at`
+        `SELECT * FROM projects WHERE (archived IS NULL OR archived = 0) ORDER BY sort_order, created_at`
       );
       return allRows.filter(r => accessibleIds.includes(r.id)).map(rowToProject);
     }
@@ -46,7 +46,7 @@ export async function getProjects(userId?: number, role?: string): Promise<Proje
 
   // admin or no auth: show all non-archived projects
   const rows = await query(
-    `SELECT * FROM projects WHERE archived = 0 ORDER BY sort_order, created_at`
+    `SELECT * FROM projects WHERE (archived IS NULL OR archived = 0) ORDER BY sort_order, created_at`
   );
   return rows.map(rowToProject);
 }

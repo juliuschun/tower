@@ -236,7 +236,7 @@ export async function listRooms(userId: number, role?: string): Promise<Room[]> 
   // Admin: see all rooms, auto-join as admin
   if (isAdmin) {
     const { rows } = await pool.query(
-      `SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`,
+      `SELECT * FROM chat_rooms WHERE (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
     );
     for (const room of rows) {
       await pool.query(
@@ -251,7 +251,7 @@ export async function listRooms(userId: number, role?: string): Promise<Room[]> 
   const accessibleIds = await getAccessibleProjectIds(userId, userRole);
 
   const { rows } = await pool.query(
-    `SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`,
+    `SELECT * FROM chat_rooms WHERE (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
   );
 
   const visible = rows.filter(r => {
