@@ -9,6 +9,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getPgPool } from '../db/pg.js';
 import { queryOne, query as pgRepoQuery } from '../db/pg-repo.js';
+import { getAccessibleProjectIds } from './group-manager.js';
 import type { PgAdapter } from './cross-db.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -198,6 +199,24 @@ export async function createRoom(
     console.error(`[room-manager] Failed to auto-add group members:`, err.message);
   }
 
+  // Auto-add project members if room belongs to a project
+  if (projectId) {
+    try {
+      const { getProjectMembers } = await import('./group-manager.js');
+      const members = await getProjectMembers(projectId);
+      for (const m of members) {
+        if (m.userId === createdBy) continue; // already owner
+        await pool.query(
+          `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')
+           ON CONFLICT (room_id, user_id) DO NOTHING`,
+          [room.id, m.userId],
+        );
+      }
+    } catch (err: any) {
+      console.error(`[room-manager] Failed to auto-add project members:`, err.message);
+    }
+  }
+
   return room;
 }
 
@@ -209,43 +228,68 @@ export async function getRoom(roomId: string): Promise<Room | null> {
   return rows.length > 0 ? rowToRoom(rows[0]) : null;
 }
 
-export async function listRooms(userId: number): Promise<Room[]> {
+export async function listRooms(userId: number, role?: string): Promise<Room[]> {
   const pool = getPgPool();
+  const userRole = role || (await queryOne<{ role: string }>('SELECT role FROM users WHERE id = $1', [userId]))?.role || 'member';
+  const isAdmin = userRole === 'admin';
 
-  // Check if user is admin
-  const userRow = await queryOne<{ role: string }>('SELECT role FROM users WHERE id = $1', [userId]);
-  const isAdmin = userRow?.role === 'admin';
-
-  // NOTE: 테스트 기간 — 모든 사용자가 모든 채널을 볼 수 있도록 설정
-  // 모든 사용자에게 전체 room 반환 + 자동 member 등록
-  {
+  // Admin: see all rooms, auto-join as admin
+  if (isAdmin) {
     const { rows } = await pool.query(
       `SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`,
     );
-    const memberRole = isAdmin ? 'admin' : 'member';
     for (const room of rows) {
       await pool.query(
-        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-        [room.id, userId, memberRole],
+        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`,
+        [room.id, userId],
       );
     }
     return rows.map(rowToRoom);
   }
 
-  // --- Original filter (복구 시 위 블록 제거하고 아래 주석 해제) ---
-  // if (isAdmin) {
-  //   const { rows } = await pool.query(`SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`);
-  //   for (const room of rows) {
-  //     await pool.query(`INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, [room.id, userId]);
-  //   }
-  //   return rows.map(rowToRoom);
-  // }
-  // ... (group-based auto-join + member-only fetch)
+  // Non-admin: rooms where user is a member OR room belongs to an accessible project
+  const accessibleIds = await getAccessibleProjectIds(userId, userRole);
+
+  const { rows } = await pool.query(
+    `SELECT * FROM chat_rooms WHERE archived = 0 ORDER BY updated_at DESC`,
+  );
+
+  const visible = rows.filter(r => {
+    // Room without project: must be explicit member
+    if (!r.project_id) return true; // will check room_members below
+    // Room with project: visible if user has project access
+    if (accessibleIds === null) return true; // admin fallback
+    return accessibleIds.includes(r.project_id);
+  });
+
+  // Auto-join project rooms the user can see (so they appear in room_members)
+  for (const room of visible) {
+    await pool.query(
+      `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
+      [room.id, userId],
+    );
+  }
+
+  // For non-project rooms, only return if user is already a member
+  const result: Room[] = [];
+  for (const room of visible) {
+    if (room.project_id) {
+      result.push(rowToRoom(room));
+    } else {
+      const { rows: memberRows } = await pool.query(
+        `SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2`,
+        [room.id, userId],
+      );
+      if (memberRows.length > 0) result.push(rowToRoom(room));
+    }
+  }
+
+  return result;
 }
 
 export async function updateRoom(
   roomId: string,
-  updates: { name?: string; description?: string; archived?: boolean },
+  updates: { name?: string; description?: string; archived?: boolean; projectId?: string | null },
 ): Promise<Room | null> {
   const sets: string[] = [];
   const vals: any[] = [];
@@ -262,6 +306,10 @@ export async function updateRoom(
   if (updates.archived !== undefined) {
     sets.push(`archived = $${idx++}`);
     vals.push(updates.archived);
+  }
+  if (updates.projectId !== undefined) {
+    sets.push(`project_id = $${idx++}`);
+    vals.push(updates.projectId);
   }
 
   if (sets.length === 0) return getRoom(roomId);

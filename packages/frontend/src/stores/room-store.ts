@@ -139,6 +139,23 @@ interface RoomState {
 
   // PG
   setPgEnabled: (enabled: boolean) => void;
+
+  // Channel project grouping (collapsed state)
+  collapsedRoomGroups: Set<string>;
+  toggleRoomGroupCollapsed: (groupId: string) => void;
+}
+
+// Persist collapsed room groups in localStorage
+function loadCollapsedRoomGroups(): Set<string> {
+  try {
+    const raw = localStorage.getItem('collapsedRoomGroups');
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+function saveCollapsedRoomGroups(s: Set<string>) {
+  localStorage.setItem('collapsedRoomGroups', JSON.stringify([...s]));
 }
 
 export const useRoomStore = create<RoomState>((set, get) => ({
@@ -153,6 +170,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   loading: false,
   messagesLoading: false,
   pgEnabled: false,
+  collapsedRoomGroups: loadCollapsedRoomGroups(),
 
   // ── Rooms ────────────────────────────────────────────────────────
 
@@ -354,4 +372,15 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   // ── PG ───────────────────────────────────────────────────────────
 
   setPgEnabled: (pgEnabled) => set({ pgEnabled }),
+
+  // ── Room group collapse ────────────────────────────────────────
+
+  toggleRoomGroupCollapsed: (groupId) =>
+    set((s) => {
+      const next = new Set(s.collapsedRoomGroups);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      saveCollapsedRoomGroups(next);
+      return { collapsedRoomGroups: next };
+    }),
 }));

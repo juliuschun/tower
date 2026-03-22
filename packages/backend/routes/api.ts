@@ -288,7 +288,7 @@ router.post('/shares', async (req, res) => {
       return res.json(share);
     } else if (shareType === 'external') {
       const share = await createExternalShare(filePath, ownerId, expiresIn || '24h');
-      const url = `/shared/${share.token}`;
+      const url = `/api/shared/${share.token}`;
       return res.json({ ...share, url });
     } else {
       return res.status(400).json({ error: 'shareType must be internal or external' });
@@ -477,9 +477,9 @@ router.get('/sessions', async (req, res) => {
 });
 
 router.post('/sessions', async (req, res) => {
-  const { name, cwd, projectId, engine, roomId } = req.body;
+  const { name, cwd, projectId, engine, roomId, sourceMessageId } = req.body;
   const userId = (req as any).user?.userId;
-  const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine, roomId);
+  const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine, roomId, sourceMessageId);
   res.json(session);
 });
 
@@ -490,9 +490,23 @@ router.get('/sessions/:id', async (req, res) => {
 });
 
 router.patch('/sessions/:id', async (req, res) => {
-  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd } = req.body;
+  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd, visibility } = req.body;
+  const userId = (req as any).user?.userId;
+  const userRole = (req as any).user?.role;
+
+  // Visibility change: only session owner or admin
+  if (visibility !== undefined) {
+    const { queryOne: pgQueryOne } = await import('../db/pg-repo.js');
+    const row = await pgQueryOne<{ user_id: number }>('SELECT user_id FROM sessions WHERE id = $1', [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'Session not found' });
+    if (userRole !== 'admin' && row.user_id !== userId) {
+      return res.status(403).json({ error: 'Only session owner or admin can change visibility' });
+    }
+  }
+
   const updates: any = { name, tags, favorite, totalCost, totalTokens, claudeSessionId };
   if (autoNamed !== undefined) updates.autoNamed = autoNamed;
+  if (visibility !== undefined) updates.visibility = visibility;
   if (cwd !== undefined) {
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
       return res.status(400).json({ error: 'Invalid directory path' });
@@ -500,6 +514,11 @@ router.patch('/sessions/:id', async (req, res) => {
     updates.cwd = cwd;
   }
   await updateSession(req.params.id as string, updates);
+  // Broadcast to all clients so other users see changes in real-time
+  try {
+    const { broadcastToAll } = await import('./ws-handler.js');
+    broadcastToAll({ type: 'session_meta_update', sessionId: req.params.id, updates });
+  } catch {}
   res.json({ ok: true });
 });
 
@@ -737,11 +756,25 @@ router.post('/files/upload', handleMulterUpload, async (req, res) => {
   }
 });
 
-// ───── Chat File Upload (saves to workspace/uploads/, returns path for AI) ─────
+// ───── Chat File Upload (saves to project uploads/ or global uploads/) ─────
 router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
   try {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });
+
+    // Determine upload directory: project-scoped or global
+    let uploadDir = UPLOADS_DIR;
+    const projectId = req.body?.projectId;
+    if (projectId) {
+      try {
+        const { getProject } = await import('../services/project-manager.js');
+        const project = await getProject(projectId);
+        if (project?.rootPath) {
+          uploadDir = path.join(project.rootPath, 'uploads');
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+      } catch {}
+    }
 
     const results: { name: string; path: string; error?: string }[] = [];
 
@@ -754,7 +787,7 @@ router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
       // Deduplicate: add timestamp prefix to avoid collisions
       // Allow Unicode letters/numbers (Korean, Japanese, etc.) while blocking path-unsafe chars
       const safeName = `${Date.now()}-${file.originalname.replace(/[^\p{L}\p{N}._-]/gu, '_')}`;
-      const filePath = path.join(UPLOADS_DIR, safeName);
+      const filePath = path.join(uploadDir, safeName);
       try {
         writeFileBinary(filePath, file.buffer, config.workspaceRoot);
         results.push({ name: file.originalname, path: filePath });
@@ -1342,7 +1375,13 @@ router.delete('/projects/:id/members/:uid', async (req, res) => {
 
 router.get('/users/search', async (req, res) => {
   const q = (req.query.q as string || '').trim();
-  if (!q) return res.json([]);
+  if (!q) {
+    // Empty query: return all active users (for invite member list)
+    const users = await query<{ id: number; username: string }>(
+      `SELECT id, username FROM users WHERE disabled = 0 ORDER BY username LIMIT 50`
+    );
+    return res.json(users);
+  }
   const users = await query<{ id: number; username: string }>(
     `SELECT id, username FROM users WHERE disabled = 0 AND username LIKE $1 ORDER BY username LIMIT 20`,
     [`%${q}%`]
@@ -1526,8 +1565,9 @@ router.get('/rooms', authMiddleware, async (req, res) => {
     if (!isPgEnabled()) return res.json({ rooms: [], pgEnabled: false, unreadCounts: {} });
     const { listRooms, getUnreadCounts } = await import('../services/room-manager.js');
     const userId = (req as any).user.userId;
+    const userRole = (req as any).user.role;
     const [rooms, unreadMap] = await Promise.all([
-      listRooms(userId),
+      listRooms(userId, userRole),
       getUnreadCounts(userId),
     ]);
     // Convert Map to plain object for JSON serialization

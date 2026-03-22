@@ -6,6 +6,7 @@ interface RoomMessageBubbleProps {
   isOwnMessage: boolean;
   parentMessage?: RoomMessage | null;
   onReply?: (message: RoomMessage) => void;
+  onOpenThread?: (message: RoomMessage) => void;
 }
 
 function formatTime(iso: string): string {
@@ -13,18 +14,33 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-/** Reply button shown on hover — small arrow icon */
-function ReplyButton({ onClick }: { onClick: () => void }) {
+/** Action buttons shown on hover */
+function MessageActions({ onReply, onThread }: { onReply?: () => void; onThread?: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="opacity-0 group-hover:opacity-100 absolute -top-2 right-2 p-1 bg-surface-700 border border-surface-600 rounded-md text-gray-400 hover:text-gray-200 hover:bg-surface-600 transition-all shadow-sm"
-      title="Reply"
-    >
-      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v3M3 10l6-6M3 10l6 6" />
-      </svg>
-    </button>
+    <div className="opacity-0 group-hover:opacity-100 absolute -top-2 right-2 flex items-center gap-0.5 bg-surface-700 border border-surface-600 rounded-md shadow-sm">
+      {onThread && (
+        <button
+          onClick={onThread}
+          className="p-1 text-gray-400 hover:text-gray-200 hover:bg-surface-600 rounded-md transition-all"
+          title="Open Thread"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+          </svg>
+        </button>
+      )}
+      {onReply && (
+        <button
+          onClick={onReply}
+          className="p-1 text-gray-400 hover:text-gray-200 hover:bg-surface-600 rounded-md transition-all"
+          title="Reply"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 015 5v3M3 10l6-6M3 10l6 6" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -40,8 +56,9 @@ function ParentPreview({ parent }: { parent: RoomMessage }) {
   );
 }
 
-export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onReply }: RoomMessageBubbleProps) {
+export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onReply, onOpenThread }: RoomMessageBubbleProps) {
   const canReply = onReply && message.msgType !== 'system';
+  const canThread = onOpenThread && message.msgType !== 'system';
 
   // System message — centered gray text (no reply)
   if (message.msgType === 'system') {
@@ -56,7 +73,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
   if (message.msgType === 'ai_summary') {
     return (
       <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
-        {canReply && <ReplyButton onClick={() => onReply(message)} />}
+        {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
         <div className="w-7 h-7 rounded-full bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
           <span className="text-[11px] font-bold text-emerald-400">AI</span>
         </div>
@@ -82,7 +99,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
   if (message.msgType === 'ai_error') {
     return (
       <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
-        {canReply && <ReplyButton onClick={() => onReply(message)} />}
+        {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
         <div className="w-7 h-7 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center shrink-0 mt-0.5">
           <span className="text-[11px] font-bold text-red-400">!</span>
         </div>
@@ -104,7 +121,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
   if (message.msgType === 'ai_reply') {
     return (
       <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
-        {canReply && <ReplyButton onClick={() => onReply(message)} />}
+        {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
         <div className="w-7 h-7 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0 mt-0.5">
           <span className="text-[11px] font-bold text-blue-400">AI</span>
         </div>
@@ -136,7 +153,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
 
     return (
       <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
-        {canReply && <ReplyButton onClick={() => onReply(message)} />}
+        {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
         <div className="w-7 h-7 rounded-full bg-primary-600/20 border border-primary-500/30 flex items-center justify-center shrink-0 mt-0.5">
           <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -167,7 +184,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
 
   return (
     <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
-      {canReply && <ReplyButton onClick={() => onReply(message)} />}
+      {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
       <div className="w-7 h-7 rounded-full bg-surface-700 border border-surface-600 flex items-center justify-center shrink-0 mt-0.5">
         <span className="text-[11px] font-bold text-gray-300">{initial}</span>
       </div>

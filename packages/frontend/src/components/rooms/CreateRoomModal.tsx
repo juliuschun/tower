@@ -1,16 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRoomStore } from '../../stores/room-store';
+import { useProjectStore } from '../../stores/project-store';
 
 interface CreateRoomModalProps {
   open: boolean;
   onClose: () => void;
+  defaultProjectId?: string;
 }
 
-export function CreateRoomModal({ open, onClose }: CreateRoomModalProps) {
+export function CreateRoomModal({ open, onClose, defaultProjectId }: CreateRoomModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [roomType, setRoomType] = useState<'team' | 'project' | 'dashboard'>('team');
+  const [projectId, setProjectId] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
+  const projects = useProjectStore((s) => s.projects);
+
+  // Sync defaultProjectId when modal opens
+  useEffect(() => {
+    if (open) setProjectId(defaultProjectId || '');
+  }, [open, defaultProjectId]);
 
   if (!open) return null;
 
@@ -27,7 +36,7 @@ export function CreateRoomModal({ open, onClose }: CreateRoomModalProps) {
       const res = await fetch('/api/rooms', {
         method: 'POST',
         headers: hdrs,
-        body: JSON.stringify({ name: name.trim(), description: description.trim() || null, roomType }),
+        body: JSON.stringify({ name: name.trim(), description: description.trim() || null, roomType, projectId: projectId || undefined }),
       });
 
       if (res.ok) {
@@ -38,6 +47,7 @@ export function CreateRoomModal({ open, onClose }: CreateRoomModalProps) {
         setName('');
         setDescription('');
         setRoomType('team');
+        setProjectId('');
         onClose();
       }
     } catch {
@@ -91,6 +101,22 @@ export function CreateRoomModal({ open, onClose }: CreateRoomModalProps) {
               <option value="dashboard">Dashboard</option>
             </select>
           </div>
+
+          {projects.length > 0 && (
+            <div>
+              <label className="block text-[12px] font-medium text-gray-400 mb-1.5">Project</label>
+              <select
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 focus:outline-none focus:border-primary-500/50 transition-colors"
+              >
+                <option value="">None (General)</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button

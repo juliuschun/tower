@@ -173,6 +173,33 @@ export function RoomPanel() {
     inputRef.current?.focus();
   }, []);
 
+  const handleOpenThread = useCallback(async (msg: RoomMessage) => {
+    const activeRoom = useRoomStore.getState().rooms.find(r => r.id === activeRoomId);
+    const tk = localStorage.getItem('token');
+    const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST', headers: hdrs,
+        body: JSON.stringify({
+          name: `Thread: ${msg.content.slice(0, 40)}...`,
+          projectId: activeRoom?.projectId || undefined,
+          roomId: activeRoomId,
+          sourceMessageId: msg.id,
+        }),
+      });
+      if (res.ok) {
+        const session = await res.json();
+        // Import session store and navigate to the new session
+        const { useSessionStore } = await import('../../stores/session-store');
+        useSessionStore.getState().addSession(session);
+        useSessionStore.getState().setActiveSessionId(session.id);
+        useSessionStore.getState().setSidebarTab('sessions');
+        useSessionStore.getState().setActiveView('chat');
+      }
+    } catch {}
+  }, [activeRoomId]);
+
   // Send typing indicator
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -267,6 +294,7 @@ export function RoomPanel() {
                   isOwnMessage={msg.senderId === currentUserId}
                   parentMessage={msg.replyTo ? messageMap.get(msg.replyTo) ?? null : null}
                   onReply={handleReply}
+                  onOpenThread={handleOpenThread}
                 />
               ))}
               <div ref={messagesEndRef} />
