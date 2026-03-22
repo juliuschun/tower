@@ -95,6 +95,14 @@ export interface RunOpts {
   username?: string;
   userRole?: string;
   allowedPath?: string;
+  /**
+   * Project-based accessible paths for this user.
+   * All project folders the user is a member of + public areas.
+   * null = unrestricted (admin). undefined = not computed yet (legacy).
+   * Computed by ws-handler/task-runner BEFORE calling engine.run().
+   * Each engine uses this in its own way (canUseTool, tool wrapper, etc).
+   */
+  accessiblePaths?: string[] | null;
   engineSessionId?: string;   // for resume (read from DB by ws-handler)
 }
 

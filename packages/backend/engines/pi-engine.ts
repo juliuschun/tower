@@ -22,6 +22,7 @@ import {
   readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool,
 } from '@mariozechner/pi-coding-agent';
 import { buildSystemPrompt } from '../services/system-prompt.js';
+import { buildToolGuard, wrapPiTools } from '../services/project-access.js';
 import { createAgentTool } from './pi-agent-tool.js';
 import { excelReadTool, excelQueryTool } from './pi-finance-tools.js';
 import { pdfReadTool, excelWriteTool, excelDiffTool } from './pi-finance-tools-extra.js';
@@ -385,10 +386,21 @@ export class PiEngine implements Engine {
       sessionMgr = SessionManager.create(opts.cwd, piSessionDir);
     }
 
+    // Build unified tool guard and wrap Pi tools with it
+    let piTools: any[] = [readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool];
+    const guard = buildToolGuard({
+      role: opts.userRole || 'member',
+      allowedPath: opts.allowedPath,
+      accessiblePaths: opts.accessiblePaths,
+    });
+    // Always wrap — guard handles damage control + path enforcement + project ACL
+    piTools = wrapPiTools(piTools, guard);
+    console.log(`[Pi] ToolGuard active (role=${opts.userRole || 'member'}, accessiblePaths=${opts.accessiblePaths === null ? 'admin' : opts.accessiblePaths?.length ?? 'none'})`);
+
     const { session } = await createAgentSession({
       cwd: opts.cwd,
       model,
-      tools: [readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool],
+      tools: piTools,
       customTools: [createAgentTool(auth, registry), excelReadTool, excelQueryTool, pdfReadTool, excelWriteTool, excelDiffTool, todoWriteTool],
       authStorage: auth,
       modelRegistry: registry,
@@ -581,3 +593,4 @@ class ContentAccumulator {
     return this.blocks.map(b => ({ ...b }));
   }
 }
+

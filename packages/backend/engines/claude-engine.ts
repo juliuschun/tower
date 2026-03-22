@@ -23,8 +23,8 @@ import {
   gracefulShutdown,
 } from '../services/claude-sdk.js';
 import { config, getPermissionMode } from '../config.js';
-import { buildDamageControl, buildPathEnforcement, type TowerRole } from '../services/damage-control.js';
 import { buildSystemPrompt } from '../services/system-prompt.js';
+import { buildToolGuard, type ToolGuard } from '../services/project-access.js';
 import { autoCommit } from '../services/git-manager.js';
 
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
@@ -44,13 +44,15 @@ export class ClaudeEngine implements Engine {
   ): AsyncGenerator<TowerMessage> {
     const permissionMode = getPermissionMode(opts.userRole);
 
-    // Build canUseTool interceptor (damage control + AskUserQuestion → callbacks.askUser)
-    const canUseTool = this.createCanUseTool(
-      sessionId,
-      (opts.userRole || 'member') as TowerRole,
-      opts.allowedPath,
-      callbacks,
-    );
+    // Build unified tool guard (damage control + path enforcement + project ACL)
+    const guard = buildToolGuard({
+      role: opts.userRole || 'member',
+      allowedPath: opts.allowedPath,
+      accessiblePaths: opts.accessiblePaths,
+    });
+
+    // Build canUseTool interceptor (guard + AskUserQuestion → callbacks.askUser)
+    const canUseTool = this.createCanUseTool(sessionId, guard, callbacks);
 
     // Build system prompt (Layer 2: team rules + role context)
     const systemPrompt = await buildSystemPrompt({
@@ -318,35 +320,18 @@ export class ClaudeEngine implements Engine {
 
   /**
    * Create canUseTool interceptor for Claude SDK.
-   * Handles: damage control, path enforcement, TeamCreate block, AskUserQuestion.
+   * Delegates to unified ToolGuard, then handles AskUserQuestion.
    */
   private createCanUseTool(
     _sessionId: string,
-    userRole: TowerRole,
-    allowedPath: string | undefined,
+    guard: ToolGuard,
     callbacks: EngineCallbacks,
   ) {
-    const damageCheck = buildDamageControl(userRole);
-    const pathCheck = allowedPath ? buildPathEnforcement(allowedPath) : null;
-
     return async (toolName: string, input: Record<string, unknown>, _options: { signal: AbortSignal }) => {
-      // Damage control (role-based restrictions)
-      const dc = damageCheck(toolName, input);
-      if (!dc.allowed) {
-        return { behavior: 'deny' as const, message: (dc as any).message };
-      }
-
-      // Block agent teams (CPU spike risk)
-      if (toolName === 'TeamCreate') {
-        return { behavior: 'deny' as const, message: 'Agent teams are disabled on this server.' };
-      }
-
-      // Path enforcement
-      if (pathCheck) {
-        const pc = pathCheck(toolName, input);
-        if (!pc.allowed) {
-          return { behavior: 'deny' as const, message: (pc as any).message };
-        }
+      // Unified guard: damage control + path enforcement + project ACL + TeamCreate block
+      const check = guard(toolName, input);
+      if (!check.allowed) {
+        return { behavior: 'deny' as const, message: check.message };
       }
 
       // Allow all non-AskUserQuestion tools

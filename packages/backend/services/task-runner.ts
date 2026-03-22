@@ -2,8 +2,9 @@ import { executeQuery, abortSession } from './claude-sdk.js';
 import { createSession, updateSession, getSession } from './session-manager.js';
 import { updateTask, getTask, getTasks, type ScheduleCron, type WorkflowMode } from './task-manager.js';
 import { saveMessage, attachToolResultInDb } from './message-store.js';
-import { buildDamageControl, buildPathEnforcement, type TowerRole } from './damage-control.js';
+import { type TowerRole } from './damage-control.js';
 import { buildSystemPrompt } from './system-prompt.js';
+import { getUserAccessiblePaths, buildToolGuard } from './project-access.js';
 import { calculateNextRun } from './task-scheduler.js';
 import { buildWorkflowPrompt } from './workflow-prompts.js';
 import { createWorktree } from './worktree-manager.js';
@@ -333,7 +334,13 @@ export async function spawnTask(
     },
   });
 
-  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll, userRole, allowedPath, resumeClaudeSessionId, task.progressSummary, task.model, task.workflow)
+  // Compute project-based accessible paths for this user
+  let accessiblePaths: string[] | null | undefined;
+  if (userId) {
+    accessiblePaths = await getUserAccessiblePaths(userId, userRole || 'member');
+  }
+
+  runTaskAgent(taskId, sessionId, task.title, task.description, task.cwd, broadcastToAll, userRole, allowedPath, resumeClaudeSessionId, task.progressSummary, task.model, task.workflow, accessiblePaths)
     .catch((err) => {
       console.error(`[task-runner] Task ${taskId} error:`, err.message);
     });
@@ -352,6 +359,7 @@ async function runTaskAgent(
   previousProgress?: string[],
   model?: string,
   workflow?: WorkflowMode,
+  accessiblePaths?: string[] | null,
 ): Promise<void> {
   const effectiveWorkflow = workflow || 'auto';
 
@@ -395,26 +403,20 @@ async function runTaskAgent(
     broadcastToAll('session_status', { sessionId, status: 'streaming' });
 
     const effectiveRole = (userRole || 'member') as TowerRole;
-    const damageCheck = buildDamageControl(effectiveRole);
-    const pathCheck = allowedPath ? buildPathEnforcement(allowedPath) : null;
+    const guard = buildToolGuard({
+      role: effectiveRole,
+      allowedPath,
+      accessiblePaths,
+    });
     const taskCanUseTool = async (toolName: string, input: Record<string, unknown>, _options: { signal: AbortSignal }) => {
-      const dc = damageCheck(toolName, input);
-      if (!dc.allowed) {
-        return { behavior: 'deny' as const, message: dc.message };
+      // Unified guard: damage control + path enforcement + project ACL + TeamCreate block
+      const check = guard(toolName, input);
+      if (!check.allowed) {
+        return { behavior: 'deny' as const, message: check.message };
       }
-      // Block agent teams — causes zombie polling CPU spikes
-      if (toolName === 'TeamCreate') {
-        return { behavior: 'deny' as const, message: 'Agent teams are disabled. Use sequential task execution.' };
-      }
-      // Block EnterWorktree for non-worktree modes (worktree is managed by task-runner)
+      // Task-specific: block EnterWorktree (worktree is managed by task-runner)
       if (toolName === 'EnterWorktree') {
         return { behavior: 'deny' as const, message: 'Worktree is managed by the task runner. Use the current working directory.' };
-      }
-      if (pathCheck) {
-        const pc = pathCheck(toolName, input);
-        if (!pc.allowed) {
-          return { behavior: 'deny' as const, message: pc.message };
-        }
       }
       return { behavior: 'allow' as const, updatedInput: input };
     };

@@ -679,6 +679,13 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   try {
     resetHangTimer();
 
+    // Compute project-based accessible paths (cached, ~0ms on hit)
+    let accessiblePaths: string[] | null | undefined;
+    if (client.userId) {
+      const { getUserAccessiblePaths } = await import('../services/project-access.js');
+      accessiblePaths = await getUserAccessiblePaths(client.userId, client.userRole || 'member');
+    }
+
     for await (const towerMsg of engine.run(sessionId, finalMessage, {
       cwd: data.cwd || dbSession?.cwd || client.allowedPath || config.defaultCwd,
       model: resolvedModel,
@@ -686,6 +693,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       username: client.username,
       userRole: client.userRole,
       allowedPath: client.allowedPath,
+      accessiblePaths,
       engineSessionId,
     }, callbacks)) {
       resetHangTimer();

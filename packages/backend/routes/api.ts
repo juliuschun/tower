@@ -51,6 +51,9 @@ import {
   getProjectMembers, addProjectMember, removeProjectMember,
   isProjectOwner, isProjectMember, inviteGroupToProject,
 } from '../services/group-manager.js';
+import {
+  canAccessSession, canAccessRoom, canCreateInProject, isPathAccessible,
+} from '../services/project-access.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 50 * 1024 * 1024; // 50MB
 const DANGEROUS_EXTENSIONS = new Set([
@@ -479,11 +482,24 @@ router.get('/sessions', async (req, res) => {
 router.post('/sessions', async (req, res) => {
   const { name, cwd, projectId, engine, roomId, sourceMessageId } = req.body;
   const userId = (req as any).user?.userId;
+  const role = (req as any).user?.role;
+  // Project access check for session creation
+  if (projectId && userId) {
+    const access = await canCreateInProject(projectId, userId, role);
+    if (!access.allowed) return res.status(access.status).json({ error: access.message });
+  }
   const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine, roomId, sourceMessageId);
   res.json(session);
 });
 
 router.get('/sessions/:id', async (req, res) => {
+  const userId = (req as any).user?.userId;
+  const role = (req as any).user?.role;
+  // Project access check
+  if (userId) {
+    const access = await canAccessSession(req.params.id as string, userId, role);
+    if (!access.allowed) return res.status(access.status).json({ error: access.message });
+  }
   const session = await getSession(req.params.id as string);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   res.json(session);
@@ -609,6 +625,13 @@ router.get('/search', async (req, res) => {
 // ───── Session Messages ─────
 router.get('/sessions/:id/messages', async (req, res) => {
   try {
+    // Project access check
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessSession(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const messages = await getMessages(req.params.id as string);
     res.json(messages);
   } catch (error: any) {
@@ -660,12 +683,17 @@ router.get('/files/read', async (req, res) => {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) {
       if (!userId || !(await hasInternalShareForUser(filePath, userId))) {
         return res.status(403).json({ error: 'Access denied' });
       }
       // internal share found — allow read to continue
+    }
+    // Project-level path check
+    if (userId && !(await isPathAccessible(filePath, userId, role))) {
+      return res.status(403).json({ error: 'Access denied: not a member of the project owning this file' });
     }
     const result = readFile(filePath);
     res.json({ path: filePath, ...result });
@@ -679,8 +707,13 @@ router.post('/files/write', async (req, res) => {
     const { path: filePath, content } = req.body;
     if (!filePath || content === undefined) return res.status(400).json({ error: 'path and content required' });
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    // Project-level path check
+    if (userId && !(await isPathAccessible(filePath, userId, role))) {
+      return res.status(403).json({ error: 'Access denied: not a member of the project owning this file' });
+    }
     writeFile(filePath, content);
     res.json({ ok: true, path: filePath });
   } catch (error: any) {
@@ -1586,7 +1619,14 @@ router.post('/rooms', authMiddleware, async (req, res) => {
     const { createRoom } = await import('../services/room-manager.js');
     const { name, description, roomType, projectId } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
-    const room = await createRoom(name, description ?? null, roomType || 'team', (req as any).user.userId, projectId);
+    // Project access check for room creation
+    const userId = (req as any).user.userId;
+    const role = (req as any).user.role;
+    if (projectId) {
+      const access = await canCreateInProject(projectId, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
+    const room = await createRoom(name, description ?? null, roomType || 'team', userId, projectId);
     res.json(room);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

@@ -118,6 +118,8 @@ export async function addProjectMember(projectId: string, userId: number, role =
     'INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
     [projectId, userId, role]
   );
+  // Invalidate path cache so new access is immediately available
+  try { const { invalidatePathCache } = await import('./project-access.js'); invalidatePathCache(userId); } catch {}
 }
 
 export async function removeProjectMember(projectId: string, userId: number): Promise<boolean> {
@@ -134,6 +136,8 @@ export async function removeProjectMember(projectId: string, userId: number): Pr
   if (isOwner && ownerCount <= 1) return false; // Can't remove last owner
 
   await execute('DELETE FROM project_members WHERE project_id = $1 AND user_id = $2', [projectId, userId]);
+  // Invalidate path cache so access is immediately revoked
+  try { const { invalidatePathCache } = await import('./project-access.js'); invalidatePathCache(userId); } catch {}
   return true;
 }
 
