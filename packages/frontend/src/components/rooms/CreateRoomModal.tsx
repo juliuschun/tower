@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRoomStore } from '../../stores/room-store';
 import { useProjectStore } from '../../stores/project-store';
+import { toastError } from '../../utils/toast';
 
 interface CreateRoomModalProps {
   open: boolean;
@@ -49,9 +50,12 @@ export function CreateRoomModal({ open, onClose, defaultProjectId }: CreateRoomM
         setRoomType('team');
         setProjectId('');
         onClose();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toastError(data.error || `Failed to create room (${res.status})`);
       }
     } catch {
-      // silently fail
+      toastError('Failed to create room');
     } finally {
       setSubmitting(false);
     }

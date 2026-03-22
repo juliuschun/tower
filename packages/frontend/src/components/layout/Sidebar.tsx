@@ -231,7 +231,8 @@ export function Sidebar({
       if (res.ok) {
         useSessionStore.getState().updateSessionMeta(sessionId, { projectId });
       } else {
-        toastError('Failed to move session');
+        const data = await res.json().catch(() => ({}));
+        toastError(data.error || `Failed to move session (${res.status})`);
       }
     } catch {
       toastError('Failed to move session');

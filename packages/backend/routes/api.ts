@@ -52,7 +52,7 @@ import {
   isProjectOwner, isProjectMember, inviteGroupToProject,
 } from '../services/group-manager.js';
 import {
-  canAccessSession, canCreateInProject, isPathAccessible,
+  canAccessSession, canAccessRoom, canCreateInProject, isPathAccessible,
 } from '../services/project-access.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 50 * 1024 * 1024; // 50MB
@@ -1498,7 +1498,22 @@ router.post('/projects/reorder', async (req, res) => {
 
 router.post('/sessions/:id/move', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const { projectId } = req.body;
+
+    // 1. Verify session ownership (only owner or admin can move)
+    if (userId) {
+      const access = await canAccessSession(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
+
+    // 2. Verify target project membership (must be member to move into)
+    if (projectId) {
+      const projAccess = await canCreateInProject(projectId, userId, role);
+      if (!projAccess.allowed) return res.status(projAccess.status).json({ error: projAccess.message });
+    }
+
     const ok = await moveSessionToProject(req.params.id as string, projectId ?? null);
     if (!ok) return res.status(404).json({ error: 'session or project not found' });
     // Broadcast so all connected clients update their session lists
@@ -1721,6 +1736,12 @@ router.get('/rooms/:id', authMiddleware, async (req, res) => {
 
 router.patch('/rooms/:id', authMiddleware, async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessRoom(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const { updateRoom } = await import('../services/room-manager.js');
     const room = await updateRoom(req.params.id as string, req.body);
     if (!room) return res.status(404).json({ error: 'Room not found' });
@@ -1730,6 +1751,12 @@ router.patch('/rooms/:id', authMiddleware, async (req, res) => {
 
 router.delete('/rooms/:id', authMiddleware, async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessRoom(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const { deleteRoom } = await import('../services/room-manager.js');
     const ok = await deleteRoom(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'Room not found' });
