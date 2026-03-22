@@ -67,7 +67,7 @@ export async function updateSession(id: string, updates: Partial<Pick<SessionMet
 }
 
 export async function getSessions(userId?: number, role?: string): Promise<SessionMeta[]> {
-  const rows = await query('SELECT s.*, u.username AS owner_username FROM sessions s LEFT JOIN users u ON s.user_id = u.id WHERE s.archived IS NULL OR s.archived = 0 ORDER BY s.updated_at DESC') as any[];
+  const rows = await query('SELECT s.*, u.username AS owner_username FROM sessions s LEFT JOIN users u ON s.user_id = u.id WHERE (s.archived IS NULL OR s.archived = 0) ORDER BY s.updated_at DESC') as any[];
 
   if (userId && role) {
     const accessibleIds = await getAccessibleProjectIds(userId, role);
