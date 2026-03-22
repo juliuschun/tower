@@ -68,6 +68,10 @@ const toolMeta: Record<string, { icon: React.ReactNode; color: string; bg: strin
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />,
     color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20',
   },
+  TodoWrite: {
+    icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />,
+    color: 'text-lime-400', bg: 'bg-lime-500/10', border: 'border-lime-500/20',
+  },
 };
 
 const defaultMeta = {
@@ -108,6 +112,82 @@ export function ToolChip({ name, input, result, isActive, onClick }: ToolChipPro
         </svg>
       )}
     </button>
+  );
+}
+
+/* ── TodoWrite Checklist ── */
+
+interface TodoItem {
+  content: string;
+  activeForm?: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+function TodoChecklist({ todos }: { todos: TodoItem[] }) {
+  const total = todos.length;
+  const completed = todos.filter(t => t.status === 'completed').length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  return (
+    <div className="space-y-2">
+      {/* Progress bar */}
+      <div className="flex items-center gap-2.5">
+        <div className="flex-1 h-1.5 bg-surface-800 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-500 ease-out"
+            style={{
+              width: `${pct}%`,
+              background: pct === 100
+                ? 'linear-gradient(90deg, #22c55e, #4ade80)'
+                : 'linear-gradient(90deg, #84cc16, #a3e635)',
+            }}
+          />
+        </div>
+        <span className={`text-[11px] font-mono tabular-nums ${pct === 100 ? 'text-emerald-400' : 'text-lime-400/80'}`}>
+          {completed}/{total}
+        </span>
+      </div>
+
+      {/* Todo items */}
+      <div className="space-y-0.5">
+        {todos.map((todo, i) => (
+          <div
+            key={i}
+            className={`flex items-start gap-2 px-2 py-1.5 rounded-md transition-colors ${
+              todo.status === 'in_progress' ? 'bg-lime-500/5' : ''
+            }`}
+          >
+            {/* Status icon */}
+            {todo.status === 'completed' ? (
+              <svg className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            ) : todo.status === 'in_progress' ? (
+              <div className="w-4 h-4 shrink-0 mt-0.5 flex items-center justify-center">
+                <div className="w-3.5 h-3.5 border-2 border-lime-500/30 border-t-lime-400 rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="w-4 h-4 shrink-0 mt-0.5 flex items-center justify-center">
+                <div className="w-3 h-3 rounded-full border-[1.5px] border-gray-600" />
+              </div>
+            )}
+
+            {/* Text */}
+            <span className={`text-[12px] leading-relaxed ${
+              todo.status === 'completed'
+                ? 'text-gray-500 line-through'
+                : todo.status === 'in_progress'
+                  ? 'text-lime-300 font-medium'
+                  : 'text-gray-400'
+            }`}>
+              {todo.status === 'in_progress' && todo.activeForm
+                ? todo.activeForm
+                : todo.content}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -262,8 +342,13 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
             </div>
           )}
 
+          {/* === TodoWrite — checklist === */}
+          {name === 'TodoWrite' && input.todos && (
+            <TodoChecklist todos={input.todos as TodoItem[]} />
+          )}
+
           {/* === Generic fallback === */}
-          {!['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Task', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'].includes(name) && Object.keys(input).length > 0 && (
+          {!['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Task', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', 'TodoWrite'].includes(name) && Object.keys(input).length > 0 && (
             <div className="bg-surface-950/60 rounded-lg p-3 font-mono text-[11px] text-gray-400 overflow-x-auto max-h-32 overflow-y-auto">
               {JSON.stringify(input, null, 2)}
             </div>

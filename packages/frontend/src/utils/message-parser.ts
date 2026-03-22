@@ -180,6 +180,16 @@ export function getToolSummary(name: string, input: Record<string, any>): string
       return 'Entering plan mode';
     case 'ExitPlanMode':
       return 'Plan complete';
+    case 'TodoWrite': {
+      const todos = input.todos as Array<{ content: string; status: string }> | undefined;
+      if (!todos?.length) return 'Manage todos';
+      const done = todos.filter(t => t.status === 'completed').length;
+      const inProg = todos.filter(t => t.status === 'in_progress').length;
+      const total = todos.length;
+      if (done === total) return `All done (${total}/${total})`;
+      if (inProg > 0) return `${done}/${total} done`;
+      return `${total} tasks planned`;
+    }
     default:
       return name;
   }

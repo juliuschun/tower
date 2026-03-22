@@ -140,13 +140,25 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
             />
             {groups.map((group, gi) => {
               // Tool use blocks — chip layout (single or multiple)
+              // TodoWrite gets special inline checklist rendering
               if (group.type === 'tool_use') {
+                const todoBlocks = group.blocks.filter(b => b.toolUse?.name === 'TodoWrite');
+                const otherBlocks = group.blocks.filter(b => b.toolUse?.name !== 'TodoWrite');
                 return (
-                  <ToolChipGroup
-                    key={gi}
-                    blocks={group.blocks}
-                    onFileClick={onFileClick}
-                  />
+                  <React.Fragment key={gi}>
+                    {otherBlocks.length > 0 && (
+                      <ToolChipGroup
+                        blocks={otherBlocks}
+                        onFileClick={onFileClick}
+                      />
+                    )}
+                    {todoBlocks.map((block, ti) => (
+                      <TodoInlineCard
+                        key={`todo-${gi}-${ti}`}
+                        input={block.toolUse!.input}
+                      />
+                    ))}
+                  </React.Fragment>
                 );
               }
 
@@ -271,6 +283,92 @@ function ThinkingChipGroup({ blocks }: { blocks: ContentBlock[] }) {
           <ThinkingContent text={blocks[activeIndex].thinking!.text} />
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── TodoWrite Inline Card ── */
+
+interface TodoInlineItem {
+  content: string;
+  activeForm?: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+function TodoInlineCard({ input }: { input: Record<string, any> }) {
+  const todos: TodoInlineItem[] = input.todos || [];
+  if (todos.length === 0) return null;
+
+  const total = todos.length;
+  const completed = todos.filter(t => t.status === 'completed').length;
+  const inProgress = todos.filter(t => t.status === 'in_progress').length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const allDone = completed === total;
+
+  return (
+    <div className={`rounded-xl border ${allDone ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-lime-500/20 bg-lime-500/5'} p-3 space-y-2`}>
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <svg className={`w-4 h-4 ${allDone ? 'text-emerald-400' : 'text-lime-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+        </svg>
+        <span className={`text-[12px] font-semibold ${allDone ? 'text-emerald-400' : 'text-lime-400'}`}>
+          {allDone ? 'All tasks complete' : inProgress > 0 ? 'Working...' : 'Task plan'}
+        </span>
+        <span className={`text-[11px] ml-auto font-mono tabular-nums ${allDone ? 'text-emerald-400/70' : 'text-lime-400/60'}`}>
+          {completed}/{total}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1 bg-surface-800/60 rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500 ease-out"
+          style={{
+            width: `${pct}%`,
+            background: allDone
+              ? 'linear-gradient(90deg, #22c55e, #4ade80)'
+              : 'linear-gradient(90deg, #84cc16, #a3e635)',
+          }}
+        />
+      </div>
+
+      {/* Items */}
+      <div className="space-y-0.5">
+        {todos.map((todo, i) => (
+          <div
+            key={i}
+            className={`flex items-start gap-2 px-1.5 py-1 rounded-md transition-colors ${
+              todo.status === 'in_progress' ? 'bg-lime-500/5' : ''
+            }`}
+          >
+            {todo.status === 'completed' ? (
+              <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : todo.status === 'in_progress' ? (
+              <div className="w-3.5 h-3.5 shrink-0 mt-0.5 flex items-center justify-center">
+                <div className="w-3 h-3 border-[1.5px] border-lime-500/30 border-t-lime-400 rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="w-3.5 h-3.5 shrink-0 mt-0.5 flex items-center justify-center">
+                <div className="w-2.5 h-2.5 rounded-full border-[1.5px] border-gray-600" />
+              </div>
+            )}
+            <span className={`text-[12px] leading-relaxed ${
+              todo.status === 'completed'
+                ? 'text-gray-500 line-through'
+                : todo.status === 'in_progress'
+                  ? 'text-lime-300 font-medium'
+                  : 'text-gray-400'
+            }`}>
+              {todo.status === 'in_progress' && todo.activeForm
+                ? todo.activeForm
+                : todo.content}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
