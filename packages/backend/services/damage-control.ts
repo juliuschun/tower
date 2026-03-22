@@ -41,6 +41,8 @@ const DENY_SYSPACKAGE: Array<{ pattern: RegExp; label: string }> = [
 
 const VIEWER_ALLOWED_TOOLS = new Set([
   'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'AskUserQuestion',
+  // Read-only Pi custom tools (capitalized by wrapPiTools)
+  'ExcelRead', 'ExcelQuery', 'PdfRead',
 ]);
 
 // ─── Factory ─────────────────────────────────────────────────────────────────

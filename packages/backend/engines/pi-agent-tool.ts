@@ -17,6 +17,7 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { AuthStorage, ModelRegistry } from '@mariozechner/pi-coding-agent';
+import { wrapPiTools, type ToolGuard } from '../services/project-access.js';
 
 const AgentParams = Type.Object({
   prompt: Type.String({ description: 'The task for the sub-agent to perform' }),
@@ -25,11 +26,13 @@ const AgentParams = Type.Object({
 
 /**
  * Create an Agent tool instance bound to shared auth/registry.
- * Called once per PiEngine, reused across sessions.
+ * Called once per PiEngine session. Accepts optional ToolGuard
+ * to enforce the same access control in sub-agent sessions.
  */
 export function createAgentTool(
   authStorage: AuthStorage,
   modelRegistry: ModelRegistry,
+  guard?: ToolGuard,
 ): ToolDefinition {
   return {
     name: 'agent',
@@ -49,10 +52,13 @@ export function createAgentTool(
       console.log(`[Pi:Agent] Sub-agent started: ${description || prompt.slice(0, 50)}`);
 
       try {
-        // Create a lightweight child session
+        // Create a lightweight child session with same access control
+        const childTools = guard
+          ? wrapPiTools([readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool], guard)
+          : [readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool];
         const { session: child } = await createAgentSession({
           cwd: process.cwd(),
-          tools: [readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool],
+          tools: childTools,
           authStorage,
           modelRegistry,
           sessionManager: SessionManager.inMemory(),

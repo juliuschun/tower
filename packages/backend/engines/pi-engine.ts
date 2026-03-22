@@ -401,7 +401,7 @@ export class PiEngine implements Engine {
       cwd: opts.cwd,
       model,
       tools: piTools,
-      customTools: [createAgentTool(auth, registry), excelReadTool, excelQueryTool, pdfReadTool, excelWriteTool, excelDiffTool, todoWriteTool],
+      customTools: wrapPiTools([createAgentTool(auth, registry, guard), excelReadTool, excelQueryTool, pdfReadTool, excelWriteTool, excelDiffTool, todoWriteTool], guard),
       authStorage: auth,
       modelRegistry: registry,
       resourceLoader,

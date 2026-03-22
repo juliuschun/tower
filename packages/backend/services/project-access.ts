@@ -264,24 +264,31 @@ export function buildToolGuard(opts: {
 
 /**
  * Wrap Pi SDK tools with a ToolGuard.
- * Pi tools have { name, parameters, execute(args, context) } shape.
+ * Pi tools have { name, parameters, execute(toolCallId, args, signal) } shape.
  * Returns new tool objects with guarded execute().
+ *
+ * ALL tools are wrapped — damage control (role-based whitelist) applies to every tool,
+ * not just file/bash tools. Path extraction only runs for known file tools.
  */
 export function wrapPiTools(tools: any[], guard: ToolGuard): any[] {
+  // Tools whose first positional arg has a 'path' field
+  const FILE_TOOLS = new Set(['read', 'write', 'edit', 'grep', 'find', 'ls']);
+
   return tools.map(tool => {
-    const toolName = tool.name || '';
-
-    // Tools that have a 'path' parameter
-    const hasPathParam = ['read', 'write', 'edit', 'grep', 'find', 'ls'].includes(toolName);
-    const isBash = toolName === 'bash';
-
-    if (!hasPathParam && !isBash) return tool; // no path to check
+    const toolName: string = tool.name || '';
+    if (!tool.execute) return tool; // safety: skip if no execute
 
     const origExecute = tool.execute;
+    const hasPathParam = FILE_TOOLS.has(toolName);
+    const isBash = toolName === 'bash';
 
     return {
       ...tool,
-      execute: async (args: any, context: any) => {
+      execute: async (...execArgs: any[]) => {
+        // Pi tool execute signature: (toolCallId, params, signal)
+        // Custom tools may also use (toolCallId, params, signal)
+        const args = execArgs[1] ?? execArgs[0] ?? {};
+
         // Map Pi param names → guard expected format
         const input: Record<string, unknown> = {};
         if (hasPathParam && args.path) {
@@ -300,7 +307,7 @@ export function wrapPiTools(tools: any[], guard: ToolGuard): any[] {
           };
         }
 
-        return origExecute.call(tool, args, context);
+        return origExecute.call(tool, ...execArgs);
       },
     };
   });
