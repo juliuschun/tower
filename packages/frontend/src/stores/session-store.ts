@@ -45,14 +45,14 @@ export const useSessionStore = create<SessionState>((set) => ({
   activeSessionId: null,
   streamingSessions: new Set(),
   unreadSessions: new Set(),
-  sidebarOpen: !_initialIsMobile,
-  sidebarTab: 'sessions',
+  sidebarOpen: true,
+  sidebarTab: 'rooms',
   searchQuery: '',
   isMobile: _initialIsMobile,
-  mobileTab: 'chat',
+  mobileTab: 'channel',
   mobileContextOpen: false,
-  mobileTabBeforeContext: 'chat',
-  activeView: 'chat',
+  mobileTabBeforeContext: 'channel',
+  activeView: 'rooms',
 
   setSessions: (sessions) => {
     set({ sessions: dedupeSessionsById(sessions) });

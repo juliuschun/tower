@@ -8,11 +8,13 @@ import { findJsonlFile } from './jsonl-utils.js';
 export type { SessionMeta } from '@tower/shared';
 import type { SessionMeta } from '@tower/shared';
 
-export async function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string, roomId?: string | null): Promise<SessionMeta> {
+export async function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string, roomId?: string | null, sourceMessageId?: string | null): Promise<SessionMeta> {
   const id = uuidv4();
+  // Sessions within a project default to 'project' visibility (shared with members)
+  const visibility = projectId ? 'project' : 'private';
   await execute(`
-    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
-  `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null]);
+    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id, source_message_id, visibility) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null, sourceMessageId || null, visibility]);
 
   return {
     id,
@@ -27,6 +29,7 @@ export async function createSession(name: string, cwd: string, userId?: number, 
     projectId: projectId || null,
     engine: engine || 'claude',
     roomId: roomId || null,
+    sourceMessageId: sourceMessageId || null,
   };
 }
 
@@ -39,7 +42,7 @@ export async function getPanelSessions(roomId: string, userId: number): Promise<
   return rows.map(mapRow);
 }
 
-export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited'>>) {
+export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited' | 'visibility'>>) {
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const values: any[] = [];
   let paramIndex = 1;
@@ -57,27 +60,32 @@ export async function updateSession(id: string, updates: Partial<Pick<SessionMet
   if (updates.summaryAtTurn !== undefined) { sets.push(`summary_at_turn = $${paramIndex++}`); values.push(updates.summaryAtTurn); }
   if (updates.turnCount !== undefined) { sets.push(`turn_count = $${paramIndex++}`); values.push(updates.turnCount); }
   if (updates.filesEdited !== undefined) { sets.push(`files_edited = $${paramIndex++}`); values.push(JSON.stringify(updates.filesEdited)); }
+  if (updates.visibility !== undefined) { sets.push(`visibility = $${paramIndex++}`); values.push(updates.visibility); }
 
   values.push(id);
   await execute(`UPDATE sessions SET ${sets.join(', ')} WHERE id = $${paramIndex}`, values);
 }
 
 export async function getSessions(userId?: number, role?: string): Promise<SessionMeta[]> {
-  const rows = await query('SELECT * FROM sessions WHERE archived IS NULL OR archived = 0 ORDER BY updated_at DESC') as any[];
+  const rows = await query('SELECT s.*, u.username AS owner_username FROM sessions s LEFT JOIN users u ON s.user_id = u.id WHERE s.archived IS NULL OR s.archived = 0 ORDER BY s.updated_at DESC') as any[];
 
-  // NOTE: 테스트 기간 — 모든 사용자가 모든 세션을 볼 수 있도록 필터 비활성화
-  // 원래 로직은 아래 주석 참조 (복구 시 주석 해제)
-  // --- Original filter ---
-  // if (userId && role) {
-  //   const accessibleIds = await getAccessibleProjectIds(userId, role);
-  //   if (accessibleIds !== null) {
-  //     return rows.filter(r => {
-  //       if (!r.project_id) return r.user_id === userId;
-  //       return accessibleIds.includes(r.project_id);
-  //     }).map(mapRow);
-  //   }
-  // }
+  if (userId && role) {
+    const accessibleIds = await getAccessibleProjectIds(userId, role);
+    if (accessibleIds !== null) {
+      // Non-admin: filter by project membership + ownership + visibility
+      return rows.filter(r => {
+        // Sessions without a project: visible only to creator
+        if (!r.project_id) return r.user_id === userId;
+        // Sessions in a project the user isn't a member of: hidden
+        if (!accessibleIds.includes(r.project_id)) return false;
+        // Project member: see own sessions + shared sessions
+        if (r.user_id === userId) return true;
+        return r.visibility === 'project';
+      }).map(mapRow);
+    }
+  }
 
+  // Admin or no auth: show all
   return rows.map(mapRow);
 }
 
@@ -103,6 +111,8 @@ function mapRow(row: any): SessionMeta {
     engine: row.engine || 'claude',
     visibility: row.visibility || 'private',
     roomId: row.room_id || null,
+    sourceMessageId: row.source_message_id || null,
+    ownerUsername: row.owner_username || null,
   };
 }
 

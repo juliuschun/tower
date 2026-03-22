@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useSessionStore, type SessionMeta } from '../../stores/session-store';
-import { useFileStore } from '../../stores/file-store';
+import { useFileStore, type FileEntry } from '../../stores/file-store';
 import { type Pin } from '../../stores/pin-store';
 import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
 import { useProjectStore, type Project } from '../../stores/project-store';
@@ -65,6 +65,8 @@ export function Sidebar({
     () => Object.values(unreadCounts).reduce((s, c) => s + c, 0),
     [unreadCounts],
   );
+
+  const currentUsername = useMemo(() => localStorage.getItem('username') || undefined, []);
 
   const [fileTreeDragOver, setFileTreeDragOver] = useState(false);
   const fileTreeDragCounter = useRef(0);
@@ -294,7 +296,6 @@ export function Sidebar({
         </div>
       ) : (
         <div className="flex border-b border-surface-800/50">
-          <button onClick={() => { setSidebarTab('sessions'); useSessionStore.getState().setActiveView('chat'); }} className={tabClass('sessions')}>Sessions</button>
           {pgEnabled && (
             <button onClick={() => { setSidebarTab('rooms'); useSessionStore.getState().setActiveView('rooms'); }} className={`${tabClass('rooms')} relative`}>
               Channel
@@ -305,6 +306,7 @@ export function Sidebar({
               )}
             </button>
           )}
+          <button onClick={() => { setSidebarTab('sessions'); useSessionStore.getState().setActiveView('chat'); }} className={tabClass('sessions')}>Sessions</button>
           <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
         </div>
       )}
@@ -374,6 +376,7 @@ export function Sidebar({
                     sessions={groupSessions}
                     collapsed={collapsedProjects.has(project.id)}
                     activeSessionId={activeSessionId}
+                    currentUsername={currentUsername}
                     onToggleCollapsed={() => toggleProjectCollapsed(project.id)}
                     onSelectSession={onSelectSession}
                     onDeleteSession={onDeleteSession}
@@ -411,6 +414,7 @@ export function Sidebar({
                             key={session.id}
                             session={session}
                             isActive={session.id === activeSessionId}
+                            currentUsername={currentUsername}
                             onSelect={onSelectSession}
                             onDelete={onDeleteSession}
                             onRename={onRenameSession}
@@ -448,6 +452,7 @@ export function Sidebar({
                       key={session.id}
                       session={session}
                       isActive={session.id === activeSessionId}
+                      currentUsername={currentUsername}
                       onSelect={onSelectSession}
                       onDelete={onDeleteSession}
                       onRename={onRenameSession}
@@ -483,40 +488,32 @@ export function Sidebar({
             )}
           </div>
         ) : sidebarTab === 'files' ? (
-          <div
-            className={`px-2 min-h-full ${fileTreeDragOver ? 'bg-primary-900/10 ring-1 ring-inset ring-primary-500/30 rounded' : ''}`}
-            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); fileTreeDragCounter.current++; if (fileTreeDragCounter.current === 1) setFileTreeDragOver(true); }}
-            onDragLeave={(e) => { e.stopPropagation(); fileTreeDragCounter.current--; if (fileTreeDragCounter.current === 0) setFileTreeDragOver(false); }}
-            onDrop={handleFileTreeDrop}
-          >
-            <FileTreeToolbar treeRoot={treeRoot} onRefresh={() => onRequestFileTree()} />
-            <Breadcrumb treeRoot={treeRoot} onNavigate={onRequestFileTree} />
-            {fileTreeDragOver && (
-              <div className="flex items-center justify-center py-4 text-[12px] text-primary-400 gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-                Upload to {treeRoot ? treeRoot.replace(/^\/home\/[^/]+/, '~') : 'root'}
-              </div>
-            )}
-            {!fileTreeDragOver && tree.length === 0 && (
-              <p className="text-[13px] text-gray-500 px-2 py-6 text-center">Loading file tree...</p>
-            )}
-            {!fileTreeDragOver && tree.length > 0 && (
-              <FileTree
-                entries={tree}
+          <div className="px-2 min-h-full space-y-1">
+            {/* Project file sections */}
+            {projects.filter(p => p.rootPath).map((project) => (
+              <ProjectFileSection
+                key={project.id}
+                project={project}
                 onFileClick={onFileClick}
-                onDirectoryClick={onDirectoryClick}
                 onPinFile={onPinFile}
                 onNewSessionInFolder={onNewSessionInFolder}
-                onRefreshTree={() => onRequestFileTree()}
               />
-            )}
+            ))}
+
+            {/* Common files (workspace root — docs/, decisions/) */}
+            <ProjectFileSection
+              key="__common__"
+              project={{ id: '__common__', name: 'Common', rootPath: treeRoot, color: '#6b7280', sortOrder: 9999, collapsed: false, archived: false, createdAt: '' }}
+              onFileClick={onFileClick}
+              onPinFile={onPinFile}
+              onNewSessionInFolder={onNewSessionInFolder}
+            />
+
+            {/* Shared with me */}
             {sharedWithMe.length > 0 && (
               <div className="mt-3 px-2">
                 <div className="text-[10px] text-gray-600 uppercase tracking-wide font-medium mb-1.5 px-1">
-                  나와 공유됨
+                  Shared with me
                 </div>
                 <div className="space-y-0.5">
                   {sharedWithMe.map(s => (
@@ -1005,7 +1002,7 @@ const PROJECT_PREVIEW_COUNT = 5;
 function ProjectGroup({
   project, sessions: groupSessions, collapsed, activeSessionId,
   onToggleCollapsed, onSelectSession, onDeleteSession, onRenameSession,
-  onToggleFavorite, onNewSession, onMoveSession, projects,
+  onToggleFavorite, onNewSession, onMoveSession, projects, currentUsername,
 }: {
   project: Project;
   sessions: SessionMeta[];
@@ -1019,6 +1016,7 @@ function ProjectGroup({
   onNewSession: () => void;
   onMoveSession: (sessionId: string, projectId: string | null) => void;
   projects: Project[];
+  currentUsername?: string;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [editing, setEditing] = useState(false);
@@ -1076,6 +1074,12 @@ function ProjectGroup({
         // Locally clear projectId on affected sessions
         for (const s of groupSessions) {
           useSessionStore.getState().updateSessionMeta(s.id, { projectId: null });
+        }
+        // Remove archived channels from room store
+        const { useRoomStore } = await import('../../stores/room-store');
+        const rooms = useRoomStore.getState().rooms.filter(r => r.projectId === project.id);
+        for (const r of rooms) {
+          useRoomStore.getState().removeRoom(r.id);
         }
         toastSuccess(`Project "${project.name}" deleted`);
       }
@@ -1166,6 +1170,7 @@ function ProjectGroup({
                 key={session.id}
                 session={session}
                 isActive={session.id === activeSessionId}
+                currentUsername={currentUsername}
                 onSelect={onSelectSession}
                 onDelete={onDeleteSession}
                 onRename={onRenameSession}
@@ -1212,8 +1217,21 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
   const [showInvite, setShowInvite] = useState(false);
   const [inviteQuery, setInviteQuery] = useState('');
   const [allUsers, setAllUsers] = useState<{ id: number; username: string }[]>([]);
-  const [currentMembers, setCurrentMembers] = useState<number[]>([]);
+  const [currentMembers, setCurrentMembers] = useState<{ userId: number; username: string; role: string }[]>([]);
   const inviteInputRef = useRef<HTMLInputElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState({ left: x, top: y });
+
+  // Adjust position to stay within viewport (runs once on mount, before paint)
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const pad = 8;
+    const newTop = rect.bottom > window.innerHeight - pad
+      ? Math.max(pad, window.innerHeight - rect.height - pad) : y;
+    const newLeft = rect.right > window.innerWidth - pad
+      ? Math.max(pad, window.innerWidth - rect.width - pad) : x;
+    setAdjustedPos({ left: newLeft, top: newTop });
+  }, [x, y]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -1237,7 +1255,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
     // Fetch current members
     fetch(`/api/projects/${project.id}/members`, { headers: { ...headers, 'Content-Type': 'application/json' } })
       .then(r => r.ok ? r.json() : [])
-      .then((members: { userId: number }[]) => setCurrentMembers(members.map(m => m.userId)))
+      .then(setCurrentMembers)
       .catch(() => {});
     setTimeout(() => inviteInputRef.current?.focus(), 50);
   }, [showInvite, project.id]);
@@ -1251,13 +1269,29 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
         method: 'POST', headers, body: JSON.stringify({ userId }),
       });
       if (res.ok) {
-        setCurrentMembers(prev => [...prev, userId]);
+        const user = allUsers.find(u => u.id === userId);
+        setCurrentMembers(prev => [...prev, { userId, username: user?.username || '', role: 'member' }]);
       }
     } catch {}
   };
 
+  const handleRemoveMember = async (userId: number) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/projects/${project.id}/members/${userId}`, {
+        method: 'DELETE', headers,
+      });
+      if (res.ok) {
+        setCurrentMembers(prev => prev.filter(m => m.userId !== userId));
+      }
+    } catch {}
+  };
+
+  const memberIds = currentMembers.map(m => m.userId);
   const filteredUsers = allUsers.filter(u => {
-    if (currentMembers.includes(u.id)) return false;
+    if (memberIds.includes(u.id)) return false;
     if (!inviteQuery.trim()) return true;
     return u.username.toLowerCase().includes(inviteQuery.toLowerCase());
   });
@@ -1266,7 +1300,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
 
   if (showSettings) {
     return (
-      <div ref={ref} className="fixed z-50" style={{ left: x, top: y }}>
+      <div ref={ref} className="fixed z-50" style={adjustedPos}>
         <ProjectSettingsPanel project={project} onClose={onClose} />
       </div>
     );
@@ -1275,7 +1309,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
   if (showInvite) {
     return (
       <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl min-w-[220px]"
-        style={{ left: x, top: y }}>
+        style={adjustedPos}>
         <div className="px-3 py-2 border-b border-surface-700/50 flex items-center gap-2">
           <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
@@ -1309,9 +1343,33 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
           )}
         </div>
         {currentMembers.length > 0 && (
-          <div className="px-3 py-1.5 border-t border-surface-700/50">
-            <span className="text-[10px] text-surface-500">{currentMembers.length} member{currentMembers.length > 1 ? 's' : ''} in project</span>
-          </div>
+          <>
+            <div className="px-3 py-1 border-t border-surface-700/50">
+              <span className="text-[10px] text-surface-500 uppercase tracking-wider">Members ({currentMembers.length})</span>
+            </div>
+            <div className="max-h-[120px] overflow-y-auto py-1">
+              {currentMembers.map(m => (
+                <div key={m.userId} className="flex items-center gap-2 px-3 py-1 text-[12px] text-gray-400 group/member">
+                  <span className="w-5 h-5 rounded-full bg-surface-700 flex items-center justify-center text-[9px] text-gray-400 shrink-0">
+                    {m.username?.[0]?.toUpperCase() || '?'}
+                  </span>
+                  <span className="flex-1 truncate">{m.username || `User ${m.userId}`}</span>
+                  <span className="text-[9px] text-surface-600">{m.role}</span>
+                  {m.role !== 'owner' && (
+                    <button
+                      onClick={() => handleRemoveMember(m.userId)}
+                      className="opacity-0 group-hover/member:opacity-100 text-red-400 hover:text-red-300 p-0.5 transition-opacity"
+                      title="Remove"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     );
@@ -1319,7 +1377,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
 
   return (
     <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[160px]"
-      style={{ left: x, top: y }}>
+      style={adjustedPos}>
       {/* New Chat */}
       <button className={itemClass} onClick={() => { onNewChat(); onClose(); }}>
         <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1781,4 +1839,132 @@ function CurrentUser() {
   } catch {
     return null;
   }
+}
+
+/* ── Project File Section — collapsible project header + lazy-loaded FileTree ── */
+
+function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFolder }: {
+  project: { id: string; name: string; rootPath?: string | null; color?: string; [key: string]: any };
+  onFileClick: (path: string) => void;
+  onPinFile?: (path: string) => void;
+  onNewSessionInFolder?: (path: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const loaded = useRef(false);
+
+  const rootPath = project.rootPath;
+
+  const fetchDir = useCallback(async (dirPath: string): Promise<FileEntry[]> => {
+    try {
+      const tk = localStorage.getItem('token');
+      const hdrs: Record<string, string> = {};
+      if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+      const res = await fetch(`/api/files/tree?path=${encodeURIComponent(dirPath)}`, { headers: hdrs });
+      if (res.ok) {
+        const data = await res.json();
+        return data.entries || [];
+      }
+    } catch {}
+    return [];
+  }, []);
+
+  const loadTree = useCallback(async () => {
+    if (!rootPath || loaded.current) return;
+    setLoading(true);
+    const result = await fetchDir(rootPath);
+    setEntries(result);
+    loaded.current = true;
+    setLoading(false);
+  }, [rootPath, fetchDir]);
+
+  // Toggle or expand a directory within the local tree
+  const handleDirectoryClick = useCallback(async (dirPath: string) => {
+    const findAndToggle = (items: FileEntry[]): FileEntry[] =>
+      items.map(e => {
+        if (e.path === dirPath) {
+          if (e.isExpanded) {
+            // Collapse
+            return { ...e, isExpanded: false };
+          }
+          // Expand — will load children
+          return { ...e, isExpanded: true, isLoading: true };
+        }
+        if (e.children) return { ...e, children: findAndToggle(e.children) };
+        return e;
+      });
+
+    setEntries(prev => findAndToggle(prev));
+
+    // Check if already has children loaded
+    const findEntry = (items: FileEntry[]): FileEntry | null => {
+      for (const e of items) {
+        if (e.path === dirPath) return e;
+        if (e.children) { const found = findEntry(e.children); if (found) return found; }
+      }
+      return null;
+    };
+    const entry = findEntry(entries);
+    if (entry?.isExpanded) {
+      // Was already expanded → we just collapsed, no fetch needed
+      return;
+    }
+
+    // Fetch children
+    const children = await fetchDir(dirPath);
+    const setChildren = (items: FileEntry[]): FileEntry[] =>
+      items.map(e => {
+        if (e.path === dirPath) return { ...e, children, isExpanded: true, isLoading: false };
+        if (e.children) return { ...e, children: setChildren(e.children) };
+        return e;
+      });
+    setEntries(prev => setChildren(prev));
+  }, [entries, fetchDir]);
+
+  const handleToggle = () => {
+    if (collapsed) loadTree();
+    setCollapsed(!collapsed);
+  };
+
+  if (!rootPath) return null;
+
+  return (
+    <div className="mb-1">
+      <div
+        className="flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj hover:bg-surface-850"
+        onClick={handleToggle}
+      >
+        <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${collapsed ? '-rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+        <svg className="w-4 h-4 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+        </svg>
+        <span className="text-[13px] font-bold text-gray-300 truncate">{project.name}</span>
+      </div>
+
+      {!collapsed && (
+        <div className="pl-5">
+          {loading && entries.length === 0 && (
+            <p className="text-[12px] text-gray-500 py-2">Loading...</p>
+          )}
+          {entries.length > 0 && (
+            <FileTree
+              entries={entries}
+              onFileClick={onFileClick}
+              onDirectoryClick={handleDirectoryClick}
+              onPinFile={onPinFile}
+              onNewSessionInFolder={onNewSessionInFolder}
+              onRefreshTree={() => { loaded.current = false; loadTree(); }}
+            />
+          )}
+          {!loading && loaded.current && entries.length === 0 && (
+            <p className="text-[12px] text-surface-600 py-2">Empty</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

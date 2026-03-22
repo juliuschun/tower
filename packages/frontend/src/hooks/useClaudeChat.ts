@@ -883,7 +883,21 @@ export function useClaudeChat() {
       case 'session_meta_update': {
         const { sessionId: metaSid, updates: metaUpdates } = data;
         if (metaSid && metaUpdates) {
-          useSessionStore.getState().updateSessionMeta(metaSid, metaUpdates);
+          const store = useSessionStore.getState();
+          const existing = store.sessions.find(s => s.id === metaSid);
+          if (existing) {
+            // Session exists locally — update it
+            store.updateSessionMeta(metaSid, metaUpdates);
+          } else if (metaUpdates.visibility === 'project') {
+            // Session became shared — refetch session list to pick it up
+            const tk = localStorage.getItem('token');
+            const hdrs: Record<string, string> = {};
+            if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+            fetch('/api/sessions', { headers: hdrs })
+              .then(r => r.ok ? r.json() : [])
+              .then(sessions => store.setSessions(sessions.filter((s: any) => !s.roomId)))
+              .catch(() => {});
+          }
         }
         break;
       }

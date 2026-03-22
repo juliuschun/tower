@@ -3,7 +3,7 @@ import { useSessionStore, type MobileTab } from '../../stores/session-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useRoomStore } from '../../stores/room-store';
 
-const tabs: { id: MobileTab | 'settings'; label: string; icon: JSX.Element }[] = [
+const tabs: { id: MobileTab | 'settings'; label: string; icon: React.ReactNode }[] = [
   {
     id: 'chat',
     label: 'AI',
@@ -72,7 +72,8 @@ export function MobileTabBar() {
     }
     setMobileTab(tab);
     if (tab === 'chat') {
-      setSidebarOpen(false);
+      setSidebarOpen(true);
+      setSidebarTab('sessions');
       setMobileContextOpen(false);
       setActiveView('chat');
     } else if (tab === 'channel') {

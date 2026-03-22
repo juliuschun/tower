@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import type { SessionMeta } from '../../stores/session-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useChatStore } from '../../stores/chat-store';
@@ -27,6 +27,20 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
   projects?: Project[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState({ left: x, top: y });
+
+  // Adjust position to stay within viewport (runs once on mount, before paint)
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const pad = 8;
+    const newTop = rect.bottom > window.innerHeight - pad
+      ? Math.max(pad, window.innerHeight - rect.height - pad) : y;
+    const newLeft = rect.right > window.innerWidth - pad
+      ? Math.max(pad, window.innerWidth - rect.width - pad) : x;
+    setAdjustedPos({ left: newLeft, top: newTop });
+  }, [x, y]);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -39,7 +53,7 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
 
   return (
     <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[160px]"
-      style={{ left: x, top: y }}>
+      style={adjustedPos}>
       {/* Rename */}
       <button className={itemClass} onClick={() => { onRename(); onClose(); }}>
         <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,6 +69,35 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
         </svg>
         {session.favorite ? 'Remove favorite' : 'Favorite'}
       </button>
+      {/* Visibility toggle */}
+      {session.projectId && (
+        <button className={itemClass} onClick={() => {
+          const newVis = session.visibility === 'project' ? 'private' : 'project';
+          const tk = localStorage.getItem('token');
+          const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+          fetch(`/api/sessions/${session.id}`, {
+            method: 'PATCH', headers: hdrs, body: JSON.stringify({ visibility: newVis }),
+          }).then(res => {
+            if (res.ok) {
+              useSessionStore.getState().updateSessionMeta(session.id, { visibility: newVis });
+            }
+          }).catch(() => {});
+          onClose();
+        }}>
+          {session.visibility === 'project' ? (
+            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          )}
+          {session.visibility === 'project' ? 'Make private' : 'Share with project'}
+        </button>
+      )}
       {/* Move to Project */}
       {onMoveToProject && projects && projects.length > 0 && (
         <>
@@ -97,6 +140,7 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
 interface SessionItemProps {
   session: SessionMeta;
   isActive: boolean;
+  currentUsername?: string;
   onSelect: (session: SessionMeta) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -105,7 +149,7 @@ interface SessionItemProps {
   projects?: Project[];
 }
 
-export function SessionItem({ session, isActive, onSelect, onDelete, onRename, onToggleFavorite, onMoveToProject, projects }: SessionItemProps) {
+export function SessionItem({ session, isActive, currentUsername, onSelect, onDelete, onRename, onToggleFavorite, onMoveToProject, projects }: SessionItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -202,9 +246,18 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
           />
         ) : (
           <span className="flex-1 min-w-0 truncate font-medium leading-[20px]">
+            {/* Private lock icon (prefix) — only shown for private sessions in a project */}
+            {session.projectId && session.visibility === 'private' && (
+              <svg className="inline-block w-3 h-3 mr-1 text-surface-600 align-middle" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            )}
             {session.name}
             {(session as any).engine === 'pi' && (
               <span className="ml-1 text-[8px] font-bold text-violet-300 bg-violet-500/20 px-1 rounded align-middle">PI</span>
+            )}
+            {session.roomId && (
+              <span className="ml-1 text-[9px] text-surface-600 align-middle">#thread</span>
             )}
           </span>
         )}
@@ -213,7 +266,10 @@ export function SessionItem({ session, isActive, onSelect, onDelete, onRename, o
         {!editing && (
           <>
             <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden">
-              {relativeTime(session.updatedAt)}{session.turnCount ? ` · ${session.turnCount}t` : ''}
+              {session.projectId && session.ownerUsername && currentUsername && session.ownerUsername !== currentUsername
+                ? <>{session.ownerUsername} · {relativeTime(session.updatedAt)}</>
+                : <>{relativeTime(session.updatedAt)}{session.turnCount ? ` · ${session.turnCount}t` : ''}</>
+              }
             </span>
             <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
               <button

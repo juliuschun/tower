@@ -19,11 +19,17 @@ export async function search(query: string, opts: { userId?: number; role?: stri
     ? await getAccessibleProjectIds(opts.userId, opts.role)
     : null;
 
-  // Filter function: same logic as sessions — project sessions by group, non-project by creator
-  const isVisible = (row: { user_id: number | null; project_id: string | null }) => {
+  // Filter function: same logic as sessions — respects visibility + project membership
+  const isVisible = (row: { user_id: number | null; project_id: string | null; visibility?: string }) => {
     if (accessibleIds === null) return true; // admin or no groups
+    // Non-project sessions: only creator can see
     if (!row.project_id) return row.user_id === opts.userId;
-    return accessibleIds.includes(row.project_id);
+    // Project sessions: must be a member
+    if (!accessibleIds.includes(row.project_id)) return false;
+    // Own sessions always visible
+    if (row.user_id === opts.userId) return true;
+    // Others' sessions: only if visibility = 'project'
+    return row.visibility === 'project';
   };
 
   // Fetch extra rows to compensate for post-filtering
@@ -32,7 +38,7 @@ export async function search(query: string, opts: { userId?: number; role?: stri
   // 1) Session search (name, summary)
   try {
     const sessionHits = await pgQuery(`
-      SELECT id, name, summary, created_at, user_id, project_id
+      SELECT id, name, summary, created_at, user_id, project_id, visibility
       FROM sessions
       WHERE (name ILIKE '%' || $1 || '%' OR COALESCE(summary,'') ILIKE '%' || $1 || '%')
         AND archived = 0
@@ -56,7 +62,7 @@ export async function search(query: string, opts: { userId?: number; role?: stri
   try {
     const messageHits = await pgQuery(`
       SELECT m.id, m.content AS body, m.session_id, m.created_at,
-             s.name AS session_name, s.user_id, s.project_id
+             s.name AS session_name, s.user_id, s.project_id, s.visibility
       FROM messages m
       JOIN sessions s ON s.id = m.session_id
       WHERE m.content ILIKE '%' || $1 || '%'

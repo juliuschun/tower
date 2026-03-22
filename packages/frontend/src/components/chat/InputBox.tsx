@@ -378,6 +378,13 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       for (const file of serverFiles) {
         formData.append('files', file);
       }
+      // Include projectId so uploads go to the project folder
+      const activeSession = useSessionStore.getState().sessions.find(
+        s => s.id === useSessionStore.getState().activeSessionId
+      );
+      if (activeSession?.projectId) {
+        formData.append('projectId', activeSession.projectId);
+      }
       try {
         const token = localStorage.getItem('token');
         const headers: Record<string, string> = {};
