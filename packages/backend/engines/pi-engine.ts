@@ -25,6 +25,7 @@ import { buildSystemPrompt } from '../services/system-prompt.js';
 import { createAgentTool } from './pi-agent-tool.js';
 import { excelReadTool, excelQueryTool } from './pi-finance-tools.js';
 import { pdfReadTool, excelWriteTool, excelDiffTool } from './pi-finance-tools-extra.js';
+import { todoWriteTool } from './pi-todo-tool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -342,7 +343,7 @@ export class PiEngine implements Engine {
     // ── Build Tower context for Pi ──
     // Pi SDK auto-discovers AGENTS.md/CLAUDE.md from cwd — let it.
     // Tower only injects what Pi can't know: user identity, team rules, path restrictions.
-    const towerPrompt = buildSystemPrompt({
+    const towerPrompt = await buildSystemPrompt({
       userId: opts.userId,
       username: opts.username || 'anonymous',
       role: opts.userRole || 'member',
@@ -388,7 +389,7 @@ export class PiEngine implements Engine {
       cwd: opts.cwd,
       model,
       tools: [readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool],
-      customTools: [createAgentTool(auth, registry), excelReadTool, excelQueryTool, pdfReadTool, excelWriteTool, excelDiffTool],
+      customTools: [createAgentTool(auth, registry), excelReadTool, excelQueryTool, pdfReadTool, excelWriteTool, excelDiffTool, todoWriteTool],
       authStorage: auth,
       modelRegistry: registry,
       resourceLoader,
