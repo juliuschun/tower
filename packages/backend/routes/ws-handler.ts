@@ -20,6 +20,7 @@ import { getTasks } from '../services/task-manager.js';
 import { addRoomClient, removeRoomClient, removeClientFromAllRooms, getRoomClientIds } from '../services/room-guards.js';
 import type { RoomClient } from '../services/room-guards.js';
 import { isPgEnabled } from '../db/pg.js';
+import { canAccessRoom, isPathAccessible } from '../services/project-access.js';
 
 interface WsClient {
   id: string;
@@ -782,11 +783,19 @@ async function handleAbort(client: WsClient, data: { sessionId?: string }) {
   }
 }
 
-function handleFileRead(client: WsClient, data: { path: string }) {
+async function handleFileRead(client: WsClient, data: { path: string }) {
   try {
     if (client.allowedPath && !isPathSafe(data.path, client.allowedPath)) {
       send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
       return;
+    }
+    // Project-level path check (same as HTTP /files/read)
+    if (client.userId) {
+      const pathOk = await isPathAccessible(data.path, client.userId, client.userRole || 'member');
+      if (!pathOk) {
+        send(client.ws, { type: 'error', message: 'Access denied: project path' });
+        return;
+      }
     }
     // Binary files (PDF, images): send metadata only — frontend fetches via HTTP API
     const ext = data.path.split('.').pop()?.toLowerCase() || '';
@@ -815,11 +824,19 @@ function handleFileRead(client: WsClient, data: { path: string }) {
   }
 }
 
-function handleFileWrite(client: WsClient, data: { path: string; content: string }) {
+async function handleFileWrite(client: WsClient, data: { path: string; content: string }) {
   try {
     if (client.allowedPath && !isPathSafe(data.path, client.allowedPath)) {
       send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
       return;
+    }
+    // Project-level path check (same as HTTP /files/write)
+    if (client.userId) {
+      const pathOk = await isPathAccessible(data.path, client.userId, client.userRole || 'member');
+      if (!pathOk) {
+        send(client.ws, { type: 'error', message: 'Access denied: project path' });
+        return;
+      }
     }
     writeFile(data.path, data.content);
     send(client.ws, {
@@ -854,10 +871,18 @@ function handleFileTree(client: WsClient, data: { path?: string }) {
 
 // ── Chat Room Handlers ──────────────────────────────────────────────────
 
-function handleRoomJoin(client: WsClient, data: { roomId: string }) {
+async function handleRoomJoin(client: WsClient, data: { roomId: string }) {
   if (!isPgEnabled()) {
     send(client.ws, { type: 'error', message: 'Chat rooms require PostgreSQL (DATABASE_URL not set)' });
     return;
+  }
+  // Verify membership before allowing WS subscription
+  if (client.userId) {
+    const access = await canAccessRoom(data.roomId, client.userId, client.userRole || 'member');
+    if (!access.allowed) {
+      send(client.ws, { type: 'error', message: 'Access denied: not a room member' });
+      return;
+    }
   }
   const roomClient: RoomClient = { id: client.id, joinedRooms: client.joinedRooms };
   addRoomClient(roomClients, roomClient, data.roomId);
