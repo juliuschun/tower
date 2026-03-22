@@ -382,7 +382,7 @@ export async function findProjectByPath(cwd: string): Promise<string | null> {
   const resolved = path.resolve(cwd);
   const { query: pgQuery } = await import('../db/pg-repo.js');
   const rows = await pgQuery<{ id: string; root_path: string }>(
-    `SELECT id, root_path FROM projects WHERE root_path IS NOT NULL AND archived_at IS NULL`,
+    `SELECT id, root_path FROM projects WHERE root_path IS NOT NULL AND (archived IS NULL OR archived = 0)`,
     [],
   );
   // Find the most specific (longest) root_path that contains the cwd

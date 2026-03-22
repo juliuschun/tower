@@ -136,20 +136,18 @@ export async function getArchivedSessions(userId?: number, role?: string): Promi
   // Apply same project access control as getSessions
   if (userId && role) {
     const accessibleIds = await getAccessibleProjectIds(userId, role);
-    if (accessibleIds !== null) {
-      return rows.filter(r => {
-        if (!r.project_id) return r.user_id === userId;
-        if (!accessibleIds.includes(r.project_id)) return false;
-        if (r.user_id === userId) return true;
-        return r.visibility === 'project';
-      }).map(mapRow);
-    }
+    // admin → accessibleIds === null → show all
+    if (accessibleIds === null) return rows.map(mapRow);
+    // non-admin → filter by ownership + project membership
+    return rows.filter(r => {
+      if (!r.project_id) return r.user_id === userId;
+      if (!accessibleIds.includes(r.project_id)) return false;
+      if (r.user_id === userId) return true;
+      return r.visibility === 'project';
+    }).map(mapRow);
   }
 
-  // Admin or no auth: filter by userId only
-  if (userId) {
-    return rows.filter(r => r.user_id === userId).map(mapRow);
-  }
+  // No auth context: return all (backward compat)
   return rows.map(mapRow);
 }
 

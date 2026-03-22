@@ -608,6 +608,12 @@ router.post('/sessions/:id/summarize', async (req, res) => {
 });
 
 router.delete('/sessions/:id', async (req, res) => {
+  const userId = (req as any).user?.userId;
+  const role = (req as any).user?.role;
+  if (userId) {
+    const access = await canAccessSession(req.params.id as string, userId, role);
+    if (!access.allowed) return res.status(access.status).json({ error: access.message });
+  }
   const deleted = await deleteSession(req.params.id as string);
   if (!deleted) return res.status(404).json({ error: 'Session not found' });
   res.json({ ok: true });
@@ -835,6 +841,13 @@ router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
       } catch {}
     }
 
+    // Project path access check for non-admin users
+    const uploadUserId = (req as any).user?.userId;
+    const uploadRole = (req as any).user?.role;
+    if (uploadUserId && !(await isPathAccessible(uploadDir, uploadUserId, uploadRole))) {
+      return res.status(403).json({ error: 'Access denied: upload directory outside your project folders' });
+    }
+
     const results: { name: string; path: string; error?: string }[] = [];
 
     for (const file of files) {
@@ -867,8 +880,10 @@ router.post('/files/create', async (req, res) => {
     const { path: filePath, content } = req.body;
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (userId && !(await isPathAccessible(filePath, userId, role))) return res.status(403).json({ error: 'Access denied: outside your project folders' });
     if (fs.existsSync(filePath)) return res.status(409).json({ error: 'File already exists' });
     writeFile(filePath, content || '');
     res.json({ ok: true, path: filePath });
@@ -882,8 +897,10 @@ router.post('/files/mkdir', async (req, res) => {
     const { path: dirPath } = req.body;
     if (!dirPath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (userId && !(await isPathAccessible(dirPath, userId, role))) return res.status(403).json({ error: 'Access denied: outside your project folders' });
     if (fs.existsSync(dirPath)) return res.status(409).json({ error: 'Directory already exists' });
     createDirectory(dirPath);
     res.json({ ok: true, path: dirPath });
@@ -897,8 +914,10 @@ router.post('/files/delete', async (req, res) => {
     const { path: targetPath } = req.body;
     if (!targetPath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(targetPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (userId && !(await isPathAccessible(targetPath, userId, role))) return res.status(403).json({ error: 'Access denied: outside your project folders' });
     deleteEntry(targetPath);
     res.json({ ok: true });
   } catch (error: any) {
@@ -911,9 +930,13 @@ router.post('/files/rename', async (req, res) => {
     const { oldPath, newPath } = req.body;
     if (!oldPath || !newPath) return res.status(400).json({ error: 'oldPath and newPath required' });
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(oldPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     if (!isPathSafe(newPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (userId && (!(await isPathAccessible(oldPath, userId, role)) || !(await isPathAccessible(newPath, userId, role)))) {
+      return res.status(403).json({ error: 'Access denied: outside your project folders' });
+    }
     renameEntry(oldPath, newPath);
     res.json({ ok: true, path: newPath });
   } catch (error: any) {
@@ -1354,6 +1377,13 @@ router.post('/projects', async (req, res) => {
 
 router.patch('/projects/:id', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (role !== 'admin' && userId) {
+      if (!(await isProjectOwner(req.params.id as string, userId))) {
+        return res.status(403).json({ error: 'only owner or admin can update project' });
+      }
+    }
     const project = await updateProject(req.params.id as string, req.body);
     if (!project) return res.status(404).json({ error: 'project not found' });
     res.json(project);
@@ -1364,6 +1394,13 @@ router.patch('/projects/:id', async (req, res) => {
 
 router.delete('/projects/:id', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (role !== 'admin' && userId) {
+      if (!(await isProjectOwner(req.params.id as string, userId))) {
+        return res.status(403).json({ error: 'only owner or admin can delete project' });
+      }
+    }
     const ok = await deleteProject(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'project not found' });
     res.json({ ok: true });
