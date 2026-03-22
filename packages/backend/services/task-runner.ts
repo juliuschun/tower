@@ -304,7 +304,13 @@ export async function spawnTask(
     }
   }
 
-  const session = await createSession(`🟢 ${task.title}`, task.cwd, userId);
+  // Auto-map cwd → projectId for task sessions
+  let taskProjectId: string | null = null;
+  try {
+    const { findProjectByPath } = await import('./project-access.js');
+    taskProjectId = await findProjectByPath(task.cwd);
+  } catch {}
+  const session = await createSession(`🟢 ${task.title}`, task.cwd, userId, taskProjectId);
   const sessionId = session.id;
 
   await updateTask(taskId, {

@@ -370,3 +370,30 @@ export async function isPathAccessible(
     return resolved === rootResolved || resolved.startsWith(rootResolved + path.sep);
   });
 }
+
+// ─── Auto-mapping: cwd → project_id ──────────────────────────────────────────
+
+/**
+ * Find the project whose root_path matches (or contains) a given cwd.
+ * Used to auto-assign project_id when creating sessions without explicit projectId.
+ * Returns project id or null if no match.
+ */
+export async function findProjectByPath(cwd: string): Promise<string | null> {
+  const resolved = path.resolve(cwd);
+  const { query: pgQuery } = await import('../db/pg-repo.js');
+  const rows = await pgQuery<{ id: string; root_path: string }>(
+    `SELECT id, root_path FROM projects WHERE root_path IS NOT NULL AND archived_at IS NULL`,
+    [],
+  );
+  // Find the most specific (longest) root_path that contains the cwd
+  let bestMatch: { id: string; len: number } | null = null;
+  for (const row of rows) {
+    const rootResolved = path.resolve(row.root_path);
+    if (resolved === rootResolved || resolved.startsWith(rootResolved + path.sep)) {
+      if (!bestMatch || rootResolved.length > bestMatch.len) {
+        bestMatch = { id: row.id, len: rootResolved.length };
+      }
+    }
+  }
+  return bestMatch?.id ?? null;
+}

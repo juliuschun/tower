@@ -480,15 +480,24 @@ router.get('/sessions', async (req, res) => {
 });
 
 router.post('/sessions', async (req, res) => {
-  const { name, cwd, projectId, engine, roomId, sourceMessageId } = req.body;
+  const { name, cwd, engine, roomId, sourceMessageId } = req.body;
+  let { projectId } = req.body;
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
+  const effectiveCwd = cwd || config.defaultCwd;
+
+  // Auto-map cwd → projectId if not provided
+  if (!projectId && effectiveCwd) {
+    const { findProjectByPath } = await import('../services/project-access.js');
+    projectId = await findProjectByPath(effectiveCwd);
+  }
+
   // Project access check for session creation
   if (projectId && userId) {
     const access = await canCreateInProject(projectId, userId, role);
     if (!access.allowed) return res.status(access.status).json({ error: access.message });
   }
-  const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, cwd || config.defaultCwd, userId, projectId, engine, roomId, sourceMessageId);
+  const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, effectiveCwd, userId, projectId, engine, roomId, sourceMessageId);
   res.json(session);
 });
 
@@ -668,10 +677,27 @@ router.get('/directories', async (req, res) => {
 router.get('/files/tree', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     const dirPath = (req.query.path as string) || userRoot;
     if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied: outside allowed path' });
-    const entries = getFileTree(dirPath);
+    let entries = getFileTree(dirPath);
+
+    // Filter project folders: non-admin users only see projects they're a member of
+    const projectsDir = path.resolve(path.join(config.workspaceRoot, 'projects'));
+    if (userId && role !== 'admin' && path.resolve(dirPath) === projectsDir) {
+      const { getUserAccessiblePaths } = await import('../services/project-access.js');
+      const accessiblePaths = await getUserAccessiblePaths(userId, role || 'member');
+      if (accessiblePaths) {
+        const resolvedRoots = accessiblePaths.map(p => path.resolve(p));
+        entries = entries.filter(e => {
+          if (!e.isDirectory) return true; // files in projects/ root are visible
+          const entryResolved = path.resolve(e.path);
+          return resolvedRoots.some(root => entryResolved === root || root.startsWith(entryResolved + path.sep));
+        });
+      }
+    }
+
     res.json({ path: dirPath, entries });
   } catch (error: any) {
     res.status(403).json({ error: error.message });
