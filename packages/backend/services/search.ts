@@ -10,43 +10,78 @@ export interface SearchResult {
   createdAt: string;
 }
 
+/**
+ * Build SQL visibility clause for session-based queries.
+ * Returns { clause, params, nextIdx } to append to WHERE.
+ *
+ * Logic (same as getSessions):
+ *   admin → no filter
+ *   member → (own sessions) OR (project member + visibility='project')
+ */
+function buildVisibilityFilter(
+  accessibleIds: string[] | null,
+  userId: number | undefined,
+  startIdx: number,
+): { clause: string; params: any[]; nextIdx: number } {
+  if (accessibleIds === null) {
+    // admin — no filter
+    return { clause: '', params: [], nextIdx: startIdx };
+  }
+
+  // Non-admin: own sessions + project-visible sessions in accessible projects
+  const params: any[] = [];
+  const conditions: string[] = [];
+
+  // Own sessions (any project or no project)
+  if (userId) {
+    conditions.push(`s.user_id = $${startIdx}`);
+    params.push(userId);
+    startIdx++;
+  }
+
+  // Project sessions where user is a member and visibility = 'project'
+  if (accessibleIds.length > 0) {
+    conditions.push(`(s.project_id = ANY($${startIdx}) AND s.visibility = 'project')`);
+    params.push(accessibleIds);
+    startIdx++;
+  }
+
+  if (conditions.length === 0) {
+    return { clause: 'AND FALSE', params: [], nextIdx: startIdx };
+  }
+
+  return {
+    clause: `AND (${conditions.join(' OR ')})`,
+    params,
+    nextIdx: startIdx,
+  };
+}
+
 export async function search(query: string, opts: { userId?: number; role?: string; limit?: number } = {}): Promise<SearchResult[]> {
   const limit = opts.limit || 20;
   const results: SearchResult[] = [];
 
-  // Determine accessible project IDs for group filtering
+  // Determine accessible project IDs for DB-level filtering
   const accessibleIds = (opts.userId && opts.role)
     ? await getAccessibleProjectIds(opts.userId, opts.role)
     : null;
 
-  // Filter function: same logic as sessions — respects visibility + project membership
-  const isVisible = (row: { user_id: number | null; project_id: string | null; visibility?: string }) => {
-    if (accessibleIds === null) return true; // admin or no groups
-    // Non-project sessions: only creator can see
-    if (!row.project_id) return row.user_id === opts.userId;
-    // Project sessions: must be a member
-    if (!accessibleIds.includes(row.project_id)) return false;
-    // Own sessions always visible
-    if (row.user_id === opts.userId) return true;
-    // Others' sessions: only if visibility = 'project'
-    return row.visibility === 'project';
-  };
-
-  // Fetch extra rows to compensate for post-filtering
-  const fetchLimit = limit * 3;
+  const vis = buildVisibilityFilter(accessibleIds, opts.userId, 3);
 
   // 1) Session search (name, summary)
   try {
+    const sessionParams = [query, limit, ...vis.params];
     const sessionHits = await pgQuery(`
-      SELECT id, name, summary, created_at, user_id, project_id, visibility
-      FROM sessions
-      WHERE (name ILIKE '%' || $1 || '%' OR COALESCE(summary,'') ILIKE '%' || $1 || '%')
-        AND archived = 0
+      SELECT s.id, s.name, s.summary, s.created_at, s.user_id, s.project_id, s.visibility
+      FROM sessions s
+      WHERE (s.name ILIKE '%' || $1 || '%' OR COALESCE(s.summary,'') ILIKE '%' || $1 || '%')
+        AND s.archived = 0
+        ${vis.clause}
+      ORDER BY s.updated_at DESC
       LIMIT $2
-    `, [query, fetchLimit]);
+    `, sessionParams);
 
     for (const hit of sessionHits) {
-      if (!isVisible(hit)) continue;
       results.push({
         type: 'session',
         sessionId: hit.id,
@@ -60,6 +95,8 @@ export async function search(query: string, opts: { userId?: number; role?: stri
 
   // 2) Message search (body)
   try {
+    const msgVis = buildVisibilityFilter(accessibleIds, opts.userId, 3);
+    const msgParams = [query, limit, ...msgVis.params];
     const messageHits = await pgQuery(`
       SELECT m.id, m.content AS body, m.session_id, m.created_at,
              s.name AS session_name, s.user_id, s.project_id, s.visibility
@@ -68,12 +105,12 @@ export async function search(query: string, opts: { userId?: number; role?: stri
       WHERE m.content ILIKE '%' || $1 || '%'
         AND m.role IN ('user', 'assistant')
         AND (s.archived IS NULL OR s.archived = 0)
+        ${msgVis.clause}
       ORDER BY m.created_at DESC
       LIMIT $2
-    `, [query, fetchLimit]);
+    `, msgParams);
 
     for (const hit of messageHits) {
-      if (!isVisible(hit)) continue;
       const body = hit.body || '';
       const idx = body.toLowerCase().indexOf(query.toLowerCase());
       const start = Math.max(0, idx - 80);

@@ -12,7 +12,7 @@ import {
   getArchivedSessions, restoreSession, permanentlyDeleteSession,
   scanClaudeNativeSessions, getPanelSessions,
 } from '../services/session-manager.js';
-import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
+import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
 import { loadCommands } from '../services/command-loader.js';
 import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref } from '../services/skill-registry.js';
@@ -52,7 +52,7 @@ import {
   isProjectOwner, isProjectMember, inviteGroupToProject,
 } from '../services/group-manager.js';
 import {
-  canAccessSession, canAccessRoom, canCreateInProject, isPathAccessible,
+  canAccessSession, canCreateInProject, isPathAccessible,
 } from '../services/project-access.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 50 * 1024 * 1024; // 50MB
@@ -1568,7 +1568,8 @@ router.post('/tasks/reorder', async (req, res) => {
 router.get('/history', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
-    const sessions = await getArchivedSessions(userId);
+    const role = (req as any).user?.role;
+    const sessions = await getArchivedSessions(userId, role);
     const tasks = await getArchivedTasks(userId);
     res.json({ sessions, tasks });
   } catch (err: any) {
@@ -1578,6 +1579,12 @@ router.get('/history', async (req, res) => {
 
 router.post('/sessions/:id/restore', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessSession(req.params.id, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const ok = await restoreSession(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'session not found' });
     res.json({ success: true });
@@ -1588,6 +1595,12 @@ router.post('/sessions/:id/restore', async (req, res) => {
 
 router.delete('/sessions/:id/permanent', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessSession(req.params.id, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const ok = await permanentlyDeleteSession(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'session not found' });
     res.json({ success: true });

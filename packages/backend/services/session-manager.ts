@@ -128,12 +128,29 @@ export async function deleteSession(id: string): Promise<boolean> {
   return result.changes > 0;
 }
 
-export async function getArchivedSessions(userId?: number): Promise<SessionMeta[]> {
-  const rows = userId
-    ? await query('SELECT * FROM sessions WHERE user_id = $1 AND archived = 1 ORDER BY updated_at DESC', [userId])
-    : await query('SELECT * FROM sessions WHERE archived = 1 ORDER BY updated_at DESC');
+export async function getArchivedSessions(userId?: number, role?: string): Promise<SessionMeta[]> {
+  const rows = await query(
+    'SELECT * FROM sessions WHERE archived = 1 ORDER BY updated_at DESC'
+  ) as any[];
 
-  return (rows as any[]).map(mapRow);
+  // Apply same project access control as getSessions
+  if (userId && role) {
+    const accessibleIds = await getAccessibleProjectIds(userId, role);
+    if (accessibleIds !== null) {
+      return rows.filter(r => {
+        if (!r.project_id) return r.user_id === userId;
+        if (!accessibleIds.includes(r.project_id)) return false;
+        if (r.user_id === userId) return true;
+        return r.visibility === 'project';
+      }).map(mapRow);
+    }
+  }
+
+  // Admin or no auth: filter by userId only
+  if (userId) {
+    return rows.filter(r => r.user_id === userId).map(mapRow);
+  }
+  return rows.map(mapRow);
 }
 
 export async function restoreSession(id: string): Promise<boolean> {
