@@ -124,9 +124,11 @@ interface TodoItem {
 }
 
 function TodoChecklist({ todos }: { todos: TodoItem[] }) {
+  // ToolUseCard expanded view is always historical — no spinners
   const total = todos.length;
   const completed = todos.filter(t => t.status === 'completed').length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const allDone = completed === total;
 
   return (
     <div className="space-y-2">
@@ -137,52 +139,34 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
             className="h-full rounded-full transition-all duration-500 ease-out"
             style={{
               width: `${pct}%`,
-              background: pct === 100
-                ? 'linear-gradient(90deg, #22c55e, #4ade80)'
-                : 'linear-gradient(90deg, #84cc16, #a3e635)',
+              background: allDone ? 'linear-gradient(90deg, #22c55e, #4ade80)' : '#6b7280',
             }}
           />
         </div>
-        <span className={`text-[11px] font-mono tabular-nums ${pct === 100 ? 'text-emerald-400' : 'text-lime-400/80'}`}>
+        <span className={`text-[11px] font-mono tabular-nums ${allDone ? 'text-emerald-400' : 'text-gray-500'}`}>
           {completed}/{total}
         </span>
       </div>
 
-      {/* Todo items */}
+      {/* Todo items — static snapshot */}
       <div className="space-y-0.5">
         {todos.map((todo, i) => (
-          <div
-            key={i}
-            className={`flex items-start gap-2 px-2 py-1.5 rounded-md transition-colors ${
-              todo.status === 'in_progress' ? 'bg-lime-500/5' : ''
-            }`}
-          >
-            {/* Status icon */}
+          <div key={i} className="flex items-start gap-2 px-2 py-1 rounded-md">
             {todo.status === 'completed' ? (
               <svg className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-            ) : todo.status === 'in_progress' ? (
-              <div className="w-4 h-4 shrink-0 mt-0.5 flex items-center justify-center">
-                <div className="w-3.5 h-3.5 border-2 border-lime-500/30 border-t-lime-400 rounded-full animate-spin" />
-              </div>
             ) : (
               <div className="w-4 h-4 shrink-0 mt-0.5 flex items-center justify-center">
-                <div className="w-3 h-3 rounded-full border-[1.5px] border-gray-600" />
+                <div className={`w-3 h-3 rounded-full border-[1.5px] ${
+                  todo.status === 'in_progress' ? 'border-gray-500 bg-gray-500/20' : 'border-gray-600'
+                }`} />
               </div>
             )}
-
-            {/* Text */}
             <span className={`text-[12px] leading-relaxed ${
-              todo.status === 'completed'
-                ? 'text-gray-500 line-through'
-                : todo.status === 'in_progress'
-                  ? 'text-lime-300 font-medium'
-                  : 'text-gray-400'
+              todo.status === 'completed' ? 'text-gray-500 line-through' : 'text-gray-400'
             }`}>
-              {todo.status === 'in_progress' && todo.activeForm
-                ? todo.activeForm
-                : todo.content}
+              {todo.content}
             </span>
           </div>
         ))}

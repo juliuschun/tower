@@ -152,12 +152,17 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
                         onFileClick={onFileClick}
                       />
                     )}
-                    {todoBlocks.map((block, ti) => (
-                      <TodoInlineCard
-                        key={`todo-${gi}-${ti}`}
-                        input={block.toolUse!.input}
-                      />
-                    ))}
+                    {todoBlocks.map((block, ti) => {
+                      // Only the very last TodoWrite in the last assistant message gets "live" treatment
+                      const isLastTodo = !!isLastAssistant && gi === groups.length - 1 && ti === todoBlocks.length - 1;
+                      return (
+                        <TodoInlineCard
+                          key={`todo-${gi}-${ti}`}
+                          input={block.toolUse!.input}
+                          isLive={isLastTodo}
+                        />
+                      );
+                    })}
                   </React.Fragment>
                 );
               }
@@ -295,27 +300,32 @@ interface TodoInlineItem {
   status: 'pending' | 'in_progress' | 'completed';
 }
 
-function TodoInlineCard({ input }: { input: Record<string, any> }) {
+function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?: boolean }) {
+  const isStreaming = useChatStore((s) => s.isStreaming);
   const todos: TodoInlineItem[] = input.todos || [];
   if (todos.length === 0) return null;
 
   const total = todos.length;
   const completed = todos.filter(t => t.status === 'completed').length;
-  const inProgress = todos.filter(t => t.status === 'in_progress').length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const allDone = completed === total;
+  // Only show spinners/active state when streaming AND this is the latest card
+  const showLive = !!isLive && isStreaming && !allDone;
 
   return (
-    <div className={`rounded-xl border ${allDone ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-lime-500/20 bg-lime-500/5'} p-3 space-y-2`}>
+    <div className={`rounded-xl border ${
+      allDone
+        ? 'border-emerald-500/20 bg-emerald-500/5'
+        : showLive
+          ? 'border-lime-500/20 bg-lime-500/5'
+          : 'border-surface-700/30 bg-surface-800/30'
+    } p-3 space-y-2`}>
       {/* Header */}
       <div className="flex items-center gap-2">
-        <svg className={`w-4 h-4 ${allDone ? 'text-emerald-400' : 'text-lime-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className={`w-4 h-4 ${allDone ? 'text-emerald-400' : showLive ? 'text-lime-400' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
         </svg>
-        <span className={`text-[12px] font-semibold ${allDone ? 'text-emerald-400' : 'text-lime-400'}`}>
-          {allDone ? 'All tasks complete' : inProgress > 0 ? 'Working...' : 'Task plan'}
-        </span>
-        <span className={`text-[11px] ml-auto font-mono tabular-nums ${allDone ? 'text-emerald-400/70' : 'text-lime-400/60'}`}>
+        <span className={`text-[11px] font-mono tabular-nums ${allDone ? 'text-emerald-400/70' : showLive ? 'text-lime-400/60' : 'text-gray-500'}`}>
           {completed}/{total}
         </span>
       </div>
@@ -328,7 +338,9 @@ function TodoInlineCard({ input }: { input: Record<string, any> }) {
             width: `${pct}%`,
             background: allDone
               ? 'linear-gradient(90deg, #22c55e, #4ade80)'
-              : 'linear-gradient(90deg, #84cc16, #a3e635)',
+              : showLive
+                ? 'linear-gradient(90deg, #84cc16, #a3e635)'
+                : '#6b7280',
           }}
         />
       </div>
@@ -339,30 +351,34 @@ function TodoInlineCard({ input }: { input: Record<string, any> }) {
           <div
             key={i}
             className={`flex items-start gap-2 px-1.5 py-1 rounded-md transition-colors ${
-              todo.status === 'in_progress' ? 'bg-lime-500/5' : ''
+              showLive && todo.status === 'in_progress' ? 'bg-lime-500/5' : ''
             }`}
           >
             {todo.status === 'completed' ? (
               <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
-            ) : todo.status === 'in_progress' ? (
+            ) : todo.status === 'in_progress' && showLive ? (
               <div className="w-3.5 h-3.5 shrink-0 mt-0.5 flex items-center justify-center">
                 <div className="w-3 h-3 border-[1.5px] border-lime-500/30 border-t-lime-400 rounded-full animate-spin" />
               </div>
             ) : (
               <div className="w-3.5 h-3.5 shrink-0 mt-0.5 flex items-center justify-center">
-                <div className="w-2.5 h-2.5 rounded-full border-[1.5px] border-gray-600" />
+                <div className={`w-2.5 h-2.5 rounded-full border-[1.5px] ${
+                  todo.status === 'in_progress' ? 'border-gray-500 bg-gray-500/20' : 'border-gray-600'
+                }`} />
               </div>
             )}
             <span className={`text-[12px] leading-relaxed ${
               todo.status === 'completed'
                 ? 'text-gray-500 line-through'
-                : todo.status === 'in_progress'
+                : todo.status === 'in_progress' && showLive
                   ? 'text-lime-300 font-medium'
-                  : 'text-gray-400'
+                  : todo.status === 'in_progress'
+                    ? 'text-gray-400'
+                    : 'text-gray-500'
             }`}>
-              {todo.status === 'in_progress' && todo.activeForm
+              {todo.status === 'in_progress' && showLive && todo.activeForm
                 ? todo.activeForm
                 : todo.content}
             </span>
