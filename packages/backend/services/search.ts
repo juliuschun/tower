@@ -75,7 +75,7 @@ export async function search(query: string, opts: { userId?: number; role?: stri
       SELECT s.id, s.name, s.summary, s.created_at, s.user_id, s.project_id, s.visibility
       FROM sessions s
       WHERE (s.name ILIKE '%' || $1 || '%' OR COALESCE(s.summary,'') ILIKE '%' || $1 || '%')
-        AND s.archived = 0
+        AND (s.archived IS NULL OR s.archived = 0)
         ${vis.clause}
       ORDER BY s.updated_at DESC
       LIMIT $2

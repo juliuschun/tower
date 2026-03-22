@@ -52,7 +52,7 @@ import {
   isProjectOwner, isProjectMember, inviteGroupToProject,
 } from '../services/group-manager.js';
 import {
-  canAccessSession, canAccessRoom, canCreateInProject, isPathAccessible,
+  canAccessSession, canAccessRoom, canAccessTask, canCreateInProject, isPathAccessible,
 } from '../services/project-access.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 50 * 1024 * 1024; // 50MB
@@ -519,7 +519,13 @@ router.patch('/sessions/:id', async (req, res) => {
   const userId = (req as any).user?.userId;
   const userRole = (req as any).user?.role;
 
-  // Visibility change: only session owner or admin
+  // Session access check (owner or project member)
+  if (userId) {
+    const access = await canAccessSession(req.params.id as string, userId, userRole);
+    if (!access.allowed) return res.status(access.status).json({ error: access.message });
+  }
+
+  // Visibility change: only session owner or admin (stricter than general access)
   if (visibility !== undefined) {
     const { queryOne: pgQueryOne } = await import('../db/pg-repo.js');
     const row = await pgQueryOne<{ user_id: number }>('SELECT user_id FROM sessions WHERE id = $1', [req.params.id]);
@@ -550,6 +556,12 @@ router.patch('/sessions/:id', async (req, res) => {
 // Auto-name session based on first messages
 router.post('/sessions/:id/auto-name', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessSession(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const messages = await getMessages(req.params.id as string);
     const userMsg = messages.find((m) => m.role === 'user');
     const assistantMsg = messages.find((m) => m.role === 'assistant');
@@ -571,6 +583,12 @@ router.post('/sessions/:id/auto-name', async (req, res) => {
 // Summarize session
 router.post('/sessions/:id/summarize', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessSession(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const messages = await getMessages(req.params.id as string);
     if (messages.length === 0) {
       return res.status(400).json({ error: 'No messages to summarize' });
@@ -1023,19 +1041,22 @@ router.post('/pins', async (req, res) => {
 
 router.patch('/pins/:id', async (req, res) => {
   const { title, sortOrder } = req.body;
-  await updatePin(parseInt(req.params.id as string), { title, sortOrder });
+  const userId = (req as any).user?.userId;
+  await updatePin(parseInt(req.params.id as string), { title, sortOrder }, userId);
   res.json({ ok: true });
 });
 
 router.delete('/pins/:id', async (req, res) => {
-  await deletePin(parseInt(req.params.id as string));
+  const userId = (req as any).user?.userId;
+  await deletePin(parseInt(req.params.id as string), userId);
   res.json({ ok: true });
 });
 
 router.post('/pins/reorder', async (req, res) => {
   const { orderedIds } = req.body;
   if (!Array.isArray(orderedIds)) return res.status(400).json({ error: 'orderedIds array required' });
-  await reorderPins(orderedIds);
+  const userId = (req as any).user?.userId;
+  await reorderPins(orderedIds, userId);
   res.json({ ok: true });
 });
 
@@ -1045,8 +1066,14 @@ router.get('/files/serve', async (req, res) => {
     const filePath = req.query.path as string;
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    // Project-level path check (same as /files/read)
+    if (userId) {
+      const pathOk = await isPathAccessible(filePath, userId, role);
+      if (!pathOk) return res.status(403).json({ error: 'Access denied: project path' });
+    }
 
     const isDownload = req.query.download === '1';
     const fileName = path.basename(filePath);
@@ -1116,12 +1143,14 @@ router.post('/prompts', async (req, res) => {
 
 router.patch('/prompts/:id', async (req, res) => {
   const { title, content } = req.body;
-  await updatePromptPin(parseInt(req.params.id as string), { title, content });
+  const userId = (req as any).user?.userId;
+  await updatePromptPin(parseInt(req.params.id as string), { title, content }, userId);
   res.json({ ok: true });
 });
 
 router.delete('/prompts/:id', async (req, res) => {
-  await deletePin(parseInt(req.params.id as string));
+  const userId = (req as any).user?.userId;
+  await deletePin(parseInt(req.params.id as string), userId);
   res.json({ ok: true });
 });
 
@@ -1561,6 +1590,12 @@ router.post('/tasks', async (req, res) => {
 
 router.patch('/tasks/:id', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessTask(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const task = await updateTask(req.params.id as string, req.body);
     if (!task) return res.status(404).json({ error: 'task not found' });
     res.json(task);
@@ -1571,6 +1606,12 @@ router.patch('/tasks/:id', async (req, res) => {
 
 router.delete('/tasks/:id', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessTask(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const ok = await deleteTask(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
@@ -1581,6 +1622,12 @@ router.delete('/tasks/:id', async (req, res) => {
 
 router.get('/tasks/:id/children', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessTask(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const children = await getChildTasks(req.params.id as string);
     res.json(children);
   } catch (err: any) {
@@ -1590,6 +1637,12 @@ router.get('/tasks/:id/children', async (req, res) => {
 
 router.post('/tasks/:id/cleanup-worktree', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessTask(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const task = await getTask(req.params.id as string);
     if (!task) return res.status(404).json({ error: 'task not found' });
     if (task.status === 'in_progress') return res.status(400).json({ error: 'cannot cleanup worktree for running task' });
@@ -1607,8 +1660,17 @@ router.post('/tasks/:id/cleanup-worktree', async (req, res) => {
 
 router.post('/tasks/reorder', async (req, res) => {
   try {
+    // reorder: verify all tasks belong to user or user has access
+    // For now, only admin can reorder arbitrary tasks; others limited to own
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     const { taskIds, status } = req.body;
     if (!taskIds || !status) return res.status(400).json({ error: 'taskIds and status required' });
+    if (role !== 'admin' && userId && taskIds.length > 0) {
+      // Spot-check first task for access
+      const access = await canAccessTask(taskIds[0], userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     await reorderTasks(taskIds, status);
     res.json({ success: true });
   } catch (err: any) {
@@ -1663,6 +1725,12 @@ router.delete('/sessions/:id/permanent', async (req, res) => {
 
 router.post('/tasks/:id/restore', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessTask(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const ok = await restoreTask(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
@@ -1673,6 +1741,12 @@ router.post('/tasks/:id/restore', async (req, res) => {
 
 router.delete('/tasks/:id/permanent', async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessTask(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const ok = await permanentlyDeleteTask(req.params.id as string);
     if (!ok) return res.status(404).json({ error: 'task not found' });
     res.json({ success: true });
@@ -1766,6 +1840,12 @@ router.delete('/rooms/:id', authMiddleware, async (req, res) => {
 
 router.get('/rooms/:id/invitable-users', authMiddleware, async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessRoom(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const { getMembers } = await import('../services/room-manager.js');
     const members = await getMembers(req.params.id as string);
     const memberUserIds = new Set(members.map(m => m.userId));
@@ -1785,6 +1865,12 @@ router.get('/rooms/:id/invitable-users', authMiddleware, async (req, res) => {
 
 router.post('/rooms/:id/members', authMiddleware, async (req, res) => {
   try {
+    const reqUserId = (req as any).user?.userId;
+    const reqRole = (req as any).user?.role;
+    if (reqUserId) {
+      const access = await canAccessRoom(req.params.id as string, reqUserId, reqRole);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const { addMember, getRoom } = await import('../services/room-manager.js');
     const { userId, role } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId is required' });
@@ -1814,6 +1900,12 @@ router.post('/rooms/:id/members', authMiddleware, async (req, res) => {
 
 router.delete('/rooms/:id/members/:userId', authMiddleware, async (req, res) => {
   try {
+    const reqUserId = (req as any).user?.userId;
+    const reqRole = (req as any).user?.role;
+    if (reqUserId) {
+      const access = await canAccessRoom(req.params.id as string, reqUserId, reqRole);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
     const { removeMember } = await import('../services/room-manager.js');
     const removedUserId = parseInt(req.params.userId as string);
     const ok = await removeMember(req.params.id as string, removedUserId);
@@ -1866,8 +1958,9 @@ router.get('/notifications', authMiddleware, async (req, res) => {
 
 router.post('/notifications/:id/read', authMiddleware, async (req, res) => {
   try {
+    const userId = (req as any).user?.userId;
     const { markNotificationRead } = await import('../services/room-manager.js');
-    await markNotificationRead(req.params.id as string);
+    await markNotificationRead(req.params.id as string, userId);
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

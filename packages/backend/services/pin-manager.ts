@@ -40,7 +40,7 @@ export async function createPin(title: string, filePath: string, fileType: strin
   };
 }
 
-export async function updatePin(id: number, updates: { title?: string; sortOrder?: number }): Promise<void> {
+export async function updatePin(id: number, updates: { title?: string; sortOrder?: number }, userId?: number): Promise<void> {
   const sets: string[] = [];
   const vals: any[] = [];
   let idx = 1;
@@ -48,18 +48,28 @@ export async function updatePin(id: number, updates: { title?: string; sortOrder
   if (updates.sortOrder !== undefined) { sets.push(`sort_order = $${idx++}`); vals.push(updates.sortOrder); }
   if (sets.length === 0) return;
   vals.push(id);
-  await execute(`UPDATE pins SET ${sets.join(', ')} WHERE id = $${idx}`, vals);
+  let where = `WHERE id = $${idx++}`;
+  if (userId) { where += ` AND user_id = $${idx++}`; vals.push(userId); }
+  await execute(`UPDATE pins SET ${sets.join(', ')} ${where}`, vals);
 }
 
-export async function deletePin(id: number): Promise<void> {
-  await execute(`DELETE FROM pins WHERE id = $1`, [id]);
+export async function deletePin(id: number, userId?: number): Promise<void> {
+  if (userId) {
+    await execute(`DELETE FROM pins WHERE id = $1 AND user_id = $2`, [id, userId]);
+  } else {
+    await execute(`DELETE FROM pins WHERE id = $1`, [id]);
+  }
 }
 
-export async function reorderPins(orderedIds: number[]): Promise<void> {
+export async function reorderPins(orderedIds: number[], userId?: number): Promise<void> {
   await transaction(async (client) => {
     const db = withClient(client);
     for (let index = 0; index < orderedIds.length; index++) {
-      await db.execute(`UPDATE pins SET sort_order = $1 WHERE id = $2`, [index, orderedIds[index]]);
+      if (userId) {
+        await db.execute(`UPDATE pins SET sort_order = $1 WHERE id = $2 AND user_id = $3`, [index, orderedIds[index], userId]);
+      } else {
+        await db.execute(`UPDATE pins SET sort_order = $1 WHERE id = $2`, [index, orderedIds[index]]);
+      }
     }
   });
 }
@@ -84,7 +94,7 @@ export async function createPromptPin(title: string, content: string, userId?: n
   };
 }
 
-export async function updatePromptPin(id: number, updates: { title?: string; content?: string }): Promise<void> {
+export async function updatePromptPin(id: number, updates: { title?: string; content?: string }, userId?: number): Promise<void> {
   const sets: string[] = [];
   const vals: any[] = [];
   let idx = 1;
@@ -92,7 +102,9 @@ export async function updatePromptPin(id: number, updates: { title?: string; con
   if (updates.content !== undefined) { sets.push(`content = $${idx++}`); vals.push(updates.content); }
   if (sets.length === 0) return;
   vals.push(id);
-  await execute(`UPDATE pins SET ${sets.join(', ')} WHERE id = $${idx} AND pin_type = 'prompt'`, vals);
+  let where = `WHERE id = $${idx++} AND pin_type = 'prompt'`;
+  if (userId) { where += ` AND user_id = $${idx++}`; vals.push(userId); }
+  await execute(`UPDATE pins SET ${sets.join(', ')} ${where}`, vals);
 }
 
 export async function getPromptsWithCommands(userId?: number): Promise<PromptItem[]> {

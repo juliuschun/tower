@@ -178,7 +178,7 @@ export async function getAccessibleProjectIds(userId: number, role: string): Pro
   // project_members에 있는 프로젝트 + 본인이 만든 프로젝트
   const rows = await query<{ id: string }>(`
     SELECT DISTINCT p.id FROM projects p
-    WHERE p.archived = 0
+    WHERE (p.archived IS NULL OR p.archived = 0)
       AND (
         EXISTS (
           SELECT 1 FROM project_members pm

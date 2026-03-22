@@ -263,11 +263,14 @@ export async function listRooms(userId: number, role?: string): Promise<Room[]> 
   });
 
   // Auto-join project rooms the user can see (so they appear in room_members)
+  // Only auto-join rooms WITH a project — non-project rooms require explicit invitation
   for (const room of visible) {
-    await pool.query(
-      `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
-      [room.id, userId],
-    );
+    if (room.project_id) {
+      await pool.query(
+        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
+        [room.id, userId],
+      );
+    }
   }
 
   // For non-project rooms, only return if user is already a member
@@ -305,7 +308,7 @@ export async function updateRoom(
   }
   if (updates.archived !== undefined) {
     sets.push(`archived = $${idx++}`);
-    vals.push(updates.archived);
+    vals.push(updates.archived ? 1 : 0);  // column is INTEGER, not BOOLEAN
   }
   if (updates.projectId !== undefined) {
     sets.push(`project_id = $${idx++}`);
@@ -601,11 +604,12 @@ export async function getNotifications(
   }));
 }
 
-export async function markNotificationRead(notifId: string): Promise<boolean> {
-  const { rowCount } = await getPgPool().query(
-    'UPDATE notifications SET read = true WHERE id = $1',
-    [notifId],
-  );
+export async function markNotificationRead(notifId: string, userId?: number): Promise<boolean> {
+  const sql = userId
+    ? 'UPDATE notifications SET read = true WHERE id = $1 AND user_id = $2'
+    : 'UPDATE notifications SET read = true WHERE id = $1';
+  const params: any[] = userId ? [notifId, userId] : [notifId];
+  const { rowCount } = await getPgPool().query(sql, params);
   return (rowCount ?? 0) > 0;
 }
 

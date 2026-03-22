@@ -126,6 +126,31 @@ export async function canCreateInProject(
   return { allowed: false, status: 403, message: 'Access denied: not a project member' };
 }
 
+/**
+ * Check if a user can access a task (owner, or project member).
+ */
+export async function canAccessTask(
+  taskId: string,
+  userId: number,
+  role: string,
+): Promise<{ allowed: true } | { allowed: false; status: number; message: string }> {
+  if (role === 'admin') return { allowed: true };
+
+  const row = await queryOne<{ user_id: number | null; project_id: string | null }>(
+    'SELECT user_id, project_id FROM tasks WHERE id = $1',
+    [taskId],
+  );
+  if (!row) return { allowed: false, status: 404, message: 'Task not found' };
+
+  // Owner always has access
+  if (row.user_id === userId) return { allowed: true };
+
+  // Project member can access project tasks
+  if (row.project_id && await isProjectMember(row.project_id, userId)) return { allowed: true };
+
+  return { allowed: false, status: 403, message: 'Access denied' };
+}
+
 // ─── AI folder access (canUseTool path enforcement) ──────────────────────────
 
 /**
