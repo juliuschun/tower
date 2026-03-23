@@ -137,7 +137,7 @@ async function uploadFilesToDir(targetDir: string, e: React.DragEvent, onRefresh
 }
 
 // ─── Context Menu ───
-type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession' | 'shareFile' | 'download' | 'copyPath';
+type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession' | 'shareFile' | 'download' | 'copyPath' | 'openNewWindow';
 
 function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
   x: number; y: number; entry: FileEntry;
@@ -170,6 +170,17 @@ function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
     {
       action: 'newSession', label: 'New session here', show: entry.isDirectory && showNewSession,
       icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>,
+    },
+    {
+      action: 'openNewWindow' as MenuAction,
+      label: 'Open in new window',
+      show: !entry.isDirectory,
+      icon: (
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
+      ),
     },
     {
       action: 'shareFile' as MenuAction,
@@ -291,6 +302,11 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
 
     if (action === 'rename') {
       setInlineInput({ type: 'rename', entry });
+      return;
+    }
+
+    if (action === 'openNewWindow') {
+      window.open(`/file-viewer?path=${encodeURIComponent(entry.path)}`, '_blank');
       return;
     }
 

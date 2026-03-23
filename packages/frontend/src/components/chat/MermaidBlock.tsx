@@ -5,8 +5,8 @@ import { useSettingsStore } from '../../stores/settings-store';
 
 let currentTheme: string | null = null;
 
-function ensureInit(theme: 'dark' | 'light') {
-  const mermaidTheme = theme === 'dark' ? 'dark' : 'default';
+function ensureInit(theme: string) {
+  const mermaidTheme = theme !== 'light' ? 'dark' : 'default';
   if (currentTheme !== mermaidTheme) {
     mermaid.initialize({
       startOnLoad: false,

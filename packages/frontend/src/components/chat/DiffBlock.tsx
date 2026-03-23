@@ -59,7 +59,7 @@ function computeDiff(before: string, after: string): DiffLine[] {
 
 export default function DiffBlock({ raw, fallbackCode }: Props) {
   const theme = useSettingsStore((s) => s.theme);
-  const isDark = theme === 'dark';
+  const isDark = theme !== 'light';
   const [mode, setMode] = useState<'split' | 'unified'>('unified');
 
   const parsed = useMemo(() => {

@@ -18,7 +18,7 @@ interface Props {
 
 export default function DataTableBlock({ raw, fallbackCode }: Props) {
   const theme = useSettingsStore((s) => s.theme);
-  const isDark = theme === 'dark';
+  const isDark = theme !== 'light';
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(0);

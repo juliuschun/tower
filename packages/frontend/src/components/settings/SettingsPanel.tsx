@@ -1,6 +1,14 @@
 import React from 'react';
-import { useSettingsStore } from '../../stores/settings-store';
+import { useSettingsStore, type ThemeId } from '../../stores/settings-store';
 import { useSessionStore } from '../../stores/session-store';
+
+const THEMES: { id: ThemeId; label: string; colors: [string, string, string, string] }[] = [
+  { id: 'dark',   label: 'Dark',   colors: ['#0b0d12', '#242832', '#f59e0b', '#f59e0b'] },
+  { id: 'light',  label: 'Light',  colors: ['#ffffff', '#f3f4f6', '#f59e0b', '#f59e0b'] },
+  { id: 'ocean',  label: 'Ocean',  colors: ['#060a14', '#18223a', '#00d4ff', '#c4a0f0'] },
+  { id: 'forest', label: 'Forest', colors: ['#080c08', '#1c2c20', '#d4b840', '#d8a070'] },
+  { id: 'aurora', label: 'Aurora', colors: ['#08060e', '#221e34', '#30e890', '#f0a0d0'] },
+];
 
 interface SettingsPanelProps {
   onLogout: () => void;
@@ -75,27 +83,34 @@ export function SettingsPanel({ onLogout }: SettingsPanelProps) {
           {/* Theme */}
           <section>
             <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Appearance</h3>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setTheme('dark')}
-                className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${
-                  theme === 'dark'
-                    ? 'bg-surface-800 border-primary-500 text-primary-400'
-                    : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
-                }`}
-              >
-                Dark
-              </button>
-              <button
-                onClick={() => setTheme('light')}
-                className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${
-                  theme === 'light'
-                    ? 'bg-surface-800 border-primary-500 text-primary-400'
-                    : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
-                }`}
-              >
-                Light
-              </button>
+            <div className="grid grid-cols-5 gap-1.5">
+              {THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTheme(t.id)}
+                  className={`flex flex-col items-center gap-1.5 py-2.5 rounded-lg border transition-all ${
+                    theme === t.id
+                      ? 'bg-surface-800 border-primary-500'
+                      : 'bg-surface-900 border-surface-700 hover:border-surface-600'
+                  }`}
+                >
+                  {/* Color preview dots */}
+                  <div className="flex gap-0.5">
+                    {t.colors.map((c, i) => (
+                      <span
+                        key={i}
+                        className="w-3 h-3 rounded-full border border-white/10"
+                        style={{ background: c }}
+                      />
+                    ))}
+                  </div>
+                  <span className={`text-[10px] font-medium ${
+                    theme === t.id ? 'text-primary-400' : 'text-surface-500'
+                  }`}>
+                    {t.label}
+                  </span>
+                </button>
+              ))}
             </div>
           </section>
 

@@ -61,14 +61,29 @@ export function RoomList({ onSelectRoom }: RoomListProps) {
       }
     }
 
-    // Show all projects (matching Sessions tab) — even without channels
+    // Sort: unread first → has channels (by recent activity) → empty projects at bottom
     const sorted = [...projectGroups.values()]
       .sort((a, b) => {
+        const hasRoomsA = a.rooms.length > 0;
+        const hasRoomsB = b.rooms.length > 0;
+
+        // Empty projects always go to the bottom
+        if (hasRoomsA && !hasRoomsB) return -1;
+        if (!hasRoomsA && hasRoomsB) return 1;
+
+        // Both empty → keep sortOrder
+        if (!hasRoomsA && !hasRoomsB) return a.project.sortOrder - b.project.sortOrder;
+
+        // Both have rooms → unread first, then by most recent activity
         const unreadA = a.rooms.reduce((sum, r) => sum + (unreadCounts[r.id] || 0), 0);
         const unreadB = b.rooms.reduce((sum, r) => sum + (unreadCounts[r.id] || 0), 0);
         if (unreadA && !unreadB) return -1;
         if (!unreadA && unreadB) return 1;
-        return a.project.sortOrder - b.project.sortOrder;
+
+        // Most recent room activity (updatedAt) wins
+        const latestA = Math.max(...a.rooms.map(r => new Date(r.updatedAt).getTime()));
+        const latestB = Math.max(...b.rooms.map(r => new Date(r.updatedAt).getTime()));
+        return latestB - latestA;
       });
 
     return { groups: sorted, general };
@@ -99,8 +114,28 @@ export function RoomList({ onSelectRoom }: RoomListProps) {
           </div>
         ) : (
           <>
-            {/* Project groups */}
-            {grouped.groups.map(({ project, rooms: groupRooms }) => (
+            {/* Active project groups (have channels) */}
+            {grouped.groups.filter(g => g.rooms.length > 0).map(({ project, rooms: groupRooms }) => (
+              <RoomProjectGroup
+                key={project.id}
+                project={project}
+                rooms={groupRooms}
+                collapsed={collapsedGroups.has(project.id)}
+                activeRoomId={activeRoomId}
+                unreadCounts={unreadCounts}
+                messagesByRoom={messagesByRoom}
+                projects={projects}
+                onToggleCollapsed={() => toggleCollapsed(project.id)}
+                onSelectRoom={onSelectRoom}
+                onNewChannel={() => { setCreateProjectId(project.id); setCreateOpen(true); }}
+              />
+            ))}
+
+            {/* Empty project groups (no channels) — separated below */}
+            {grouped.groups.some(g => g.rooms.length === 0) && grouped.groups.some(g => g.rooms.length > 0) && (
+              <div className="border-t border-surface-800 mt-2 pt-1 mb-1" />
+            )}
+            {grouped.groups.filter(g => g.rooms.length === 0).map(({ project, rooms: groupRooms }) => (
               <RoomProjectGroup
                 key={project.id}
                 project={project}

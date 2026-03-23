@@ -1,5 +1,8 @@
 import { useEffect } from 'react';
-import { useSettingsStore } from '../stores/settings-store';
+import { useSettingsStore, type ThemeId } from '../stores/settings-store';
+
+/** Themes that qualify as "dark" for components that need to know (e.g. code editors) */
+const DARK_THEMES: ThemeId[] = ['dark', 'ocean', 'forest', 'aurora'];
 
 export function useTheme() {
   const theme = useSettingsStore((s) => s.theme);
@@ -29,7 +32,7 @@ export function useTheme() {
     }
   }, [setTheme]);
 
-  const toggle = () => setTheme(theme === 'dark' ? 'light' : 'dark');
+  const isDark = DARK_THEMES.includes(theme);
 
-  return { theme, toggle };
+  return { theme, setTheme, isDark };
 }

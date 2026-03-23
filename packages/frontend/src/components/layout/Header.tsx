@@ -235,7 +235,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const isMobile = useSessionStore((s) => s.isMobile);
   const theme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
+  const openSettings = useSettingsStore((s) => s.setOpen);
   const { availableModels, selectedModel, setSelectedModel } = useModelStore();
   const currentModel = availableModels.find((m) => m.id === selectedModel) || availableModels[0];
 
@@ -326,17 +326,29 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           />
         )}
 
-        {/* Theme toggle: desktop only — mobile uses Settings tab in MobileTabBar */}
+        {/* Theme button: desktop only — opens settings for theme selection */}
         {!isMobile && (
           <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            onClick={() => openSettings(true)}
             className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
-            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title="Theme"
+            aria-label="Change theme"
           >
-            {theme === 'dark' ? (
+            {theme === 'light' ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ) : theme === 'ocean' ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+              </svg>
+            ) : theme === 'forest' ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l7 9 7-9M12 12v9M9 21h6" />
+              </svg>
+            ) : theme === 'aurora' ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3c2 4 4 8 7 10m0 0c3-2 5-6 7-10M12 13c-2 3-3 5-3 8m3-8c2 3 3 5 3 8" />
               </svg>
             ) : (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

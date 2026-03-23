@@ -28,7 +28,7 @@ interface Props {
 
 export default function FormBlock({ raw, fallbackCode, onSubmit }: Props) {
   const theme = useSettingsStore((s) => s.theme);
-  const isDark = theme === 'dark';
+  const isDark = theme !== 'light';
   const [submitted, setSubmitted] = useState(false);
 
   const parsed = useMemo(() => {

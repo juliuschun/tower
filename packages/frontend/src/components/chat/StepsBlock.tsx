@@ -30,7 +30,7 @@ const STATUS_ICON: Record<string, { icon: string; bg: string; border: string }> 
 
 export default function StepsBlock({ raw, fallbackCode }: Props) {
   const theme = useSettingsStore((s) => s.theme);
-  const isDark = theme === 'dark';
+  const isDark = theme !== 'light';
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const parsed = useMemo(() => {

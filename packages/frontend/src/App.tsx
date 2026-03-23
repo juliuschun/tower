@@ -36,6 +36,7 @@ import { HistoryPanel } from './components/history/HistoryPanel';
 import { RoomPanel } from './components/rooms/RoomPanel';
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
 import { SharedViewer } from './components/shared/SharedViewer';
+import { FileViewerPage } from './components/files/FileViewerPage';
 import towerBg from './assets/tower-bg.png';
 
 const API_BASE = '/api';
@@ -762,6 +763,11 @@ function App() {
       })
       .catch(() => {});
   }, [token, authStatus]);
+
+  // Standalone file viewer — opens in new window
+  if (window.location.pathname === '/file-viewer') {
+    return <FileViewerPage />;
+  }
 
   // Public shared file viewer — no login required
   if (window.location.pathname.startsWith('/shared/')) {

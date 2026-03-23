@@ -34,7 +34,7 @@ const COLUMN_COLORS = [
 
 export default function KanbanBlock({ raw, fallbackCode }: Props) {
   const theme = useSettingsStore((s) => s.theme);
-  const isDark = theme === 'dark';
+  const isDark = theme !== 'light';
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
 
   const parsed = useMemo(() => {

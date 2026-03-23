@@ -20,7 +20,7 @@ interface Props {
 
 export default function ApprovalBlock({ raw, fallbackCode, onDecision }: Props) {
   const theme = useSettingsStore((s) => s.theme);
-  const isDark = theme === 'dark';
+  const isDark = theme !== 'light';
   const [decision, setDecision] = useState<'approved' | 'denied' | null>(null);
 
   const parsed = useMemo(() => {

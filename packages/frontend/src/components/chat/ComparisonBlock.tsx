@@ -24,7 +24,7 @@ interface Props {
 
 export default function ComparisonBlock({ raw, fallbackCode }: Props) {
   const theme = useSettingsStore((s) => s.theme);
-  const isDark = theme === 'dark';
+  const isDark = theme !== 'light';
 
   const parsed = useMemo(() => {
     const r = parseLooseJson(raw);

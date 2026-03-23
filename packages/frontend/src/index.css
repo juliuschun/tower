@@ -3,6 +3,17 @@
 /* ─── Theme CSS Variables ─── */
 :root,
 :root[data-theme="dark"] {
+  /* Accent — amber */
+  --th-accent-50: #fffbeb;
+  --th-accent-100: #fef3c7;
+  --th-accent-200: #fde68a;
+  --th-accent-300: #fcd34d;
+  --th-accent-400: #fbbf24;
+  --th-accent-500: #f59e0b;
+  --th-accent-600: #d97706;
+  --th-accent-700: #b45309;
+  --th-accent-800: #92400e;
+  --th-accent-900: #78350f;
   /* Slate-tinted dark palette */
   --th-bg-primary: #0b0d12;
   --th-bg-secondary: #13161e;
@@ -67,6 +78,17 @@
 }
 
 :root[data-theme="light"] {
+  /* Accent — amber (same as dark) */
+  --th-accent-50: #fffbeb;
+  --th-accent-100: #fef3c7;
+  --th-accent-200: #fde68a;
+  --th-accent-300: #fcd34d;
+  --th-accent-400: #fbbf24;
+  --th-accent-500: #f59e0b;
+  --th-accent-600: #d97706;
+  --th-accent-700: #b45309;
+  --th-accent-800: #92400e;
+  --th-accent-900: #78350f;
   --th-bg-primary: #ffffff;
   --th-bg-secondary: #f9fafb;
   --th-bg-tertiary: #f3f4f6;
@@ -129,18 +151,237 @@
   --th-gray-600: #9ca3af;
 }
 
+:root[data-theme="ocean"] {
+  /* Accent — luminous aquamarine (bioluminescent glow) */
+  --th-accent-50: #eefbff;
+  --th-accent-100: #d4f5ff;
+  --th-accent-200: #a0ecff;
+  --th-accent-300: #5ee0ff;
+  --th-accent-400: #00d4ff;
+  --th-accent-500: #00b8e6;
+  --th-accent-600: #0094c0;
+  --th-accent-700: #00729a;
+  --th-accent-800: #005878;
+  --th-accent-900: #004560;
+  /* Abyss — indigo-violet deep ocean */
+  --th-bg-primary: #060a14;
+  --th-bg-secondary: #0a1020;
+  --th-bg-tertiary: #10182c;
+  --th-bg-surface: #18223a;
+  --th-border: #2a3e64;
+  --th-border-subtle: #1c2e50;
+  --th-text-primary: #e2ecf8;
+  --th-text-secondary: #8eaad0;
+  --th-text-muted: #5878a8;
+  /* Prose — multi-color mix: cyan links, violet quotes, coral warmth */
+  --th-prose-body: #b8d0ea;
+  --th-prose-heading: #e8f0fa;
+  --th-prose-muted: #6a8ec0;
+  --th-prose-link: #00d4ff;
+  --th-prose-code-bg: #0c1830;
+  --th-prose-code-border: #1a2e50;
+  --th-prose-code-text: #c4a0f0;
+  --th-prose-pre-bg: #080e1c;
+  --th-prose-pre-border: #182440;
+  --th-prose-pre-text: #b0c8e0;
+  --th-prose-table-border: #182440;
+  --th-prose-th-bg: #0a1428;
+  --th-prose-th-text: #7ca0c8;
+  --th-prose-td-text: #7ca0c8;
+  --th-prose-tr-even: rgba(10, 20, 40, 0.5);
+  --th-prose-marker: #5868a0;
+  --th-prose-blockquote-bg: rgba(160, 100, 240, 0.04);
+  --th-prose-strong: #e8f0fa;
+  --th-prose-img-border: #182440;
+  --th-prose-hr: #1c2e50;
+  --th-scrollbar-thumb: #1a2e50;
+  --th-scrollbar-thumb-hover: #2a4268;
+  --th-q-pending-accent: #6a8ec0;
+  --th-q-pending-heading: #8eaad0;
+  --th-q-pending-border: rgba(106, 142, 192, 0.25);
+  --th-q-pending-bg: rgba(106, 142, 192, 0.04);
+  --th-q-pending-btn-bg: rgba(0, 212, 255, 0.08);
+  --th-q-pending-btn-border: rgba(0, 212, 255, 0.25);
+  --th-q-pending-btn-text: #5ee0ff;
+  --th-q-pending-btn-hover-bg: rgba(0, 212, 255, 0.15);
+  --th-q-pending-btn-hover-border: rgba(0, 212, 255, 0.45);
+  --th-q-pending-desc: rgba(94, 224, 255, 0.50);
+  --th-q-pending-spinner-track: rgba(106, 142, 192, 0.20);
+  --th-q-pending-spinner-head: #6a8ec0;
+  --th-q-pending-muted: rgba(106, 142, 192, 0.60);
+  --th-q-done-accent: #50e8c0;
+  --th-q-done-heading: #60d0b8;
+  --th-q-done-border: rgba(80, 232, 192, 0.20);
+  --th-q-done-bg: rgba(80, 232, 192, 0.04);
+  --th-q-done-selected-bg: rgba(80, 232, 192, 0.10);
+  --th-q-done-selected-border: rgba(80, 232, 192, 0.25);
+  --th-q-done-selected-text: #60d0b8;
+  --th-gray-100: #e2ecf8;
+  --th-gray-200: #b8cce4;
+  --th-gray-300: #8eaad0;
+  --th-gray-400: #6a8ec0;
+  --th-gray-500: #4a6ea0;
+  --th-gray-600: #2a3e64;
+}
+
+:root[data-theme="forest"] {
+  /* Accent — golden-moss (sunlight through canopy) */
+  --th-accent-50: #fdfcf0;
+  --th-accent-100: #f8f4d0;
+  --th-accent-200: #e8e0a0;
+  --th-accent-300: #d4b840;
+  --th-accent-400: #c0a838;
+  --th-accent-500: #a89430;
+  --th-accent-600: #8a7828;
+  --th-accent-700: #6c5e20;
+  --th-accent-800: #504618;
+  --th-accent-900: #3a3210;
+  /* Ancient woodland — deep green + golden amber + copper bark + violet mist */
+  --th-bg-primary: #080c08;
+  --th-bg-secondary: #0e140e;
+  --th-bg-tertiary: #141e16;
+  --th-bg-surface: #1c2c20;
+  --th-border: #2e4c34;
+  --th-border-subtle: #1e3c24;
+  --th-text-primary: #dce8de;
+  --th-text-secondary: #90b898;
+  --th-text-muted: #5e8868;
+  /* Prose — multi-color mix: gold links, copper quotes, violet sparkle */
+  --th-prose-body: #aac8b0;
+  --th-prose-heading: #e4f0e6;
+  --th-prose-muted: #6e9878;
+  --th-prose-link: #d4b840;
+  --th-prose-code-bg: #0e1c12;
+  --th-prose-code-border: #1c3222;
+  --th-prose-code-text: #d8a070;
+  --th-prose-pre-bg: #0a1210;
+  --th-prose-pre-border: #162818;
+  --th-prose-pre-text: #a0bcac;
+  --th-prose-table-border: #162818;
+  --th-prose-th-bg: #0c1810;
+  --th-prose-th-text: #80a888;
+  --th-prose-td-text: #80a888;
+  --th-prose-tr-even: rgba(12, 24, 16, 0.5);
+  --th-prose-marker: #508060;
+  --th-prose-blockquote-bg: rgba(216, 160, 112, 0.04);
+  --th-prose-strong: #e4f0e6;
+  --th-prose-img-border: #162818;
+  --th-prose-hr: #1e3c24;
+  --th-scrollbar-thumb: #1c3222;
+  --th-scrollbar-thumb-hover: #2c4a32;
+  --th-q-pending-accent: #6e9878;
+  --th-q-pending-heading: #90b898;
+  --th-q-pending-border: rgba(110, 152, 120, 0.25);
+  --th-q-pending-bg: rgba(110, 152, 120, 0.04);
+  --th-q-pending-btn-bg: rgba(212, 184, 64, 0.08);
+  --th-q-pending-btn-border: rgba(212, 184, 64, 0.25);
+  --th-q-pending-btn-text: #d4b840;
+  --th-q-pending-btn-hover-bg: rgba(212, 184, 64, 0.15);
+  --th-q-pending-btn-hover-border: rgba(212, 184, 64, 0.45);
+  --th-q-pending-desc: rgba(212, 184, 64, 0.50);
+  --th-q-pending-spinner-track: rgba(110, 152, 120, 0.20);
+  --th-q-pending-spinner-head: #6e9878;
+  --th-q-pending-muted: rgba(110, 152, 120, 0.60);
+  --th-q-done-accent: #58b870;
+  --th-q-done-heading: #70c884;
+  --th-q-done-border: rgba(88, 184, 112, 0.20);
+  --th-q-done-bg: rgba(88, 184, 112, 0.04);
+  --th-q-done-selected-bg: rgba(88, 184, 112, 0.10);
+  --th-q-done-selected-border: rgba(88, 184, 112, 0.25);
+  --th-q-done-selected-text: #70c884;
+  --th-gray-100: #dce8de;
+  --th-gray-200: #b4d0ba;
+  --th-gray-300: #90b898;
+  --th-gray-400: #6e9878;
+  --th-gray-500: #4e7858;
+  --th-gray-600: #2e4c34;
+}
+
+:root[data-theme="aurora"] {
+  /* Accent — aurora green (northern lights primary band) */
+  --th-accent-50: #edfff6;
+  --th-accent-100: #d0ffe6;
+  --th-accent-200: #a0ffd0;
+  --th-accent-300: #60f0b0;
+  --th-accent-400: #30e890;
+  --th-accent-500: #18cc78;
+  --th-accent-600: #10a860;
+  --th-accent-700: #0c8850;
+  --th-accent-800: #086840;
+  --th-accent-900: #064e30;
+  /* Night sky — deep blue-black with warm purple undertone */
+  --th-bg-primary: #08060e;
+  --th-bg-secondary: #100c1a;
+  --th-bg-tertiary: #181428;
+  --th-bg-surface: #221e34;
+  --th-border: #3e3860;
+  --th-border-subtle: #2a2648;
+  --th-text-primary: #eae6f2;
+  --th-text-secondary: #a8a0c4;
+  --th-text-muted: #706898;
+  /* Prose — aurora spectrum: green links, pink code, teal strings, gold accents */
+  --th-prose-body: #c8c0e0;
+  --th-prose-heading: #f0ecf8;
+  --th-prose-muted: #8078a8;
+  --th-prose-link: #30e890;
+  --th-prose-code-bg: #14102a;
+  --th-prose-code-border: #2a2648;
+  --th-prose-code-text: #f0a0d0;
+  --th-prose-pre-bg: #0c0a18;
+  --th-prose-pre-border: #201c38;
+  --th-prose-pre-text: #c0b8d8;
+  --th-prose-table-border: #201c38;
+  --th-prose-th-bg: #100e20;
+  --th-prose-th-text: #9890b8;
+  --th-prose-td-text: #9890b8;
+  --th-prose-tr-even: rgba(16, 14, 32, 0.5);
+  --th-prose-marker: #7068a0;
+  --th-prose-blockquote-bg: rgba(180, 120, 255, 0.04);
+  --th-prose-strong: #f0ecf8;
+  --th-prose-img-border: #201c38;
+  --th-prose-hr: #2a2648;
+  --th-scrollbar-thumb: #2a2648;
+  --th-scrollbar-thumb-hover: #3e3860;
+  --th-q-pending-accent: #8078a8;
+  --th-q-pending-heading: #a8a0c4;
+  --th-q-pending-border: rgba(128, 120, 168, 0.25);
+  --th-q-pending-bg: rgba(128, 120, 168, 0.04);
+  --th-q-pending-btn-bg: rgba(48, 232, 144, 0.08);
+  --th-q-pending-btn-border: rgba(48, 232, 144, 0.25);
+  --th-q-pending-btn-text: #60f0b0;
+  --th-q-pending-btn-hover-bg: rgba(48, 232, 144, 0.15);
+  --th-q-pending-btn-hover-border: rgba(48, 232, 144, 0.45);
+  --th-q-pending-desc: rgba(96, 240, 176, 0.50);
+  --th-q-pending-spinner-track: rgba(128, 120, 168, 0.20);
+  --th-q-pending-spinner-head: #8078a8;
+  --th-q-pending-muted: rgba(128, 120, 168, 0.60);
+  --th-q-done-accent: #60f0b0;
+  --th-q-done-heading: #50d898;
+  --th-q-done-border: rgba(96, 240, 176, 0.20);
+  --th-q-done-bg: rgba(96, 240, 176, 0.04);
+  --th-q-done-selected-bg: rgba(96, 240, 176, 0.10);
+  --th-q-done-selected-border: rgba(96, 240, 176, 0.25);
+  --th-q-done-selected-text: #50d898;
+  --th-gray-100: #eae6f2;
+  --th-gray-200: #c8c0e0;
+  --th-gray-300: #a8a0c4;
+  --th-gray-400: #8078a8;
+  --th-gray-500: #585080;
+  --th-gray-600: #3e3860;
+}
+
 @theme {
-  /* Amber Accent — Tower brand */
-  --color-primary-50: #fffbeb;
-  --color-primary-100: #fef3c7;
-  --color-primary-200: #fde68a;
-  --color-primary-300: #fcd34d;
-  --color-primary-400: #fbbf24;
-  --color-primary-500: #f59e0b;
-  --color-primary-600: #d97706;
-  --color-primary-700: #b45309;
-  --color-primary-800: #92400e;
-  --color-primary-900: #78350f;
+  /* Accent — theme-aware (amber / cyan / emerald) */
+  --color-primary-50: var(--th-accent-50);
+  --color-primary-100: var(--th-accent-100);
+  --color-primary-200: var(--th-accent-200);
+  --color-primary-300: var(--th-accent-300);
+  --color-primary-400: var(--th-accent-400);
+  --color-primary-500: var(--th-accent-500);
+  --color-primary-600: var(--th-accent-600);
+  --color-primary-700: var(--th-accent-700);
+  --color-primary-800: var(--th-accent-800);
+  --color-primary-900: var(--th-accent-900);
 
   /* Surface — remapped to theme CSS variables */
   --color-surface-50: var(--th-text-primary);
@@ -179,6 +420,31 @@
   background:
     radial-gradient(ellipse 80% 50% at 50% 0%, rgba(245, 158, 11, 0.03) 0%, transparent 50%),
     linear-gradient(180deg, #ffffff 0%, #fafbfc 50%, #f5f6f8 100%);
+}
+:root[data-theme="ocean"] .app-bg {
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgba(0, 200, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 50% at 90% 30%, rgba(140, 80, 220, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 35% at 10% 90%, rgba(0, 160, 220, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse 30% 25% at 75% 85%, rgba(255, 120, 90, 0.025) 0%, transparent 40%),
+    linear-gradient(180deg, #080e1a 0%, #060a14 40%, #04080f 100%);
+}
+:root[data-theme="aurora"] .app-bg {
+  background:
+    radial-gradient(ellipse 60% 30% at 30% 0%, rgba(48, 232, 144, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 25% at 70% 5%, rgba(180, 120, 255, 0.06) 0%, transparent 45%),
+    radial-gradient(ellipse 35% 20% at 50% 10%, rgba(240, 160, 208, 0.04) 0%, transparent 40%),
+    radial-gradient(ellipse 50% 40% at 85% 80%, rgba(100, 60, 180, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 30% at 10% 90%, rgba(48, 200, 160, 0.03) 0%, transparent 40%),
+    linear-gradient(180deg, #0a0818 0%, #08060e 40%, #060510 100%);
+}
+:root[data-theme="forest"] .app-bg {
+  background:
+    radial-gradient(ellipse 55% 30% at 35% 0%, rgba(200, 170, 60, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 35% at 85% 10%, rgba(180, 100, 40, 0.04) 0%, transparent 45%),
+    radial-gradient(ellipse 50% 40% at 15% 85%, rgba(60, 120, 70, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse 30% 25% at 70% 90%, rgba(140, 100, 180, 0.025) 0%, transparent 40%),
+    linear-gradient(180deg, #0a100a 0%, #080c08 40%, #060906 100%);
 }
 
 /* ─── Typography base ─── */
@@ -334,7 +600,7 @@ code, pre, .font-mono {
 
 /* Blockquote */
 .prose blockquote {
-  border-left: 3px solid #d97706;
+  border-left: 3px solid var(--th-accent-600);
   padding: 0.5rem 1rem;
   color: var(--th-prose-muted);
   background: var(--th-prose-blockquote-bg);
@@ -350,7 +616,7 @@ code, pre, .font-mono {
 .prose a {
   color: var(--th-prose-link);
   text-decoration: none;
-  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+  border-bottom: 1px solid color-mix(in srgb, var(--th-accent-500) 25%, transparent);
   transition: border-color 0.15s;
 }
 

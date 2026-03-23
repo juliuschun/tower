@@ -50,7 +50,8 @@ export function CodeEditor({ value, language, onChange, onSave, readOnly = false
   const theme = useSettingsStore((s) => s.theme);
 
   const extensions = useMemo(() => {
-    const exts = [theme === 'light' ? lightBgTheme : darkBgTheme];
+    const isDark = theme !== 'light';
+    const exts = [isDark ? darkBgTheme : lightBgTheme];
     const langFactory = language ? languageExtensions[language] : null;
     if (langFactory) exts.push(langFactory());
     if (onSave) {
@@ -67,7 +68,7 @@ export function CodeEditor({ value, language, onChange, onSave, readOnly = false
   return (
     <CodeMirror
       value={value}
-      theme={theme === 'light' ? 'light' : oneDark}
+      theme={theme !== 'light' ? oneDark : 'light'}
       extensions={extensions}
       onChange={onChange}
       readOnly={readOnly}
