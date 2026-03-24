@@ -87,6 +87,43 @@ function HtmlPreview({ content }: { content: string }) {
   );
 }
 
+// ─── Markdown with Mermaid ───
+// Split content into markdown segments and mermaid code blocks,
+// so rehypeRaw doesn't corrupt <br/> etc. inside mermaid definitions.
+function MarkdownWithMermaid({ content, components }: { content: string; components: any }) {
+  const segments = useMemo(() => {
+    const result: { type: 'md' | 'mermaid'; text: string }[] = [];
+    const regex = /```mermaid\s*\n([\s\S]*?)```/g;
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        result.push({ type: 'md', text: content.slice(lastIndex, match.index) });
+      }
+      result.push({ type: 'mermaid', text: match[1].trimEnd() });
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < content.length) {
+      result.push({ type: 'md', text: content.slice(lastIndex) });
+    }
+    return result;
+  }, [content]);
+
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'mermaid' ? (
+          <MermaidBlock key={i} code={seg.text} />
+        ) : (
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]} components={components}>
+            {seg.text}
+          </ReactMarkdown>
+        )
+      )}
+    </>
+  );
+}
+
 // ─── Main ───
 export function FileViewerPage() {
   const params = new URLSearchParams(window.location.search);
@@ -271,9 +308,7 @@ export function FileViewerPage() {
       {mode === 'preview' && language === 'markdown' && (
         <div className="flex-1 overflow-y-auto">
           <div className="prose prose-invert prose-sm max-w-none p-6">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]} components={mdComponents}>
-              {content}
-            </ReactMarkdown>
+            <MarkdownWithMermaid content={content} components={mdComponents} />
           </div>
         </div>
       )}
