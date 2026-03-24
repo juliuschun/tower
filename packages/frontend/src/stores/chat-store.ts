@@ -50,6 +50,7 @@ export interface ChatMessage {
   role: MessageRole;
   content: ContentBlock[];
   timestamp: number;
+  username?: string;
   parentToolUseId?: string | null;
   sendStatus?: 'pending' | 'delivered' | 'failed';
   durationMs?: number;

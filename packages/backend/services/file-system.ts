@@ -30,8 +30,8 @@ export function isPathWritable(targetPath: string): boolean {
   return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
 }
 
-export function getFileTree(dirPath: string, depth = 2): FileEntry[] {
-  if (!isPathSafe(dirPath)) {
+export function getFileTree(dirPath: string, depth = 2, opts?: { skipSafetyCheck?: boolean }): FileEntry[] {
+  if (!opts?.skipSafetyCheck && !isPathSafe(dirPath)) {
     throw new Error('Access denied: path outside workspace');
   }
 

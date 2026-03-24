@@ -29,6 +29,7 @@ AI command center for your team. Stack your own tower of AI and systems.
 - **`npm run dev` is a single-instance command.** Running it multiple times (e.g., via `nohup npm run dev &` in different sessions) stacks zombie `tsx watch` processes that fight over port 32355 → streaming cuts off mid-response.
 - Before starting, check: `pgrep -fa "tsx.*backend"` — if more than one, kill extras first.
 - **Do NOT restart the backend while working on a task.** Restarting kills running tasks and loses context. Finish all current work first, then restart if needed.
+- **Prod 재시작은 반드시 Dev 세션에서 실행.** Prod 세션(tower.moatai.app)에서 `./start.sh prod-restart`를 실행하면 세션 복구 루프가 발생한다 (서버 죽음 → PM2 재시작 → 세션 복구 → 또 restart → 무한 반복). Dev 세션(desk-dev)이나 SSH 터미널에서만 실행할 것.
 - Full server ops guide → `devserver.md`
 - Full warning history → `codify.md` (search "좀비" or "zombie")
 

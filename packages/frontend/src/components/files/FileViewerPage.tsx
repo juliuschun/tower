@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import { CodeEditor } from '../editor/CodeEditor';
+import { MermaidBlock } from '../chat/MermaidBlock';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { Toaster } from 'sonner';
 
@@ -180,6 +181,23 @@ export function FileViewerPage() {
         resolvedPath = normalized.join('/');
         const apiUrl = `/api/files/serve?path=${encodeURIComponent(resolvedPath)}&token=${encodeURIComponent(token)}`;
         return <img src={apiUrl} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+      },
+      code({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) {
+        const match = /language-(\w+)/.exec(className || '');
+        const lang = match?.[1];
+        if (lang === 'mermaid') {
+          const code = String(children).replace(/\n$/, '');
+          return <MermaidBlock code={code} />;
+        }
+        return <code className={className} {...props}>{children}</code>;
+      },
+      pre({ children, ...props }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode }) {
+        // If the child is a MermaidBlock (rendered by code component), skip the <pre> wrapper
+        const child = React.Children.toArray(children)[0];
+        if (React.isValidElement(child) && child.type === MermaidBlock) {
+          return <>{children}</>;
+        }
+        return <pre {...props}>{children}</pre>;
       },
     };
   }, [filePath]);

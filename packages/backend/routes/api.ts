@@ -12,7 +12,7 @@ import {
   getArchivedSessions, restoreSession, permanentlyDeleteSession,
   scanClaudeNativeSessions, getPanelSessions, getSessionPanelSessions,
 } from '../services/session-manager.js';
-import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
+import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
 import { loadCommands } from '../services/command-loader.js';
 import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref } from '../services/skill-registry.js';
@@ -52,7 +52,7 @@ import {
   isProjectOwner, isProjectMember, inviteGroupToProject,
 } from '../services/group-manager.js';
 import {
-  canAccessSession, canAccessRoom, canAccessTask, canCreateInProject, isPathAccessible,
+  canAccessSession, canDeleteSession, canAccessRoom, canAccessTask, canCreateInProject, isPathAccessible,
 } from '../services/project-access.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 50 * 1024 * 1024; // 50MB
@@ -635,7 +635,7 @@ router.delete('/sessions/:id', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
   if (userId) {
-    const access = await canAccessSession(req.params.id as string, userId, role);
+    const access = await canDeleteSession(req.params.id as string, userId, role);
     if (!access.allowed) return res.status(access.status).json({ error: access.message });
   }
   const deleted = await deleteSession(req.params.id as string);
@@ -710,8 +710,14 @@ router.get('/files/tree', async (req, res) => {
     const role = (req as any).user?.role;
     const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
     const dirPath = (req.query.path as string) || userRoot;
-    if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied: outside allowed path' });
-    let entries = getFileTree(dirPath);
+    const inWorkspace = isPathSafe(dirPath, userRoot);
+    if (!inWorkspace) {
+      // Outside workspace — check if user has project membership for this path
+      if (!userId || !(await isPathAccessible(dirPath, userId, role || 'member'))) {
+        return res.status(403).json({ error: 'Access denied: outside allowed path' });
+      }
+    }
+    let entries = getFileTree(dirPath, 2, inWorkspace ? undefined : { skipSafetyCheck: true });
 
     // Filter project folders: non-admin users only see projects they're a member of
     const projectsDir = path.resolve(path.join(config.workspaceRoot, 'projects'));
@@ -1702,7 +1708,7 @@ router.post('/sessions/:id/restore', async (req, res) => {
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
     if (userId) {
-      const access = await canAccessSession(req.params.id, userId, role);
+      const access = await canDeleteSession(req.params.id, userId, role);
       if (!access.allowed) return res.status(access.status).json({ error: access.message });
     }
     const ok = await restoreSession(req.params.id as string);
@@ -1718,7 +1724,7 @@ router.delete('/sessions/:id/permanent', async (req, res) => {
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
     if (userId) {
-      const access = await canAccessSession(req.params.id, userId, role);
+      const access = await canDeleteSession(req.params.id, userId, role);
       if (!access.allowed) return res.status(access.status).json({ error: access.message });
     }
     const ok = await permanentlyDeleteSession(req.params.id as string);

@@ -87,6 +87,28 @@ export async function canAccessSession(
 }
 
 /**
+ * Check if a user can DELETE a session. Only the session owner or admin can delete.
+ * Project members can view but NOT delete other users' sessions.
+ */
+export async function canDeleteSession(
+  sessionId: string,
+  userId: number,
+  role: string,
+): Promise<{ allowed: true } | { allowed: false; status: number; message: string }> {
+  if (role === 'admin') return { allowed: true };
+
+  const row = await queryOne<{ user_id: number }>(
+    'SELECT user_id FROM sessions WHERE id = $1',
+    [sessionId],
+  );
+  if (!row) return { allowed: false, status: 404, message: 'Session not found' };
+
+  if (row.user_id === userId) return { allowed: true };
+
+  return { allowed: false, status: 403, message: 'Access denied: only the session owner can delete' };
+}
+
+/**
  * Check if a user can access a channel (via its project_id).
  */
 export async function canAccessRoom(
@@ -379,7 +401,7 @@ export async function isPathAccessible(
   const resolved = path.resolve(filePath);
   const projectsDir = path.resolve(path.join(WORKSPACE_ROOT, 'projects'));
 
-  // If not under projects/, check public areas and workspace root
+  // If not under projects/, check public areas, workspace root, and external project root_paths
   if (!resolved.startsWith(projectsDir + path.sep)) {
     // Public areas
     for (const pub of PUBLIC_DIRS) {
@@ -390,7 +412,13 @@ export async function isPathAccessible(
     if (resolved === path.resolve(WORKSPACE_ROOT) || (resolved.startsWith(path.resolve(WORKSPACE_ROOT) + path.sep) && !resolved.startsWith(projectsDir + path.sep))) {
       return true;
     }
-    return false;
+    // External project root_paths (codebase browsing for project members)
+    const accessiblePaths = await getUserAccessiblePaths(userId, role);
+    if (accessiblePaths === null) return true; // admin
+    return accessiblePaths.some(root => {
+      const rootResolved = path.resolve(root);
+      return resolved === rootResolved || resolved.startsWith(rootResolved + path.sep);
+    });
   }
 
   // Under projects/ → check project membership

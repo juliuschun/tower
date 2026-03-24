@@ -43,6 +43,20 @@ function getMessageText(content: ContentBlock[]): string {
     .join('\n');
 }
 
+function formatMessageTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  const time = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (isToday) return time;
+  if (isYesterday) return `어제 ${time}`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
   onFileClick?: (path: string) => void;
@@ -91,14 +105,28 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
   return (
     <div className={`flex gap-3 my-5 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
-          C
+        <div className="flex flex-col items-center gap-1 shrink-0 mt-0.5">
+          <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold text-primary-400 select-none">
+            C
+          </div>
+          {message.timestamp && (
+            <span className="text-[10px] text-gray-600 select-none whitespace-nowrap">{formatMessageTime(message.timestamp)}</span>
+          )}
         </div>
       )}
 
       <div className={`min-w-0 ${isUser ? 'max-w-[88%] order-first' : 'flex-1'}`}>
         {isUser ? (
           <div>
+            {/* Username + timestamp meta line */}
+            <div className="flex items-center justify-end gap-1.5 mb-1 px-1">
+              {message.username && (
+                <span className="text-[11px] font-medium text-gray-400">{message.username}</span>
+              )}
+              {message.timestamp && (
+                <span className="text-[11px] text-gray-500">{formatMessageTime(message.timestamp)}</span>
+              )}
+            </div>
             <div className={`relative bg-surface-800/70 border rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
               message.sendStatus === 'failed'
                 ? 'border-red-500/40 bg-red-950/20'
@@ -222,8 +250,8 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
       </div>
 
       {isUser && (
-        <div className="w-7 h-7 rounded-full bg-surface-850 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 ring-1 ring-surface-700/40 text-surface-300 select-none">
-          U
+        <div className="w-7 h-7 rounded-full bg-surface-850 flex items-center justify-center text-[9px] font-bold shrink-0 mt-5 ring-1 ring-surface-700/40 text-surface-300 select-none" title={message.username || 'User'}>
+          {(message.username || 'U').charAt(0).toUpperCase()}
         </div>
       )}
     </div>

@@ -139,6 +139,19 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return res.status(401).json({ error: 'Invalid token' });
   }
 
+  // Cookie sync: if authenticated via header/query but no cookie yet, set it.
+  // This ensures the browser always has the httpOnly cookie for Nginx auth_request
+  // (e.g., when opening /hub/ in a new tab where Authorization header isn't sent).
+  const cookies = req.headers.cookie || '';
+  if (!cookies.includes('tower_token=')) {
+    res.cookie('tower_token', rawToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+  }
+
   (req as any).user = payload;
   next();
 }

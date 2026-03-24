@@ -16,6 +16,13 @@ import { useRoomStore } from '../stores/room-store';
 /** Debounce timer for auto-reload of externally changed files */
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
 
+/** Get session owner username from session store */
+function getSessionOwnerUsername(sessionId: string): string | undefined {
+  const sessions = useSessionStore.getState().sessions;
+  const session = sessions.find((s) => s.id === sessionId);
+  return session?.ownerUsername || localStorage.getItem('username') || undefined;
+}
+
 /** Recover messages from DB for the active session (full replace) */
 async function recoverMessagesFromDb(sessionId: string) {
   try {
@@ -26,6 +33,7 @@ async function recoverMessagesFromDb(sessionId: string) {
     if (res.ok) {
       const stored = await res.json();
       if (stored.length > 0) {
+        const ownerUsername = getSessionOwnerUsername(sessionId);
         const msgs = stored.map((m: any) => ({
           id: m.id,
           role: m.role,
@@ -33,6 +41,7 @@ async function recoverMessagesFromDb(sessionId: string) {
             typeof m.content === 'string' ? JSON.parse(m.content) : m.content
           ),
           timestamp: new Date(m.created_at).getTime(),
+          username: m.role === 'user' ? ownerUsername : undefined,
           parentToolUseId: m.parent_tool_use_id,
           durationMs: m.duration_ms || undefined,
           inputTokens: m.input_tokens || undefined,
@@ -57,6 +66,7 @@ async function mergeMessagesFromDb(sessionId: string) {
     const stored = await res.json();
     if (stored.length === 0) return;
 
+    const ownerUsername = getSessionOwnerUsername(sessionId);
     const dbMsgs: import('../stores/chat-store').ChatMessage[] = stored.map((m: any) => ({
       id: m.id,
       role: m.role,
@@ -64,6 +74,7 @@ async function mergeMessagesFromDb(sessionId: string) {
         typeof m.content === 'string' ? JSON.parse(m.content) : m.content
       ),
       timestamp: new Date(m.created_at).getTime(),
+      username: m.role === 'user' ? ownerUsername : undefined,
       parentToolUseId: m.parent_tool_use_id,
       durationMs: m.duration_ms || undefined,
       inputTokens: m.input_tokens || undefined,
@@ -1057,6 +1068,7 @@ export function useClaudeChat() {
         role: 'user',
         content: [{ type: 'text', text: message }],
         timestamp: Date.now(),
+        username: localStorage.getItem('username') || undefined,
         sendStatus: 'pending',
       });
 
