@@ -10,7 +10,7 @@ import {
 import {
   createSession, getSessions, getSession, updateSession, deleteSession,
   getArchivedSessions, restoreSession, permanentlyDeleteSession,
-  scanClaudeNativeSessions, getPanelSessions,
+  scanClaudeNativeSessions, getPanelSessions, getSessionPanelSessions,
 } from '../services/session-manager.js';
 import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
@@ -468,19 +468,25 @@ router.get('/sessions', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
   const roomId = req.query.roomId as string | undefined;
+  const parentSessionId = req.query.parentSessionId as string | undefined;
 
   // AI Panel: return panel sessions for specific room + user
   if (roomId && userId) {
     return res.json(await getPanelSessions(roomId, userId));
   }
 
+  // Session AI Panel: return panel threads for a specific parent session + user
+  if (parentSessionId && userId) {
+    return res.json(await getSessionPanelSessions(parentSessionId, userId));
+  }
+
   // Default: return all accessible sessions (excluding panel sessions)
   const sessions = await getSessions(userId, role);
-  res.json(sessions.filter(s => !s.roomId));
+  res.json(sessions.filter(s => !s.roomId && !s.parentSessionId));
 });
 
 router.post('/sessions', async (req, res) => {
-  const { name, cwd, engine, roomId, sourceMessageId } = req.body;
+  const { name, cwd, engine, roomId, sourceMessageId, parentSessionId } = req.body;
   let { projectId } = req.body;
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
@@ -497,7 +503,7 @@ router.post('/sessions', async (req, res) => {
     const access = await canCreateInProject(projectId, userId, role);
     if (!access.allowed) return res.status(access.status).json({ error: access.message });
   }
-  const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, effectiveCwd, userId, projectId, engine, roomId, sourceMessageId);
+  const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, effectiveCwd, userId, projectId, engine, roomId, sourceMessageId, parentSessionId);
   res.json(session);
 });
 

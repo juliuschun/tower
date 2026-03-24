@@ -727,6 +727,16 @@ code, pre, .font-mono {
   }
 }
 
+/* ─── Mermaid: prevent CJK text clipping inside nodes ─── */
+.node rect,
+.node circle,
+.node ellipse,
+.node polygon,
+.node path,
+.label foreignObject {
+  overflow: visible !important;
+}
+
 /* ─── Touch device: always show hover-based buttons ─── */
 @media (hover: none) {
   .group-hover\/message\:opacity-100,

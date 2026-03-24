@@ -3,8 +3,13 @@ import type { SessionMeta } from '@tower/shared';
 import type { ChatMessage } from './chat-store';
 import { normalizeContentBlocks } from '../utils/message-parser';
 
+export type AiPanelContextType = 'room' | 'session';
+
 interface AiPanelState {
   open: boolean;
+  contextType: AiPanelContextType;
+  contextId: string | null;      // roomId or parentSessionId
+  /** @deprecated Use contextId — kept for backward compat */
   roomId: string | null;
   threads: SessionMeta[];
   activeThreadId: string | null;
@@ -14,6 +19,8 @@ interface AiPanelState {
 
   setOpen: (open: boolean) => void;
   toggle: () => void;
+  setContext: (type: AiPanelContextType, id: string | null) => void;
+  /** @deprecated Use setContext */
   setRoomId: (roomId: string | null) => void;
   setThreads: (threads: SessionMeta[]) => void;
   addThread: (thread: SessionMeta) => void;
@@ -28,6 +35,8 @@ interface AiPanelState {
 
 export const useAiPanelStore = create<AiPanelState>((set) => ({
   open: false,
+  contextType: 'room',
+  contextId: null,
   roomId: null,
   threads: [],
   activeThreadId: null,
@@ -37,7 +46,12 @@ export const useAiPanelStore = create<AiPanelState>((set) => ({
 
   setOpen: (open) => set({ open }),
   toggle: () => set((s) => ({ open: !s.open })),
-  setRoomId: (roomId) => set({ roomId }),
+  setContext: (type, id) => set({
+    contextType: type,
+    contextId: id,
+    roomId: type === 'room' ? id : null,
+  }),
+  setRoomId: (roomId) => set({ roomId, contextType: 'room', contextId: roomId }),
   setThreads: (threads) => set({ threads }),
   addThread: (thread) => set((s) => ({
     threads: [thread, ...s.threads],
@@ -59,6 +73,8 @@ export const useAiPanelStore = create<AiPanelState>((set) => ({
   setLoading: (v) => set({ loading: v }),
   reset: () => set({
     open: false,
+    contextType: 'room',
+    contextId: null,
     roomId: null,
     threads: [],
     activeThreadId: null,
@@ -75,21 +91,32 @@ const authHeaders = (): Record<string, string> => {
   return tk ? { Authorization: `Bearer ${tk}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
 };
 
-export async function fetchPanelThreads(roomId: string): Promise<SessionMeta[]> {
-  const res = await fetch(`/api/sessions?roomId=${roomId}`, { headers: authHeaders() });
+export async function fetchPanelThreads(contextType: AiPanelContextType, contextId: string): Promise<SessionMeta[]> {
+  const param = contextType === 'room' ? `roomId=${contextId}` : `parentSessionId=${contextId}`;
+  const res = await fetch(`/api/sessions?${param}`, { headers: authHeaders() });
   if (!res.ok) return [];
   return res.json();
 }
 
-export async function createPanelThread(roomId: string, engine?: string): Promise<SessionMeta> {
+/** @deprecated Use fetchPanelThreads('room', roomId) */
+export async function fetchPanelThreadsByRoom(roomId: string): Promise<SessionMeta[]> {
+  return fetchPanelThreads('room', roomId);
+}
+
+export async function createPanelThread(contextType: AiPanelContextType, contextId: string, engine?: string): Promise<SessionMeta> {
+  const body: Record<string, string> = {
+    name: 'New thread',
+    engine: engine || 'claude',
+  };
+  if (contextType === 'room') {
+    body.roomId = contextId;
+  } else {
+    body.parentSessionId = contextId;
+  }
   const res = await fetch('/api/sessions', {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({
-      name: 'New thread',
-      roomId,
-      engine: engine || 'claude',
-    }),
+    body: JSON.stringify(body),
   });
   return res.json();
 }

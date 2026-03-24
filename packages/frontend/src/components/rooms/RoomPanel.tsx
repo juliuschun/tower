@@ -249,7 +249,17 @@ export function RoomPanel() {
             <h2 className="text-[14px] font-semibold text-gray-200 truncate">{activeRoom.name}</h2>
           </div>
           <button
-            onClick={() => useAiPanelStore.getState().toggle()}
+            onClick={() => {
+              const store = useAiPanelStore.getState();
+              if (store.open && store.contextType === 'room') {
+                store.setOpen(false);
+              } else {
+                if (activeRoomId) store.setContext('room', activeRoomId);
+                store.setActiveThreadId(null);
+                store.setMessages([]);
+                store.setOpen(true);
+              }
+            }}
             className="p-1.5 hover:bg-surface-800 rounded-lg transition-colors group"
             title="AI Panel"
           >

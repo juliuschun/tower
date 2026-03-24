@@ -132,12 +132,13 @@ function PanelMessage({ message, onShare }: { message: ChatMessage; onShare?: (c
 
 function ThreadView({ onBack, onShare }: {
   onBack: () => void;
-  onShare: (content: string, messageId: string) => void;
+  onShare?: (content: string, messageId: string) => void;
 }) {
   const messages = useAiPanelStore((s) => s.messages);
   const isStreaming = useAiPanelStore((s) => s.isStreaming);
   const activeThreadId = useAiPanelStore((s) => s.activeThreadId);
   const threads = useAiPanelStore((s) => s.threads);
+  const contextType = useAiPanelStore((s) => s.contextType);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -187,6 +188,10 @@ function ThreadView({ onBack, onShare }: {
     }
   }, [handleSend]);
 
+  const emptyMessage = contextType === 'session'
+    ? 'Ask AI anything about this session'
+    : 'Ask AI anything about this channel';
+
   return (
     <div className="flex flex-col h-full">
       {/* Thread header */}
@@ -211,7 +216,7 @@ function ThreadView({ onBack, onShare }: {
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-32">
-            <p className="text-[12px] text-gray-600">Ask AI anything about this channel</p>
+            <p className="text-[12px] text-gray-600">{emptyMessage}</p>
           </div>
         ) : (
           <div className="py-1">
@@ -219,7 +224,7 @@ function ThreadView({ onBack, onShare }: {
               <div key={msg.id} className="group">
                 <PanelMessage
                   message={msg}
-                  onShare={msg.role === 'assistant' ? (content) => onShare(content, msg.id) : undefined}
+                  onShare={msg.role === 'assistant' && onShare ? (content) => onShare(content, msg.id) : undefined}
                 />
               </div>
             ))}
@@ -260,29 +265,30 @@ function ThreadView({ onBack, onShare }: {
 
 export function AiPanel() {
   const open = useAiPanelStore((s) => s.open);
-  const roomId = useAiPanelStore((s) => s.roomId);
+  const contextType = useAiPanelStore((s) => s.contextType);
+  const contextId = useAiPanelStore((s) => s.contextId);
   const activeThreadId = useAiPanelStore((s) => s.activeThreadId);
   const loading = useAiPanelStore((s) => s.loading);
   const activeRoomId = useRoomStore((s) => s.activeRoomId);
 
-  // Sync roomId with active room
+  // Sync context with active room (only when in room mode)
   useEffect(() => {
-    if (activeRoomId && activeRoomId !== roomId) {
-      useAiPanelStore.getState().setRoomId(activeRoomId);
+    if (contextType === 'room' && activeRoomId && activeRoomId !== contextId) {
+      useAiPanelStore.getState().setContext('room', activeRoomId);
       useAiPanelStore.getState().setActiveThreadId(null);
       useAiPanelStore.getState().setMessages([]);
     }
-  }, [activeRoomId, roomId]);
+  }, [activeRoomId, contextId, contextType]);
 
   // Fetch threads when panel opens
   useEffect(() => {
-    if (!open || !roomId) return;
+    if (!open || !contextId) return;
     useAiPanelStore.getState().setLoading(true);
-    fetchPanelThreads(roomId)
+    fetchPanelThreads(contextType, contextId)
       .then((threads) => useAiPanelStore.getState().setThreads(threads))
       .catch(() => {})
       .finally(() => useAiPanelStore.getState().setLoading(false));
-  }, [open, roomId]);
+  }, [open, contextType, contextId]);
 
   // Load messages when thread is selected
   useEffect(() => {
@@ -344,9 +350,9 @@ export function AiPanel() {
   if (!open) return null;
 
   const handleNewThread = async () => {
-    if (!roomId) return;
+    if (!contextId) return;
     try {
-      const thread = await createPanelThread(roomId);
+      const thread = await createPanelThread(contextType, contextId);
       useAiPanelStore.getState().addThread(thread);
       useAiPanelStore.getState().setActiveThreadId(thread.id);
       useAiPanelStore.getState().setMessages([]);
@@ -365,21 +371,23 @@ export function AiPanel() {
     useAiPanelStore.getState().setStreaming(false);
   };
 
-  const handleShare = (content: string, messageId: string) => {
-    if (!roomId) return;
+  // Share to channel (only available in room mode)
+  const handleShare = contextType === 'room' ? (content: string, messageId: string) => {
+    if (!contextId) return;
     const ws = (window as any).__claudeWs;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const store = useAiPanelStore.getState();
     ws.send(JSON.stringify({
       type: 'share_to_channel',
-      roomId,
+      roomId: contextId,
       sessionId: store.activeThreadId,
       messageId,
       content,
     }));
-  };
+  } : undefined;
 
   const isMobile = useSessionStore((s) => s.isMobile);
+  const panelTitle = contextType === 'session' ? 'Session AI' : 'AI Panel';
 
   return (
     <div className={
@@ -393,7 +401,7 @@ export function AiPanel() {
           <svg className="w-4 h-4 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
           </svg>
-          <span className="text-[13px] font-semibold text-gray-200">AI Panel</span>
+          <span className="text-[13px] font-semibold text-gray-200">{panelTitle}</span>
         </div>
         <button
           onClick={() => useAiPanelStore.getState().setOpen(false)}

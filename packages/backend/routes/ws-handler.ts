@@ -654,9 +654,12 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     } catch {}
   }
 
-  // ── Channel context injection for AI Panel sessions (first message only) ──
+  // ── Context injection for AI Panel sessions (first message only) ──
   const roomId = (dbSession as any)?.roomId;
+  const parentSessionId = (dbSession as any)?.parentSessionId;
   const isFirstTurn = (dbSession?.turnCount ?? 0) === 0;
+
+  // Channel context injection (room panel threads)
   if (roomId && isFirstTurn && isPgEnabled()) {
     try {
       const { getRoom, getMessages: getRoomMessages } = await import('../services/room-manager.js');
@@ -671,6 +674,30 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       }
     } catch (err: any) {
       console.warn('[ws] Channel context injection failed:', err.message);
+    }
+  }
+
+  // Session context injection (session panel threads)
+  if (parentSessionId && isFirstTurn && isPgEnabled()) {
+    try {
+      const { getMessages: getSessionMessages } = await import('../services/message-store.js');
+      const parentSession = await getSession(parentSessionId);
+      const allParentMsgs = await getSessionMessages(parentSessionId);
+      const parentMsgs = allParentMsgs.slice(-50);
+      if (parentMsgs.length > 0) {
+        const contextLines = parentMsgs.map((m: any) => {
+          const role = m.role === 'user' ? 'User' : 'Assistant';
+          const content = typeof m.content === 'string' ? m.content : JSON.parse(m.content)
+            .filter((b: any) => b.type === 'text')
+            .map((b: any) => b.text || '')
+            .join('\n');
+          return `[${role}]: ${content}`;
+        }).filter((line: string) => line.trim().length > 7).join('\n');
+        const sessionName = parentSession?.name || 'Session';
+        finalMessage = `[Session Context: "${sessionName}"]\nHere is the conversation history from the parent session (for reference):\n${contextLines}\n\nYou are assisting the user in a side panel about this conversation.\nAnswer questions about the conversation, summarize, find details, or help analyze what was discussed.\nThe conversation will continue in this thread — no need to re-read the session on follow-up messages.\n\n---\n${finalMessage}`;
+      }
+    } catch (err: any) {
+      console.warn('[ws] Session context injection failed:', err.message);
     }
   }
 

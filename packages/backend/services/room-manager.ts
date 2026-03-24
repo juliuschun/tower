@@ -579,7 +579,7 @@ export async function getNotifications(
   const vals: any[] = [userId];
 
   if (options.unreadOnly) {
-    conditions.push('read = false');
+    conditions.push('read = 0');
   }
 
   vals.push(limit);
@@ -606,8 +606,8 @@ export async function getNotifications(
 
 export async function markNotificationRead(notifId: string, userId?: number): Promise<boolean> {
   const sql = userId
-    ? 'UPDATE notifications SET read = true WHERE id = $1 AND user_id = $2'
-    : 'UPDATE notifications SET read = true WHERE id = $1';
+    ? 'UPDATE notifications SET read = 1 WHERE id = $1 AND user_id = $2'
+    : 'UPDATE notifications SET read = 1 WHERE id = $1';
   const params: any[] = userId ? [notifId, userId] : [notifId];
   const { rowCount } = await getPgPool().query(sql, params);
   return (rowCount ?? 0) > 0;
@@ -615,7 +615,7 @@ export async function markNotificationRead(notifId: string, userId?: number): Pr
 
 export async function markAllNotificationsRead(userId: number): Promise<number> {
   const { rowCount } = await getPgPool().query(
-    'UPDATE notifications SET read = true WHERE user_id = $1 AND read = false',
+    'UPDATE notifications SET read = 1 WHERE user_id = $1 AND read = 0',
     [userId],
   );
   return rowCount ?? 0;
@@ -623,7 +623,7 @@ export async function markAllNotificationsRead(userId: number): Promise<number> 
 
 export async function getUnreadCount(userId: number): Promise<number> {
   const { rows } = await getPgPool().query(
-    'SELECT COUNT(*)::int AS cnt FROM notifications WHERE user_id = $1 AND read = false',
+    'SELECT COUNT(*)::int AS cnt FROM notifications WHERE user_id = $1 AND read = 0',
     [userId],
   );
   return rows[0].cnt;

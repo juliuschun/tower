@@ -8,13 +8,13 @@ import { findJsonlFile } from './jsonl-utils.js';
 export type { SessionMeta } from '@tower/shared';
 import type { SessionMeta } from '@tower/shared';
 
-export async function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string, roomId?: string | null, sourceMessageId?: string | null): Promise<SessionMeta> {
+export async function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string, roomId?: string | null, sourceMessageId?: string | null, parentSessionId?: string | null): Promise<SessionMeta> {
   const id = uuidv4();
   // Sessions within a project default to 'project' visibility (shared with members)
   const visibility = projectId ? 'project' : 'private';
   await execute(`
-    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id, source_message_id, visibility) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-  `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null, sourceMessageId || null, visibility]);
+    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id, source_message_id, parent_session_id, visibility) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null, sourceMessageId || null, parentSessionId || null, visibility]);
 
   return {
     id,
@@ -29,6 +29,7 @@ export async function createSession(name: string, cwd: string, userId?: number, 
     projectId: projectId || null,
     engine: engine || 'claude',
     roomId: roomId || null,
+    parentSessionId: parentSessionId || null,
     sourceMessageId: sourceMessageId || null,
   };
 }
@@ -38,6 +39,15 @@ export async function getPanelSessions(roomId: string, userId: number): Promise<
   const rows = await query(
     `SELECT * FROM sessions WHERE room_id = $1 AND user_id = $2 AND (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
     [roomId, userId]
+  ) as any[];
+  return rows.map(mapRow);
+}
+
+/** Get AI Panel sessions for a parent session + user */
+export async function getSessionPanelSessions(parentSessionId: string, userId: number): Promise<SessionMeta[]> {
+  const rows = await query(
+    `SELECT * FROM sessions WHERE parent_session_id = $1 AND user_id = $2 AND (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
+    [parentSessionId, userId]
   ) as any[];
   return rows.map(mapRow);
 }
@@ -111,6 +121,7 @@ function mapRow(row: any): SessionMeta {
     engine: row.engine || 'claude',
     visibility: row.visibility || 'private',
     roomId: row.room_id || null,
+    parentSessionId: row.parent_session_id || null,
     sourceMessageId: row.source_message_id || null,
     ownerUsername: row.owner_username || null,
   };

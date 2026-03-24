@@ -1,10 +1,12 @@
-import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useChatStore, type ChatMessage, type PendingQuestion } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
+import { useAiPanelStore } from '../../stores/ai-panel-store';
 import { normalizeContentBlocks } from '../../utils/message-parser';
 import { MessageBubble, TurnMetricsBar } from './MessageBubble';
 import { InputBox } from './InputBox';
 import { FloatingQuestionCard } from './FloatingQuestionCard';
+import { AiPanel } from '../rooms/AiPanel';
 
 /**
  * Merge consecutive assistant messages into one visual message.
@@ -162,74 +164,129 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
     return () => cancelAnimationFrame(raf);
   }, [isStreaming]);
 
+  const aiPanelOpen = useAiPanelStore((s) => s.open);
+  const aiPanelContextType = useAiPanelStore((s) => s.contextType);
+
+  // Toggle AI panel for this session
+  const handleToggleAiPanel = useCallback(() => {
+    const store = useAiPanelStore.getState();
+    if (store.open && store.contextType === 'session') {
+      // Close if already open in session mode
+      store.setOpen(false);
+    } else {
+      // Open in session mode with current session as context
+      if (activeSessionId) {
+        store.setContext('session', activeSessionId);
+        store.setActiveThreadId(null);
+        store.setMessages([]);
+        store.setOpen(true);
+      }
+    }
+  }, [activeSessionId]);
+
+  // Update panel context when active session changes (if panel is open in session mode)
+  useEffect(() => {
+    const store = useAiPanelStore.getState();
+    if (store.open && store.contextType === 'session' && activeSessionId && store.contextId !== activeSessionId) {
+      store.setContext('session', activeSessionId);
+      store.setActiveThreadId(null);
+      store.setMessages([]);
+    }
+  }, [activeSessionId]);
+
+  const showSessionAiPanel = aiPanelOpen && aiPanelContextType === 'session';
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Messages area */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" style={{ willChange: 'scroll-position', WebkitOverflowScrolling: 'touch' }}>
+    <div className="flex h-full">
+      {/* Main chat area */}
+      <div className="flex flex-col flex-1 min-w-0 h-full">
+        {/* Messages area */}
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" style={{ willChange: 'scroll-position', WebkitOverflowScrolling: 'touch' }}>
 
-        <div className="px-3 md:px-6">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-center mt-20">
-              <div className="w-20 h-20 rounded-full bg-surface-900 border border-surface-800 shadow-2xl flex items-center justify-center mb-6 relative group">
-                <div className="absolute inset-0 rounded-full bg-primary-500/20 blur-xl group-hover:bg-primary-500/30 transition-colors"></div>
-                <span className="text-4xl relative z-10">✨</span>
-              </div>
-              <h2 className="text-2xl font-bold text-gray-100 mb-3 tracking-tight">Tower</h2>
-              <p className="text-[15px] text-gray-400 max-w-md leading-relaxed">
-                Chat with Claude to research, edit files, and run code.
-                <br />
-                <span className="text-surface-700 mt-2 block font-medium">Type / to use commands.</span>
-              </p>
-            </div>
-          )}
-
-          {mergedMessages.map((msg, idx) => (
-            <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={msg.role === 'assistant' && (msg.durationMs != null || (idx === lastAssistantIndex && !isWaitingForAssistant))} isLastAssistant={idx === lastAssistantIndex} />
-          ))}
-
-          {isWaitingForAssistant && (
-            <div className="flex gap-3 my-5">
-              <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
-                C
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
+          <div className="px-3 md:px-6">
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-center mt-20">
+                <div className="w-20 h-20 rounded-full bg-surface-900 border border-surface-800 shadow-2xl flex items-center justify-center mb-6 relative group">
+                  <div className="absolute inset-0 rounded-full bg-primary-500/20 blur-xl group-hover:bg-primary-500/30 transition-colors"></div>
+                  <span className="text-4xl relative z-10">✨</span>
                 </div>
-                <TurnMetricsBar />
+                <h2 className="text-2xl font-bold text-gray-100 mb-3 tracking-tight">Tower</h2>
+                <p className="text-[15px] text-gray-400 max-w-md leading-relaxed">
+                  Chat with Claude to research, edit files, and run code.
+                  <br />
+                  <span className="text-surface-700 mt-2 block font-medium">Type / to use commands.</span>
+                </p>
               </div>
-            </div>
-          )}
+            )}
 
-          <div ref={bottomRef} className="h-4" />
+            {mergedMessages.map((msg, idx) => (
+              <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={msg.role === 'assistant' && (msg.durationMs != null || (idx === lastAssistantIndex && !isWaitingForAssistant))} isLastAssistant={idx === lastAssistantIndex} />
+            ))}
+
+            {isWaitingForAssistant && (
+              <div className="flex gap-3 my-5">
+                <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
+                  C
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
+                  </div>
+                  <TurnMetricsBar />
+                </div>
+              </div>
+            )}
+
+            <div ref={bottomRef} className="h-4" />
+          </div>
         </div>
-      </div>
 
-      {/* Autocompact banner */}
-      {isCompacting && (
-        <div className="shrink-0 mx-3 md:mx-6 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-800/80 border border-surface-700/50 text-[12px] text-gray-400">
-          <svg className="w-3.5 h-3.5 shrink-0 animate-spin text-primary-400" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-          </svg>
-          <span>컨텍스트 압축 중… 잠시만 기다려 주세요.</span>
-        </div>
-      )}
-
-      {/* Input + Floating Question */}
-      <div className="shrink-0 px-3 md:px-6 pb-2 md:pb-6">
-        {floatingQuestion && (
-          <FloatingQuestionCard
-            question={floatingQuestion}
-            onAnswer={handleAnswerFromCard}
-            answered={floatingAnswered}
-            onDismiss={() => useChatStore.getState().setPendingQuestion(null)}
-          />
+        {/* Autocompact banner */}
+        {isCompacting && (
+          <div className="shrink-0 mx-3 md:mx-6 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-800/80 border border-surface-700/50 text-[12px] text-gray-400">
+            <svg className="w-3.5 h-3.5 shrink-0 animate-spin text-primary-400" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <span>컨텍스트 압축 중… 잠시만 기다려 주세요.</span>
+          </div>
         )}
-        <InputBox onSend={onSend} onAbort={onAbort} />
+
+        {/* Input + Floating Question */}
+        <div className="shrink-0 px-3 md:px-6 pb-2 md:pb-6">
+          {floatingQuestion && (
+            <FloatingQuestionCard
+              question={floatingQuestion}
+              onAnswer={handleAnswerFromCard}
+              answered={floatingAnswered}
+              onDismiss={() => useChatStore.getState().setPendingQuestion(null)}
+            />
+          )}
+          <InputBox onSend={onSend} onAbort={onAbort} />
+        </div>
+
+        {/* Session AI Panel toggle — floating button */}
+        {activeSessionId && messages.length > 0 && (
+          <button
+            onClick={handleToggleAiPanel}
+            className={`absolute top-3 right-3 p-1.5 rounded-lg transition-all z-10 group ${
+              showSessionAiPanel
+                ? 'bg-primary-600/20 text-primary-400'
+                : 'hover:bg-surface-800 text-gray-500 hover:text-primary-400'
+            }`}
+            title="Session AI Panel"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+            </svg>
+          </button>
+        )}
       </div>
+
+      {/* Session AI Side Panel */}
+      {showSessionAiPanel && <AiPanel />}
     </div>
   );
 }

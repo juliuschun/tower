@@ -13,7 +13,7 @@ function ensureInit(theme: string) {
       theme: mermaidTheme,
       securityLevel: 'loose',
       fontFamily: 'inherit',
-      flowchart: { padding: 24, nodeSpacing: 40, rankSpacing: 50, htmlLabels: false, wrappingWidth: 200 },
+      flowchart: { padding: 24, nodeSpacing: 40, rankSpacing: 50, htmlLabels: true, wrappingWidth: 200 },
       sequence: { boxMargin: 10, noteMargin: 12 },
     });
     currentTheme = mermaidTheme;

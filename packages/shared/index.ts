@@ -30,6 +30,7 @@ export interface SessionMeta {
   engine?: string;
   visibility?: 'private' | 'project';
   roomId?: string | null;
+  parentSessionId?: string | null;
   sourceMessageId?: string | null;
   ownerUsername?: string | null;
 }
