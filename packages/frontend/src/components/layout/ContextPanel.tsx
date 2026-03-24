@@ -5,6 +5,7 @@ import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import { useFileStore } from '../../stores/file-store';
 import { CodeEditor } from '../editor/CodeEditor';
+import { MermaidBlock } from '../chat/MermaidBlock';
 
 function HtmlPreview({ content }: { content: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -96,6 +97,41 @@ function VideoPreview({ filePath }: { filePath: string }) {
     <div className="absolute inset-0 flex items-center justify-center bg-black">
       <video src={src} controls className="max-w-full max-h-full" />
     </div>
+  );
+}
+
+// Split mermaid blocks out so rehypeRaw doesn't corrupt <br/> inside mermaid code
+function MarkdownWithMermaid({ content, components }: { content: string; components: any }) {
+  const segments = useMemo(() => {
+    const result: { type: 'md' | 'mermaid'; text: string }[] = [];
+    const regex = /```mermaid\s*\n([\s\S]*?)```/g;
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        result.push({ type: 'md', text: content.slice(lastIndex, match.index) });
+      }
+      result.push({ type: 'mermaid', text: match[1].trimEnd() });
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < content.length) {
+      result.push({ type: 'md', text: content.slice(lastIndex) });
+    }
+    return result;
+  }, [content]);
+
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'mermaid' ? (
+          <MermaidBlock key={i} code={seg.text} />
+        ) : (
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]} components={components}>
+            {seg.text}
+          </ReactMarkdown>
+        )
+      )}
+    </>
   );
 }
 
@@ -320,13 +356,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           ) : openFile.language === 'markdown' ? (
             <div className="absolute inset-0 overflow-y-auto overflow-x-hidden">
               <div className="prose prose-invert prose-sm max-w-none p-4">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeRaw, rehypeHighlight]}
-                  components={mdComponents}
-                >
-                  {openFile.content}
-                </ReactMarkdown>
+                <MarkdownWithMermaid content={openFile.content} components={mdComponents} />
               </div>
             </div>
           ) : null}
