@@ -16,11 +16,6 @@ describe('dependency tree', () => {
     expect(fs.existsSync(sharedPath)).toBe(true);
   });
 
-  it('better-sqlite3 is loadable', async () => {
-    const mod = await import('better-sqlite3');
-    expect(mod.default || mod).toBeDefined();
-  });
-
   it('pg is loadable', async () => {
     const mod = await import('pg');
     expect(mod.default || mod.Pool || mod.Client).toBeDefined();

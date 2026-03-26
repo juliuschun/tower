@@ -24,11 +24,20 @@ export function HelpPanel() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [mobileTopicOpen, setMobileTopicOpen] = useState(false);
+  const [lang, setLang] = useState<'en' | 'ko'>(() => {
+    const saved = localStorage.getItem('tower:helpLang');
+    return (saved === 'ko') ? 'ko' : 'en';
+  });
+
+  const toggleLang = useCallback((newLang: 'en' | 'ko') => {
+    setLang(newLang);
+    localStorage.setItem('tower:helpLang', newLang);
+  }, []);
 
   // Fetch topics list
   useEffect(() => {
     if (!isOpen) return;
-    fetch('/api/help')
+    fetch(`/api/help?lang=${lang}`)
       .then((r) => r.json())
       .then((data: HelpTopic[]) => {
         setTopics(data);
@@ -37,13 +46,13 @@ export function HelpPanel() {
         }
       })
       .catch(() => {});
-  }, [isOpen]);
+  }, [isOpen, lang]);
 
   // Fetch content when active topic changes
   useEffect(() => {
     if (!activeSlug || !isOpen) return;
     setLoading(true);
-    fetch(`/api/help/${activeSlug}`)
+    fetch(`/api/help/${activeSlug}?lang=${lang}`)
       .then((r) => r.text())
       .then((text) => {
         setContent(text);
@@ -53,7 +62,7 @@ export function HelpPanel() {
         setContent('Failed to load content.');
         setLoading(false);
       });
-  }, [activeSlug, isOpen]);
+  }, [activeSlug, isOpen, lang]);
 
   // Escape key handler
   const handleKeyDown = useCallback(
@@ -92,14 +101,27 @@ export function HelpPanel() {
             </svg>
             Help
           </h2>
-          <button
-            onClick={() => setOpen(false)}
-            className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
-          >
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-0.5 text-[12px] font-medium">
+              <button
+                onClick={() => toggleLang('en')}
+                className={`px-1.5 py-0.5 rounded transition-colors ${lang === 'en' ? 'text-primary-400' : 'text-gray-500 hover:text-gray-300'}`}
+              >EN</button>
+              <span className="text-surface-700">/</span>
+              <button
+                onClick={() => toggleLang('ko')}
+                className={`px-1.5 py-0.5 rounded transition-colors ${lang === 'ko' ? 'text-primary-400' : 'text-gray-500 hover:text-gray-300'}`}
+              >KO</button>
+            </div>
+            <button
+              onClick={() => setOpen(false)}
+              className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+            >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
-          </button>
+            </button>
+          </div>
         </div>
 
         {/* Mobile topic selector */}

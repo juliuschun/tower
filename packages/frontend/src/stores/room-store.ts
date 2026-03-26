@@ -38,6 +38,10 @@ export interface RoomMessage {
   editedAt: string | null;
   deletedAt: string | null;
   createdAt: string;
+  // Optimistic send fields (client-only, not persisted)
+  pending?: boolean;
+  failed?: boolean;
+  clientMsgId?: string;
 }
 
 export interface TypingUser {
@@ -111,6 +115,8 @@ interface RoomState {
   prependMessages: (roomId: string, messages: RoomMessage[]) => void;
   updateMessage: (roomId: string, messageId: string, updates: Partial<RoomMessage>) => void;
   removeMessage: (roomId: string, messageId: string) => void;
+  confirmPendingMessage: (roomId: string, clientMsgId: string, serverMessage: RoomMessage) => void;
+  markMessageFailed: (roomId: string, clientMsgId: string) => void;
 
   // Members
   setMembers: (roomId: string, members: RoomMember[]) => void;
@@ -241,6 +247,35 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         messagesByRoom: {
           ...s.messagesByRoom,
           [roomId]: existing.filter((m) => m.id !== messageId),
+        },
+      };
+    }),
+
+  confirmPendingMessage: (roomId, clientMsgId, serverMessage) =>
+    set((s) => {
+      const existing = s.messagesByRoom[roomId];
+      if (!existing) return s;
+      const idx = existing.findIndex((m) => m.clientMsgId === clientMsgId && m.pending);
+      if (idx === -1) return s;
+      const updated = [...existing];
+      updated[idx] = { ...serverMessage, pending: false, failed: false };
+      return {
+        messagesByRoom: { ...s.messagesByRoom, [roomId]: updated },
+      };
+    }),
+
+  markMessageFailed: (roomId, clientMsgId) =>
+    set((s) => {
+      const existing = s.messagesByRoom[roomId];
+      if (!existing) return s;
+      return {
+        messagesByRoom: {
+          ...s.messagesByRoom,
+          [roomId]: existing.map((m) =>
+            m.clientMsgId === clientMsgId && m.pending
+              ? { ...m, pending: false, failed: true }
+              : m
+          ),
         },
       };
     }),

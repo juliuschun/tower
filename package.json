@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "predev": "fuser -k 32354/tcp 32355/tcp 2>/dev/null; true",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
@@ -33,5 +35,8 @@
     "vite": "^6.0.0",
     "vite-plugin-pwa": "^1.2.0",
     "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "notify-hub": "file:../notify-hub"
   }
 }

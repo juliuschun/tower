@@ -334,6 +334,18 @@ async function handleMessage(client: WsClient, data: any) {
                 { taskId },
               ).catch(() => {});
             });
+
+            // Push to external messaging (KakaoTalk, Telegram, etc.)
+            import('../services/messaging/index.js').then(({ messageRouter }) => {
+              const emoji = payload.status === 'done' ? '✅' : '❌';
+              const label = payload.status === 'done' ? '완료' : '실패';
+              const body = payload.title || taskId.slice(0, 8);
+              messageRouter.sendAny(client.userId!, `${emoji} 태스크 ${label}: ${body}`, {
+                title: `Tower 태스크 ${label}`,
+                linkUrl: 'https://tower.moatai.app',
+                buttonTitle: 'Tower 열기',
+              }).catch(() => {});
+            });
           }
         }, client.userId, client.userRole, client.allowedPath);
       } catch (err: any) {
@@ -922,7 +934,7 @@ function handleRoomLeave(client: WsClient, data: { roomId: string }) {
   send(client.ws, { type: 'room_left', roomId: data.roomId });
 }
 
-async function handleRoomMessage(client: WsClient, data: { roomId: string; content: string; mentions?: string[]; replyTo?: string }) {
+async function handleRoomMessage(client: WsClient, data: { roomId: string; content: string; mentions?: string[]; replyTo?: string; clientMsgId?: string }) {
   if (!isPgEnabled()) {
     send(client.ws, { type: 'error', message: 'Chat rooms require PostgreSQL' });
     return;
@@ -979,6 +991,7 @@ async function handleRoomMessage(client: WsClient, data: { roomId: string; conte
         metadata: { mentions: data.mentions || [] },
         replyTo: data.replyTo || null,
         createdAt: new Date().toISOString(),
+        ...(data.clientMsgId ? { clientMsgId: data.clientMsgId } : {}),
       },
     };
     broadcastToRoom(data.roomId, roomMessage);

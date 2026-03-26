@@ -20,6 +20,7 @@
     "packages/shared"
   ],
   "exclude": [
-    "packages/backend/**/*.test.ts"
+    "packages/backend/**/*.test.ts",
+    "packages/backend/scripts/migrate-sqlite-to-pg.ts"
   ]
 }

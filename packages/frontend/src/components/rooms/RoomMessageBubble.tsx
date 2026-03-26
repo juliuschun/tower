@@ -181,10 +181,12 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
 
   // Human message
   const initial = (message.senderName || '?')[0].toUpperCase();
+  const isPending = message.pending;
+  const isFailed = message.failed;
 
   return (
-    <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
-      {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
+    <div className={`group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30 ${isPending ? 'opacity-60' : ''}`}>
+      {(canReply || canThread) && !isPending && !isFailed && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
       <div className="w-7 h-7 rounded-full bg-surface-700 border border-surface-600 flex items-center justify-center shrink-0 mt-0.5">
         <span className="text-[11px] font-bold text-gray-300">{initial}</span>
       </div>
@@ -193,8 +195,10 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
         <div className="flex items-baseline gap-2 mb-0.5">
           <span className="text-[12px] font-semibold text-gray-200">{message.senderName || 'Unknown'}</span>
           <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
+          {isPending && <span className="text-[10px] text-gray-500 italic">Sending...</span>}
+          {isFailed && <span className="text-[10px] text-red-400 font-medium">Failed to send</span>}
         </div>
-        <div className="text-[13px] text-gray-300 leading-relaxed whitespace-pre-wrap break-words">
+        <div className={`text-[13px] leading-relaxed whitespace-pre-wrap break-words ${isFailed ? 'text-red-300' : 'text-gray-300'}`}>
           {message.content}
         </div>
       </div>

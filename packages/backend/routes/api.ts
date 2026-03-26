@@ -28,13 +28,14 @@ import {
   autoCommit,
 } from '../services/git-manager.js';
 import { config, availableModels, loadModelsFile, saveModelsFile, reloadModels } from '../config.js';
-import { oauthManager, messageRouter } from '../services/messaging/index.js';
-import { exchangeKakaoCode, getKakaoProfile } from '../services/messaging/kakao.js';
+import { oauthManager, messageRouter, telegramLinkManager } from '../services/messaging/index.js';
+import { exchangeKakaoCode, getKakaoProfile } from 'notify-hub';
+import { parseTelegramWebhook, TelegramChannel } from 'notify-hub';
 import { search } from '../services/search.js';
 import { extractTextFromContent } from '../utils/text.js';
 import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask, getChildTasks } from '../services/task-manager.js';
 import { removeWorktree } from '../services/worktree-manager.js';
-import { broadcast } from './ws-handler.js';
+import { broadcast, broadcastToAll } from './ws-handler.js';
 import {
   createInternalShare, createExternalShare, getSharesByFile,
   getSharesWithMe, getShareByToken, revokeShare, isTokenValid,
@@ -154,7 +155,11 @@ router.get('/auth/kakao/callback', async (req, res) => {
     }
 
     // Exchange code for tokens
-    const tokens = await exchangeKakaoCode(code as string);
+    const tokens = await exchangeKakaoCode(code as string, {
+      clientId: config.kakaoRestKey,
+      clientSecret: config.kakaoClientSecret,
+      redirectUri: config.kakaoRedirectUri,
+    });
 
     // Get Kakao user profile
     const profile = await getKakaoProfile(tokens.accessToken);
@@ -179,6 +184,65 @@ router.get('/auth/kakao/callback', async (req, res) => {
     const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
     res.redirect(`${baseUrl}/?oauth=kakao&status=error&message=${encodeURIComponent(err.message)}`);
   }
+});
+
+// ───── Telegram Bot Linking ─────
+
+// Generate a link token — user clicks "Connect Telegram" → gets a t.me link
+router.post('/auth/telegram/link', authMiddleware, async (req, res) => {
+  if (!config.telegramBotToken || !telegramLinkManager) {
+    return res.status(500).json({ error: 'Telegram bot not configured' });
+  }
+  const user = (req as any).user;
+  const token = telegramLinkManager.createToken(user.userId, user.username);
+
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME || '';
+  const deepLink = botUsername
+    ? `https://t.me/${botUsername}?start=${token}`
+    : null;
+
+  res.json({ token, deepLink });
+});
+
+// Telegram webhook — receives messages from Telegram Bot API
+router.post('/telegram/webhook', async (req, res) => {
+  const secret = req.headers['x-telegram-bot-api-secret-token'] as string | undefined;
+  if (config.telegramWebhookSecret && secret !== config.telegramWebhookSecret) {
+    return res.status(403).json({ error: 'Invalid secret' });
+  }
+
+  const parsed = parseTelegramWebhook(req.body);
+  if (!parsed) return res.status(200).json({ ok: true });
+
+  const bot = new TelegramChannel({ botToken: config.telegramBotToken, getChatId: async () => parsed.chatId });
+
+  // Handle /start command — account linking
+  if (parsed.isCommand && parsed.command === 'start' && parsed.commandArg && telegramLinkManager) {
+    const link = telegramLinkManager.consumeToken(parsed.commandArg);
+    if (link) {
+      await oauthManager.saveToken({
+        userId: link.userId,
+        provider: 'telegram',
+        accessToken: 'bot-linked',
+        providerUserId: parsed.chatId,
+        providerNickname: parsed.fromName,
+      });
+      await bot.sendToChat(parsed.chatId, `✅ Tower 계정 연결 완료!\n\n👤 ${link.username}\n\n태스크 완료/실패 알림이 이 채팅으로 전송됩니다.`);
+      console.log(`[Telegram] Linked user ${link.userId} (${link.username}) → chat ${parsed.chatId}`);
+      return res.status(200).json({ ok: true, action: 'linked' });
+    } else {
+      await bot.sendToChat(parsed.chatId, '⚠️ 링크 토큰이 만료되었거나 유효하지 않습니다.\nTower Settings에서 다시 시도해주세요.');
+      return res.status(200).json({ ok: true, action: 'expired' });
+    }
+  }
+
+  // /start without args
+  if (parsed.isCommand && parsed.command === 'start' && !parsed.commandArg) {
+    await bot.sendToChat(parsed.chatId, '👋 Tower Bot입니다!\n\nTower Settings → 알림 → Telegram 연결 버튼을 눌러주세요.');
+    return res.status(200).json({ ok: true, action: 'welcome' });
+  }
+
+  res.status(200).json({ ok: true });
 });
 
 // Get connected OAuth providers for current user
@@ -207,8 +271,11 @@ router.delete('/auth/oauth/:provider', authMiddleware, async (req, res) => {
 // Send test message via provider
 router.post('/auth/oauth/:provider/test', authMiddleware, async (req, res) => {
   const user = (req as any).user;
-  const result = await messageRouter.send(user.userId, req.params.provider as string, '🎉 Tower 카카오톡 연결 테스트 성공!', {
+  const provider = req.params.provider as string;
+  const emoji = provider === 'telegram' ? '🤖' : '🎉';
+  const result = await messageRouter.send(user.userId, provider, `${emoji} Tower ${provider} 연결 테스트 성공!`, {
     title: 'Tower 연결 완료',
+    linkUrl: 'https://tower.moatai.app',
     buttonTitle: 'Tower 열기',
   });
   res.json(result);
@@ -594,6 +661,7 @@ router.post('/sessions', async (req, res) => {
     if (!access.allowed) return res.status(access.status).json({ error: access.message });
   }
   const session = await createSession(name || `Session ${new Date().toLocaleString('en-US')}`, effectiveCwd, userId, projectId, engine, roomId, sourceMessageId, parentSessionId);
+  broadcastToAll({ type: 'session_created', session });
   res.json(session);
 });
 
@@ -2135,13 +2203,15 @@ const _towerRoot = _apiDirname.includes('dist')
   : path.resolve(_apiDirname, '..', '..', '..');
 const HELP_DIR = path.join(_towerRoot, 'docs', 'help');
 
-router.get('/help', async (_req, res) => {
+router.get('/help', async (req, res) => {
   try {
-    const files = await fsPromises.readdir(HELP_DIR);
+    const lang = (req.query.lang === 'ko') ? 'ko' : 'en';
+    const helpDir = path.join(HELP_DIR, lang);
+    const files = await fsPromises.readdir(helpDir);
     const mdFiles = files.filter((f) => f.endsWith('.md'));
     const topics: { slug: string; title: string; icon: string; order: number }[] = [];
     for (const file of mdFiles) {
-      const raw = await fsPromises.readFile(path.join(HELP_DIR, file), 'utf-8');
+      const raw = await fsPromises.readFile(path.join(helpDir, file), 'utf-8');
       const frontmatterMatch = raw.match(/^---\n([\s\S]*?)\n---/);
       let title = file.replace(/\.md$/, '');
       let icon = '📄';
@@ -2164,8 +2234,10 @@ router.get('/help', async (_req, res) => {
 
 router.get('/help/:slug', async (req, res) => {
   try {
+    const lang = (req.query.lang === 'ko') ? 'ko' : 'en';
+    const helpDir = path.join(HELP_DIR, lang);
     const slug = req.params.slug.replace(/[^a-zA-Z0-9_-]/g, '');
-    const filePath = path.join(HELP_DIR, `${slug}.md`);
+    const filePath = path.join(helpDir, `${slug}.md`);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Help topic not found' });
     }

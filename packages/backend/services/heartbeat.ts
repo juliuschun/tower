@@ -205,6 +205,15 @@ async function executeHeartbeat(config: HeartbeatConfig): Promise<void> {
             createdAt: new Date().toISOString(),
           },
         });
+
+        // Push to external messaging (KakaoTalk, Telegram, etc.)
+        import('./messaging/index.js').then(({ messageRouter }) => {
+          messageRouter.sendAny(member.userId, result.summary ?? result.items?.[0] ?? '', {
+            title: `🫀 Heartbeat: ${config.projectName}`,
+            linkUrl: 'https://tower.moatai.app',
+            buttonTitle: 'Tower 열기',
+          }).catch(() => {});
+        }).catch(() => {});
       }
     } catch (err: any) {
       console.error(`[heartbeat] Failed to send notifications:`, err.message);

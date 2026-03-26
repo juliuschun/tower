@@ -502,41 +502,43 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
         {/* Slash command picker */}
         {showCommands && (
-          <div className="absolute bottom-full left-0 right-0 mb-2 bg-surface-800/90 backdrop-blur-xl border border-surface-700/50 rounded-xl max-h-48 overflow-y-auto shadow-xl">
+          <div className="absolute bottom-full left-0 right-0 mb-2 bg-surface-800/90 backdrop-blur-xl border border-surface-700/50 rounded-xl max-h-72 overflow-y-auto shadow-xl">
             {filteredCommands.map((cmd, idx) => (
               <button
                 key={cmd.name}
-                className={`w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-surface-700/50 hover:text-white transition-colors flex items-center gap-2 group ${
+                className={`w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-surface-700/50 hover:text-white transition-colors group ${
                   idx === selectedIndex ? 'bg-surface-700/50 text-white' : ''
                 }`}
                 onClick={() => selectCommand(cmd.name)}
                 onMouseEnter={() => setSelectedIndex(idx)}
               >
-                <span className="text-primary-500/70 group-hover:text-primary-400 font-mono shrink-0">/</span>
-                <span className="font-medium truncate">{cmd.name}</span>
-                {cmd.description && (
-                  <span className="text-[11px] text-gray-500 truncate ml-1">{cmd.description}</span>
-                )}
-                {cmd.scope && (
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
-                    cmd.scope === 'personal'
+                <div className="flex items-center gap-2">
+                  <span className="text-primary-500/70 group-hover:text-primary-400 font-mono shrink-0">/</span>
+                  <span className="font-medium truncate">{cmd.name}</span>
+                  {cmd.scope && (
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                      cmd.scope === 'personal'
+                        ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20'
+                        : cmd.scope === 'project'
+                          ? 'bg-green-900/30 text-green-400 border border-green-500/20'
+                          : 'bg-amber-900/30 text-amber-400 border border-amber-500/20'
+                    }`}>
+                      {cmd.scope === 'personal' ? 'my' : cmd.scope === 'project' ? 'proj' : 'co'}
+                    </span>
+                  )}
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-auto shrink-0 ${
+                    cmd.source === 'commands'
                       ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20'
-                      : cmd.scope === 'project'
-                        ? 'bg-green-900/30 text-green-400 border border-green-500/20'
-                        : 'bg-amber-900/30 text-amber-400 border border-amber-500/20'
+                      : cmd.source === 'skills'
+                        ? 'bg-violet-900/30 text-violet-400 border border-violet-500/20'
+                        : 'bg-surface-700/50 text-gray-500 border border-surface-600/30'
                   }`}>
-                    {cmd.scope === 'personal' ? 'my' : cmd.scope === 'project' ? 'proj' : 'co'}
+                    {cmd.source === 'commands' ? 'cmd' : cmd.source === 'skills' ? 'skill' : 'sdk'}
                   </span>
+                </div>
+                {cmd.description && (
+                  <div className="text-[11px] text-gray-500 mt-0.5 pl-5 truncate">{cmd.description}</div>
                 )}
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-auto shrink-0 ${
-                  cmd.source === 'commands'
-                    ? 'bg-blue-900/30 text-blue-400 border border-blue-500/20'
-                    : cmd.source === 'skills'
-                      ? 'bg-violet-900/30 text-violet-400 border border-violet-500/20'
-                      : 'bg-surface-700/50 text-gray-500 border border-surface-600/30'
-                }`}>
-                  {cmd.source === 'commands' ? 'cmd' : cmd.source === 'skills' ? 'skill' : 'sdk'}
-                </span>
               </button>
             ))}
           </div>

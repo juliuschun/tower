@@ -138,22 +138,62 @@ export function RoomPanel() {
   const handleSend = useCallback(() => {
     if (!input.trim() || !activeRoomId) return;
 
+    const content = input.trim();
+    const clientMsgId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const currentUsername = localStorage.getItem('username') || 'You';
+
+    // Optimistic: add message to store immediately
+    const optimisticMsg = {
+      id: clientMsgId,
+      roomId: activeRoomId,
+      senderId: currentUserId,
+      senderName: currentUsername,
+      seq: 0,
+      msgType: 'human' as const,
+      content,
+      metadata: {},
+      taskId: null,
+      replyTo: replyTo?.id || null,
+      editedAt: null,
+      deletedAt: null,
+      createdAt: new Date().toISOString(),
+      pending: true,
+      clientMsgId,
+    };
+    useRoomStore.getState().addMessage(activeRoomId, optimisticMsg);
+
+    // Send via WebSocket
     const ws = (window as any).__claudeWs;
     if (ws?.readyState === WebSocket.OPEN) {
       const payload: any = {
         type: 'room_message',
         roomId: activeRoomId,
-        content: input.trim(),
+        content,
+        clientMsgId,
       };
       if (replyTo) {
         payload.replyTo = replyTo.id;
       }
       ws.send(JSON.stringify(payload));
+    } else {
+      // WebSocket not open — mark as failed immediately
+      useRoomStore.getState().markMessageFailed(activeRoomId, clientMsgId);
     }
+
+    // Timeout: if no ACK within 5s, mark as failed
+    const roomId = activeRoomId;
+    setTimeout(() => {
+      const msgs = useRoomStore.getState().messagesByRoom[roomId] ?? [];
+      const still = msgs.find((m) => m.clientMsgId === clientMsgId && m.pending);
+      if (still) {
+        useRoomStore.getState().markMessageFailed(roomId, clientMsgId);
+      }
+    }, 5000);
+
     setInput('');
     setReplyTo(null);
     inputRef.current?.focus();
-  }, [input, activeRoomId, replyTo]);
+  }, [input, activeRoomId, replyTo, currentUserId]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Block Enter during IME composition (Korean, Japanese, Chinese input)

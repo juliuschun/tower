@@ -171,6 +171,10 @@ export const config = {
   kakaoClientSecret: process.env.KAKAO_CLIENT_SECRET || '',
   kakaoRedirectUri: process.env.KAKAO_REDIRECT_URI || '',
 
+  // Telegram Bot
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
+  telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
+
   // Server epoch — changes on each restart, used to detect server restarts
   serverEpoch: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
 };

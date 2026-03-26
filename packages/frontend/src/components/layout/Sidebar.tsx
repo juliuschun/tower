@@ -12,7 +12,6 @@ import { toastError, toastSuccess } from '../../utils/toast';
 import { useRoomStore } from '../../stores/room-store';
 import { RoomList } from '../rooms/RoomList';
 import { HistoryPanel } from '../history/HistoryPanel';
-import { useSettingsStore } from '../../stores/settings-store';
 
 interface SidebarProps {
   onNewSession: (projectId?: string) => void;
@@ -648,17 +647,6 @@ export function Sidebar({
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               <span className="text-[11px] font-medium">Settings</span>
               <CurrentUser />
-            </button>
-            <button
-              onClick={() => useSettingsStore.getState().setHelpOpen(true)}
-              className="p-1 text-surface-700 hover:text-surface-500 transition-colors cursor-pointer"
-              title="도움말"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
-                <line x1="12" y1="17" x2="12.01" y2="17" strokeWidth={2} strokeLinecap="round" />
-              </svg>
             </button>
           </div>
           <span className="text-[10px] font-semibold text-surface-800">v0.1.0</span>

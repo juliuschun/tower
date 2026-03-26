@@ -320,7 +320,7 @@ export function useClaudeChat() {
           if (wasStreaming && data.sessionId) {
             // Was streaming but SDK finished while disconnected — recover from DB
             recoverMessagesFromDb(data.sessionId);
-            toastSuccess('Response recovered');
+            console.log('Response recovered');
           }
 
           // Auto-name retry: if session still has default name after reconnect,
@@ -874,6 +874,17 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'session_created': {
+        if (data.session) {
+          const store = useSessionStore.getState();
+          const existing = store.sessions.find(s => s.id === data.session.id);
+          if (!existing && !data.session.roomId && !data.session.parentSessionId) {
+            store.addSession(data.session);
+          }
+        }
+        break;
+      }
+
       case 'session_moved': {
         // Update session's projectId in the store when moved via API (e.g., by a task agent)
         if (data.sessionId) {
@@ -954,6 +965,15 @@ export function useClaudeChat() {
       // ── Room events ──────────────────────────────────────────
       case 'room_message': {
         const { roomId, message: roomMsg } = data;
+        // If the server echoed a clientMsgId, confirm the pending optimistic message
+        if (roomMsg.clientMsgId) {
+          const msgs = useRoomStore.getState().messagesByRoom[roomId] ?? [];
+          const pending = msgs.find((m: any) => m.clientMsgId === roomMsg.clientMsgId && m.pending);
+          if (pending) {
+            useRoomStore.getState().confirmPendingMessage(roomId, roomMsg.clientMsgId, roomMsg);
+            break;
+          }
+        }
         useRoomStore.getState().addMessage(roomId, roomMsg);
         if (useRoomStore.getState().activeRoomId !== roomId) {
           useRoomStore.getState().incrementUnread(roomId);

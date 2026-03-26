@@ -316,6 +316,20 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           </button>
         )}
 
+        {/* Help button */}
+        <button
+          onClick={() => useSettingsStore.getState().setHelpOpen(true)}
+          className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
+          title="Help"
+          aria-label="Help"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" strokeWidth={2} strokeLinecap="round" />
+          </svg>
+        </button>
+
         {/* User menu — replaces standalone admin button */}
         {!isMobile && (
           <UserMenu
