@@ -30,18 +30,24 @@ export function isPathWritable(targetPath: string): boolean {
   return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
 }
 
-export function getFileTree(dirPath: string, depth = 2, opts?: { skipSafetyCheck?: boolean }): FileEntry[] {
+export function getFileTree(dirPath: string, depth = 2, opts?: { skipSafetyCheck?: boolean; showHidden?: boolean }): FileEntry[] {
   if (!opts?.skipSafetyCheck && !isPathSafe(dirPath)) {
     throw new Error('Access denied: path outside workspace');
   }
+
+  // Always-hidden patterns (large/noisy dirs) — never show these even with showHidden
+  const alwaysHidden = new Set(['node_modules', '.git', '__pycache__', '.venv', 'dist']);
 
   try {
     const items = fs.readdirSync(dirPath, { withFileTypes: true });
     const entries: FileEntry[] = [];
 
     for (const item of items) {
-      if (config.hiddenPatterns.some(p => item.name === p || item.name.startsWith('.'))) {
-        continue;
+      if (alwaysHidden.has(item.name)) continue;
+      if (!opts?.showHidden) {
+        if (config.hiddenPatterns.some(p => item.name === p || item.name.startsWith('.'))) {
+          continue;
+        }
       }
 
       // Fix Unicode filenames: double-encoded UTF-8 (latin1->utf8) + NFD->NFC normalize

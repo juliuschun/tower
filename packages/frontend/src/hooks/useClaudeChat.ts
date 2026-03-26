@@ -173,7 +173,7 @@ export function useClaudeChat() {
         if (shouldRefreshData) {
           // Request file tree on (re)connect so sidebar doesn't stay empty
           // (send() silently drops messages before WS is OPEN)
-          setTimeout(() => sendRef.current({ type: 'file_tree' }), 100);
+          setTimeout(() => sendRef.current({ type: 'file_tree', showHidden: useFileStore.getState().showHidden }), 100);
 
           // Refresh kanban tasks on (re)connect — task_update messages may have
           // been missed during a brief disconnection (mobile bg, Cloudflare, etc.)
@@ -321,6 +321,36 @@ export function useClaudeChat() {
             // Was streaming but SDK finished while disconnected — recover from DB
             recoverMessagesFromDb(data.sessionId);
             toastSuccess('Response recovered');
+          }
+
+          // Auto-name retry: if session still has default name after reconnect,
+          // the original sdk_done auto-name may have been missed due to disconnect.
+          if (data.sessionId) {
+            const msgs = useChatStore.getState().messages;
+            const session = useSessionStore.getState().sessions.find((s) => s.id === data.sessionId);
+            const autoNameTarget = resolveAutoNameTarget({
+              doneSessionId: data.sessionId,
+              activeSessionId: useSessionStore.getState().activeSessionId,
+              sessionName: session?.name,
+              hasUserMsg: msgs.some((m) => m.role === 'user'),
+              hasAssistantMsg: msgs.some((m) => m.role === 'assistant'),
+            });
+            if (autoNameTarget) {
+              const tk = localStorage.getItem('token');
+              const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+              if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+              fetch(`/api/sessions/${autoNameTarget}/auto-name`, {
+                method: 'POST',
+                headers: hdrs,
+              })
+                .then((r) => r.ok ? r.json() : null)
+                .then((result) => {
+                  if (result?.name) {
+                    useSessionStore.getState().updateSessionMeta(autoNameTarget, { name: result.name });
+                  }
+                })
+                .catch((err) => { console.warn('[chat] auto-name retry on reconnect failed:', err); });
+            }
           }
         }
         break;
@@ -648,10 +678,10 @@ export function useClaudeChat() {
           if (findInTree(currentTree, data.path)) {
             setDirectoryChildren(data.path, data.entries);
             // Recursively re-expand children that were previously expanded
-            const { expandedPaths: ep } = useFileStore.getState();
+            const { expandedPaths: ep, showHidden: sh } = useFileStore.getState();
             for (const child of data.entries as any[]) {
               if (child.isDirectory && ep.has(child.path)) {
-                send({ type: 'file_tree', path: child.path });
+                send({ type: 'file_tree', path: child.path, showHidden: sh });
               }
             }
             break;
@@ -663,12 +693,12 @@ export function useClaudeChat() {
         }
         // Auto-expand previously expanded directories:
         // setTree restores isExpanded flags; now fetch children for those
-        const { expandedPaths } = useFileStore.getState();
+        const { expandedPaths, showHidden: sh2 } = useFileStore.getState();
         const expandedInThisLevel = (data.entries as any[])
           .filter((e: any) => e.isDirectory && expandedPaths.has(e.path))
           .map((e: any) => e.path);
         for (const dirPath of expandedInThisLevel) {
-          send({ type: 'file_tree', path: dirPath });
+          send({ type: 'file_tree', path: dirPath, showHidden: sh2 });
         }
         break;
       }
@@ -702,10 +732,13 @@ export function useClaudeChat() {
         // Skipping invisible dirs prevents the sidebar from navigating away
         // (e.g. resetting to workspace root and showing .gitignore) when Claude
         // creates files outside the user's current view.
-        if (data.event === 'add' || data.event === 'addDir') {
+        if (data.event === 'add' || data.event === 'addDir' || data.event === 'unlink' || data.event === 'unlinkDir') {
+          // Bump refreshTrigger so ProjectFileSection components auto-refresh
+          useFileStore.getState().bumpRefreshTrigger();
+
           const parentDir = data.path.substring(0, data.path.lastIndexOf('/'));
           if (parentDir) {
-            const { tree, treeRoot } = useFileStore.getState();
+            const { tree, treeRoot, showHidden } = useFileStore.getState();
             const findInTree = (entries: typeof tree, p: string): boolean => {
               for (const e of entries) {
                 if (e.path === p && e.isDirectory) return true;
@@ -716,7 +749,7 @@ export function useClaudeChat() {
             // Send refresh only when the parent dir is currently shown in the sidebar
             const isVisible = parentDir === treeRoot || (tree.length > 0 && findInTree(tree, parentDir));
             if (isVisible) {
-              sendRef.current({ type: 'file_tree', path: parentDir });
+              sendRef.current({ type: 'file_tree', path: parentDir, showHidden });
             }
           }
         }
@@ -1110,7 +1143,7 @@ export function useClaudeChat() {
 
   const requestFileTree = useCallback(
     (path?: string) => {
-      send({ type: 'file_tree', path });
+      send({ type: 'file_tree', path, showHidden: useFileStore.getState().showHidden });
     },
     [send]
   );

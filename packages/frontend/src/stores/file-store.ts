@@ -68,6 +68,65 @@ function collectExpandedPaths(entries: FileEntry[], result: Set<string>): void {
   }
 }
 
+// ─── Expanded projects persistence (per-user) ───
+function getProjectsKey(): string {
+  try {
+    const token = localStorage.getItem('token');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.username) return `fileTree:expandedProjects:${payload.username}`;
+    }
+  } catch {}
+  return 'fileTree:expandedProjects';
+}
+
+function loadExpandedProjects(): Set<string> {
+  try {
+    const key = getProjectsKey();
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      console.log('[file-store] loadExpandedProjects:', key, parsed);
+      return new Set(parsed);
+    }
+    console.log('[file-store] loadExpandedProjects: no saved data, key=', key);
+  } catch (e) {
+    console.error('[file-store] loadExpandedProjects error:', e);
+  }
+  return new Set();
+}
+
+function saveExpandedProjects(projects: Set<string>): void {
+  try {
+    localStorage.setItem(getProjectsKey(), JSON.stringify([...projects]));
+  } catch {}
+}
+
+// ─── Show hidden files preference (per-user) ───
+function getShowHiddenKey(): string {
+  try {
+    const token = localStorage.getItem('token');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.username) return `fileTree:showHidden:${payload.username}`;
+    }
+  } catch {}
+  return 'fileTree:showHidden';
+}
+
+function loadShowHidden(): boolean {
+  try {
+    return localStorage.getItem(getShowHiddenKey()) === 'true';
+  } catch {}
+  return false;
+}
+
+function saveShowHidden(show: boolean): void {
+  try {
+    localStorage.setItem(getShowHiddenKey(), String(show));
+  } catch {}
+}
+
 interface FileState {
   tree: FileEntry[];
   treeRoot: string;
@@ -79,6 +138,12 @@ interface FileState {
   lastOpenedFilePath: string | null;
   originalContent: string | null;
   externalChange: ExternalChange | null;
+  /** Incremented on file_changed WS events — ProjectFileSection subscribes to auto-refresh */
+  refreshTrigger: number;
+  /** Set of project IDs whose file sections are expanded (persisted) */
+  expandedProjects: Set<string>;
+  /** Whether to show hidden/dotfiles in the file tree */
+  showHidden: boolean;
 
   setTree: (entries: FileEntry[]) => void;
   setTreeRoot: (path: string) => void;
@@ -95,6 +160,14 @@ interface FileState {
   setExternalChange: (change: ExternalChange | null) => void;
   reloadFromDisk: (content: string) => void;
   keepLocalEdits: () => void;
+  /** Trigger a refresh for ProjectFileSection components */
+  bumpRefreshTrigger: () => void;
+  /** Toggle a project's expanded/collapsed state in the file tab */
+  toggleProjectExpanded: (projectId: string) => void;
+  /** Check if a project section is expanded */
+  isProjectExpanded: (projectId: string) => boolean;
+  /** Toggle show hidden files */
+  toggleShowHidden: () => void;
 }
 
 export const useFileStore = create<FileState>((set, get) => ({
@@ -108,6 +181,9 @@ export const useFileStore = create<FileState>((set, get) => ({
   lastOpenedFilePath: null,
   originalContent: null,
   externalChange: null,
+  refreshTrigger: 0,
+  expandedProjects: loadExpandedProjects(),
+  showHidden: loadShowHidden(),
 
   setTree: (entries) => {
     const { expandedPaths } = get();
@@ -198,6 +274,30 @@ export const useFileStore = create<FileState>((set, get) => ({
       set({ tree: removeFromTree(state.tree, filePath), expandedPaths: newExpanded });
     }
   },
+
+  bumpRefreshTrigger: () => set((s) => ({ refreshTrigger: s.refreshTrigger + 1 })),
+
+  toggleProjectExpanded: (projectId) =>
+    set((s) => {
+      const newSet = new Set(s.expandedProjects);
+      if (newSet.has(projectId)) {
+        newSet.delete(projectId);
+      } else {
+        newSet.add(projectId);
+      }
+      console.log('[file-store] toggleProjectExpanded:', projectId, 'now expanded:', [...newSet]);
+      saveExpandedProjects(newSet);
+      return { expandedProjects: newSet };
+    }),
+
+  isProjectExpanded: (projectId) => get().expandedProjects.has(projectId),
+
+  toggleShowHidden: () =>
+    set((s) => {
+      const next = !s.showHidden;
+      saveShowHidden(next);
+      return { showHidden: next, refreshTrigger: s.refreshTrigger + 1 };
+    }),
 }));
 
 function toggleDir(entries: FileEntry[], dirPath: string): FileEntry[] {

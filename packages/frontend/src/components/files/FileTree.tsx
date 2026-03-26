@@ -291,11 +291,13 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
     }
 
     if (action === 'newFile') {
+      if (!entry.isExpanded) onDirectoryClick(entry.path);
       setInlineInput({ type: 'newFile', parentPath: entry.path });
       return;
     }
 
     if (action === 'newFolder') {
+      if (!entry.isExpanded) onDirectoryClick(entry.path);
       setInlineInput({ type: 'newFolder', parentPath: entry.path });
       return;
     }

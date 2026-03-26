@@ -166,6 +166,11 @@ export const config = {
   // If not set, share links use window.location.origin (fallback, can be wrong domain)
   publicUrl: process.env.PUBLIC_URL?.replace(/\/$/, '') || '',
 
+  // Kakao OAuth
+  kakaoRestKey: process.env.KAKAO_REST_KEY || '',
+  kakaoClientSecret: process.env.KAKAO_CLIENT_SECRET || '',
+  kakaoRedirectUri: process.env.KAKAO_REDIRECT_URI || '',
+
   // Server epoch — changes on each restart, used to detect server restarts
   serverEpoch: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
 };
@@ -190,3 +195,4 @@ export function getPermissionMode(role?: string): PermissionMode {
     default:         return config.permissionMode;
   }
 }
+

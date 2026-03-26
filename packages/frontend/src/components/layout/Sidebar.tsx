@@ -490,6 +490,8 @@ export function Sidebar({
           </div>
         ) : sidebarTab === 'files' ? (
           <div className="px-2 min-h-full space-y-1">
+            {/* Files toolbar — show hidden toggle + refresh */}
+            <FilesToolbar onRefresh={onRequestFileTree} />
             {/* Project file sections */}
             {projects.filter(p => p.rootPath).map((project) => (
               <ProjectFileSection
@@ -714,11 +716,50 @@ function Breadcrumb({ treeRoot, onNavigate }: { treeRoot: string; onNavigate: (p
   );
 }
 
-/** File tree toolbar: new file, new folder, upload, refresh */
+/** Compact toolbar shown at top of Files tab — show hidden toggle */
+function FilesToolbar({ onRefresh }: { onRefresh: (path?: string) => void }) {
+  const showHidden = useFileStore((s) => s.showHidden);
+  const toggleShowHidden = useFileStore((s) => s.toggleShowHidden);
+
+  const handleToggleHidden = () => {
+    toggleShowHidden();
+    // Give the store a tick to update, then request refresh
+    setTimeout(() => onRefresh(), 50);
+  };
+
+  const btnClass = 'p-1 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-800 transition-colors';
+
+  return (
+    <div className="flex items-center justify-end gap-0.5 px-1 pt-1 pb-0.5">
+      <button
+        onClick={handleToggleHidden}
+        className={`${btnClass} ${showHidden ? '!text-primary-400' : ''}`}
+        title={showHidden ? 'Hide dotfiles' : 'Show dotfiles (.env, .gitignore, etc.)'}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {showHidden ? (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          ) : (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+          )}
+        </svg>
+      </button>
+      <button onClick={() => onRefresh()} className={btnClass} title="Refresh all">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+/** File tree toolbar: new file, new folder, upload, refresh, show hidden */
 function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh: () => void }) {
   const [showInput, setShowInput] = useState<'file' | 'folder' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const showHidden = useFileStore((s) => s.showHidden);
+  const toggleShowHidden = useFileStore((s) => s.toggleShowHidden);
 
   useEffect(() => {
     if (showInput) inputRef.current?.focus();
@@ -795,6 +836,19 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
         </button>
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
         <div className="flex-1" />
+        <button
+          onClick={() => { toggleShowHidden(); onRefresh(); }}
+          className={`${btnClass} ${showHidden ? 'text-primary-400' : ''}`}
+          title={showHidden ? 'Hide dotfiles' : 'Show dotfiles (.env, etc.)'}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {showHidden ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+            )}
+          </svg>
+        </button>
         <button onClick={onRefresh} className={btnClass} title="Refresh">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1855,35 +1909,68 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
   onPinFile?: (path: string) => void;
   onNewSessionInFolder?: (path: string) => void;
 }) {
-  const [collapsed, setCollapsed] = useState(true);
+  // Persisted collapsed state via zustand store
+  const isExpanded = useFileStore((s) => s.expandedProjects.has(project.id));
+  const toggleProjectExpanded = useFileStore((s) => s.toggleProjectExpanded);
+  const refreshTrigger = useFileStore((s) => s.refreshTrigger);
+  const showHidden = useFileStore((s) => s.showHidden);
+
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const loaded = useRef(false);
+  const prevTrigger = useRef(refreshTrigger);
 
   const rootPath = project.rootPath;
+
+  // Debug: log mount state
+  useEffect(() => {
+    console.log(`[ProjectFileSection] mount: id=${project.id}, name=${project.name}, isExpanded=${isExpanded}, rootPath=${rootPath}`);
+  }, []);
 
   const fetchDir = useCallback(async (dirPath: string): Promise<FileEntry[]> => {
     try {
       const tk = localStorage.getItem('token');
       const hdrs: Record<string, string> = {};
       if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
-      const res = await fetch(`/api/files/tree?path=${encodeURIComponent(dirPath)}`, { headers: hdrs });
+      const url = `/api/files/tree?path=${encodeURIComponent(dirPath)}${showHidden ? '&showHidden=true' : ''}`;
+      const res = await fetch(url, { headers: hdrs });
       if (res.ok) {
         const data = await res.json();
         return data.entries || [];
       }
     } catch {}
     return [];
-  }, []);
+  }, [showHidden]);
 
-  const loadTree = useCallback(async () => {
-    if (!rootPath || loaded.current) return;
+  const loadTree = useCallback(async (force?: boolean) => {
+    if (!rootPath || (loaded.current && !force)) return;
     setLoading(true);
     const result = await fetchDir(rootPath);
     setEntries(result);
     loaded.current = true;
     setLoading(false);
   }, [rootPath, fetchDir]);
+
+  // Auto-load on mount if project was previously expanded
+  useEffect(() => {
+    if (isExpanded && !loaded.current) {
+      loadTree();
+    }
+  }, [isExpanded, loadTree]);
+
+  // Auto-refresh when refreshTrigger changes (new files created/deleted)
+  useEffect(() => {
+    if (refreshTrigger !== prevTrigger.current) {
+      prevTrigger.current = refreshTrigger;
+      if (isExpanded && loaded.current && rootPath) {
+        // Debounce to batch rapid changes
+        const timer = setTimeout(() => {
+          loadTree(true);
+        }, 300);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [refreshTrigger, isExpanded, rootPath, loadTree]);
 
   // Toggle or expand a directory within the local tree
   const handleDirectoryClick = useCallback(async (dirPath: string) => {
@@ -1929,8 +2016,8 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
   }, [entries, fetchDir]);
 
   const handleToggle = () => {
-    if (collapsed) loadTree();
-    setCollapsed(!collapsed);
+    toggleProjectExpanded(project.id);
+    if (!isExpanded) loadTree(); // expanding → load
   };
 
   if (!rootPath) return null;
@@ -1941,7 +2028,7 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
         className="flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj hover:bg-surface-850"
         onClick={handleToggle}
       >
-        <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${collapsed ? '-rotate-90' : ''}`}
+        <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${!isExpanded ? '-rotate-90' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
@@ -1951,7 +2038,7 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
         <span className="text-[13px] font-bold text-gray-300 truncate">{project.name}</span>
       </div>
 
-      {!collapsed && (
+      {isExpanded && (
         <div className="pl-5">
           {loading && entries.length === 0 && (
             <p className="text-[12px] text-gray-500 py-2">Loading...</p>

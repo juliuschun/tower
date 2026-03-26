@@ -5,7 +5,8 @@ import { useChatStore } from '../stores/chat-store';
 type MessageHandler = (data: any) => void;
 type ReconnectHandler = () => void;
 
-const STREAMING_SAFETY_TIMEOUT = 15_000; // 15 seconds
+const STREAMING_SAFETY_TIMEOUT = 30_000; // 30 seconds (mobile networks need longer)
+const ZOMBIE_CHECK_TIMEOUT = 5_000;      // 5 seconds (was 2s, too aggressive for mobile)
 
 export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect?: ReconnectHandler) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -119,7 +120,7 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
               // pong 응답 없음 → zombie 상태, 강제 종료 후 재연결
               wsRef.current.close();
             }
-          }, 2000);
+          }, ZOMBIE_CHECK_TIMEOUT);
 
           const pongGuard = (event: MessageEvent) => {
             if (abortCtrl.signal.aborted) {

@@ -374,59 +374,85 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
     // Upload binary/large files to server
     if (serverFiles.length > 0) {
-      const formData = new FormData();
-      for (const file of serverFiles) {
-        formData.append('files', file);
-      }
-      // Include projectId so uploads go to the project folder
-      const activeSession = useSessionStore.getState().sessions.find(
-        s => s.id === useSessionStore.getState().activeSessionId
-      );
-      if (activeSession?.projectId) {
-        formData.append('projectId', activeSession.projectId);
-      }
-      try {
-        const token = localStorage.getItem('token');
-        const headers: Record<string, string> = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const res = await fetch('/api/files/chat-upload', { method: 'POST', headers, body: formData });
-        const data = await res.json();
-        if (!res.ok) {
-          useChatStore.getState().addAttachment({
-            id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            type: 'upload',
-            label: 'Upload failed',
-            content: `[Upload failed: ${data.error || 'Unknown error'}]`,
-          });
-        } else {
-          for (const r of data.results) {
-            if (r.error) {
-              useChatStore.getState().addAttachment({
-                id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                type: 'upload',
-                label: `${r.name} (failed)`,
-                content: `[Upload failed: ${r.error}]`,
-              });
-            } else {
-              // Use 'file' type so buildMessage generates [file: /path] — AI can read it
-              useChatStore.getState().addAttachment({
-                id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                type: 'file',
-                label: r.name,
-                content: r.path,
-              });
-            }
-          }
-        }
-      } catch {
+      await uploadFilesToServer(serverFiles);
+    }
+    textareaRef.current?.focus();
+  };
+
+  // ───── Shared upload helper ─────
+  const uploadFilesToServer = async (files: File[]) => {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+    // Include projectId so uploads go to the project folder
+    const activeSession = useSessionStore.getState().sessions.find(
+      s => s.id === useSessionStore.getState().activeSessionId
+    );
+    if (activeSession?.projectId) {
+      formData.append('projectId', activeSession.projectId);
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/chat-upload', { method: 'POST', headers, body: formData });
+      const data = await res.json();
+      if (!res.ok) {
         useChatStore.getState().addAttachment({
           id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           type: 'upload',
           label: 'Upload failed',
-          content: '[Upload failed: network error]',
+          content: `[Upload failed: ${data.error || 'Unknown error'}]`,
         });
+      } else {
+        for (const r of data.results) {
+          if (r.error) {
+            useChatStore.getState().addAttachment({
+              id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              type: 'upload',
+              label: `${r.name} (failed)`,
+              content: `[Upload failed: ${r.error}]`,
+            });
+          } else {
+            // Use 'file' type so buildMessage generates [file: /path] — AI can read it
+            useChatStore.getState().addAttachment({
+              id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              type: 'file',
+              label: r.name,
+              content: r.path,
+            });
+          }
+        }
+      }
+    } catch {
+      useChatStore.getState().addAttachment({
+        id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type: 'upload',
+        label: 'Upload failed',
+        content: '[Upload failed: network error]',
+      });
+    }
+  };
+
+  // ───── Clipboard Paste (images/files) ─────
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      // Only intercept file/image pastes — let text paste through normally
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) files.push(file);
       }
     }
+
+    if (files.length === 0) return; // plain text paste — do nothing, let browser handle it
+
+    e.preventDefault(); // prevent pasting blob URL as text
+    await uploadFilesToServer(files);
     textareaRef.current?.focus();
   };
 
@@ -535,6 +561,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={
               hasQueue
                 ? 'You can queue another message...'

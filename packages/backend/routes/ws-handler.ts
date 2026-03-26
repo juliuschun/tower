@@ -875,7 +875,7 @@ async function handleFileWrite(client: WsClient, data: { path: string; content: 
   }
 }
 
-function handleFileTree(client: WsClient, data: { path?: string }) {
+function handleFileTree(client: WsClient, data: { path?: string; showHidden?: boolean }) {
   try {
     const securityRoot = client.allowedPath || config.workspaceRoot;
     // Admin's allowedPath is homedir (broad access), but default tree should show workspace
@@ -885,7 +885,7 @@ function handleFileTree(client: WsClient, data: { path?: string }) {
       send(client.ws, { type: 'error', message: 'Access denied: outside allowed path' });
       return;
     }
-    const entries = getFileTree(targetPath);
+    const entries = getFileTree(targetPath, 2, { showHidden: !!data.showHidden });
     send(client.ws, {
       type: 'file_tree',
       path: targetPath,

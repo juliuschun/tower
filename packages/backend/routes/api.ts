@@ -28,6 +28,8 @@ import {
   autoCommit,
 } from '../services/git-manager.js';
 import { config, availableModels, loadModelsFile, saveModelsFile, reloadModels } from '../config.js';
+import { oauthManager, messageRouter } from '../services/messaging/index.js';
+import { exchangeKakaoCode, getKakaoProfile } from '../services/messaging/kakao.js';
 import { search } from '../services/search.js';
 import { extractTextFromContent } from '../utils/text.js';
 import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask, getChildTasks } from '../services/task-manager.js';
@@ -122,6 +124,94 @@ router.post('/auth/login', async (req, res) => {
   const token = generateToken(payload);
   setTokenCookie(res, token);
   res.json({ token, user: payload });
+});
+
+// ───── Kakao OAuth ─────
+
+router.get('/auth/kakao', authMiddleware, (_req, res) => {
+  if (!config.kakaoRestKey) return res.status(500).json({ error: 'Kakao not configured' });
+
+  const url = `https://kauth.kakao.com/oauth/authorize?` +
+    `client_id=${config.kakaoRestKey}` +
+    `&redirect_uri=${encodeURIComponent(config.kakaoRedirectUri)}` +
+    `&response_type=code` +
+    `&scope=talk_message,profile_nickname`;
+
+  res.json({ url });
+});
+
+router.get('/auth/kakao/callback', async (req, res) => {
+  try {
+    const { code } = req.query;
+    if (!code) return res.status(400).send('Missing authorization code');
+
+    // Extract user from tower_token cookie or query
+    const rawToken = extractToken(req);
+    const payload = rawToken ? verifyToken(rawToken) : null;
+    if (!payload) {
+      const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
+      return res.redirect(`${baseUrl}/?oauth=kakao&status=error&message=not_authenticated`);
+    }
+
+    // Exchange code for tokens
+    const tokens = await exchangeKakaoCode(code as string);
+
+    // Get Kakao user profile
+    const profile = await getKakaoProfile(tokens.accessToken);
+
+    // Save tokens to DB
+    await oauthManager.saveToken({
+      userId: payload.userId,
+      provider: 'kakao',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresIn: tokens.expiresIn,
+      refreshExpiresIn: tokens.refreshExpiresIn,
+      providerUserId: profile.id,
+      providerNickname: profile.nickname,
+    });
+
+    // Redirect back to Tower Settings with success
+    const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
+    res.redirect(`${baseUrl}/?oauth=kakao&status=success`);
+  } catch (err: any) {
+    console.error('[Kakao OAuth] Error:', err.message);
+    const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
+    res.redirect(`${baseUrl}/?oauth=kakao&status=error&message=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// Get connected OAuth providers for current user
+router.get('/auth/oauth/status', authMiddleware, async (req, res) => {
+  const user = (req as any).user;
+  const providers = ['kakao', 'slack', 'telegram'];
+  const details: Record<string, { connected: boolean; nickname?: string }> = {};
+
+  for (const p of providers) {
+    const token = await oauthManager.getToken(user.userId, p);
+    details[p] = {
+      connected: !!token,
+      nickname: token?.provider_nickname || undefined,
+    };
+  }
+  res.json(details);
+});
+
+// Disconnect OAuth provider
+router.delete('/auth/oauth/:provider', authMiddleware, async (req, res) => {
+  const user = (req as any).user;
+  await oauthManager.deleteToken(user.userId, req.params.provider as string);
+  res.json({ ok: true });
+});
+
+// Send test message via provider
+router.post('/auth/oauth/:provider/test', authMiddleware, async (req, res) => {
+  const user = (req as any).user;
+  const result = await messageRouter.send(user.userId, req.params.provider as string, '🎉 Tower 카카오톡 연결 테스트 성공!', {
+    title: 'Tower 연결 완료',
+    buttonTitle: 'Tower 열기',
+  });
+  res.json(result);
 });
 
 // ───── Public: Shared file viewer (no auth required) ─────
@@ -717,7 +807,11 @@ router.get('/files/tree', async (req, res) => {
         return res.status(403).json({ error: 'Access denied: outside allowed path' });
       }
     }
-    let entries = getFileTree(dirPath, 2, inWorkspace ? undefined : { skipSafetyCheck: true });
+    const showHidden = req.query.showHidden === 'true' || req.query.showHidden === '1';
+    let entries = getFileTree(dirPath, 2, {
+      ...(inWorkspace ? {} : { skipSafetyCheck: true }),
+      showHidden,
+    });
 
     // Filter project folders: non-admin users only see projects they're a member of
     const projectsDir = path.resolve(path.join(config.workspaceRoot, 'projects'));
@@ -891,7 +985,8 @@ router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
       const safeName = `${Date.now()}-${file.originalname.replace(/[^\p{L}\p{N}._-]/gu, '_')}`;
       const filePath = path.join(uploadDir, safeName);
       try {
-        writeFileBinary(filePath, file.buffer, config.workspaceRoot);
+        // Use uploadDir as allowedRoot — project uploads may be outside workspaceRoot
+        writeFileBinary(filePath, file.buffer, uploadDir);
         results.push({ name: file.originalname, path: filePath });
       } catch (err: any) {
         results.push({ name: file.originalname, path: '', error: err.message });

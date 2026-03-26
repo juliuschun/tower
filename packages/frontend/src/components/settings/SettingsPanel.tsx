@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSettingsStore, type ThemeId } from '../../stores/settings-store';
 import { useSessionStore } from '../../stores/session-store';
+import { OAuthConnections } from './OAuthConnections';
 
 const THEMES: { id: ThemeId; label: string; colors: [string, string, string, string] }[] = [
   { id: 'dark',   label: 'Dark',   colors: ['#0b0d12', '#242832', '#f59e0b', '#f59e0b'] },
@@ -9,6 +10,27 @@ const THEMES: { id: ThemeId; label: string; colors: [string, string, string, str
   { id: 'forest', label: 'Forest', colors: ['#080c08', '#1c2c20', '#d4b840', '#d8a070'] },
   { id: 'aurora', label: 'Aurora', colors: ['#08060e', '#221e34', '#30e890', '#f0a0d0'] },
 ];
+
+// Simple error boundary to prevent OAuthConnections from crashing the whole Settings modal
+class OAuthErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: string }> {
+  state = { hasError: false, error: undefined as string | undefined };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section>
+          <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Connections</h3>
+          <div className="text-[10px] text-red-400 p-2 border border-red-500/20 rounded-lg">
+            Error: {this.state.error}
+          </div>
+        </section>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface SettingsPanelProps {
   onLogout: () => void;
@@ -114,6 +136,11 @@ export function SettingsPanel({ onLogout }: SettingsPanelProps) {
             </div>
           </section>
 
+          {/* Connections — OAuth */}
+          <OAuthErrorBoundary>
+            <OAuthConnections />
+          </OAuthErrorBoundary>
+
           {/* Skills Market */}
           <section>
             <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Skills</h3>
@@ -145,4 +172,3 @@ export function SettingsPanel({ onLogout }: SettingsPanelProps) {
     </div>
   );
 }
-
