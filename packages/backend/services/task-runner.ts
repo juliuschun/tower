@@ -27,6 +27,29 @@ interface MonitoredTask {
   startTime: number;
   progressStages: string[];
   timer: ReturnType<typeof setInterval>;
+  userId?: number;
+  title: string;
+}
+
+/** Push task completion/failure to external messaging (Telegram, Kakao, etc.) */
+function pushTaskNotification(userId: number | undefined, status: 'done' | 'failed', title: string) {
+  if (!userId) return;
+  import('./messaging/index.js').then(({ messageRouter }) => {
+    const emoji = status === 'done' ? '✅' : '❌';
+    const label = status === 'done' ? '완료' : '실패';
+    console.log(`[messaging] Pushing task ${label} notification for user ${userId}`);
+    messageRouter.sendAny(userId, `${emoji} 태스크 ${label}: ${title}`, {
+      title: `Tower 태스크 ${label}`,
+      linkUrl: 'https://tower.moatai.app',
+      buttonTitle: 'Tower 열기',
+    }).then((r: any) => {
+      console.log(`[messaging] sendAny result:`, JSON.stringify(r));
+    }).catch((e: any) => {
+      console.error(`[messaging] sendAny error:`, e.message);
+    });
+  }).catch((e: any) => {
+    console.error(`[messaging] import error:`, e.message);
+  });
 }
 
 const monitoredTasks = new Map<string, MonitoredTask>();
@@ -210,6 +233,7 @@ export async function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): Pr
         broadcastFn('task_update', { taskId, status: 'done', sessionId: monitored.sessionId, progressSummary: finalSummary });
         broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
         console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} → done`);
+        pushTaskNotification(monitored.userId, 'done', monitored.title);
       } else if (result.status === 'failed') {
         clearInterval(monitored.timer);
         monitoredTasks.delete(taskId);
@@ -220,6 +244,7 @@ export async function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): Pr
         broadcastFn('task_update', { taskId, status: 'failed', sessionId: monitored.sessionId, progressSummary: finalSummary });
         broadcastFn('session_status', { sessionId: monitored.sessionId, status: 'idle' });
         console.log(`[task-runner] Monitored task ${taskId.slice(0, 8)} → failed: ${result.reason}`);
+        pushTaskNotification(monitored.userId, 'failed', monitored.title);
       }
     }, MONITOR_POLL_INTERVAL);
 
@@ -231,6 +256,8 @@ export async function resumeOrphanedTaskMonitoring(broadcastFn: BroadcastFn): Pr
       startTime,
       progressStages,
       timer,
+      userId: task.userId ?? undefined,
+      title: task.title,
     });
 
     console.log(`[task-runner] Monitoring orphaned task "${task.title}" (${taskId.slice(0, 8)}) via ${path.basename(jsonlPath)}`);
@@ -663,6 +690,12 @@ async function runTaskAgent(
         claudeSessionId,
         progressSummary: finalSummary,
       });
+
+      // Push to external messaging (Telegram, Kakao, etc.)
+      const completedTaskForNotify = await getTask(taskId);
+      if (completedTaskForNotify?.userId) {
+        pushTaskNotification(completedTaskForNotify.userId, finalStatus as 'done' | 'failed', title);
+      }
 
       // ── Room task completion: post summary + save context ──
       const completedTaskForRoom = await getTask(taskId);

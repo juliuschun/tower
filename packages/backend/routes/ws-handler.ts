@@ -340,11 +340,18 @@ async function handleMessage(client: WsClient, data: any) {
               const emoji = payload.status === 'done' ? '✅' : '❌';
               const label = payload.status === 'done' ? '완료' : '실패';
               const body = payload.title || taskId.slice(0, 8);
+              console.log(`[messaging] Sending task ${label} notification for user ${client.userId}`);
               messageRouter.sendAny(client.userId!, `${emoji} 태스크 ${label}: ${body}`, {
                 title: `Tower 태스크 ${label}`,
                 linkUrl: 'https://tower.moatai.app',
                 buttonTitle: 'Tower 열기',
-              }).catch(() => {});
+              }).then((r: any) => {
+                console.log(`[messaging] sendAny result:`, JSON.stringify(r));
+              }).catch((e: any) => {
+                console.error(`[messaging] sendAny error:`, e.message);
+              });
+            }).catch((e: any) => {
+              console.error(`[messaging] import error:`, e.message);
             });
           }
         }, client.userId, client.userRole, client.allowedPath);
