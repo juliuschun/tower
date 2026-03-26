@@ -2126,4 +2126,54 @@ router.delete('/heartbeats/:projectId', authMiddleware, async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+/* ── Help docs ── */
+
+const _apiDirname = path.dirname(new URL(import.meta.url).pathname);
+// Tower repo root: from packages/backend/routes/ go up 3 levels, or from dist/ go up 4
+const _towerRoot = _apiDirname.includes('dist')
+  ? path.resolve(_apiDirname, '..', '..', '..', '..')
+  : path.resolve(_apiDirname, '..', '..', '..');
+const HELP_DIR = path.join(_towerRoot, 'docs', 'help');
+
+router.get('/help', async (_req, res) => {
+  try {
+    const files = await fsPromises.readdir(HELP_DIR);
+    const mdFiles = files.filter((f) => f.endsWith('.md'));
+    const topics: { slug: string; title: string; icon: string; order: number }[] = [];
+    for (const file of mdFiles) {
+      const raw = await fsPromises.readFile(path.join(HELP_DIR, file), 'utf-8');
+      const frontmatterMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+      let title = file.replace(/\.md$/, '');
+      let icon = '📄';
+      let order = 99;
+      if (frontmatterMatch) {
+        const fm = frontmatterMatch[1];
+        const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+        const iconMatch = fm.match(/^icon:\s*["']?(.+?)["']?\s*$/m);
+        const orderMatch = fm.match(/^order:\s*(\d+)/m);
+        if (titleMatch) title = titleMatch[1];
+        if (iconMatch) icon = iconMatch[1];
+        if (orderMatch) order = parseInt(orderMatch[1]);
+      }
+      topics.push({ slug: file.replace(/\.md$/, ''), title, icon, order });
+    }
+    topics.sort((a, b) => a.order - b.order);
+    res.json(topics);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/help/:slug', async (req, res) => {
+  try {
+    const slug = req.params.slug.replace(/[^a-zA-Z0-9_-]/g, '');
+    const filePath = path.join(HELP_DIR, `${slug}.md`);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Help topic not found' });
+    }
+    const raw = await fsPromises.readFile(filePath, 'utf-8');
+    // Strip YAML frontmatter
+    const content = raw.replace(/^---\n[\s\S]*?\n---\n*/, '');
+    res.type('text/plain').send(content);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 export default router;

@@ -8,6 +8,7 @@ import { LoginPage } from './components/auth/LoginPage';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { SkillsBrowser } from './components/skills/SkillsBrowser';
+import { HelpPanel } from './components/help/HelpPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { PublishPanel } from './components/publish/PublishPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -796,7 +797,7 @@ function App() {
 
   return (
     <div className="flex flex-col overflow-hidden app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100 h-full" style={{ height: '100dvh' }}>
-      <Toaster position="top-right" theme={theme} richColors closeButton />
+      <Toaster position="top-right" theme={theme === 'light' ? 'light' : 'dark'} richColors closeButton />
       <OfflineBanner />
       <Header
         connected={connected}
@@ -1003,6 +1004,7 @@ function App() {
       <SettingsPanel onLogout={handleLogout} />
       <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
       <SkillsBrowser />
+      <HelpPanel />
       <BrowserPanel open={browserOpen} onClose={() => setBrowserOpen(false)} />
       <PublishPanel open={publishOpen} onClose={() => setPublishOpen(false)} />
 
