@@ -123,6 +123,8 @@ async function uploadFilesToDir(targetDir: string, e: React.DragEvent, onRefresh
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) { toastError(`Upload failed (${res.status}): file may be too large`); return; }
     const data = await res.json();
     if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
     const ok = data.results.filter((r: any) => !r.error);

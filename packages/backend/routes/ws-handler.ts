@@ -321,7 +321,7 @@ async function handleMessage(client: WsClient, data: any) {
       try {
         await spawnTask(taskId, (type, payload) => {
           broadcastToAll({ type, ...payload });
-          // Auto-create notification on task completion/failure
+          // In-app notification only — external messaging (Telegram, KakaoTalk) is in task-runner.ts
           if (type === 'task_update' && (payload.status === 'done' || payload.status === 'failed') && client.userId) {
             import('../services/notification-hub.js').then(({ notify }) => {
               const title = payload.status === 'done' ? 'Task completed' : 'Task failed';
@@ -333,25 +333,8 @@ async function handleMessage(client: WsClient, data: any) {
                 payload.title || taskId.slice(0, 8),
                 { taskId },
               ).catch(() => {});
-            });
-
-            // Push to external messaging (KakaoTalk, Telegram, etc.)
-            import('../services/messaging/index.js').then(({ messageRouter }) => {
-              const emoji = payload.status === 'done' ? '✅' : '❌';
-              const label = payload.status === 'done' ? '완료' : '실패';
-              const body = payload.title || taskId.slice(0, 8);
-              console.log(`[messaging] Sending task ${label} notification for user ${client.userId}`);
-              messageRouter.sendAny(client.userId!, `${emoji} 태스크 ${label}: ${body}`, {
-                title: `Tower 태스크 ${label}`,
-                linkUrl: 'https://tower.moatai.app',
-                buttonTitle: 'Tower 열기',
-              }).then((r: any) => {
-                console.log(`[messaging] sendAny result:`, JSON.stringify(r));
-              }).catch((e: any) => {
-                console.error(`[messaging] sendAny error:`, e.message);
-              });
             }).catch((e: any) => {
-              console.error(`[messaging] import error:`, e.message);
+              console.error(`[notification-hub] import error:`, e.message);
             });
           }
         }, client.userId, client.userRole, client.allowedPath);
@@ -845,9 +828,9 @@ async function handleFileRead(client: WsClient, data: { path: string }) {
     }
     // Binary files (PDF, images): send metadata only — frontend fetches via HTTP API
     const ext = data.path.split('.').pop()?.toLowerCase() || '';
-    const binaryExts = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'mp4', 'webm']);
+    const binaryExts = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'mp4', 'webm', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt']);
     if (binaryExts.has(ext)) {
-      const langMap: Record<string, string> = { pdf: 'pdf', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', ico: 'image', mp4: 'video', webm: 'video' };
+      const langMap: Record<string, string> = { pdf: 'pdf', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', ico: 'image', mp4: 'video', webm: 'video', docx: 'docx', doc: 'docx', xlsx: 'xlsx', xls: 'xlsx', pptx: 'pptx', ppt: 'pptx' };
       console.log(`[ws] binary file detected: ${data.path} (${ext})`);
       send(client.ws, {
         type: 'file_content',

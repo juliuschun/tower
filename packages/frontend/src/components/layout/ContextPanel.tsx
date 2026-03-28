@@ -7,6 +7,12 @@ import { useFileStore } from '../../stores/file-store';
 import { CodeEditor } from '../editor/CodeEditor';
 import { MermaidBlock } from '../chat/MermaidBlock';
 
+// Lazy-loaded Office preview components
+const DocxPreview = React.lazy(() => import('../files/DocxPreview').then(m => ({ default: m.DocxPreview })));
+const XlsxPreview = React.lazy(() => import('../files/XlsxPreview').then(m => ({ default: m.XlsxPreview })));
+const PptxPreview = React.lazy(() => import('../files/PptxPreview').then(m => ({ default: m.PptxPreview })));
+const OFFICE_FORMATS = new Set(['docx', 'xlsx', 'pptx']);
+
 function HtmlPreview({ content }: { content: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
@@ -153,7 +159,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
   const setContextPanelExpanded = useFileStore((s) => s.setContextPanelExpanded);
 
   useEffect(() => {
-    if (openFile && ['html', 'markdown', 'pdf', 'image', 'video'].includes(openFile.language)) {
+    if (openFile && ['html', 'markdown', 'pdf', 'image', 'video', 'docx', 'xlsx', 'pptx'].includes(openFile.language)) {
       setContextPanelTab('preview');
     }
   }, [openFile?.path]);
@@ -229,8 +235,8 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
     };
   }, [openFile.path]);
 
-  const PREVIEW_ONLY = new Set(['image', 'pdf', 'video']);
-  const PREVIEWABLE = new Set(['image', 'pdf', 'video', 'html', 'markdown']);
+  const PREVIEW_ONLY = new Set(['image', 'pdf', 'video', 'docx', 'xlsx', 'pptx']);
+  const PREVIEWABLE = new Set(['image', 'pdf', 'video', 'html', 'markdown', 'docx', 'xlsx', 'pptx']);
   const hasPreview = PREVIEWABLE.has(openFile.language);
   const isPreviewOnly = PREVIEW_ONLY.has(openFile.language);
   const rawName = openFile.path.split('/').pop() || '';
@@ -358,6 +364,22 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
               <div className="prose prose-invert prose-sm max-w-none p-4">
                 <MarkdownWithMermaid content={openFile.content} components={mdComponents} />
               </div>
+            </div>
+          ) : OFFICE_FORMATS.has(openFile.language) ? (
+            <div className="absolute inset-0">
+              <React.Suspense fallback={
+                <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                  <svg className="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Loading viewer...
+                </div>
+              }>
+                {openFile.language === 'docx' && <DocxPreview filePath={openFile.path} />}
+                {openFile.language === 'xlsx' && <XlsxPreview filePath={openFile.path} />}
+                {openFile.language === 'pptx' && <PptxPreview filePath={openFile.path} />}
+              </React.Suspense>
             </div>
           ) : null}
         </div>

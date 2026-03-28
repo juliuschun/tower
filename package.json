@@ -37,6 +37,8 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "notify-hub": "file:../notify-hub"
+    "docx-preview": "^0.3.7",
+    "notify-hub": "file:../notify-hub",
+    "xlsx": "^0.18.5"
   }
 }

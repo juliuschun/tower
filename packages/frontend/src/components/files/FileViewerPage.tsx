@@ -24,9 +24,19 @@ function detectLanguage(path: string): string {
     sh: 'shell', sql: 'sql', yaml: 'yaml', yml: 'yaml',
     png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', svg: 'image',
     pdf: 'pdf', mp4: 'video', webm: 'video',
+    docx: 'docx', doc: 'docx',
+    xlsx: 'xlsx', xls: 'xlsx',
+    pptx: 'pptx', ppt: 'pptx',
   };
   return map[ext] || 'plaintext';
 }
+
+// Lazy-loaded Office preview components
+const DocxPreview = React.lazy(() => import('./DocxPreview').then(m => ({ default: m.DocxPreview })));
+const XlsxPreview = React.lazy(() => import('./XlsxPreview').then(m => ({ default: m.XlsxPreview })));
+const PptxPreview = React.lazy(() => import('./PptxPreview').then(m => ({ default: m.PptxPreview })));
+
+const OFFICE_FORMATS = new Set(['docx', 'xlsx', 'pptx']);
 
 function decodeName(raw: string): string {
   try {
@@ -129,7 +139,7 @@ export function FileViewerPage() {
   const params = new URLSearchParams(window.location.search);
   const filePath = params.get('path') || '';
   const language = detectLanguage(filePath);
-  const PREVIEWABLE = new Set(['markdown', 'html', 'image', 'pdf', 'video']);
+  const PREVIEWABLE = new Set(['markdown', 'html', 'image', 'pdf', 'video', 'docx', 'xlsx', 'pptx']);
   const explicitMode = params.get('mode') as 'preview' | 'edit' | null;
   const defaultMode = PREVIEWABLE.has(language) ? 'preview' : 'edit';
   const initialMode = explicitMode || defaultMode;
@@ -141,7 +151,7 @@ export function FileViewerPage() {
   const [error, setError] = useState('');
 
   const fileName = decodeName(filePath.split('/').pop() || '');
-  const BINARY = new Set(['image', 'pdf', 'video']);
+  const BINARY = new Set(['image', 'pdf', 'video', 'docx', 'xlsx', 'pptx']);
   const isBinary = BINARY.has(language);
   const modified = content !== originalContent;
 
@@ -311,6 +321,22 @@ export function FileViewerPage() {
             <MarkdownWithMermaid content={content} components={mdComponents} />
           </div>
         </div>
+      )}
+      {/* Office document previews (lazy-loaded) */}
+      {mode === 'preview' && OFFICE_FORMATS.has(language) && (
+        <React.Suspense fallback={
+          <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+            <svg className="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Loading viewer...
+          </div>
+        }>
+          {language === 'docx' && <DocxPreview filePath={filePath} />}
+          {language === 'xlsx' && <XlsxPreview filePath={filePath} />}
+          {language === 'pptx' && <PptxPreview filePath={filePath} />}
+        </React.Suspense>
       )}
       {(mode === 'edit' || (!hasPreview && !isBinary)) && (
         <div className="flex-1 min-h-0 overflow-y-auto">

@@ -12,7 +12,7 @@ import {
   getArchivedSessions, restoreSession, permanentlyDeleteSession,
   scanClaudeNativeSessions, getPanelSessions, getSessionPanelSessions,
 } from '../services/session-manager.js';
-import { getFileTree, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
+import { getFileTree, getFileTreeAsync, invalidateTreeCache, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
 import { loadCommands } from '../services/command-loader.js';
 import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref } from '../services/skill-registry.js';
@@ -876,7 +876,7 @@ router.get('/files/tree', async (req, res) => {
       }
     }
     const showHidden = req.query.showHidden === 'true' || req.query.showHidden === '1';
-    let entries = getFileTree(dirPath, 2, {
+    let entries = await getFileTreeAsync(dirPath, 2, {
       ...(inWorkspace ? {} : { skipSafetyCheck: true }),
       showHidden,
     });
@@ -996,6 +996,9 @@ router.post('/files/upload', handleMulterUpload, async (req, res) => {
       }
     }
 
+    // Invalidate tree cache for upload target
+    invalidateTreeCache(targetDir);
+
     // Auto-commit uploaded files
     if (config.gitAutoCommit && savedPaths.length > 0) {
       try {
@@ -1079,6 +1082,7 @@ router.post('/files/create', async (req, res) => {
     if (userId && !(await isPathAccessible(filePath, userId, role))) return res.status(403).json({ error: 'Access denied: outside your project folders' });
     if (fs.existsSync(filePath)) return res.status(409).json({ error: 'File already exists' });
     writeFile(filePath, content || '');
+    invalidateTreeCache(filePath);
     res.json({ ok: true, path: filePath });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1096,6 +1100,7 @@ router.post('/files/mkdir', async (req, res) => {
     if (userId && !(await isPathAccessible(dirPath, userId, role))) return res.status(403).json({ error: 'Access denied: outside your project folders' });
     if (fs.existsSync(dirPath)) return res.status(409).json({ error: 'Directory already exists' });
     createDirectory(dirPath);
+    invalidateTreeCache(dirPath);
     res.json({ ok: true, path: dirPath });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1112,6 +1117,7 @@ router.post('/files/delete', async (req, res) => {
     if (!isPathSafe(targetPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
     if (userId && !(await isPathAccessible(targetPath, userId, role))) return res.status(403).json({ error: 'Access denied: outside your project folders' });
     deleteEntry(targetPath);
+    invalidateTreeCache(targetPath);
     res.json({ ok: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1131,6 +1137,8 @@ router.post('/files/rename', async (req, res) => {
       return res.status(403).json({ error: 'Access denied: outside your project folders' });
     }
     renameEntry(oldPath, newPath);
+    invalidateTreeCache(oldPath);
+    invalidateTreeCache(newPath);
     res.json({ ok: true, path: newPath });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1265,6 +1273,12 @@ router.get('/files/serve', async (req, res) => {
       svg: 'image/svg+xml',
       mp4: 'video/mp4',
       webm: 'video/webm',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      doc: 'application/msword',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      xls: 'application/vnd.ms-excel',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ppt: 'application/vnd.ms-powerpoint',
     };
 
     // Download mode: stream file as attachment regardless of type

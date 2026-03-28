@@ -128,6 +128,8 @@ export function Sidebar({
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) { toastError(`Upload failed (${res.status}): server returned non-JSON response`); return; }
       const data = await res.json();
       if (!res.ok) { toastError(data.error || `Upload failed (${res.status})`); return; }
       const ok = data.results.filter((r: { error?: string }) => !r.error);
@@ -217,6 +219,18 @@ export function Sidebar({
 
     return { groups: sorted, ungrouped };
   }, [filteredSessions, projects, isSearching]);
+
+  // Projects sorted by most-recent session activity (reused for Files tab)
+  const projectsSortedByActivity = useMemo(() => {
+    if (!groupedSessions) return projects;
+    const orderMap = new Map<string, number>();
+    groupedSessions.groups.forEach((g, i) => orderMap.set(g.project.id, i));
+    return [...projects].sort((a, b) => {
+      const aIdx = orderMap.get(a.id) ?? 9999;
+      const bIdx = orderMap.get(b.id) ?? 9999;
+      return aIdx - bIdx;
+    });
+  }, [projects, groupedSessions]);
 
   const handleMoveSession = async (sessionId: string, projectId: string | null) => {
     const token = localStorage.getItem('token');
@@ -489,52 +503,57 @@ export function Sidebar({
             )}
           </div>
         ) : sidebarTab === 'files' ? (
-          <div className="px-2 min-h-full space-y-1">
-            {/* Files toolbar — show hidden toggle + refresh */}
-            <FilesToolbar onRefresh={onRequestFileTree} />
-            {/* Project file sections */}
-            {projects.filter(p => p.rootPath).map((project) => (
+          <div className="px-2 min-h-full space-y-1 flex flex-col">
+            {/* Files toolbar — New, Upload, show hidden, refresh */}
+            <FilesToolbar onRefresh={onRequestFileTree} projects={projectsSortedByActivity} />
+            {/* Project file sections — sorted by most recent session activity */}
+            <div className="flex-1">
+              {projectsSortedByActivity.filter(p => p.rootPath).map((project) => (
+                <ProjectFileSection
+                  key={project.id}
+                  project={project}
+                  onFileClick={onFileClick}
+                  onPinFile={onPinFile}
+                  onNewSessionInFolder={onNewSessionInFolder}
+                />
+              ))}
+
+              {/* Common files (workspace root — docs/, decisions/) */}
               <ProjectFileSection
-                key={project.id}
-                project={project}
+                key="__common__"
+                project={{ id: '__common__', name: 'Common', rootPath: treeRoot, color: '#6b7280', sortOrder: 9999, collapsed: false, archived: false, createdAt: '' }}
                 onFileClick={onFileClick}
                 onPinFile={onPinFile}
                 onNewSessionInFolder={onNewSessionInFolder}
               />
-            ))}
 
-            {/* Common files (workspace root — docs/, decisions/) */}
-            <ProjectFileSection
-              key="__common__"
-              project={{ id: '__common__', name: 'Common', rootPath: treeRoot, color: '#6b7280', sortOrder: 9999, collapsed: false, archived: false, createdAt: '' }}
-              onFileClick={onFileClick}
-              onPinFile={onPinFile}
-              onNewSessionInFolder={onNewSessionInFolder}
-            />
+              {/* Shared with me */}
+              {sharedWithMe.length > 0 && (
+                <div className="mt-3 px-2">
+                  <div className="text-[10px] text-gray-600 uppercase tracking-wide font-medium mb-1.5 px-1">
+                    Shared with me
+                  </div>
+                  <div className="space-y-0.5">
+                    {sharedWithMe.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => onFileClick(s.file_path)}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-gray-400 hover:text-white hover:bg-surface-700/50 transition-colors text-left"
+                      >
+                        <svg className="w-3.5 h-3.5 text-green-500/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                        </svg>
+                        <span className="truncate flex-1">{s.file_path.split('/').pop()}</span>
+                        <span className="text-[10px] text-gray-600 shrink-0">@{s.owner_username}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
-            {/* Shared with me */}
-            {sharedWithMe.length > 0 && (
-              <div className="mt-3 px-2">
-                <div className="text-[10px] text-gray-600 uppercase tracking-wide font-medium mb-1.5 px-1">
-                  Shared with me
-                </div>
-                <div className="space-y-0.5">
-                  {sharedWithMe.map(s => (
-                    <button
-                      key={s.id}
-                      onClick={() => onFileClick(s.file_path)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-gray-400 hover:text-white hover:bg-surface-700/50 transition-colors text-left"
-                    >
-                      <svg className="w-3.5 h-3.5 text-green-500/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                      </svg>
-                      <span className="truncate flex-1">{s.file_path.split('/').pop()}</span>
-                      <span className="text-[10px] text-gray-600 shrink-0">@{s.owner_username}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Bottom drop zone — always visible, upload to any project */}
+            <FilesDropZone projects={projects} onRefresh={onRequestFileTree} />
           </div>
         ) : sidebarTab === 'prompts' ? (
           <div className="px-3">
@@ -718,39 +737,341 @@ function Breadcrumb({ treeRoot, onNavigate }: { treeRoot: string; onNavigate: (p
   );
 }
 
-/** Compact toolbar shown at top of Files tab — show hidden toggle */
-function FilesToolbar({ onRefresh }: { onRefresh: (path?: string) => void }) {
+/** Compact toolbar shown at top of Files tab — New, Upload, show hidden, refresh */
+function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => void; projects: { id: string; name: string; rootPath?: string | null; color?: string }[] }) {
   const showHidden = useFileStore((s) => s.showHidden);
   const toggleShowHidden = useFileStore((s) => s.toggleShowHidden);
+  const bumpRefreshTrigger = useFileStore((s) => s.bumpRefreshTrigger);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [newType, setNewType] = useState<'file' | 'folder' | null>(null);
+  const [targetProject, setTargetProject] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const handleToggleHidden = () => {
     toggleShowHidden();
-    // Give the store a tick to update, then request refresh
     setTimeout(() => onRefresh(), 50);
   };
 
-  const btnClass = 'p-1 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-800 transition-colors';
+  // Close new-menu on outside click
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setNewMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [newMenuOpen]);
+
+  // Auto-focus inline input
+  useEffect(() => {
+    if (newType) inputRef.current?.focus();
+  }, [newType]);
+
+  const projectsWithPath = projects.filter(p => p.rootPath);
+
+  const handleNewAction = (type: 'file' | 'folder', projectRootPath: string) => {
+    setNewType(type);
+    setTargetProject(projectRootPath);
+    setInputValue('');
+    setNewMenuOpen(false);
+  };
+
+  const handleNewSubmit = async () => {
+    const name = inputValue.trim();
+    if (!name || !targetProject) { setNewType(null); return; }
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const fullPath = `${targetProject}/${name}`;
+      const endpoint = newType === 'folder' ? '/api/files/mkdir' : '/api/files/create';
+      const body = newType === 'folder' ? { path: fullPath } : { path: fullPath, content: '' };
+      const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      toastSuccess(`${name} created`);
+      bumpRefreshTrigger();
+    } catch (err: any) {
+      toastError(err.message || 'Create failed');
+    }
+    setNewType(null);
+    setTargetProject(null);
+    setInputValue('');
+  };
+
+  const handleUploadClick = () => fileInputRef.current?.click();
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    // Use first project with rootPath as default target
+    const uploadTarget = projectsWithPath[0]?.rootPath;
+    if (!uploadTarget) { toastError('No project folder available'); return; }
+
+    const formData = new FormData();
+    formData.append('targetDir', uploadTarget);
+    for (const file of Array.from(files)) formData.append('files', file);
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) { toastError(`Upload failed (${res.status}): server returned non-JSON response`); return; }
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
+      const ok = data.results.filter((r: any) => !r.error);
+      const fail = data.results.filter((r: any) => r.error);
+      if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded`);
+      if (fail.length > 0) toastError(`${fail.length} failed`);
+      bumpRefreshTrigger();
+    } catch (err) {
+      toastError(`Upload failed: ${err instanceof Error ? err.message : 'Network error'}`);
+    }
+    e.target.value = '';
+  };
+
+  const iconBtnClass = 'p-1 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-800 transition-colors';
+  const actionBtnClass = 'flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors';
 
   return (
-    <div className="flex items-center justify-end gap-0.5 px-1 pt-1 pb-0.5">
-      <button
-        onClick={handleToggleHidden}
-        className={`${btnClass} ${showHidden ? '!text-primary-400' : ''}`}
-        title={showHidden ? 'Hide dotfiles' : 'Show dotfiles (.env, .gitignore, etc.)'}
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          {showHidden ? (
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-          ) : (
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+    <div className="px-1 pt-1 pb-1 space-y-1">
+      {/* Action buttons row */}
+      <div className="flex items-center gap-1">
+        {/* New button with dropdown */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setNewMenuOpen(!newMenuOpen)}
+            className={`${actionBtnClass} text-gray-400 hover:text-primary-300 hover:bg-surface-800`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New
+          </button>
+          {newMenuOpen && (
+            <div className="absolute left-0 top-full mt-1 z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[180px]">
+              {projectsWithPath.map(p => (
+                <div key={p.id}>
+                  <div className="px-3 py-1 text-[10px] text-gray-500 font-medium truncate">{p.name}</div>
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white"
+                    onClick={() => handleNewAction('file', p.rootPath!)}
+                  >
+                    <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    New file
+                  </button>
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white"
+                    onClick={() => handleNewAction('folder', p.rootPath!)}
+                  >
+                    <svg className="w-3.5 h-3.5 text-yellow-400/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                    </svg>
+                    New folder
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
+        </div>
+
+        {/* Upload button */}
+        <button
+          onClick={handleUploadClick}
+          className={`${actionBtnClass} text-gray-400 hover:text-green-300 hover:bg-surface-800`}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Upload
+        </button>
+        <input ref={fileInputRef} type="file" multiple hidden onChange={handleFileUpload} />
+
+        <div className="flex-1" />
+
+        {/* Show hidden toggle */}
+        <button
+          onClick={handleToggleHidden}
+          className={`${iconBtnClass} ${showHidden ? '!text-primary-400' : ''}`}
+          title={showHidden ? 'Hide dotfiles' : 'Show dotfiles (.env, .gitignore, etc.)'}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {showHidden ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+            )}
+          </svg>
+        </button>
+        {/* Refresh */}
+        <button onClick={() => onRefresh()} className={iconBtnClass} title="Refresh all">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Inline input for new file/folder (appears when creating from toolbar) */}
+      {newType && targetProject && (
+        <div className="flex items-center gap-1.5 px-1 py-0.5 bg-surface-850 rounded-md">
+          {newType === 'folder' ? (
+            <svg className="w-3.5 h-3.5 text-yellow-400/70 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5 text-primary-400/70 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          )}
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleNewSubmit();
+              if (e.key === 'Escape') { setNewType(null); setTargetProject(null); }
+            }}
+            onBlur={() => { setNewType(null); setTargetProject(null); }}
+            placeholder={newType === 'folder' ? 'Folder name' : 'File name'}
+            className="flex-1 bg-transparent border border-primary-500/50 rounded px-2 py-0.5 text-[12px] text-gray-200 outline-none placeholder-gray-600"
+          />
+          <span className="text-[9px] text-gray-600 truncate max-w-[80px]">
+            in {targetProject.split('/').pop()}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Bottom drop zone for Files tab — drop files here or click to upload */
+function FilesDropZone({ projects, onRefresh }: {
+  projects: { id: string; name: string; rootPath?: string | null; color?: string }[];
+  onRefresh: (path?: string) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<FileList | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const bumpRefreshTrigger = useFileStore((s) => s.bumpRefreshTrigger);
+
+  const projectsWithPath = projects.filter(p => p.rootPath);
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!showProjectPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowProjectPicker(false);
+        setPendingFiles(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showProjectPicker]);
+
+  const uploadToProject = async (targetDir: string, files: FileList) => {
+    const formData = new FormData();
+    formData.append('targetDir', targetDir);
+    for (const file of Array.from(files)) formData.append('files', file);
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) { toastError(`Upload failed (${res.status}): server returned non-JSON response`); return; }
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
+      const ok = data.results.filter((r: any) => !r.error);
+      const fail = data.results.filter((r: any) => r.error);
+      if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded`);
+      if (fail.length > 0) toastError(`${fail.length} failed`);
+      bumpRefreshTrigger();
+    } catch (err) {
+      toastError(`Upload failed: ${err instanceof Error ? err.message : 'Network error'}`);
+    }
+    setShowProjectPicker(false);
+    setPendingFiles(null);
+  };
+
+  const handleFilesReady = (files: FileList) => {
+    if (projectsWithPath.length === 1) {
+      // Only one project — upload directly
+      uploadToProject(projectsWithPath[0].rootPath!, files);
+    } else if (projectsWithPath.length > 1) {
+      // Multiple projects — show picker
+      setPendingFiles(files);
+      setShowProjectPicker(true);
+    } else {
+      toastError('No project folder available');
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (e.dataTransfer.getData('application/x-attachment')) return;
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+    handleFilesReady(files);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    handleFilesReady(files);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="relative px-1 pb-2 pt-1 shrink-0">
+      <div
+        className={`border-2 border-dashed rounded-lg py-3 text-center cursor-pointer transition-all ${
+          dragOver
+            ? 'border-primary-500/60 bg-primary-900/10 text-primary-400'
+            : 'border-surface-700/50 text-surface-600 hover:border-surface-600 hover:text-surface-500'
+        }`}
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
+        onDrop={handleDrop}
+      >
+        <svg className="w-5 h-5 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
         </svg>
-      </button>
-      <button onClick={() => onRefresh()} className={btnClass} title="Refresh all">
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      </button>
+        <p className="text-[11px]">Drop files or click to upload</p>
+      </div>
+      <input ref={fileInputRef} type="file" multiple hidden onChange={handleInputChange} />
+
+      {/* Project picker popup — shown when multiple projects exist */}
+      {showProjectPicker && pendingFiles && (
+        <div ref={pickerRef} className="absolute bottom-full left-1 right-1 mb-1 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 z-50">
+          <div className="px-3 py-1.5 text-[10px] text-gray-500 font-medium">Upload to...</div>
+          {projectsWithPath.map(p => (
+            <button
+              key={p.id}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors"
+              onClick={() => uploadToProject(p.rootPath!, pendingFiles)}
+            >
+              <svg className="w-3.5 h-3.5 text-yellow-400/70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+              </svg>
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -799,6 +1120,8 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) { toastError(`Upload failed (${res.status}): server returned non-JSON response`); return; }
       const data = await res.json();
       if (!res.ok) { toastError(data.error || `Upload failed (${res.status})`); return; }
       const ok = data.results.filter((r: { error?: string }) => !r.error);
@@ -1915,12 +2238,20 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
   const isExpanded = useFileStore((s) => s.expandedProjects.has(project.id));
   const toggleProjectExpanded = useFileStore((s) => s.toggleProjectExpanded);
   const refreshTrigger = useFileStore((s) => s.refreshTrigger);
+  const bumpRefreshTrigger = useFileStore((s) => s.bumpRefreshTrigger);
   const showHidden = useFileStore((s) => s.showHidden);
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const loaded = useRef(false);
   const prevTrigger = useRef(refreshTrigger);
+
+  // Quick-action state for project header buttons
+  const [headerAction, setHeaderAction] = useState<'file' | 'folder' | null>(null);
+  const [headerInputValue, setHeaderInputValue] = useState('');
+  const headerInputRef = useRef<HTMLInputElement>(null);
+  const headerUploadRef = useRef<HTMLInputElement>(null);
+  const [headerDragOver, setHeaderDragOver] = useState(false);
 
   const rootPath = project.rootPath;
 
@@ -1953,26 +2284,34 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
     setLoading(false);
   }, [rootPath, fetchDir]);
 
-  // Auto-load on mount if project was previously expanded
+  // Stable stagger delay per project (based on project id hash)
+  const staggerDelay = useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < project.id.length; i++) hash = ((hash << 5) - hash + project.id.charCodeAt(i)) | 0;
+    return Math.abs(hash) % 400; // 0-400ms spread
+  }, [project.id]);
+
+  // Auto-load on mount if project was previously expanded (staggered)
   useEffect(() => {
     if (isExpanded && !loaded.current) {
-      loadTree();
+      const timer = setTimeout(() => loadTree(), staggerDelay);
+      return () => clearTimeout(timer);
     }
-  }, [isExpanded, loadTree]);
+  }, [isExpanded, loadTree, staggerDelay]);
 
   // Auto-refresh when refreshTrigger changes (new files created/deleted)
   useEffect(() => {
     if (refreshTrigger !== prevTrigger.current) {
       prevTrigger.current = refreshTrigger;
       if (isExpanded && loaded.current && rootPath) {
-        // Debounce to batch rapid changes
+        // Staggered debounce to avoid thundering herd
         const timer = setTimeout(() => {
           loadTree(true);
-        }, 300);
+        }, 300 + staggerDelay);
         return () => clearTimeout(timer);
       }
     }
-  }, [refreshTrigger, isExpanded, rootPath, loadTree]);
+  }, [refreshTrigger, isExpanded, rootPath, loadTree, staggerDelay]);
 
   // Toggle or expand a directory within the local tree
   const handleDirectoryClick = useCallback(async (dirPath: string) => {
@@ -2022,13 +2361,109 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
     if (!isExpanded) loadTree(); // expanding → load
   };
 
+  // Header quick-action: create file/folder at project root
+  const handleHeaderNewSubmit = async () => {
+    const name = headerInputValue.trim();
+    if (!name || !rootPath) { setHeaderAction(null); return; }
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const fullPath = `${rootPath}/${name}`;
+      const endpoint = headerAction === 'folder' ? '/api/files/mkdir' : '/api/files/create';
+      const body = headerAction === 'folder' ? { path: fullPath } : { path: fullPath, content: '' };
+      const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      toastSuccess(`${name} created`);
+      bumpRefreshTrigger();
+      // Ensure project is expanded to show new item
+      if (!isExpanded) { toggleProjectExpanded(project.id); loadTree(true); }
+      else { loaded.current = false; loadTree(); }
+    } catch (err: any) {
+      toastError(err.message || 'Create failed');
+    }
+    setHeaderAction(null);
+    setHeaderInputValue('');
+  };
+
+  // Header upload via file input
+  const handleHeaderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !rootPath) return;
+    const formData = new FormData();
+    formData.append('targetDir', rootPath);
+    for (const file of Array.from(files)) formData.append('files', file);
+    try {
+      const token = localStorage.getItem('token');
+      const hdrs: Record<string, string> = {};
+      if (token) hdrs['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/upload', { method: 'POST', headers: hdrs, body: formData });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) { toastError(`Upload failed (${res.status}): server returned non-JSON response`); return; }
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
+      const ok = data.results.filter((r: any) => !r.error);
+      const fail = data.results.filter((r: any) => r.error);
+      if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded to ${project.name}`);
+      if (fail.length > 0) toastError(`${fail.length} failed`);
+      bumpRefreshTrigger();
+      if (!isExpanded) { toggleProjectExpanded(project.id); loadTree(true); }
+      else { loaded.current = false; loadTree(); }
+    } catch (err) {
+      toastError(`Upload failed: ${err instanceof Error ? err.message : 'Network error'}`);
+    }
+    e.target.value = '';
+  };
+
+  // Header drag-and-drop upload
+  const handleHeaderDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHeaderDragOver(false);
+    if (e.dataTransfer.getData('application/x-attachment')) return;
+    const files = e.dataTransfer.files;
+    if (files.length === 0 || !rootPath) return;
+    const formData = new FormData();
+    formData.append('targetDir', rootPath);
+    for (const file of Array.from(files)) formData.append('files', file);
+    try {
+      const token = localStorage.getItem('token');
+      const hdrs: Record<string, string> = {};
+      if (token) hdrs['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/files/upload', { method: 'POST', headers: hdrs, body: formData });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) { toastError(`Upload failed (${res.status}): server returned non-JSON response`); return; }
+      const data = await res.json();
+      if (!res.ok) { toastError(data.error || 'Upload failed'); return; }
+      const ok = data.results.filter((r: any) => !r.error);
+      if (ok.length > 0) toastSuccess(`${ok.length} file(s) uploaded to ${project.name}`);
+      bumpRefreshTrigger();
+      if (!isExpanded) { toggleProjectExpanded(project.id); loadTree(true); }
+      else { loaded.current = false; loadTree(); }
+    } catch (err) {
+      toastError(`Upload failed: ${err instanceof Error ? err.message : 'Network error'}`);
+    }
+  };
+
+  // Auto-focus header input
+  useEffect(() => {
+    if (headerAction) headerInputRef.current?.focus();
+  }, [headerAction]);
+
   if (!rootPath) return null;
+
+  const headerActionBtnClass = 'opacity-0 group-hover/proj:opacity-100 p-0.5 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-700/50 transition-all';
 
   return (
     <div className="mb-1">
       <div
-        className="flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj hover:bg-surface-850"
+        className={`flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj hover:bg-surface-850 ${headerDragOver ? 'bg-primary-900/20 ring-1 ring-primary-500/40' : ''}`}
         onClick={handleToggle}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setHeaderDragOver(true); }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setHeaderDragOver(false); }}
+        onDrop={handleHeaderDrop}
       >
         <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${!isExpanded ? '-rotate-90' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2037,8 +2472,66 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
         <svg className="w-4 h-4 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
         </svg>
-        <span className="text-[13px] font-bold text-gray-300 truncate">{project.name}</span>
+        <span className="text-[13px] font-bold text-gray-300 truncate flex-1">{project.name}</span>
+
+        {/* Quick action buttons — visible on hover */}
+        <button
+          className={headerActionBtnClass}
+          title="New file"
+          onClick={(e) => { e.stopPropagation(); setHeaderAction('file'); setHeaderInputValue(''); if (!isExpanded) { toggleProjectExpanded(project.id); loadTree(); } }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </button>
+        <button
+          className={headerActionBtnClass}
+          title="New folder"
+          onClick={(e) => { e.stopPropagation(); setHeaderAction('folder'); setHeaderInputValue(''); if (!isExpanded) { toggleProjectExpanded(project.id); loadTree(); } }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+          </svg>
+        </button>
+        <button
+          className={`${headerActionBtnClass} hover:!text-green-400`}
+          title="Upload to this project"
+          onClick={(e) => { e.stopPropagation(); headerUploadRef.current?.click(); }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+        </button>
+        <input ref={headerUploadRef} type="file" multiple hidden onChange={handleHeaderUpload} />
       </div>
+
+      {/* Inline input for header new file/folder action */}
+      {headerAction && (
+        <div className="flex items-center gap-1.5 px-2 py-1 ml-5 bg-surface-850 rounded-md mt-0.5">
+          {headerAction === 'folder' ? (
+            <svg className="w-3.5 h-3.5 text-yellow-400/70 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5 text-primary-400/70 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          )}
+          <input
+            ref={headerInputRef}
+            type="text"
+            value={headerInputValue}
+            onChange={(e) => setHeaderInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleHeaderNewSubmit();
+              if (e.key === 'Escape') setHeaderAction(null);
+            }}
+            onBlur={() => setHeaderAction(null)}
+            placeholder={headerAction === 'folder' ? 'Folder name' : 'File name'}
+            className="flex-1 bg-transparent border border-primary-500/50 rounded px-2 py-0.5 text-[12px] text-gray-200 outline-none placeholder-gray-600"
+          />
+        </div>
+      )}
 
       {isExpanded && (
         <div className="pl-5">

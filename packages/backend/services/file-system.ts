@@ -1,4 +1,5 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { watch, type FSWatcher } from 'chokidar';
 import { config } from '../config.js';
@@ -16,6 +17,20 @@ function fixUnicodeFilename(name: string): string {
 
 export type { FileEntry } from '@tower/shared';
 import type { FileEntry } from '@tower/shared';
+
+// ───── In-memory cache for file tree (3-second TTL) ─────
+const treeCache = new Map<string, { entries: FileEntry[]; expiry: number }>();
+const TREE_CACHE_TTL = 3000; // ms
+
+export function invalidateTreeCache(dirPath?: string): void {
+  if (dirPath) {
+    // Invalidate exact path + parent
+    treeCache.delete(dirPath);
+    treeCache.delete(path.dirname(dirPath));
+  } else {
+    treeCache.clear();
+  }
+}
 
 export function isPathSafe(targetPath: string, root?: string): boolean {
   const resolvedTarget = path.resolve(targetPath);
@@ -80,7 +95,81 @@ export function getFileTree(dirPath: string, depth = 2, opts?: { skipSafetyCheck
   }
 }
 
-const BINARY_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'mp4', 'webm']);
+/** Async version of getFileTree with in-memory caching (3s TTL) */
+export async function getFileTreeAsync(dirPath: string, depth = 2, opts?: { skipSafetyCheck?: boolean; showHidden?: boolean }): Promise<FileEntry[]> {
+  if (!opts?.skipSafetyCheck && !isPathSafe(dirPath)) {
+    throw new Error('Access denied: path outside workspace');
+  }
+
+  // Check cache
+  const cacheKey = `${dirPath}:${opts?.showHidden ? '1' : '0'}`;
+  const cached = treeCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiry) {
+    return cached.entries;
+  }
+
+  const alwaysHidden = new Set(['node_modules', '.git', '__pycache__', '.venv', 'dist']);
+
+  try {
+    const items = await fsp.readdir(dirPath, { withFileTypes: true });
+    const entries: FileEntry[] = [];
+
+    // Collect file entries first, batch stat calls
+    const fileStatPromises: { entry: FileEntry; fullPath: string }[] = [];
+
+    for (const item of items) {
+      if (alwaysHidden.has(item.name)) continue;
+      if (!opts?.showHidden) {
+        if (config.hiddenPatterns.some(p => item.name === p || item.name.startsWith('.'))) {
+          continue;
+        }
+      }
+
+      const displayName = fixUnicodeFilename(item.name);
+      const fullPath = path.join(dirPath, item.name);
+      const entry: FileEntry = {
+        name: displayName,
+        path: fullPath,
+        isDirectory: item.isDirectory(),
+      };
+
+      if (!item.isDirectory()) {
+        entry.extension = path.extname(item.name).slice(1);
+        fileStatPromises.push({ entry, fullPath });
+      }
+
+      entries.push(entry);
+    }
+
+    // Parallel stat for all files
+    if (fileStatPromises.length > 0) {
+      const stats = await Promise.allSettled(
+        fileStatPromises.map(({ fullPath }) => fsp.stat(fullPath))
+      );
+      for (let i = 0; i < stats.length; i++) {
+        const result = stats[i];
+        if (result.status === 'fulfilled') {
+          fileStatPromises[i].entry.size = result.value.size;
+          fileStatPromises[i].entry.modified = result.value.mtime.toISOString();
+        }
+      }
+    }
+
+    const sorted = entries.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Store in cache
+    treeCache.set(cacheKey, { entries: sorted, expiry: Date.now() + TREE_CACHE_TTL });
+
+    return sorted;
+  } catch (error: any) {
+    throw new Error(`Cannot read directory: ${error.message}`);
+  }
+}
+
+const BINARY_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'mp4', 'webm', 'docx', 'xlsx', 'xls', 'pptx', 'ppt']);
 
 export function readFile(filePath: string): { content: string; language: string; encoding?: string } {
   if (!isPathSafe(filePath)) {
