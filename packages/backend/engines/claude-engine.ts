@@ -194,6 +194,7 @@ export class ClaudeEngine implements Engine {
               outputTokens: usage?.output_tokens || 0,
               durationMs: (message as any).duration_ms || 0,
             },
+            model: (message as any).model || opts.model,
           };
         }
       }

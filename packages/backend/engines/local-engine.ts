@@ -106,7 +106,7 @@ export class LocalEngine implements Engine {
     messages: OpenAIChatMessage[],
     model: string,
     signal: AbortSignal,
-  ): AsyncGenerator<string> {
+  ): AsyncGenerator<{ text: string; model?: string }> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
@@ -153,7 +153,7 @@ export class LocalEngine implements Engine {
           try {
             const event = JSON.parse(jsonStr);
             const delta = event.choices?.[0]?.delta?.content;
-            if (delta) yield delta;
+            if (delta) yield { text: delta, model: event.model };
           } catch { /* skip malformed JSON */ }
         }
       }
@@ -180,6 +180,7 @@ export class LocalEngine implements Engine {
     const model = opts.model || this.defaultModel;
     let fullText = '';
     let assistantSaved = false;
+    let actualModel: string | undefined;
 
     try {
       // Build conversation history
@@ -191,7 +192,8 @@ export class LocalEngine implements Engine {
       for await (const chunk of this.streamCompletion(messages, model, abortController.signal)) {
         if (!entry.isRunning) break;
 
-        fullText += chunk;
+        fullText += chunk.text;
+        if (chunk.model) actualModel = chunk.model;
         const content: TowerContentBlock[] = [{ type: 'text', text: fullText }];
 
         // Save/update in DB
@@ -228,9 +230,10 @@ export class LocalEngine implements Engine {
           costUsd: 0, // local = free
           durationMs,
         },
+        model: actualModel || model,
       };
 
-      yield { type: 'engine_done', sessionId, model };
+      yield { type: 'engine_done', sessionId, model: actualModel || model };
     } catch (err: any) {
       if (err.name === 'AbortError') {
         // User aborted — still send engine_done

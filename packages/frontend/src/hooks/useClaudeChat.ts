@@ -597,6 +597,7 @@ export function useClaudeChat() {
             inputTokens: sdkMsg.usage?.input_tokens || 0,
             outputTokens: sdkMsg.usage?.output_tokens || 0,
             durationMs: sdkMsg.duration_ms || 0,
+            model: sdkMsg.model as string | undefined,
           };
           useChatStore.getState().setLastTurnMetrics(turnMetrics);
           // Persist metrics onto the current assistant message for per-message display

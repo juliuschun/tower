@@ -225,6 +225,7 @@ export class PiEngine implements Engine {
                 costUsd: usage.cost?.total,
                 durationMs: 0,
               },
+              model: msg?.model ? `${msg.model.provider}/${msg.model.id}` : opts.model,
             });
           }
           resolveWait?.();

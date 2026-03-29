@@ -101,6 +101,7 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
             input_tokens: msg.usage.inputTokens,
             output_tokens: msg.usage.outputTokens,
           },
+          model: msg.model,
         },
       };
     case 'engine_done':
