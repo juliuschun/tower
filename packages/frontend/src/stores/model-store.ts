@@ -21,12 +21,14 @@ const DEFAULT_DEFAULTS: ModelDefaults = {
 interface ModelState {
   availableModels: ModelOption[];
   piModels: ModelOption[];
+  localModels: ModelOption[];
   selectedModel: string;
   connectionType: string;
   defaults: ModelDefaults;
 
   setAvailableModels: (models: ModelOption[]) => void;
   setPiModels: (models: ModelOption[]) => void;
+  setLocalModels: (models: ModelOption[]) => void;
   setSelectedModel: (id: string) => void;
   setConnectionType: (type: string) => void;
   setDefaults: (defaults: ModelDefaults) => void;
@@ -35,12 +37,14 @@ interface ModelState {
 export const useModelStore = create<ModelState>((set) => ({
   availableModels: [],
   piModels: [],
+  localModels: [],
   selectedModel: localStorage.getItem('selectedModel') || DEFAULT_DEFAULTS.session,
   connectionType: 'MAX',
   defaults: DEFAULT_DEFAULTS,
 
   setAvailableModels: (models) => set({ availableModels: models }),
   setPiModels: (models) => set({ piModels: models }),
+  setLocalModels: (models) => set({ localModels: models }),
   setSelectedModel: (id) => {
     localStorage.setItem('selectedModel', id);
     set({ selectedModel: id });
@@ -49,12 +53,16 @@ export const useModelStore = create<ModelState>((set) => ({
   setDefaults: (defaults) => set({ defaults }),
 }));
 
-/** Extract engine from model ID. 'pi:openrouter/...' → 'pi', otherwise 'claude' */
-export function getEngineFromModel(modelId: string): 'claude' | 'pi' {
-  return modelId.startsWith('pi:') ? 'pi' : 'claude';
+/** Extract engine from model ID. 'pi:...' → 'pi', 'local:...' → 'local', otherwise 'claude' */
+export function getEngineFromModel(modelId: string): 'claude' | 'pi' | 'local' {
+  if (modelId.startsWith('pi:')) return 'pi';
+  if (modelId.startsWith('local:')) return 'local';
+  return 'claude';
 }
 
-/** Strip engine prefix from model ID for backend. 'pi:openrouter/...' → 'openrouter/...' */
+/** Strip engine prefix from model ID for backend. 'pi:openrouter/...' → 'openrouter/...', 'local:Qwen...' → 'Qwen...' */
 export function getModelIdForBackend(modelId: string): string {
-  return modelId.startsWith('pi:') ? modelId.slice(3) : modelId;
+  if (modelId.startsWith('pi:')) return modelId.slice(3);
+  if (modelId.startsWith('local:')) return modelId.slice(6);
+  return modelId;
 }

@@ -72,6 +72,7 @@ export interface ModelDefaults {
 interface ModelsFile {
   claude: Array<{ id: string; name: string; badge: string; enabled: boolean }>;
   pi: Array<{ provider: string; modelId: string; name: string; badge: string; enabled: boolean }>;
+  local?: Array<{ id: string; name: string; badge: string; enabled: boolean }>;
   defaults?: ModelDefaults;
 }
 
@@ -103,6 +104,16 @@ function loadPiModels(): ModelInfo[] {
     }));
 }
 
+function loadLocalModels(): ModelInfo[] {
+  return (loadModelsFile().local || [])
+    .filter(m => m.enabled)
+    .map(m => ({
+      id: `local:${m.id}`,
+      name: m.name,
+      badge: m.badge || 'LOCAL',
+    }));
+}
+
 export let availableModels: ModelInfo[] = loadClaudeModels();
 
 const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
@@ -118,10 +129,11 @@ export function getModelDefaults(): ModelDefaults {
 }
 
 /** Reload models from JSON file — call after admin edits */
-export function reloadModels(): { claude: ModelInfo[]; pi: ModelInfo[]; defaults: ModelDefaults } {
+export function reloadModels(): { claude: ModelInfo[]; pi: ModelInfo[]; local: ModelInfo[]; defaults: ModelDefaults } {
   availableModels = loadClaudeModels();
   config.piModels = loadPiModels();
-  return { claude: availableModels, pi: config.piModels, defaults: getModelDefaults() };
+  config.localModels = loadLocalModels();
+  return { claude: availableModels, pi: config.piModels, local: config.localModels, defaults: getModelDefaults() };
 }
 
 export const config = {
@@ -158,6 +170,11 @@ export const config = {
   defaultEngine: process.env.DEFAULT_ENGINE || 'claude',
   piEnabled: process.env.PI_ENABLED === 'true',
   piModels: loadPiModels(),
+  localEnabled: process.env.LOCAL_LLM_ENABLED === 'true',
+  localModels: loadLocalModels(),
+  localLlmBaseUrl: process.env.LOCAL_LLM_BASE_URL || 'http://localhost:8080',
+  localLlmApiKey: process.env.LOCAL_LLM_API_KEY || '',
+  localLlmDefaultModel: process.env.LOCAL_LLM_DEFAULT_MODEL || '',
 
   // Frontend (for production)
   frontendDir: path.join(PROJECT_ROOT, 'dist', 'frontend'),
