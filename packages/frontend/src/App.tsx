@@ -759,6 +759,7 @@ function App() {
           useSettingsStore.getState().setServerConfig(data);
           if (data.models) useModelStore.getState().setAvailableModels(data.models);
           if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
+          if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
           if (data.connectionType) useModelStore.getState().setConnectionType(data.connectionType);
         }
       })

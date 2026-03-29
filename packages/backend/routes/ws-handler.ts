@@ -518,9 +518,11 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   const requestedModel: string | undefined = data.model;
   const isClaudeModel = !requestedModel || requestedModel.startsWith('claude-');
   const isPiModel = requestedModel?.includes('/'); // Pi models have provider/modelId format
+  const isLocalModel = !!requestedModel && !requestedModel.startsWith('claude-') && !requestedModel.includes('/');
   let resolvedModel: string | undefined = requestedModel;
   if (engineName === 'claude' && !isClaudeModel) resolvedModel = undefined;
   if (engineName === 'pi' && !isPiModel) resolvedModel = undefined;
+  if (engineName === 'local' && !isLocalModel) resolvedModel = undefined;
   if (requestedModel && !resolvedModel) {
     console.log(`[ws] model mismatch: dropping "${requestedModel}" for engine="${engineName}"`);
   }

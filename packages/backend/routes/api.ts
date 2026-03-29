@@ -493,7 +493,7 @@ router.put('/admin/models', adminMiddleware, (req, res) => {
     saveModelsFile(data);
     const reloaded = reloadModels();
     // Broadcast updated model list to all connected clients
-    broadcast({ type: 'config_update', models: reloaded.claude, piModels: reloaded.pi, defaults: reloaded.defaults });
+    broadcast({ type: 'config_update', models: reloaded.claude, piModels: reloaded.pi, localModels: reloaded.local, defaults: reloaded.defaults });
     res.json({ ok: true, ...reloaded });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1400,6 +1400,8 @@ router.get('/config', (_req, res) => {
     connectionType: 'MAX',
     piEnabled: config.piEnabled,
     piModels: config.piEnabled ? config.piModels : [],
+    localEnabled: config.localEnabled,
+    localModels: config.localEnabled ? config.localModels : [],
   });
 });
 

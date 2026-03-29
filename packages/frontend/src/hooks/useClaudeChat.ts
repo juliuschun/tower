@@ -427,6 +427,7 @@ export function useClaudeChat() {
         // Admin changed model config — update stores
         if (data.models) useModelStore.getState().setAvailableModels(data.models);
         if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
+        if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
         if (data.defaults) useModelStore.getState().setDefaults(data.defaults);
         break;
       }
