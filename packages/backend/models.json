@@ -11,6 +11,9 @@
     { "provider": "openrouter", "modelId": "moonshotai/kimi-k2.5", "name": "Kimi K2.5", "badge": "OR", "enabled": true },
     { "provider": "openrouter", "modelId": "minimax/minimax-m2.5", "name": "MiniMax M2.5", "badge": "OR", "enabled": true }
   ],
+  "local": [
+    { "id": "totoro", "name": "Totoro", "badge": "LOCAL", "enabled": true }
+  ],
   "defaults": {
     "session": "claude-opus-4-6",
     "ai_reply": "claude-haiku-4-5-20251001",

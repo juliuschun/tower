@@ -469,6 +469,7 @@ export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isL
 
   if (metrics) {
     const totalTokens = metrics.inputTokens + metrics.outputTokens;
+    const modelName = (metrics as any).model || message?.model;
     return (
       <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500 tabular-nums font-medium">
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -477,6 +478,12 @@ export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isL
         {fmtDuration(metrics.durationMs)}
         <span className="text-gray-600">·</span>
         {fmtTokens(totalTokens)} tokens
+        {modelName && (
+          <>
+            <span className="text-gray-600">·</span>
+            <span className="text-gray-500 font-normal">{modelName}</span>
+          </>
+        )}
       </div>
     );
   }

@@ -427,6 +427,7 @@ export function useClaudeChat() {
         // Admin changed model config — update stores
         if (data.models) useModelStore.getState().setAvailableModels(data.models);
         if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
+        if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
         if (data.defaults) useModelStore.getState().setDefaults(data.defaults);
         break;
       }
@@ -596,6 +597,7 @@ export function useClaudeChat() {
             inputTokens: sdkMsg.usage?.input_tokens || 0,
             outputTokens: sdkMsg.usage?.output_tokens || 0,
             durationMs: sdkMsg.duration_ms || 0,
+            model: sdkMsg.model as string | undefined,
           };
           useChatStore.getState().setLastTurnMetrics(turnMetrics);
           // Persist metrics onto the current assistant message for per-message display

@@ -28,8 +28,13 @@ export async function getEngine(name: string): Promise<Engine> {
       engine = new PiEngine();
       break;
     }
+    case 'local': {
+      const { LocalEngine } = await import('./local-engine.js');
+      engine = new LocalEngine();
+      break;
+    }
     default:
-      throw new Error(`Unknown engine: ${name}. Available: claude`);
+      throw new Error(`Unknown engine: ${name}. Available: claude, pi, local`);
   }
 
   engines.set(name, engine);

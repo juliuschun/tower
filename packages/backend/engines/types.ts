@@ -48,6 +48,7 @@ export interface TowerTurnDoneMsg {
   sessionId: string;
   msgId: string;
   usage: TowerUsage;
+  model?: string;  // actual model that responded (e.g. "Qwen3.5-35B-A3B")
 }
 
 /** Engine finished processing (all turns done) */
