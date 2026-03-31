@@ -58,6 +58,11 @@ export interface TaskMeta {
   workflow: WorkflowMode;
   parentTaskId: string | null;
   worktreePath: string | null;
+  projectId: string | null;
+  roomId: string | null;
+  triggeredBy: number | null;
+  roomMessageId: string | null;
+  userId: number | null;
 }
 
 // ── Project ──────────────────────────────────────────────────────

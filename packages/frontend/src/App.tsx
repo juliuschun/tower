@@ -1004,7 +1004,7 @@ function App() {
       <SettingsPanel onLogout={handleLogout} />
       <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
       <SkillsBrowser />
-      <HelpPanel />
+      <ErrorBoundary fallbackLabel="Help panel error"><HelpPanel /></ErrorBoundary>
       <BrowserPanel open={browserOpen} onClose={() => setBrowserOpen(false)} />
       <PublishPanel open={publishOpen} onClose={() => setPublishOpen(false)} />
 

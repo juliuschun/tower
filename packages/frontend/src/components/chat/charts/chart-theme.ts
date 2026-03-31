@@ -35,6 +35,6 @@ export const LIGHT_THEME = {
   },
 };
 
-export function getTheme(mode: 'dark' | 'light') {
-  return mode === 'dark' ? DARK_THEME : LIGHT_THEME;
+export function getTheme(mode: string) {
+  return mode === 'light' ? LIGHT_THEME : DARK_THEME;
 }

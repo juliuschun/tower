@@ -21,6 +21,8 @@ interface NewTaskModalProps {
   onCreated: (task: TaskMeta) => void;
   /** If provided, modal becomes an edit form for this task */
   editTask?: TaskMeta;
+  /** Project ID to associate the task with (for project-level visibility) */
+  projectId?: string | null;
 }
 
 /* ── Combobox: dropdown + free-text ── */
@@ -205,7 +207,7 @@ function Dropdown({
   );
 }
 
-export function NewTaskModal({ onClose, onCreated, editTask }: NewTaskModalProps) {
+export function NewTaskModal({ onClose, onCreated, editTask, projectId }: NewTaskModalProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -214,8 +216,8 @@ export function NewTaskModal({ onClose, onCreated, editTask }: NewTaskModalProps
   const [title, setTitle] = useState(editTask?.title || '');
   const [description, setDescription] = useState(editTask?.description || '');
   const [cwd, setCwd] = useState(editTask?.cwd || activeSession?.cwd || '');
-  const [model, setModel] = useState(editTask?.model || 'claude-opus-4-6');
-  const [workflow, setWorkflow] = useState(editTask?.workflow || 'auto');
+  const [model, setModel] = useState<string>(editTask?.model || 'claude-opus-4-6');
+  const [workflow, setWorkflow] = useState<string>(editTask?.workflow || 'auto');
   const [submitting, setSubmitting] = useState(false);
   const [pastCwds, setPastCwds] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; path: string }[]>([]);
@@ -301,7 +303,7 @@ export function NewTaskModal({ onClose, onCreated, editTask }: NewTaskModalProps
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow }),
+          body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow, projectId: projectId || undefined }),
         });
         if (res.ok) {
           const task = await res.json();

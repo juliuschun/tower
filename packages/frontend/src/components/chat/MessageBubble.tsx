@@ -112,6 +112,18 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
           {message.timestamp && (
             <span className="text-[10px] text-gray-600 select-none whitespace-nowrap">{formatMessageTime(message.timestamp)}</span>
           )}
+          {(() => {
+            const inputT = message.inputTokens || 0;
+            const label = fmtContextLabel(inputT);
+            if (!label) return null;
+            const pct = Math.round((inputT / CONTEXT_MAX) * 100);
+            const color = pct > 90 ? 'text-red-400' : pct > 70 ? 'text-amber-400' : 'text-gray-700';
+            return (
+              <span className={`text-[9px] ${color} select-none whitespace-nowrap tabular-nums`} title={`Context: ${fmtTokens(inputT)} / 500k (${pct}%) · Output: ${fmtTokens(message.outputTokens || 0)}`}>
+                {label}
+              </span>
+            );
+          })()}
         </div>
       )}
 
@@ -427,9 +439,16 @@ function fmtDuration(ms: number): string {
 }
 
 function fmtTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return n.toLocaleString();
+  return `${(n / 1000).toFixed(1)}k`;
 }
+
+/** Context usage label for avatar area — shows inputTokens as context size */
+function fmtContextLabel(input: number): string | null {
+  if (input <= 0) return null;
+  return fmtTokens(input);
+}
+
+const CONTEXT_MAX = 500_000;
 
 export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isLast?: boolean }) {
   const isStreaming = useChatStore((s) => s.isStreaming);

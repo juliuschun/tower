@@ -264,6 +264,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
               onDismiss={() => useChatStore.getState().setPendingQuestion(null)}
             />
           )}
+          <CumulativeTokenBar />
           <InputBox onSend={onSend} onAbort={onAbort} />
         </div>
 
@@ -287,6 +288,83 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
 
       {/* Session AI Side Panel */}
       {showSessionAiPanel && <AiPanel />}
+    </div>
+  );
+}
+
+/* ── Context Window Usage Bar ── */
+
+const DEFAULT_MAX_TOKENS = 500_000;
+
+function fmtTokensShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return `${(n / 1_000).toFixed(1)}k`;
+}
+
+/**
+ * Shows current context window usage based on the last assistant message's inputTokens.
+ * Each turn's inputTokens = full conversation context sent to the model,
+ * so the last one represents "how full is the context window right now".
+ */
+function CumulativeTokenBar() {
+  const messages = useChatStore((s) => s.messages);
+  const cost = useChatStore((s) => s.cost);
+
+  // Best source: cost store's latest turn inputTokens (set on every result event)
+  // This always has the most recent value, even mid-stream in a new turn.
+  let lastInputTokens = cost.inputTokens || 0;
+  let lastOutputTokens = cost.outputTokens || 0;
+  let turnCount = cost.turnCount || 0;
+
+  // Fallback: search messages (useful after page reload when cost store is reset)
+  if (lastInputTokens === 0) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === 'assistant' && m.inputTokens && m.inputTokens > 0) {
+        lastInputTokens = m.inputTokens;
+        lastOutputTokens = m.outputTokens || 0;
+        break;
+      }
+    }
+  }
+  if (turnCount === 0) {
+    for (const m of messages) {
+      if (m.role === 'assistant' && m.inputTokens && m.inputTokens > 0) turnCount++;
+    }
+  }
+
+  // Don't show if no data
+  if (lastInputTokens <= 0 && messages.length === 0) return null;
+
+  const contextUsed = lastInputTokens + lastOutputTokens;
+  const maxTokens = DEFAULT_MAX_TOKENS;
+  const pct = Math.min((contextUsed / maxTokens) * 100, 100);
+  const isHigh = pct > 70;
+  const isCritical = pct > 90;
+
+  return (
+    <div className="flex items-center gap-2 mb-1.5 px-1">
+      {/* Context usage */}
+      <span className={`text-[10px] tabular-nums font-medium whitespace-nowrap ${
+        isCritical ? 'text-red-400' : isHigh ? 'text-amber-400' : 'text-gray-500'
+      }`} title={`Input: ${fmtTokensShort(lastInputTokens)} + Output: ${fmtTokensShort(lastOutputTokens)}`}>
+        {fmtTokensShort(contextUsed)} / {fmtTokensShort(maxTokens)}
+      </span>
+      {/* Progress bar */}
+      <div className="flex-1 h-1 bg-surface-800/60 rounded-full overflow-hidden max-w-[120px]">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            isCritical ? 'bg-red-500' : isHigh ? 'bg-amber-500' : 'bg-primary-500/60'
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {/* Turn count */}
+      {turnCount > 0 && (
+        <span className="text-[10px] text-gray-600 tabular-nums">
+          {turnCount} turns
+        </span>
+      )}
     </div>
   );
 }

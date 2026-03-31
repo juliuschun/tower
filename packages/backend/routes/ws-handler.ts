@@ -100,6 +100,8 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
           usage: {
             input_tokens: msg.usage.inputTokens,
             output_tokens: msg.usage.outputTokens,
+            cache_read_input_tokens: msg.usage.cacheReadTokens || 0,
+            cache_creation_input_tokens: msg.usage.cacheCreationTokens || 0,
           },
         },
       };
@@ -1001,6 +1003,41 @@ async function handleRoomMessage(client: WsClient, data: { roomId: string; conte
       }
       if (!alreadyReceived) {
         broadcastToUser(member.userId, roomMessage);
+      }
+    }
+
+    // ─── @user mentions → notifications ───
+    const userMentionRegex = /@(\w+)/g;
+    let userMentionMatch: RegExpExecArray | null;
+    const mentionedUsernames = new Set<string>();
+    while ((userMentionMatch = userMentionRegex.exec(data.content)) !== null) {
+      const uname = userMentionMatch[1].toLowerCase();
+      if (uname !== 'ai' && uname !== 'task') {
+        mentionedUsernames.add(uname);
+      }
+    }
+    if (mentionedUsernames.size > 0) {
+      try {
+        const { notify } = await import('../services/notification-hub.js');
+        const { getRoom: getRoomForMention } = await import('../services/room-manager.js');
+        const mentionRoom = await getRoomForMention(data.roomId);
+        const roomName = mentionRoom?.name || 'a room';
+
+        for (const member of members) {
+          if (member.userId === client.userId) continue; // don't notify self
+          if (mentionedUsernames.has(member.username.toLowerCase())) {
+            await notify(
+              member.userId,
+              data.roomId,
+              'mention',
+              `${client.username || 'Someone'} mentioned you in #${roomName}`,
+              data.content.length > 100 ? data.content.slice(0, 100) + '...' : data.content,
+              { senderId: client.userId, senderName: client.username, messageId },
+            );
+          }
+        }
+      } catch (mentionErr: any) {
+        console.error('[ws] mention notification error:', mentionErr.message);
       }
     }
 

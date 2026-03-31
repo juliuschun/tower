@@ -145,6 +145,14 @@ interface FileState {
   /** Whether to show hidden/dotfiles in the file tree */
   showHidden: boolean;
 
+  // ─── Multi-select state ───
+  /** Set of selected file/folder paths */
+  selectedPaths: Set<string>;
+  /** Whether multi-select mode is active */
+  selectMode: boolean;
+  /** Last clicked path for Shift range selection */
+  lastClickedPath: string | null;
+
   setTree: (entries: FileEntry[]) => void;
   setTreeRoot: (path: string) => void;
   setOpenFile: (file: OpenFile | null) => void;
@@ -168,6 +176,18 @@ interface FileState {
   isProjectExpanded: (projectId: string) => boolean;
   /** Toggle show hidden files */
   toggleShowHidden: () => void;
+
+  // ─── Multi-select actions ───
+  /** Toggle select mode on/off */
+  toggleSelectMode: () => void;
+  /** Toggle a single path's selection (Ctrl+Click) */
+  toggleSelectPath: (path: string) => void;
+  /** Range select from lastClickedPath to given path (Shift+Click) */
+  rangeSelectTo: (path: string, flatPaths: string[]) => void;
+  /** Clear all selections */
+  clearSelection: () => void;
+  /** Set last clicked path (for Shift range base) */
+  setLastClickedPath: (path: string) => void;
 }
 
 export const useFileStore = create<FileState>((set, get) => ({
@@ -184,6 +204,11 @@ export const useFileStore = create<FileState>((set, get) => ({
   refreshTrigger: 0,
   expandedProjects: loadExpandedProjects(),
   showHidden: loadShowHidden(),
+
+  // ─── Multi-select state ───
+  selectedPaths: new Set(),
+  selectMode: false,
+  lastClickedPath: null,
 
   setTree: (entries) => {
     const { expandedPaths } = get();
@@ -298,6 +323,59 @@ export const useFileStore = create<FileState>((set, get) => ({
       saveShowHidden(next);
       return { showHidden: next, refreshTrigger: s.refreshTrigger + 1 };
     }),
+
+  // ─── Multi-select actions ───
+  toggleSelectMode: () =>
+    set((s) => {
+      const next = !s.selectMode;
+      if (!next) {
+        // Exiting select mode → clear selections
+        return { selectMode: false, selectedPaths: new Set(), lastClickedPath: null };
+      }
+      return { selectMode: true };
+    }),
+
+  toggleSelectPath: (path) =>
+    set((s) => {
+      const next = new Set(s.selectedPaths);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return { selectedPaths: next, lastClickedPath: path };
+    }),
+
+  rangeSelectTo: (path, flatPaths) =>
+    set((s) => {
+      const anchor = s.lastClickedPath;
+      if (!anchor) {
+        // No anchor — just select the clicked path
+        const next = new Set(s.selectedPaths);
+        next.add(path);
+        return { selectedPaths: next, lastClickedPath: path };
+      }
+      const startIdx = flatPaths.indexOf(anchor);
+      const endIdx = flatPaths.indexOf(path);
+      if (startIdx === -1 || endIdx === -1) {
+        const next = new Set(s.selectedPaths);
+        next.add(path);
+        return { selectedPaths: next, lastClickedPath: path };
+      }
+      const lo = Math.min(startIdx, endIdx);
+      const hi = Math.max(startIdx, endIdx);
+      const next = new Set(s.selectedPaths);
+      for (let i = lo; i <= hi; i++) {
+        next.add(flatPaths[i]);
+      }
+      return { selectedPaths: next };
+    }),
+
+  clearSelection: () =>
+    set({ selectedPaths: new Set(), lastClickedPath: null }),
+
+  setLastClickedPath: (path) =>
+    set({ lastClickedPath: path }),
 }));
 
 function toggleDir(entries: FileEntry[], dirPath: string): FileEntry[] {

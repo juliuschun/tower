@@ -6,6 +6,7 @@ import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
 import { useProjectStore, type Project } from '../../stores/project-store';
 import { SessionItem } from '../sessions/SessionItem';
 import { FileTree } from '../files/FileTree';
+import { SelectionToolbar } from '../files/SelectionToolbar';
 import { PinList } from '../pinboard/PinList';
 import { PromptItem as PromptItemComponent } from '../prompts/PromptItem';
 import { toastError, toastSuccess } from '../../utils/toast';
@@ -552,6 +553,9 @@ export function Sidebar({
               )}
             </div>
 
+            {/* Multi-select toolbar */}
+            <SelectionToolbar onRefresh={() => { useFileStore.getState().bumpRefreshTrigger(); onRequestFileTree(); }} />
+
             {/* Bottom drop zone — always visible, upload to any project */}
             <FilesDropZone projects={projects} onRefresh={onRequestFileTree} />
           </div>
@@ -738,6 +742,28 @@ function Breadcrumb({ treeRoot, onNavigate }: { treeRoot: string; onNavigate: (p
 }
 
 /** Compact toolbar shown at top of Files tab — New, Upload, show hidden, refresh */
+/** Toggle button for multi-select mode */
+function SelectModeToggle() {
+  const selectMode = useFileStore((s) => s.selectMode);
+  const toggleSelectMode = useFileStore((s) => s.toggleSelectMode);
+  return (
+    <button
+      onClick={() => toggleSelectMode()}
+      className={`p-1 rounded transition-colors ${
+        selectMode
+          ? 'text-primary-400 bg-primary-600/20'
+          : 'text-surface-600 hover:text-primary-400 hover:bg-surface-800'
+      }`}
+      title={selectMode ? 'Exit select mode' : 'Select files (Ctrl+Click)'}
+    >
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+      </svg>
+    </button>
+  );
+}
+
 function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => void; projects: { id: string; name: string; rootPath?: string | null; color?: string }[] }) {
   const showHidden = useFileStore((s) => s.showHidden);
   const toggleShowHidden = useFileStore((s) => s.toggleShowHidden);
@@ -909,6 +935,8 @@ function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => v
             )}
           </svg>
         </button>
+        {/* Select mode toggle */}
+        <SelectModeToggle />
         {/* Refresh */}
         <button onClick={() => onRefresh()} className={iconBtnClass} title="Refresh all">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

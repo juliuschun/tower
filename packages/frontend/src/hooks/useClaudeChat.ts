@@ -524,7 +524,20 @@ export function useClaudeChat() {
         // Autocompact: status message — 'compacting' | null
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'status') {
           const sid = useChatStore.getState().sessionId;
+          const wasCompacting = useChatStore.getState().compactingSessionId !== null;
           useChatStore.getState().setCompacting(sdkMsg.status === 'compacting' ? sid : null);
+          // Insert system message when autocompact finishes
+          if (wasCompacting && sdkMsg.status !== 'compacting') {
+            const { cumulativeInputTokens, cumulativeOutputTokens } = useChatStore.getState().cost;
+            const total = cumulativeInputTokens + cumulativeOutputTokens;
+            const tokenNote = total > 0 ? ` (누적 ${total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total} tokens)` : '';
+            useChatStore.getState().addMessage({
+              id: `compact-${Date.now()}`,
+              role: 'system',
+              content: [{ type: 'text', text: `✂️ Autocompact 완료 — 컨텍스트가 압축되었습니다${tokenNote}` }],
+              timestamp: Date.now(),
+            });
+          }
           return;
         }
 
@@ -582,7 +595,7 @@ export function useClaudeChat() {
           return;
         }
 
-        // Result
+        // Result — input_tokens already includes cache_read + cache_creation (summed in backend)
         if (sdkMsg.type === 'result') {
           setCost({
             totalCost: sdkMsg.total_cost_usd,

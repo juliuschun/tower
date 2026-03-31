@@ -26,6 +26,9 @@ const COLUMNS: { id: TaskMeta['status']; title: string; color: string }[] = [
 
 export function KanbanBoard() {
   const { tasks, setTasks, setLoading } = useKanbanStore();
+  const sessions = useSessionStore((s) => s.sessions);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const activeProjectId = sessions.find((s) => s.id === activeSessionId)?.projectId ?? null;
   const [activeTask, setActiveTask] = useState<TaskMeta | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskMeta | null>(null);
@@ -73,7 +76,7 @@ export function KanbanBoard() {
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
 
   const resolveTargetColumn = (overId: string | number): TaskMeta['status'] | null => {
-    const columnIds = new Set(COLUMNS.map((c) => c.id));
+    const columnIds = new Set<string>(COLUMNS.map((c) => c.id));
     const id = String(overId);
     if (columnIds.has(id)) return id as TaskMeta['status'];
     const overTask = tasks.find((t) => t.id === id);
@@ -272,6 +275,7 @@ export function KanbanBoard() {
             useKanbanStore.getState().addTask(task);
             setShowNewTask(false);
           }}
+          projectId={activeProjectId}
         />
       )}
 

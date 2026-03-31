@@ -1,16 +1,8 @@
 import { query, queryOne, execute, transaction, withClient } from '../db/pg-repo.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getAccessibleProjectIds } from './group-manager.js';
-export type { WorkflowMode } from '@tower/shared';
-import type { TaskMeta as TaskMetaBase, WorkflowMode } from '@tower/shared';
-
-export interface TaskMeta extends TaskMetaBase {
-  userId: number | null;
-  projectId: string | null;
-  roomId: string | null;
-  triggeredBy: number | null;
-  roomMessageId: string | null;
-}
+export type { WorkflowMode, TaskMeta } from '@tower/shared';
+import type { TaskMeta, WorkflowMode } from '@tower/shared';
 
 export interface ScheduleCron {
   type: 'daily' | 'weekdays' | 'weekly' | 'interval';
@@ -48,6 +40,27 @@ function mapRow(row: any): TaskMeta {
   };
 }
 
+/**
+ * Resolve projectId from cwd by longest-prefix-match against project root_path.
+ * e.g. cwd="/home/enterpriseai/tower/src" matches project with root_path="/home/enterpriseai/tower"
+ */
+export async function resolveProjectFromCwd(cwd: string): Promise<string | null> {
+  const projects = await query<{ id: string; root_path: string }>(
+    'SELECT id, root_path FROM projects WHERE root_path IS NOT NULL AND (archived IS NULL OR archived = 0)'
+  );
+  let bestMatch: string | null = null;
+  let bestLen = 0;
+  for (const p of projects) {
+    const rp = p.root_path.endsWith('/') ? p.root_path.slice(0, -1) : p.root_path;
+    // cwd must equal root_path or be a subdirectory of it
+    if ((cwd === rp || cwd.startsWith(rp + '/')) && rp.length > bestLen) {
+      bestMatch = p.id;
+      bestLen = rp.length;
+    }
+  }
+  return bestMatch;
+}
+
 export async function createTask(
   title: string,
   description: string,
@@ -65,6 +78,9 @@ export async function createTask(
   const sortOrder = (maxOrder?.max_order ?? -1) + 1;
   const resolvedModel = model || 'claude-opus-4-6';
 
+  // Auto-resolve project from cwd if not explicitly provided
+  const resolvedProjectId = projectId ?? await resolveProjectFromCwd(cwd);
+
   await execute(`
     INSERT INTO tasks (id, title, description, cwd, model, status, sort_order, user_id, scheduled_at, schedule_cron, schedule_enabled, workflow, parent_task_id, project_id, room_id, triggered_by, room_message_id)
     VALUES ($1, $2, $3, $4, $5, 'todo', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -75,7 +91,7 @@ export async function createTask(
     schedule?.scheduleEnabled ? 1 : 0,
     workflow || 'auto',
     parentTaskId ?? null,
-    projectId ?? null,
+    resolvedProjectId,
     roomInfo?.roomId ?? null,
     roomInfo?.triggeredBy ?? null,
     roomInfo?.roomMessageId ?? null,
@@ -177,6 +193,26 @@ export async function getDistinctCwds(userId?: number): Promise<string[]> {
     ? await query<any>('SELECT DISTINCT cwd FROM tasks WHERE user_id = $1 ORDER BY cwd', [userId])
     : await query<any>('SELECT DISTINCT cwd FROM tasks ORDER BY cwd');
   return rows.map((r) => r.cwd);
+}
+
+/**
+ * Backfill project_id for existing tasks that have NULL project_id.
+ * Matches task cwd against project root_path using longest-prefix-match.
+ * Safe to run multiple times (idempotent).
+ */
+export async function backfillTaskProjects(): Promise<{ updated: number; total: number }> {
+  const orphans = await query<{ id: string; cwd: string }>(
+    'SELECT id, cwd FROM tasks WHERE project_id IS NULL AND (archived IS NULL OR archived = 0)'
+  );
+  let updated = 0;
+  for (const task of orphans) {
+    const projectId = await resolveProjectFromCwd(task.cwd);
+    if (projectId) {
+      await execute('UPDATE tasks SET project_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [projectId, task.id]);
+      updated++;
+    }
+  }
+  return { updated, total: orphans.length };
 }
 
 export async function reorderTasks(taskIds: string[], status: string): Promise<void> {

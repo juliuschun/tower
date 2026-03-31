@@ -114,7 +114,7 @@ export async function saveMessage(
   const content = Array.isArray(msg.content) ? compactContent(msg.content) : msg.content;
   const contentStr = typeof content === 'string' ? content : JSON.stringify(content);
   await execute(
-    `INSERT INTO messages (id, session_id, role, content, parent_tool_use_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT(id) DO UPDATE SET content = EXCLUDED.content, parent_tool_use_id = EXCLUDED.parent_tool_use_id, duration_ms = EXCLUDED.duration_ms, input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens`,
+    `INSERT INTO messages (id, session_id, role, content, parent_tool_use_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT(id) DO UPDATE SET content = EXCLUDED.content, parent_tool_use_id = EXCLUDED.parent_tool_use_id`,
     [msg.id, sessionId, msg.role, contentStr, msg.parentToolUseId || null]
   );
 }

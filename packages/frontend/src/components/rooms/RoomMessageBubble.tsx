@@ -1,5 +1,24 @@
+import React from 'react';
 import { RichContent } from '../shared/RichContent';
 import type { RoomMessage } from '../../stores/room-store';
+
+/** Render text with @mentions highlighted */
+function MentionHighlightedText({ text }: { text: string }) {
+  const parts = text.split(/(@\w+)/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^@\w+$/.test(part) ? (
+          <span key={i} className="text-primary-400 font-semibold bg-primary-400/10 rounded px-0.5 cursor-default">
+            {part}
+          </span>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        )
+      )}
+    </>
+  );
+}
 
 interface RoomMessageBubbleProps {
   message: RoomMessage;
@@ -199,7 +218,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
           {isFailed && <span className="text-[10px] text-red-400 font-medium">Failed to send</span>}
         </div>
         <div className={`text-[13px] leading-relaxed whitespace-pre-wrap break-words ${isFailed ? 'text-red-300' : 'text-gray-300'}`}>
-          {message.content}
+          <MentionHighlightedText text={message.content} />
         </div>
       </div>
     </div>

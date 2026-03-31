@@ -80,6 +80,8 @@ export type TowerMessage =
 export interface TowerUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
   costUsd?: number;       // Pi: auto-calculated, Claude Max: undefined (subscription)
   durationMs: number;
 }

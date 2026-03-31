@@ -33,7 +33,7 @@ import { exchangeKakaoCode, getKakaoProfile } from 'notify-hub';
 import { parseTelegramWebhook, TelegramChannel } from 'notify-hub';
 import { search } from '../services/search.js';
 import { extractTextFromContent } from '../utils/text.js';
-import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask, getChildTasks } from '../services/task-manager.js';
+import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask, getChildTasks, backfillTaskProjects } from '../services/task-manager.js';
 import { removeWorktree } from '../services/worktree-manager.js';
 import { broadcast, broadcastToAll } from './ws-handler.js';
 import {

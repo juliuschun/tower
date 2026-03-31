@@ -18,6 +18,7 @@ import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/hear
 import { initNotificationHub } from './services/notification-hub.js';
 import { cleanupStaleSessions } from './services/session-manager.js';
 import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs } from './services/skill-registry.js';
+import { backfillTaskProjects } from './services/task-manager.js';
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
 delete process.env.CLAUDECODE;
@@ -100,6 +101,10 @@ server.listen(config.port, config.host, async () => {
     try {
       await initPg();
       console.log('[pg] PostgreSQL initialized — chat rooms enabled');
+      // Backfill project_id for orphaned tasks (cwd → project root_path matching)
+      backfillTaskProjects().then(({ updated, total }) => {
+        if (updated > 0) console.log(`[tasks] Backfilled project_id for ${updated}/${total} orphaned tasks`);
+      }).catch(err => console.error('[tasks] Backfill failed:', err));
     } catch (err) {
       console.error('[pg] Failed to initialize — chat rooms will be unavailable:', err);
     }

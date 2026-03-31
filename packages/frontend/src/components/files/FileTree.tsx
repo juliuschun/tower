@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type { FileEntry } from '../../stores/file-store';
+import { useFileStore } from '../../stores/file-store';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { ShareModal } from './ShareModal';
 
@@ -11,6 +12,8 @@ interface FileTreeProps {
   onNewSessionInFolder?: (path: string) => void;
   onRefreshTree?: () => void;
   depth?: number;
+  /** Flat ordered paths for Shift range selection (provided by root only) */
+  flatPaths?: string[];
 }
 
 // SVG icon components
@@ -68,6 +71,22 @@ function LoadingSpinner() {
   );
 }
 
+function CheckIcon({ checked }: { checked: boolean }) {
+  return (
+    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-all ${
+      checked
+        ? 'bg-primary-500 border-primary-500'
+        : 'border-surface-600 hover:border-primary-500/50'
+    }`}>
+      {checked && (
+        <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
 const pinnableExtensions = new Set(['md', 'html', 'htm', 'txt', 'py', 'ts', 'tsx', 'js', 'jsx', 'json']);
 
 // ─── API helpers ───
@@ -85,19 +104,88 @@ async function apiPost(url: string, body: Record<string, unknown>) {
   return data;
 }
 
+/** Flatten tree entries to ordered path list (for Shift range selection) */
+export function flattenEntries(entries: FileEntry[]): string[] {
+  const result: string[] = [];
+  for (const entry of entries) {
+    result.push(entry.path);
+    if (entry.isDirectory && entry.isExpanded && entry.children) {
+      result.push(...flattenEntries(entry.children));
+    }
+  }
+  return result;
+}
+
 /** Drop zone wrapper — only wraps the folder ROW (not children), so highlight is precise */
 function FolderDropRow({ entry, children, onRefreshTree }: { entry: FileEntry; children: React.ReactNode; onRefreshTree?: () => void }) {
   const [dragOver, setDragOver] = useState(false);
+  const [dropType, setDropType] = useState<'move' | 'upload' | null>(null);
 
   if (!entry.isDirectory) return <div className="group flex items-center">{children}</div>;
 
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    setDropType(null);
+
+    // 1) Internal item move (folder or file)
+    const moveData = e.dataTransfer.getData('application/x-filetree-move');
+    if (moveData) {
+      try {
+        const parsed = JSON.parse(moveData);
+        const srcPath: string = parsed.path;
+        const srcName: string = parsed.name;
+        const destPath = `${entry.path}/${srcName}`;
+
+        // Prevent moving into itself
+        if (srcPath === entry.path) return;
+        // Prevent circular move (parent into its own child)
+        if (entry.path.startsWith(srcPath + '/')) {
+          toastError('Cannot move a folder into its own subfolder');
+          return;
+        }
+        // Already in same location
+        if (srcPath === destPath) return;
+
+        await apiPost('/api/files/rename', { oldPath: srcPath, newPath: destPath });
+        toastSuccess(`Moved "${srcName}" to ${entry.name}/`);
+        onRefreshTree?.();
+      } catch (err: any) {
+        toastError(err.message || 'Move failed');
+      }
+      return;
+    }
+
+    // 2) Existing: external file upload
+    uploadFilesToDir(entry.path, e, onRefreshTree);
+  };
+
   return (
     <div
-      className={`group flex items-center ${dragOver ? 'bg-primary-900/30 ring-1 ring-primary-500/40 rounded' : ''}`}
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
-      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
-      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); uploadFilesToDir(entry.path, e, onRefreshTree); }}
+      className={`group flex items-center ${
+        dragOver
+          ? dropType === 'move'
+            ? 'bg-blue-900/30 ring-1 ring-blue-500/40 rounded'
+            : 'bg-primary-900/30 ring-1 ring-primary-500/40 rounded'
+          : ''
+      }`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('application/x-filetree-move')) {
+          e.dataTransfer.dropEffect = 'move';
+        }
+      }}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const isMove = e.dataTransfer.types.includes('application/x-filetree-move');
+        setDropType(isMove ? 'move' : 'upload');
+        setDragOver(true);
+      }}
+      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) { setDragOver(false); setDropType(null); } }}
+      onDrop={handleDrop}
     >
       {children}
     </div>
@@ -281,10 +369,70 @@ function InlineInput({ defaultValue, placeholder, onSubmit, onCancel }: {
   );
 }
 
-export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, onNewSessionInFolder, onRefreshTree, depth = 0 }: FileTreeProps) {
+export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, onNewSessionInFolder, onRefreshTree, depth = 0, flatPaths: parentFlatPaths }: FileTreeProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [inlineInput, setInlineInput] = useState<{ type: 'newFile' | 'newFolder' | 'rename'; parentPath?: string; entry?: FileEntry } | null>(null);
   const [shareFilePath, setShareFilePath] = useState<string | null>(null);
+  const [draggingPath, setDraggingPath] = useState<string | null>(null);
+
+  // Multi-select state from store
+  const selectMode = useFileStore((s) => s.selectMode);
+  const selectedPaths = useFileStore((s) => s.selectedPaths);
+  const toggleSelectPath = useFileStore((s) => s.toggleSelectPath);
+  const rangeSelectTo = useFileStore((s) => s.rangeSelectTo);
+  const setLastClickedPath = useFileStore((s) => s.setLastClickedPath);
+
+  // Build flat paths list at root level for Shift range selection
+  const flatPaths = useMemo(() => {
+    if (depth === 0) return flattenEntries(entries);
+    return parentFlatPaths || [];
+  }, [entries, depth, parentFlatPaths]);
+
+  // Escape key exits select mode (root level only)
+  useEffect(() => {
+    if (depth !== 0 || !selectMode) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        useFileStore.getState().toggleSelectMode();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [depth, selectMode]);
+
+  const handleEntryClick = useCallback((entry: FileEntry, e: React.MouseEvent) => {
+    if (selectMode) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.shiftKey) {
+        // Shift+Click → range select
+        rangeSelectTo(entry.path, flatPaths);
+      } else {
+        // Normal click or Ctrl+Click in select mode → toggle
+        toggleSelectPath(entry.path);
+      }
+      return;
+    }
+
+    // Not in select mode: check Ctrl/Meta for ad-hoc multi-select
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Enter select mode implicitly
+      useFileStore.getState().toggleSelectMode();
+      toggleSelectPath(entry.path);
+      return;
+    }
+
+    // Normal click
+    if (entry.isDirectory) {
+      onDirectoryClick(entry.path);
+    } else {
+      onFileClick(entry.path);
+    }
+    setLastClickedPath(entry.path);
+  }, [selectMode, flatPaths, onDirectoryClick, onFileClick, toggleSelectPath, rangeSelectTo, setLastClickedPath]);
 
   const handleContextAction = async (action: MenuAction, entry: FileEntry) => {
     if (action === 'newSession' && onNewSessionInFolder) {
@@ -393,112 +541,155 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
 
   return (
     <div className={depth > 0 ? 'ml-3' : ''}>
-      {entries.map((entry) => (
-        <div key={entry.path}>
-          {/* Rename inline input */}
-          {inlineInput?.type === 'rename' && inlineInput.entry?.path === entry.path ? (
-            <div className="px-2 py-0.5">
-              <InlineInput
-                defaultValue={entry.name}
-                placeholder="New name"
-                onSubmit={handleInlineSubmit}
-                onCancel={() => setInlineInput(null)}
-              />
-            </div>
-          ) : (
-            <FolderDropRow entry={entry} onRefreshTree={onRefreshTree}>
-              <button
-                className="flex-1 flex items-center gap-1.5 px-2 py-1 text-xs text-gray-300 hover:bg-surface-800 rounded transition-colors"
-                onClick={() => {
-                  if (entry.isDirectory) {
-                    onDirectoryClick(entry.path);
-                  } else {
-                    onFileClick(entry.path);
-                  }
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextMenu({ x: e.clientX, y: e.clientY, entry });
-                }}
-                draggable={!entry.isDirectory}
-                onDragStart={(e) => {
-                  if (entry.isDirectory) { e.preventDefault(); return; }
-                  const data = {
-                    type: 'file',
-                    label: entry.name,
-                    content: entry.path,
-                  };
-                  e.dataTransfer.setData('application/x-attachment', JSON.stringify(data));
-                  e.dataTransfer.effectAllowed = 'copy';
-                }}
-              >
-                {entry.isDirectory ? (
-                  <>
-                    {entry.isLoading ? <LoadingSpinner /> : <ChevronIcon expanded={!!entry.isExpanded} />}
-                    <FolderIcon open={!!entry.isExpanded} />
-                  </>
-                ) : (
-                  <>
-                    <span className="w-3" />
-                    <FileIcon extension={entry.extension} />
-                  </>
-                )}
-                <span className="truncate">{entry.name}</span>
-                {entry.size !== undefined && !entry.isDirectory && (
-                  <span className="ml-auto text-[10px] text-gray-500">
-                    {entry.size < 1024 ? `${entry.size}B` : `${(entry.size / 1024).toFixed(1)}K`}
-                  </span>
-                )}
-              </button>
-              {!entry.isDirectory && onPinFile && pinnableExtensions.has(entry.extension || '') && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPinFile(entry.path);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1 text-surface-600 hover:text-primary-400 transition-all shrink-0"
-                  title="Pin"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                  </svg>
-                </button>
-              )}
-            </FolderDropRow>
-          )}
-          {/* Children + inline new file/folder inputs inside expanded dir */}
-          {entry.isDirectory && entry.isExpanded && (
-            <div className="ml-3">
-              {/* Inline new file / new folder input */}
-              {inlineInput && (inlineInput.type === 'newFile' || inlineInput.type === 'newFolder') && inlineInput.parentPath === entry.path && (
-                <div className="flex items-center gap-1.5 px-2 py-0.5">
-                  {inlineInput.type === 'newFolder' ? (
-                    <FolderIcon open={false} />
-                  ) : (
-                    <FileIcon />
-                  )}
-                  <InlineInput
-                    placeholder={inlineInput.type === 'newFile' ? 'File name' : 'Folder name'}
-                    onSubmit={handleInlineSubmit}
-                    onCancel={() => setInlineInput(null)}
-                  />
-                </div>
-              )}
-              {entry.children && (
-                <FileTree
-                  entries={entry.children}
-                  onFileClick={onFileClick}
-                  onDirectoryClick={onDirectoryClick}
-                  onPinFile={onPinFile}
-                  onNewSessionInFolder={onNewSessionInFolder}
-                  onRefreshTree={onRefreshTree}
-                  depth={depth + 1}
+      {entries.map((entry) => {
+        const isSelected = selectedPaths.has(entry.path);
+
+        return (
+          <div key={entry.path}>
+            {/* Rename inline input */}
+            {inlineInput?.type === 'rename' && inlineInput.entry?.path === entry.path ? (
+              <div className="px-2 py-0.5">
+                <InlineInput
+                  defaultValue={entry.name}
+                  placeholder="New name"
+                  onSubmit={handleInlineSubmit}
+                  onCancel={() => setInlineInput(null)}
                 />
-              )}
-            </div>
-          )}
-        </div>
-      ))}
+              </div>
+            ) : (
+              <FolderDropRow entry={entry} onRefreshTree={onRefreshTree}>
+                {/* Select mode checkbox */}
+                {selectMode && (
+                  <button
+                    className="pl-1 pr-0.5 py-1 shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (e.shiftKey) {
+                        rangeSelectTo(entry.path, flatPaths);
+                      } else {
+                        toggleSelectPath(entry.path);
+                      }
+                    }}
+                  >
+                    <CheckIcon checked={isSelected} />
+                  </button>
+                )}
+                <button
+                  className={`flex-1 flex items-center gap-1.5 px-2 py-1 text-xs text-gray-300 rounded transition-colors ${
+                    draggingPath === entry.path
+                      ? 'opacity-40'
+                      : isSelected && selectMode
+                        ? 'bg-primary-600/20 text-white'
+                        : 'hover:bg-surface-800'
+                  }`}
+                  onClick={(e) => handleEntryClick(entry, e)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, entry });
+                  }}
+                  draggable
+                  onDragEnd={() => setDraggingPath(null)}
+                  onDragStart={(e) => {
+                    setDraggingPath(entry.path);
+                    if (entry.isDirectory) {
+                      // Folder move via custom MIME type (distinct from file upload drops)
+                      e.dataTransfer.setData('application/x-filetree-move', JSON.stringify({
+                        type: 'directory',
+                        path: entry.path,
+                        name: entry.name,
+                      }));
+                      e.dataTransfer.effectAllowed = 'move';
+                    } else {
+                      // Existing: drag file to chat as attachment
+                      e.dataTransfer.setData('application/x-attachment', JSON.stringify({
+                        type: 'file',
+                        label: entry.name,
+                        content: entry.path,
+                      }));
+                      // Also allow file move between folders via D&D
+                      e.dataTransfer.setData('application/x-filetree-move', JSON.stringify({
+                        type: 'file',
+                        path: entry.path,
+                        name: entry.name,
+                      }));
+                      e.dataTransfer.effectAllowed = 'copyMove';
+                    }
+                  }}
+                >
+                  {entry.isDirectory ? (
+                    <>
+                      <span
+                        className={selectMode ? 'cursor-pointer hover:text-white' : ''}
+                        onClick={selectMode ? (e) => { e.stopPropagation(); onDirectoryClick(entry.path); } : undefined}
+                      >
+                        {entry.isLoading ? <LoadingSpinner /> : <ChevronIcon expanded={!!entry.isExpanded} />}
+                      </span>
+                      <FolderIcon open={!!entry.isExpanded} />
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-3" />
+                      <FileIcon extension={entry.extension} />
+                    </>
+                  )}
+                  <span className="truncate">{entry.name}</span>
+                  {entry.size !== undefined && !entry.isDirectory && (
+                    <span className="ml-auto text-[10px] text-gray-500">
+                      {entry.size < 1024 ? `${entry.size}B` : `${(entry.size / 1024).toFixed(1)}K`}
+                    </span>
+                  )}
+                </button>
+                {!selectMode && !entry.isDirectory && onPinFile && pinnableExtensions.has(entry.extension || '') && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPinFile(entry.path);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-surface-600 hover:text-primary-400 transition-all shrink-0"
+                    title="Pin"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                  </button>
+                )}
+              </FolderDropRow>
+            )}
+            {/* Children + inline new file/folder inputs inside expanded dir */}
+            {entry.isDirectory && entry.isExpanded && (
+              <div className="ml-3">
+                {/* Inline new file / new folder input */}
+                {inlineInput && (inlineInput.type === 'newFile' || inlineInput.type === 'newFolder') && inlineInput.parentPath === entry.path && (
+                  <div className="flex items-center gap-1.5 px-2 py-0.5">
+                    {inlineInput.type === 'newFolder' ? (
+                      <FolderIcon open={false} />
+                    ) : (
+                      <FileIcon />
+                    )}
+                    <InlineInput
+                      placeholder={inlineInput.type === 'newFile' ? 'File name' : 'Folder name'}
+                      onSubmit={handleInlineSubmit}
+                      onCancel={() => setInlineInput(null)}
+                    />
+                  </div>
+                )}
+                {entry.children && (
+                  <FileTree
+                    entries={entry.children}
+                    onFileClick={onFileClick}
+                    onDirectoryClick={onDirectoryClick}
+                    onPinFile={onPinFile}
+                    onNewSessionInFolder={onNewSessionInFolder}
+                    onRefreshTree={onRefreshTree}
+                    depth={depth + 1}
+                    flatPaths={flatPaths}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x} y={contextMenu.y} entry={contextMenu.entry}

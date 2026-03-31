@@ -177,10 +177,14 @@ export class ClaudeEngine implements Engine {
         // Turn metrics
         if ((message as any).type === 'result' && currentAssistantId) {
           const usage = (message as any).usage;
+          // Context size = all input tokens (new + cache read + cache creation)
+          const totalInputTokens = (usage?.input_tokens || 0)
+            + (usage?.cache_read_input_tokens || 0)
+            + (usage?.cache_creation_input_tokens || 0);
           try {
             callbacks.updateMessageMetrics(currentAssistantId, {
               durationMs: (message as any).duration_ms,
-              inputTokens: usage?.input_tokens,
+              inputTokens: totalInputTokens,
               outputTokens: usage?.output_tokens,
             });
           } catch {}
@@ -190,8 +194,10 @@ export class ClaudeEngine implements Engine {
             sessionId,
             msgId: currentAssistantId,
             usage: {
-              inputTokens: usage?.input_tokens || 0,
+              inputTokens: totalInputTokens,
               outputTokens: usage?.output_tokens || 0,
+              cacheReadTokens: usage?.cache_read_input_tokens || 0,
+              cacheCreationTokens: usage?.cache_creation_input_tokens || 0,
               durationMs: (message as any).duration_ms || 0,
             },
           };
@@ -273,11 +279,17 @@ export class ClaudeEngine implements Engine {
 
     for await (const message of response) {
       if (message.type === 'assistant' && message.message?.content) {
-        for (const block of message.message.content) {
-          if (block.type === 'text' && block.text) {
-            fullContent += block.text;
-            opts.onChunk(block.text, fullContent);
-          }
+        // SDK yields full accumulated content on each update (not deltas).
+        // Extract all text blocks and compute delta from previous state.
+        const currentText = (message.message.content as any[])
+          .filter((b: any) => b.type === 'text' && b.text)
+          .map((b: any) => b.text)
+          .join('');
+
+        if (currentText && currentText.length > fullContent.length) {
+          const chunk = currentText.slice(fullContent.length);
+          fullContent = currentText;
+          opts.onChunk(chunk, fullContent);
         }
       }
     }

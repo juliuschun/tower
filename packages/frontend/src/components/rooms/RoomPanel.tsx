@@ -8,6 +8,45 @@ import { getTokenUserId } from '../../utils/session-restore';
 
 const EMPTY_TYPING: { userId: number; username: string; timestamp: number }[] = [];
 
+/** Mention autocomplete dropdown */
+function MentionDropdown({
+  members,
+  query,
+  selectedIndex,
+  onSelect,
+}: {
+  members: { userId: number; username: string }[];
+  query: string;
+  selectedIndex: number;
+  onSelect: (username: string) => void;
+}) {
+  const filtered = members.filter((m) =>
+    m.username.toLowerCase().startsWith(query.toLowerCase())
+  );
+  if (filtered.length === 0) return null;
+
+  return (
+    <div className="absolute bottom-full left-0 mb-1 w-56 max-h-40 overflow-y-auto bg-surface-800 border border-surface-600 rounded-lg shadow-xl z-50">
+      {filtered.slice(0, 8).map((m, i) => (
+        <button
+          key={m.userId}
+          onClick={() => onSelect(m.username)}
+          className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+            i === selectedIndex
+              ? 'bg-primary-600/30 text-gray-100'
+              : 'text-gray-300 hover:bg-surface-700'
+          }`}
+        >
+          <div className="w-5 h-5 rounded-full bg-surface-600 flex items-center justify-center shrink-0">
+            <span className="text-[10px] font-bold text-gray-300">{m.username[0].toUpperCase()}</span>
+          </div>
+          <span className="text-[12px] font-medium truncate">{m.username}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function TypingIndicator({ roomId }: { roomId: string }) {
   const typingUsers = useRoomStore((s) => s.typingByRoom[roomId] ?? EMPTY_TYPING);
 
@@ -43,6 +82,9 @@ export function RoomPanel() {
   const [hintType, setHintType] = useState<'ai' | 'task' | null>(null);
   const [showMembers, setShowMembers] = useState(false);
   const [replyTo, setReplyTo] = useState<RoomMessage | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStartPos, setMentionStartPos] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -162,6 +204,12 @@ export function RoomPanel() {
     };
     useRoomStore.getState().addMessage(activeRoomId, optimisticMsg);
 
+    // Extract @mentions from content
+    const mentionMatches = content.match(/@(\w+)/g);
+    const mentions = mentionMatches
+      ? [...new Set(mentionMatches.map((m: string) => m.slice(1).toLowerCase()))]
+      : [];
+
     // Send via WebSocket
     const ws = (window as any).__claudeWs;
     if (ws?.readyState === WebSocket.OPEN) {
@@ -170,6 +218,7 @@ export function RoomPanel() {
         roomId: activeRoomId,
         content,
         clientMsgId,
+        ...(mentions.length > 0 ? { mentions } : {}),
       };
       if (replyTo) {
         payload.replyTo = replyTo.id;
@@ -195,9 +244,54 @@ export function RoomPanel() {
     inputRef.current?.focus();
   }, [input, activeRoomId, replyTo, currentUserId]);
 
+  // Insert mention from autocomplete
+  const handleMentionSelect = useCallback((username: string) => {
+    const before = input.slice(0, mentionStartPos);
+    const after = input.slice(inputRef.current?.selectionStart ?? input.length);
+    // Replace @query with @username + space
+    const newInput = before + '@' + username + ' ' + after;
+    setInput(newInput);
+    setMentionQuery(null);
+    setMentionIndex(0);
+    inputRef.current?.focus();
+  }, [input, mentionStartPos]);
+
+  // Get filtered members for mention dropdown
+  const mentionFiltered = useMemo(() => {
+    if (mentionQuery === null) return [];
+    return members.filter((m) =>
+      m.username.toLowerCase().startsWith(mentionQuery.toLowerCase())
+    ).slice(0, 8);
+  }, [mentionQuery, members]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Block Enter during IME composition (Korean, Japanese, Chinese input)
     if (e.nativeEvent.isComposing) return;
+
+    // Mention autocomplete keyboard navigation
+    if (mentionQuery !== null && mentionFiltered.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionFiltered.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionFiltered.length) % mentionFiltered.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        handleMentionSelect(mentionFiltered[mentionIndex].username);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionQuery(null);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -206,7 +300,7 @@ export function RoomPanel() {
     if (e.key === 'Escape' && replyTo) {
       setReplyTo(null);
     }
-  }, [handleSend, replyTo]);
+  }, [handleSend, replyTo, mentionQuery, mentionFiltered, mentionIndex, handleMentionSelect]);
 
   const handleReply = useCallback((msg: RoomMessage) => {
     setReplyTo(msg);
@@ -243,7 +337,21 @@ export function RoomPanel() {
   // Send typing indicator
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
+    const val = e.target.value;
+    setInput(val);
+
+    // Detect @mention query from cursor position
+    const cursorPos = e.target.selectionStart;
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@(\w*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
+      setMentionStartPos(cursorPos - atMatch[0].length);
+      setMentionIndex(0);
+    } else {
+      setMentionQuery(null);
+    }
+
     if (!activeRoomId) return;
     // Throttle typing events
     if (!typingTimeoutRef.current) {
@@ -361,7 +469,7 @@ export function RoomPanel() {
         <TypingIndicator roomId={activeRoomId} />
 
         {/* Input area */}
-        <div className="border-t border-surface-800 px-4 py-3">
+        <div className="border-t border-surface-800 px-4 py-3 relative">
           {/* Reply preview bar */}
           {replyTo && (
             <div className="mb-2 flex items-center gap-2 px-3 py-1.5 bg-surface-800/60 border border-surface-700 rounded-lg">
@@ -398,6 +506,15 @@ export function RoomPanel() {
                 {hintType === 'task' ? 'Full task will be created and executed' : 'AI will reply directly in chat'}
               </span>
             </div>
+          )}
+          {/* Mention autocomplete */}
+          {mentionQuery !== null && mentionFiltered.length > 0 && (
+            <MentionDropdown
+              members={mentionFiltered}
+              query={mentionQuery}
+              selectedIndex={mentionIndex}
+              onSelect={handleMentionSelect}
+            />
           )}
           <div className="flex items-end gap-2">
             <textarea

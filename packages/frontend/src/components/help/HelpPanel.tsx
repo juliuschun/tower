@@ -37,10 +37,14 @@ export function HelpPanel() {
   // Fetch topics list
   useEffect(() => {
     if (!isOpen) return;
-    fetch(`/api/help?lang=${lang}`)
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(`/api/help?lang=${lang}`, { headers })
       .then((r) => r.json())
-      .then((data: HelpTopic[]) => {
-        setTopics(data);
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        setTopics(data as HelpTopic[]);
         if (data.length > 0 && !activeSlug) {
           setActiveSlug(data[0].slug);
         }
@@ -52,8 +56,14 @@ export function HelpPanel() {
   useEffect(() => {
     if (!activeSlug || !isOpen) return;
     setLoading(true);
-    fetch(`/api/help/${activeSlug}?lang=${lang}`)
-      .then((r) => r.text())
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(`/api/help/${activeSlug}?lang=${lang}`, { headers })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
       .then((text) => {
         setContent(text);
         setLoading(false);
