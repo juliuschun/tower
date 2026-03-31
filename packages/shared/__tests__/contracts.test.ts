@@ -21,15 +21,16 @@ describe('@tower/shared — type contracts', () => {
     expect(src).toMatch(/engine\??\s*:/);
   });
 
-  it('TaskMeta base에 roomId/triggeredBy/roomMessageId 없음', () => {
+  it('TaskMeta base에 roomId/triggeredBy/roomMessageId/userId 포함', () => {
     const src = readSource('index.ts');
     // Extract only the TaskMeta interface block
     const taskMetaMatch = src.match(/export interface TaskMeta\s*\{[\s\S]*?\n\}/);
     expect(taskMetaMatch).toBeTruthy();
     const taskMetaBlock = taskMetaMatch![0];
-    expect(taskMetaBlock).not.toMatch(/\broomId\b/);
-    expect(taskMetaBlock).not.toMatch(/\btriggeredBy\b/);
-    expect(taskMetaBlock).not.toMatch(/\broomMessageId\b/);
+    expect(taskMetaBlock).toMatch(/\broomId\b/);
+    expect(taskMetaBlock).toMatch(/\btriggeredBy\b/);
+    expect(taskMetaBlock).toMatch(/\broomMessageId\b/);
+    expect(taskMetaBlock).toMatch(/\buserId\b/);
   });
 
   it('Project base에 userId 없음', () => {
