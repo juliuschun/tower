@@ -318,6 +318,7 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
             input={block.toolUse!.input}
             result={block.toolUse!.result}
             isActive={activeIndex === i}
+            isLast={i === validBlocks.length - 1}
             onClick={() => setActiveIndex(activeIndex === i ? null : i)}
           />
         ))}

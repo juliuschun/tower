@@ -184,16 +184,6 @@ function UserMenu({ username, userRole, onAdminClick, onLogout }: {
           </div>
           {/* Actions */}
           <div className="py-1">
-            <button
-              onClick={() => { useSettingsStore.getState().setOpen(true); setOpen(false); }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-gray-400 hover:bg-surface-800 hover:text-gray-200 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Settings
-            </button>
             {onAdminClick && (
               <button
                 onClick={() => { onAdminClick(); setOpen(false); }}
@@ -235,7 +225,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const isMobile = useSessionStore((s) => s.isMobile);
   const theme = useSettingsStore((s) => s.theme);
-  const openSettings = useSettingsStore((s) => s.setOpen);
+  const setTheme = useSettingsStore((s) => s.setTheme);
   const { availableModels, selectedModel, setSelectedModel } = useModelStore();
   const currentModel = availableModels.find((m) => m.id === selectedModel) || availableModels[0];
 
@@ -340,33 +330,21 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           />
         )}
 
-        {/* Theme button: desktop only — opens settings for theme selection */}
+        {/* Theme toggle: desktop only — toggles dark/light mode */}
         {!isMobile && (
           <button
-            onClick={() => openSettings(true)}
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
             className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
-            title="Theme"
-            aria-label="Change theme"
+            title={theme === 'light' ? 'Dark mode' : 'Light mode'}
+            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
           >
             {theme === 'light' ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            ) : theme === 'ocean' ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-              </svg>
-            ) : theme === 'forest' ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l7 9 7-9M12 12v9M9 21h6" />
-              </svg>
-            ) : theme === 'aurora' ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3c2 4 4 8 7 10m0 0c3-2 5-6 7-10M12 13c-2 3-3 5-3 8m3-8c2 3 3 5 3 8" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
               </svg>
             ) : (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             )}
           </button>

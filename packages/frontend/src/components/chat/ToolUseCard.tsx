@@ -84,9 +84,9 @@ function getToolMeta(name: string) {
   return toolMeta[name] || toolMeta[name.charAt(0).toUpperCase() + name.slice(1)] || defaultMeta;
 }
 
-export function ToolChip({ name, input, result, isActive, onClick }: ToolChipProps) {
+export function ToolChip({ name, input, result, isActive, isLast, onClick }: ToolChipProps & { isLast?: boolean }) {
   const isStreaming = useChatStore((s) => s.isStreaming);
-  const isRunning = !result && isStreaming;
+  const isRunning = !result && isStreaming && isLast;
   const meta = getToolMeta(name);
   const summary = getToolSummary(name, input);
 
@@ -104,9 +104,9 @@ export function ToolChip({ name, input, result, isActive, onClick }: ToolChipPro
       </svg>
       <span className={`truncate ${isActive ? meta.color : 'text-gray-500'}`}>{summary}</span>
       {isRunning && (
-        <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse shrink-0" />
+        <span className="text-[9px] text-primary-400 font-medium shrink-0">running</span>
       )}
-      {result && !isRunning && (
+      {result && (
         <svg className="w-2.5 h-2.5 text-emerald-500/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
         </svg>
