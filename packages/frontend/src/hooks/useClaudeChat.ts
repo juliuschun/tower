@@ -687,6 +687,14 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'tool_result_attached': {
+        // Backend attached a tool result (e.g. Agent/subagent done) — update in-memory state
+        if (data.toolUseId) {
+          useChatStore.getState().attachToolResult(data.toolUseId, data.result || '');
+        }
+        break;
+      }
+
       case 'sdk_done': {
         // Always sync claudeSessionId to session store — even for background sessions.
         // Without this, switching away during streaming → sdk_done is dropped →

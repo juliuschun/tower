@@ -58,9 +58,10 @@ export const useAiPanelStore = create<AiPanelState>((set) => ({
   })),
   setActiveThreadId: (id) => set({ activeThreadId: id }),
   setMessages: (messages) => set({ messages }),
-  addMessage: (message) => set((s) => ({
-    messages: [...s.messages, message],
-  })),
+  addMessage: (message) => set((s) => {
+    if (s.messages.some((m) => m.id === message.id)) return s;
+    return { messages: [...s.messages, message] };
+  }),
   updateAssistantById: (id, content) =>
     set((s) => {
       const idx = s.messages.findIndex((m) => m.id === id);

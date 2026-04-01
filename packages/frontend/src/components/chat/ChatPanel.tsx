@@ -24,7 +24,12 @@ function mergeConsecutiveAssistant(messages: ChatMessage[]): ChatMessage[] {
 
   for (const msg of messages) {
     const last = result[result.length - 1];
-    if (last && last.role === 'assistant' && msg.role === 'assistant') {
+    // Only merge consecutive assistant messages that share the same parentToolUseId
+    // (i.e. both top-level, or both belonging to the same sub-agent)
+    if (
+      last && last.role === 'assistant' && msg.role === 'assistant' &&
+      (last.parentToolUseId ?? null) === (msg.parentToolUseId ?? null)
+    ) {
       result[result.length - 1] = {
         ...last,
         content: [...last.content, ...msg.content],
@@ -93,6 +98,8 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
 
   const mergedMessages = useMemo(() => {
     const visible = messages.filter((msg) => {
+      // Hide sub-agent messages (they're shown inside AgentCard stats)
+      if (msg.parentToolUseId) return false;
       if (msg.role !== 'user') return true;
       if (msg.content.length > 0 && msg.content.every((b) => b.type === 'tool_result')) {
         return false;

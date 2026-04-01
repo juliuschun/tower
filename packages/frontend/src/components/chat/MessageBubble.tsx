@@ -220,7 +220,7 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
   const completed = validBlocks.filter((b) => b.toolUse!.result).length;
   const running = isStreaming && completed < total;
 
-  // Build tool type summary for the collapsed bar (e.g. "Bash 3, Read 2, Edit 1")
+  // Build tool type summary (e.g. "Bash ×3, Read ×2, Edit ×1")
   const typeCounts = validBlocks.reduce<Record<string, number>>((acc, b) => {
     const name = b.toolUse!.name;
     acc[name] = (acc[name] || 0) + 1;
@@ -230,7 +230,26 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
     count > 1 ? `${name} ×${count}` : name
   );
 
-  // Collapsed summary bar
+  // Find last tool summary for streaming display
+  const lastBlock = validBlocks[validBlocks.length - 1];
+  const lastTool = lastBlock?.toolUse;
+  const lastToolSummary = (() => {
+    if (!lastTool) return '';
+    const n = lastTool.name;
+    if (n === 'Read' || n === 'Write' || n === 'Edit') {
+      const fp = lastTool.input?.file_path || lastTool.input?.path || '';
+      return fp.split('/').pop() || n;
+    } else if (n === 'Bash') {
+      return (lastTool.input?.command || '').slice(0, 40) || 'command';
+    } else if (n === 'Grep' || n === 'Glob') {
+      return lastTool.input?.pattern?.slice(0, 30) || n;
+    } else if (n === 'Agent' || n === 'Task') {
+      return lastTool.input?.description?.slice(0, 30) || n;
+    }
+    return n;
+  })();
+
+  // Collapsed summary bar — unified with AgentCard line-2 style
   if (!expanded) {
     return (
       <button
@@ -239,23 +258,22 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
         className="group/tool-bar inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-surface-700/30 bg-surface-800/20 hover:bg-surface-800/40 hover:border-surface-600/40 transition-all duration-150 cursor-pointer max-w-full align-middle"
       >
         {/* Wrench icon */}
-        <svg className="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3.5 h-3.5 text-surface-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
         </svg>
 
-        {/* Count badge */}
-        <span className="text-[11px] font-semibold text-gray-400 tabular-nums shrink-0">
-          {total}
-        </span>
+        {/* Count + separator + context — matches AgentCard line-2 format */}
+        <span className="text-[10px] text-surface-500 tabular-nums shrink-0">{total} tools</span>
+        <span className="text-surface-700 text-[10px]">·</span>
 
-        {/* Type summary - truncated */}
-        <span className="text-[11px] text-gray-500 truncate">
-          {typeLabels.join(', ')}
-        </span>
-
-        {/* Running indicator */}
-        {running && (
-          <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse shrink-0" />
+        {/* Streaming: show last active tool / Done: show type summary */}
+        {running ? (
+          <span className="flex items-center gap-1 min-w-0">
+            <span className="w-1 h-1 rounded-full bg-primary-400/60 animate-pulse shrink-0" />
+            <span className="text-[10px] text-surface-400 truncate">{lastToolSummary}</span>
+          </span>
+        ) : (
+          <span className="text-[10px] text-surface-500 truncate">{typeLabels.join(', ')}</span>
         )}
 
         {/* All done check */}
@@ -266,7 +284,7 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
         )}
 
         {/* Expand arrow */}
-        <svg className="w-3 h-3 text-gray-600 group-hover/tool-bar:text-gray-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3 h-3 text-surface-600 group-hover/tool-bar:text-surface-500 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
@@ -632,6 +650,47 @@ function extractCleanText(fragment: DocumentFragment): string {
 
 /* ── AgentCard — individual agent/subagent display ── */
 
+/** Extract sub-tool stats for an agent from sibling messages */
+function useAgentToolStats(toolId: string) {
+  const messages = useChatStore((s) => s.messages);
+  return useMemo(() => {
+    let toolCount = 0;
+    let lastToolName = '';
+    let lastToolSummary = '';
+    const typeCounts: Record<string, number> = {};
+    for (const msg of messages) {
+      if (msg.parentToolUseId !== toolId) continue;
+      for (const block of msg.content) {
+        if (block.type === 'tool_use' && block.toolUse) {
+          toolCount++;
+          const t = block.toolUse;
+          lastToolName = t.name;
+          typeCounts[t.name] = (typeCounts[t.name] || 0) + 1;
+          // Build a short summary for the latest tool
+          const n = t.name.charAt(0).toUpperCase() + t.name.slice(1);
+          if (n === 'Read' || n === 'Write' || n === 'Edit') {
+            const fp = t.input.file_path || t.input.path || '';
+            lastToolSummary = fp.split('/').pop() || n;
+          } else if (n === 'Bash') {
+            const cmd = (t.input.command || '').slice(0, 40);
+            lastToolSummary = cmd || 'command';
+          } else if (n === 'Grep' || n === 'Glob') {
+            lastToolSummary = t.input.pattern?.slice(0, 30) || n;
+          } else if (n === 'Task' || n === 'Agent') {
+            lastToolSummary = t.input.description?.slice(0, 30) || n;
+          } else {
+            lastToolSummary = n;
+          }
+        }
+      }
+    }
+    const typeLabels = Object.entries(typeCounts).map(([name, count]) =>
+      count > 1 ? `${name} ×${count}` : name
+    );
+    return { toolCount, lastToolName, lastToolSummary, typeLabels };
+  }, [messages, toolId]);
+}
+
 function AgentCard({ block }: { block: ContentBlock }) {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const [expanded, setExpanded] = useState(false);
@@ -639,45 +698,70 @@ function AgentCard({ block }: { block: ContentBlock }) {
   const isRunning = !tool.result && isStreaming;
   const description = tool.input.description || 'Agent';
   const subagentType = tool.input.subagent_type || '';
+  const { toolCount, lastToolName, lastToolSummary, typeLabels } = useAgentToolStats(tool.id);
 
-  // Collapsed: compact inline bar (same height as ToolChipGroup), left accent border
+  // Collapsed: compact 2-line card with status + tool stats
   if (!expanded) {
     return (
       <div data-agent-text={description}>
         <button
           onClick={() => setExpanded(true)}
-          className="group/agent-bar inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-surface-700/30 bg-surface-800/20 hover:bg-surface-800/40 hover:border-surface-600/40 transition-all duration-150 cursor-pointer max-w-full"
+          className="group/agent-bar flex flex-col gap-0.5 px-2.5 py-1.5 rounded-lg border border-surface-600/40 bg-surface-800/40 hover:bg-surface-800/60 hover:border-surface-500/50 transition-all duration-150 cursor-pointer max-w-sm"
         >
-          {/* Chip icon */}
-          <svg className="w-3.5 h-3.5 text-surface-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="7" y="7" width="10" height="10" rx="1.5" strokeWidth={1.5} />
-            <path strokeLinecap="round" strokeWidth={1.5} d="M9 3v4M12 3v4M15 3v4M9 17v4M12 17v4M15 17v4M3 9h4M3 12h4M3 15h4M17 9h4M17 12h4M17 15h4" />
-          </svg>
-
-          {/* Description */}
-          <span className="text-[11px] font-semibold text-surface-300 truncate">{description}</span>
-
-          {/* Subagent type tag */}
-          {subagentType && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/40 border border-surface-700/30 text-surface-500">{subagentType}</span>
-          )}
-
-          {/* Running indicator */}
-          {isRunning && (
-            <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse shrink-0" />
-          )}
-
-          {/* Done check */}
-          {!isRunning && tool.result && (
-            <svg className="w-3 h-3 text-emerald-500/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+          {/* Line 1: icon + description + type + status + expand */}
+          <div className="flex items-center gap-1.5 min-w-0 w-full">
+            {/* Chip icon */}
+            <svg className="w-3.5 h-3.5 text-surface-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="7" y="7" width="10" height="10" rx="1.5" strokeWidth={1.5} />
+              <path strokeLinecap="round" strokeWidth={1.5} d="M9 3v4M12 3v4M15 3v4M9 17v4M12 17v4M15 17v4M3 9h4M3 12h4M3 15h4M17 9h4M17 12h4M17 15h4" />
             </svg>
-          )}
 
-          {/* Expand arrow */}
-          <svg className="w-3 h-3 text-surface-600 group-hover/agent-bar:text-surface-500 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+            {/* Description */}
+            <span className="text-[11px] font-semibold text-surface-300 truncate">{description}</span>
+
+            {/* Subagent type tag */}
+            {subagentType && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/40 border border-surface-700/30 text-surface-500 shrink-0">{subagentType}</span>
+            )}
+
+            <span className="flex-1" />
+
+            {/* Status label */}
+            {isRunning ? (
+              <span className="flex items-center gap-1 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse" />
+                <span className="text-[10px] text-primary-400 font-medium">Running</span>
+              </span>
+            ) : tool.result ? (
+              <span className="flex items-center gap-1 shrink-0">
+                <svg className="w-3 h-3 text-emerald-500/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-[10px] text-emerald-500/60 font-medium">Done</span>
+              </span>
+            ) : null}
+
+            {/* Expand arrow */}
+            <svg className="w-3 h-3 text-surface-600 group-hover/agent-bar:text-surface-500 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+
+          {/* Line 2: tool count + type summary (done) or last active tool (streaming) */}
+          {toolCount > 0 && (
+            <div className="flex items-center gap-1.5 pl-5 min-w-0">
+              <span className="text-[10px] text-surface-500 tabular-nums shrink-0">{toolCount} tools</span>
+              <span className="text-surface-700 text-[10px]">·</span>
+              {isRunning && lastToolName ? (
+                <span className="flex items-center gap-1 min-w-0">
+                  <span className="w-1 h-1 rounded-full bg-primary-400/60 animate-pulse shrink-0" />
+                  <span className="text-[10px] text-surface-400 truncate">{lastToolSummary}</span>
+                </span>
+              ) : (
+                <span className="text-[10px] text-surface-500 truncate">{typeLabels.join(', ')}</span>
+              )}
+            </div>
+          )}
         </button>
       </div>
     );
@@ -690,20 +774,46 @@ function AgentCard({ block }: { block: ContentBlock }) {
         {/* Header bar — click to collapse */}
         <button
           onClick={() => setExpanded(false)}
-          className="group/agent-bar flex items-center gap-2 px-3 py-1.5 w-full hover:bg-surface-800/30 transition-colors"
+          className="group/agent-bar flex flex-col gap-0.5 px-3 py-1.5 w-full hover:bg-surface-800/30 transition-colors"
         >
-          <svg className="w-3.5 h-3.5 text-surface-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="7" y="7" width="10" height="10" rx="1.5" strokeWidth={1.5} />
-            <path strokeLinecap="round" strokeWidth={1.5} d="M9 3v4M12 3v4M15 3v4M9 17v4M12 17v4M15 17v4M3 9h4M3 12h4M3 15h4M17 9h4M17 12h4M17 15h4" />
-          </svg>
-          <span className="text-[11px] font-semibold text-surface-300">{description}</span>
-          {subagentType && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/40 border border-surface-700/30 text-surface-500">{subagentType}</span>
+          <div className="flex items-center gap-2 w-full">
+            <svg className="w-3.5 h-3.5 text-surface-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="7" y="7" width="10" height="10" rx="1.5" strokeWidth={1.5} />
+              <path strokeLinecap="round" strokeWidth={1.5} d="M9 3v4M12 3v4M15 3v4M9 17v4M12 17v4M15 17v4M3 9h4M3 12h4M3 15h4M17 9h4M17 12h4M17 15h4" />
+            </svg>
+            <span className="text-[11px] font-semibold text-surface-300">{description}</span>
+            {subagentType && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/40 border border-surface-700/30 text-surface-500">{subagentType}</span>
+            )}
+            <span className="flex-1" />
+            {/* Status in expanded header */}
+            {isRunning ? (
+              <span className="flex items-center gap-1 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse" />
+                <span className="text-[10px] text-primary-400 font-medium">Running</span>
+              </span>
+            ) : tool.result ? (
+              <span className="flex items-center gap-1 shrink-0">
+                <svg className="w-3 h-3 text-emerald-500/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-[10px] text-emerald-500/60 font-medium">Done</span>
+              </span>
+            ) : null}
+            {toolCount > 0 && (
+              <span className="text-[10px] text-surface-500 tabular-nums shrink-0">{toolCount} tools</span>
+            )}
+            <svg className="w-3 h-3 text-surface-500 rotate-180 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+          {/* Line 2: last tool activity */}
+          {toolCount > 0 && isRunning && lastToolName && (
+            <div className="flex items-center gap-1.5 pl-5">
+              <span className="w-1 h-1 rounded-full bg-primary-400/60 animate-pulse shrink-0" />
+              <span className="text-[10px] text-surface-400 truncate">{lastToolSummary}</span>
+            </div>
           )}
-          <span className="flex-1" />
-          <svg className="w-3 h-3 text-surface-500 rotate-180 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
         </button>
 
         {/* Detail content */}

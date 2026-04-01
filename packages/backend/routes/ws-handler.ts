@@ -657,6 +657,13 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     },
     attachToolResult: async (toolUseId, result) => {
       try { await attachToolResultInDb(sessionId, toolUseId, result); } catch {}
+      // Notify frontend so AgentCard/ToolChip can update status (Running → Done)
+      broadcastToSession(sessionId, {
+        type: 'tool_result_attached',
+        sessionId,
+        toolUseId,
+        result: typeof result === 'string' ? result.slice(0, 500) : String(result).slice(0, 500),
+      });
     },
     updateMessageMetrics: async (msgId, metrics) => {
       try {

@@ -194,7 +194,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   oldestMessageId: null,
   scrollGeneration: 0,
 
-  addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
+  addMessage: (msg) => set((s) => {
+    if (s.messages.some((m) => m.id === msg.id)) return s;
+    return { messages: [...s.messages, msg] };
+  }),
 
   updateAssistantById: (id, content) =>
     set((s) => {
