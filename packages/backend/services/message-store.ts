@@ -173,7 +173,15 @@ export async function getMessagesPaginated(
 
   const oldestId = rows.length > 0 ? rows[0].id : null;
 
-  return { messages: rows, hasMore, oldestId };
+  // Pre-parse content strings → objects so the client doesn't need 500× JSON.parse.
+  // The outer res.json() serializes everything in one pass; the client's .json()
+  // parses it back in a single native call — much faster than individual parses.
+  const messages = rows.map(r => ({
+    ...r,
+    content: typeof r.content === 'string' ? JSON.parse(r.content) : r.content,
+  }));
+
+  return { messages, hasMore, oldestId };
 }
 
 export async function updateMessageContent(messageId: string, content: any): Promise<void> {

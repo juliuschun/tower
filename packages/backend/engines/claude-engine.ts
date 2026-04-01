@@ -65,6 +65,7 @@ export class ClaudeEngine implements Engine {
     let engineSessionId: string | undefined;
     let currentAssistantId: string | null = null;
     const editedFiles = new Set<string>();
+    let isCompacting = false;
 
     try {
       for await (const message of executeQuery(sessionId, prompt, {
@@ -90,10 +91,12 @@ export class ClaudeEngine implements Engine {
           const status = (message as any).status;
 
           if (subtype === 'compact_boundary') {
+            isCompacting = true;
             yield { type: 'compact', sessionId, phase: 'boundary' };
             continue;
           }
           if (subtype === 'status') {
+            if (status !== 'compacting') isCompacting = false;
             yield {
               type: 'compact',
               sessionId,
@@ -101,6 +104,13 @@ export class ClaudeEngine implements Engine {
             };
             continue;
           }
+        }
+
+        // SDK may not send explicit status:null after compaction —
+        // auto-close compacting when the first non-system message arrives
+        if (isCompacting && (message as any).type !== 'system') {
+          isCompacting = false;
+          yield { type: 'compact', sessionId, phase: 'done' };
         }
 
         // Handle resume failure
@@ -204,12 +214,13 @@ export class ClaudeEngine implements Engine {
             + (usage?.cache_creation_input_tokens || 0);
 
           // Context window usage = last iteration's input (= actual context size right now)
+          // If iterations not available, contextInputTokens = 0 → frontend uses its own fallback with cap
           const iterations: Array<{ input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; type?: string }> | null = usage?.iterations;
           const lastIter = iterations?.filter(it => it.type === 'message').pop();
           const contextInputTokens = lastIter
             ? (lastIter.input_tokens || 0) + (lastIter.cache_read_input_tokens || 0) + (lastIter.cache_creation_input_tokens || 0)
-            : cumulativeInputTokens; // fallback if no iterations
-          const contextOutputTokens = lastIter?.output_tokens ?? (usage?.output_tokens || 0);
+            : 0; // no iterations → let frontend fallback with cap
+          const contextOutputTokens = lastIter?.output_tokens ?? 0;
 
           // Model's context window size from SDK
           const contextWindowSize = modelUsage
@@ -219,8 +230,8 @@ export class ClaudeEngine implements Engine {
           try {
             callbacks.updateMessageMetrics(currentAssistantId, {
               durationMs: (message as any).duration_ms,
-              inputTokens: contextInputTokens,
-              outputTokens: contextOutputTokens,
+              inputTokens: contextInputTokens || cumulativeInputTokens,
+              outputTokens: contextOutputTokens || (usage?.output_tokens || 0),
             });
           } catch {}
 

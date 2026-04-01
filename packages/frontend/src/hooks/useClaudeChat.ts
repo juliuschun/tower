@@ -5,7 +5,7 @@ import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
 import { useModelStore, getModelIdForBackend } from '../stores/model-store';
 import { useGitStore } from '../stores/git-store';
-import { parseSDKMessage, normalizeContentBlocks } from '../utils/message-parser';
+import { parseSDKMessage } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef, resolveAutoNameTarget, resolveSendSessionId, isServerRestarted } from '../utils/session-filters';
 import { generateUUID } from '../utils/uuid';
 import { toastSuccess, toastError, toastWarning, toastInfo } from '../utils/toast';
@@ -26,14 +26,12 @@ function getSessionOwnerUsername(sessionId: string): string | undefined {
 /** Default page size for initial message load */
 const MESSAGE_PAGE_SIZE = 500;
 
-/** Map raw DB message to ChatMessage */
+/** Map raw DB message to ChatMessage — no normalize here; ChatPanel normalizes lazily */
 function mapStoredToChat(m: any, ownerUsername?: string): import('../stores/chat-store').ChatMessage {
   return {
     id: m.id,
     role: m.role,
-    content: normalizeContentBlocks(
-      typeof m.content === 'string' ? JSON.parse(m.content) : m.content
-    ),
+    content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
     timestamp: new Date(m.created_at).getTime(),
     username: m.role === 'user' ? ownerUsername : undefined,
     parentToolUseId: m.parent_tool_use_id,
@@ -588,6 +586,24 @@ export function useClaudeChat() {
           return;
         }
 
+        // Safety net: clear compacting banner when assistant message arrives
+        // (SDK may not send explicit status:null after compaction)
+        if (sdkMsg.type === 'assistant' && useChatStore.getState().compactingSessionId !== null) {
+          const wasCompacting = true;
+          useChatStore.getState().setCompacting(null);
+          if (wasCompacting) {
+            const { cumulativeInputTokens, cumulativeOutputTokens } = useChatStore.getState().cost;
+            const total = cumulativeInputTokens + cumulativeOutputTokens;
+            const tokenNote = total > 0 ? ` (누적 ${total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total} tokens)` : '';
+            useChatStore.getState().addMessage({
+              id: `compact-${Date.now()}`,
+              role: 'system',
+              content: [{ type: 'text', text: `✂️ Autocompact 완료 — 컨텍스트가 압축되었습니다${tokenNote}` }],
+              timestamp: Date.now(),
+            });
+          }
+        }
+
         // Assistant message — each new UUID gets its own message bubble
         if (sdkMsg.type === 'assistant') {
           const parsed = parseSDKMessage(sdkMsg);
@@ -632,10 +648,19 @@ export function useClaudeChat() {
         // Result — usage = cumulative, context = last iteration (real context window usage)
         if (sdkMsg.type === 'result') {
           const ctx = sdkMsg.context;
-          const ctxInput = ctx?.input_tokens || sdkMsg.usage?.input_tokens || 0;
-          const ctxOutput = ctx?.output_tokens || sdkMsg.usage?.output_tokens || 0;
-          const ctxWindowSize = ctx?.window_size || 0;
-          console.log('[Context Debug] cumulative:', sdkMsg.usage?.input_tokens, '+ last iter:', ctxInput, '/ window:', ctxWindowSize, 'iters:', ctx?.num_iterations);
+          // Prefer context block (last iteration). Fallback to cumulative usage only if ctx missing.
+          // If fallback exceeds window size, it's cumulative leaking — cap to avoid misleading display.
+          const windowSize = ctx?.window_size || 0;
+          let ctxInput = ctx?.input_tokens ?? 0;
+          let ctxOutput = ctx?.output_tokens ?? 0;
+          if (!ctx || ctxInput === 0) {
+            // Fallback: use cumulative, but cap to window size if known
+            ctxInput = sdkMsg.usage?.input_tokens || 0;
+            ctxOutput = sdkMsg.usage?.output_tokens || 0;
+            if (windowSize > 0 && ctxInput > windowSize) {
+              ctxInput = windowSize; // cumulative leaked — cap it
+            }
+          }
           setCost({
             totalCost: sdkMsg.total_cost_usd,
             inputTokens: sdkMsg.usage?.input_tokens || 0,
@@ -645,7 +670,7 @@ export function useClaudeChat() {
             duration: sdkMsg.duration_ms,
             contextInputTokens: ctxInput,
             contextOutputTokens: ctxOutput,
-            contextWindowSize: ctxWindowSize,
+            contextWindowSize: windowSize,
           });
           const turnMetrics = {
             inputTokens: ctxInput,

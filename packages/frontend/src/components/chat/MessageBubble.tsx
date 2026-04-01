@@ -75,7 +75,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
     const isCompactMarker = message.id.startsWith('compact-');
     if (isCompactMarker) {
       return (
-        <div className="flex items-center gap-3 my-5 px-2">
+        <div className="flex items-center gap-3 py-5 px-2">
           <div className="flex-1 h-px bg-surface-700/50" />
           <span className="text-[11px] text-gray-600 whitespace-nowrap select-none">
             ✂️ Compacted
@@ -85,7 +85,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
       );
     }
     return (
-      <div className="flex justify-center my-3">
+      <div className="flex justify-center py-3">
         <div className="bg-surface-900/60 border border-surface-700/40 text-gray-500 text-[13px] px-4 py-1.5 rounded-full max-w-lg">
           {message.content.map((b, i) => (
             <span key={i}>{b.text}</span>
@@ -117,7 +117,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
   }, [groups]);
 
   return (
-    <div className={`flex gap-3 my-5 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>
+    <div className={`flex gap-3 py-5 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>
       {!isUser && (
         <div className="flex flex-col items-center gap-1 shrink-0 mt-0.5">
           <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold text-primary-400 select-none">
@@ -498,10 +498,14 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
               {regularBlocks.length > 0 && (
                 <ToolChipGroup blocks={regularBlocks} onFileClick={onFileClick} />
               )}
-              {/* Agent cards — individual, one per line */}
-              {agentBlocks.map((block, ai) => (
-                <AgentCard key={`agent-${gi}-${ai}`} block={block} />
-              ))}
+              {/* Agent cards — grouped under a single left accent border */}
+              {agentBlocks.length > 0 && (
+                <div className="pl-2 border-l-2 border-surface-700/30 space-y-1">
+                  {agentBlocks.map((block, ai) => (
+                    <AgentCard key={`agent-${gi}-${ai}`} block={block} />
+                  ))}
+                </div>
+              )}
               {/* TodoWrite — inline checklist */}
               {todoBlocks.map((block, ti) => {
                 const isLastTodo = !!isLastAssistant && gi === groups.length - 1 && ti === todoBlocks.length - 1;
@@ -636,75 +640,76 @@ function AgentCard({ block }: { block: ContentBlock }) {
   const description = tool.input.description || 'Agent';
   const subagentType = tool.input.subagent_type || '';
 
-  // Count tools mentioned in result (heuristic)
-  const resultToolCount = useMemo(() => {
-    if (!tool.result) return null;
-    // Agent results often mention tool calls
-    const matches = tool.result.match(/tool[_\s]?(use|call)/gi);
-    return matches?.length || null;
-  }, [tool.result]);
-
-  return (
-    <div
-      className="rounded-xl border border-purple-500/20 bg-gradient-to-r from-purple-500/5 to-pink-500/5 overflow-hidden transition-all duration-200"
-      data-agent-text={description}
-    >
-      {/* Header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/[0.02] transition-colors"
-      >
-        {/* Agent chip icon */}
-        <div className="w-7 h-7 rounded-lg bg-purple-500/15 border border-purple-500/25 flex items-center justify-center shrink-0">
-          <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  // Collapsed: compact inline bar (same height as ToolChipGroup), left accent border
+  if (!expanded) {
+    return (
+      <div data-agent-text={description}>
+        <button
+          onClick={() => setExpanded(true)}
+          className="group/agent-bar inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-surface-700/30 bg-surface-800/20 hover:bg-surface-800/40 hover:border-surface-600/40 transition-all duration-150 cursor-pointer max-w-full"
+        >
+          {/* Chip icon */}
+          <svg className="w-3.5 h-3.5 text-surface-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <rect x="7" y="7" width="10" height="10" rx="1.5" strokeWidth={1.5} />
             <path strokeLinecap="round" strokeWidth={1.5} d="M9 3v4M12 3v4M15 3v4M9 17v4M12 17v4M15 17v4M3 9h4M3 12h4M3 15h4M17 9h4M17 12h4M17 15h4" />
           </svg>
-        </div>
 
-        {/* Description */}
-        <div className="flex-1 text-left min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] font-semibold text-purple-300 truncate">{description}</span>
-            {subagentType && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400/70">{subagentType}</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            {isRunning && (
-              <span className="flex items-center gap-1 text-[11px] text-purple-400/80 font-medium">
-                <div className="w-2.5 h-2.5 border-[1.5px] border-purple-500/30 border-t-purple-400 rounded-full animate-spin" />
-                Running
-              </span>
-            )}
-            {tool.result && !isRunning && (
-              <span className="text-[11px] text-emerald-400/80 font-medium flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Done
-              </span>
-            )}
-            {resultToolCount && (
-              <span className="text-[10px] text-gray-500">{resultToolCount} tool calls</span>
-            )}
-          </div>
-        </div>
+          {/* Description */}
+          <span className="text-[11px] font-semibold text-surface-300 truncate">{description}</span>
 
-        {/* Expand chevron */}
-        <svg
-          className={`w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0 ${expanded ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          {/* Subagent type tag */}
+          {subagentType && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/40 border border-surface-700/30 text-surface-500">{subagentType}</span>
+          )}
+
+          {/* Running indicator */}
+          {isRunning && (
+            <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse shrink-0" />
+          )}
+
+          {/* Done check */}
+          {!isRunning && tool.result && (
+            <svg className="w-3 h-3 text-emerald-500/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+
+          {/* Expand arrow */}
+          <svg className="w-3 h-3 text-surface-600 group-hover/agent-bar:text-surface-500 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+    );
+  }
+
+  // Expanded: detail view with left accent border
+  return (
+    <div className="pl-2 border-l-2 border-surface-700/30" data-agent-text={description}>
+      <div className="rounded-lg border border-surface-700/30 bg-surface-800/10 overflow-hidden">
+        {/* Header bar — click to collapse */}
+        <button
+          onClick={() => setExpanded(false)}
+          className="group/agent-bar flex items-center gap-2 px-3 py-1.5 w-full hover:bg-surface-800/30 transition-colors"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+          <svg className="w-3.5 h-3.5 text-surface-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="7" y="7" width="10" height="10" rx="1.5" strokeWidth={1.5} />
+            <path strokeLinecap="round" strokeWidth={1.5} d="M9 3v4M12 3v4M15 3v4M9 17v4M12 17v4M15 17v4M3 9h4M3 12h4M3 15h4M17 9h4M17 12h4M17 15h4" />
+          </svg>
+          <span className="text-[11px] font-semibold text-surface-300">{description}</span>
+          {subagentType && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface-800/40 border border-surface-700/30 text-surface-500">{subagentType}</span>
+          )}
+          <span className="flex-1" />
+          <svg className="w-3 h-3 text-surface-500 rotate-180 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
 
-      {/* Expanded detail */}
-      {expanded && (
-        <div className="border-t border-purple-500/10 px-3.5 py-3 space-y-2">
+        {/* Detail content */}
+        <div className="border-t border-surface-700/20 px-3 py-2.5 space-y-2">
           {tool.input.prompt && (
-            <div className="bg-surface-950/60 rounded-lg p-3 text-[11px] text-gray-400 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap">
+            <div className="bg-surface-950/60 rounded-lg p-3 text-[11px] text-surface-500 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap">
               {tool.input.prompt.slice(0, 500)}{tool.input.prompt.length > 500 ? '...' : ''}
             </div>
           )}
@@ -712,7 +717,7 @@ function AgentCard({ block }: { block: ContentBlock }) {
             <AgentResultSection result={tool.result} />
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

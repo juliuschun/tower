@@ -134,6 +134,8 @@ interface ChatState {
   hasMoreMessages: boolean;
   loadingMoreMessages: boolean;
   oldestMessageId: string | null;
+  /** Incremented when background refresh replaces messages — signals ChatPanel to scroll to bottom */
+  scrollGeneration: number;
 
   addMessage: (msg: ChatMessage) => void;
   updateAssistantById: (id: string, content: ContentBlock[]) => void;
@@ -167,6 +169,7 @@ interface ChatState {
   setLoadingMoreMessages: (v: boolean) => void;
   setOldestMessageId: (id: string | null) => void;
   prependMessages: (msgs: ChatMessage[]) => void;
+  bumpScrollGeneration: () => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -189,6 +192,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   hasMoreMessages: false,
   loadingMoreMessages: false,
   oldestMessageId: null,
+  scrollGeneration: 0,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -252,15 +256,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setCost: (cost) => set((s) => {
     const newInput = cost.inputTokens ?? 0;
     const newOutput = cost.outputTokens ?? 0;
-    return {
-      cost: {
-        ...s.cost,
-        ...cost,
-        cumulativeInputTokens: s.cost.cumulativeInputTokens + newInput,
-        cumulativeOutputTokens: s.cost.cumulativeOutputTokens + newOutput,
-        turnCount: s.cost.turnCount + (newInput > 0 || newOutput > 0 ? 1 : 0),
-      },
+    const merged = {
+      ...s.cost,
+      ...cost,
+      cumulativeInputTokens: s.cost.cumulativeInputTokens + newInput,
+      cumulativeOutputTokens: s.cost.cumulativeOutputTokens + newOutput,
+      turnCount: s.cost.turnCount + (newInput > 0 || newOutput > 0 ? 1 : 0),
     };
+    return { cost: merged };
   }),
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
@@ -348,4 +351,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setLoadingMoreMessages: (v) => set({ loadingMoreMessages: v }),
   setOldestMessageId: (id) => set({ oldestMessageId: id }),
   prependMessages: (msgs) => set((s) => ({ messages: [...msgs, ...s.messages] })),
+  bumpScrollGeneration: () => set((s) => ({ scrollGeneration: s.scrollGeneration + 1 })),
 }));

@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { useChatStore, type ChatMessage, type PendingQuestion } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useAiPanelStore } from '../../stores/ai-panel-store';
@@ -7,6 +8,12 @@ import { MessageBubble, TurnMetricsBar } from './MessageBubble';
 import { InputBox } from './InputBox';
 import { FloatingQuestionCard } from './FloatingQuestionCard';
 import { AiPanel } from '../rooms/AiPanel';
+
+/**
+ * Per-session Virtuoso state snapshots.
+ * Stores full scroll position + measured item heights for reliable restore.
+ */
+const sessionSnapshots = new Map<string, StateSnapshot>();
 
 /**
  * Merge consecutive assistant messages into one visual message.
@@ -47,29 +54,10 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   const loadingMoreMessages = useChatStore((s) => s.loadingMoreMessages);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const isCompacting = compactingSessionId !== null && compactingSessionId === activeSessionId;
-  const sessions = useSessionStore((s) => s.sessions);
-  const isMobile = useSessionStore((s) => s.isMobile);
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const _sessions = useSessionStore((s) => s.sessions); // keep subscription for sidebar reactivity
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const isNearBottom = useRef(true);
-
-  /** Load older messages, preserving scroll position */
-  const handleLoadMore = useCallback(async () => {
-    if (!activeSessionId || !onLoadMore) return;
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    // Capture scroll position from bottom before prepending
-    const scrollHeightBefore = el.scrollHeight;
-    await onLoadMore(activeSessionId);
-    // After DOM update, restore scroll position so user stays at the same spot
-    requestAnimationFrame(() => {
-      const scrollHeightAfter = el.scrollHeight;
-      const added = scrollHeightAfter - scrollHeightBefore;
-      el.scrollTop += added;
-    });
-  }, [activeSessionId, onLoadMore]);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const isAtBottom = useRef(true);
 
   // Track answered state: keep question data + answer briefly after answering
   const [answeredState, setAnsweredState] = useState<{
@@ -77,7 +65,6 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     answer: string;
   } | null>(null);
 
-  // Clear answered state after brief display
   useEffect(() => {
     if (answeredState) {
       const timer = setTimeout(() => setAnsweredState(null), 1500);
@@ -85,7 +72,6 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     }
   }, [answeredState]);
 
-  // Clear answered state when a new pendingQuestion arrives (new question from SDK)
   useEffect(() => {
     if (pendingQuestion) {
       setAnsweredState(null);
@@ -100,36 +86,100 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     onAnswerQuestion?.(questionId, answer);
   }, [onAnswerQuestion]);
 
-  // Show floating card: live pending > recently answered (brief)
   const floatingQuestion = pendingQuestion || answeredState?.question || null;
   const floatingAnswered = (answeredState && !pendingQuestion)
     ? { questionId: answeredState.question.questionId, answer: answeredState.answer }
     : null;
 
   const mergedMessages = useMemo(() => {
-    // Filter BEFORE merge: remove user tool_result messages first,
-    // so consecutive assistant messages can merge properly.
-    // (user tool_result messages between assistant messages break the merge chain)
     const visible = messages.filter((msg) => {
       if (msg.role !== 'user') return true;
       if (msg.content.length > 0 && msg.content.every((b) => b.type === 'tool_result')) {
         return false;
       }
-      // Hide SDK-injected system messages that appear as user messages
       const firstText = msg.content.find((b) => b.type === 'text')?.text || '';
       if (firstText.startsWith('Base directory for this skill:')) return false;
       if (firstText.startsWith('<session-start-hook>')) return false;
       return true;
     });
-    const merged = mergeConsecutiveAssistant(visible);
-    return merged.map((msg) =>
-      msg.role === 'assistant'
-        ? { ...msg, content: normalizeContentBlocks(msg.content) }
-        : msg
-    );
+    return mergeConsecutiveAssistant(visible);
   }, [messages]);
 
-  // Find the last assistant message index for metrics display
+  // ── Scroll position save/restore (getState / restoreStateFrom) ──
+  // Virtuoso's official API: saves measured item heights + scroll offset as a snapshot.
+  // On revisit, restoreStateFrom replays the exact position without re-measuring.
+
+  // Continuously save snapshot on scroll (debounced).
+  // Skip saving for 800ms after session switch to let restoreStateFrom settle.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const activeSessionRef = useRef(activeSessionId);
+  const settleUntil = useRef(0); // timestamp until which saves are suppressed
+  activeSessionRef.current = activeSessionId;
+
+  const handleRangeChanged = useCallback((_range: { startIndex: number; endIndex: number }) => {
+    if (Date.now() < settleUntil.current) return; // still settling after session switch
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const sid = activeSessionRef.current;
+      if (sid && virtuosoRef.current) {
+        virtuosoRef.current.getState((snapshot) => {
+          sessionSnapshots.set(sid, snapshot);
+        });
+      }
+    }, 300);
+  }, []);
+
+  // Compute restoreStateFrom: saved snapshot or undefined (first visit)
+  const savedSnapshot = useMemo(() => {
+    if (!activeSessionId) return undefined;
+    return sessionSnapshots.get(activeSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]); // only recompute on session switch
+
+  // Reset isAtBottom on session switch + suppress snapshot saves during settle
+  useLayoutEffect(() => {
+    isAtBottom.current = !savedSnapshot; // first visit → true (at bottom), revisit → false
+    settleUntil.current = Date.now() + 800; // suppress saves for 800ms
+  }, [activeSessionId, savedSnapshot]);
+
+  // Cache-miss: data arrives after empty Virtuoso mount → scroll to bottom (first visit only)
+  const hadMessages = useRef(false);
+  useEffect(() => {
+    if (activeSessionId) hadMessages.current = false;
+  }, [activeSessionId]);
+  useEffect(() => {
+    const has = mergedMessages.length > 0;
+    if (has && !hadMessages.current && !savedSnapshot) {
+      // First visit, no snapshot → go to bottom
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
+      });
+    }
+    hadMessages.current = has;
+  }, [mergedMessages.length, savedSnapshot]);
+
+  // When streaming starts → user just sent a message → always scroll to bottom
+  const prevStreaming = useRef(isStreaming);
+  useEffect(() => {
+    if (isStreaming && !prevStreaming.current) {
+      isAtBottom.current = true;
+      virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
+    }
+    prevStreaming.current = isStreaming;
+  }, [isStreaming, mergedMessages.length]);
+
+  // Background refresh: only scroll to bottom if user was already at bottom
+  const scrollGen = useChatStore((s) => s.scrollGeneration);
+  const prevScrollGen = useRef(scrollGen);
+  useEffect(() => {
+    if (scrollGen !== prevScrollGen.current) {
+      prevScrollGen.current = scrollGen;
+      if (isAtBottom.current) {
+        virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
+      }
+    }
+  }, [scrollGen, mergedMessages.length]);
+
   const lastAssistantIndex = useMemo(() => {
     for (let i = mergedMessages.length - 1; i >= 0; i--) {
       if (mergedMessages[i].role === 'assistant') return i;
@@ -137,68 +187,29 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     return -1;
   }, [mergedMessages]);
 
-  // Detect "waiting for first assistant content" — streaming started but no assistant msg yet
   const isWaitingForAssistant = isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant';
 
-  // Reset scroll-to-bottom on session switch so new session always starts at bottom.
-  // MUST be useLayoutEffect (not useEffect) — the scroll-to-bottom in the next
-  // useLayoutEffect([messages]) reads isNearBottom synchronously. If this were
-  // useEffect, it would fire AFTER the scroll check, leaving isNearBottom=false
-  // when the user had scrolled up in the previous session.
-  useLayoutEffect(() => {
-    isNearBottom.current = true;
-  }, [activeSessionId]);
+  // ── Load More: triggered when user scrolls to top ──
+  const handleStartReached = useCallback(() => {
+    if (!activeSessionId || !onLoadMore || loadingMoreMessages || !hasMoreMessages) return;
+    onLoadMore(activeSessionId);
+  }, [activeSessionId, onLoadMore, loadingMoreMessages, hasMoreMessages]);
 
-  const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 10;
+  // ── Virtuoso: followOutput keeps scroll at bottom during streaming ──
+  // Returns 'smooth' to auto-scroll, false to stay put (user scrolled up)
+  const followOutput = useCallback((isAtBottomNow: boolean) => {
+    if (isAtBottomNow) return 'auto';
+    return false;
   }, []);
-
-  // Snap to bottom when new messages arrive (if user is near bottom)
-  useLayoutEffect(() => {
-    if (!isNearBottom.current) return;
-    const el = scrollContainerRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages]);
-
-  // Auto-scroll during streaming / typewriter animation.
-  // The typewriter reveals text gradually inside the same message,
-  // so the messages dependency above won't fire — poll via rAF instead.
-  // NOTE: 'smooth' behavior was removed — on mobile it fights with
-  //       virtual-keyboard viewport changes, causing visible jitter.
-  useEffect(() => {
-    if (!isStreaming) return;
-    let raf: number;
-    const tick = () => {
-      if (isNearBottom.current) {
-        const el = scrollContainerRef.current;
-        if (el) {
-          const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-          if (gap > 4) {
-            el.scrollTop = el.scrollHeight;          // instant — no smooth
-          }
-        }
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [isStreaming]);
 
   const aiPanelOpen = useAiPanelStore((s) => s.open);
   const aiPanelContextType = useAiPanelStore((s) => s.contextType);
 
-  // Toggle AI panel for this session
   const handleToggleAiPanel = useCallback(() => {
     const store = useAiPanelStore.getState();
     if (store.open && store.contextType === 'session') {
-      // Close if already open in session mode
       store.setOpen(false);
     } else {
-      // Open in session mode with current session as context
       if (activeSessionId) {
         store.setContext('session', activeSessionId);
         store.setActiveThreadId(null);
@@ -208,7 +219,6 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     }
   }, [activeSessionId]);
 
-  // Update panel context when active session changes (if panel is open in session mode)
   useEffect(() => {
     const store = useAiPanelStore.getState();
     if (store.open && store.contextType === 'session' && activeSessionId && store.contextId !== activeSessionId) {
@@ -220,80 +230,118 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
 
   const showSessionAiPanel = aiPanelOpen && aiPanelContextType === 'session';
 
+  // ── Render a single message row for Virtuoso ──
+  // normalizeContentBlocks is applied lazily here — only for ~20 visible messages,
+  // not 500 upfront. This cuts initial load from seconds to instant.
+  const renderMessage = useCallback((index: number) => {
+    const raw = mergedMessages[index];
+    if (!raw) return null;
+    const msg = raw.role === 'assistant'
+      ? { ...raw, content: normalizeContentBlocks(raw.content) }
+      : raw;
+    return (
+      <div className="px-3 md:px-6 py-0.5">
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onFileClick={onFileClick}
+          onRetry={onSend}
+          showMetrics={msg.role === 'assistant' && (msg.durationMs != null || (index === lastAssistantIndex && !isWaitingForAssistant))}
+          isLastAssistant={index === lastAssistantIndex}
+        />
+      </div>
+    );
+  }, [mergedMessages, lastAssistantIndex, isWaitingForAssistant, onFileClick, onSend]);
+
+  // ── Header: "Load More" indicator ──
+  const headerComponent = useMemo(() => {
+    if (!hasMoreMessages) return undefined;
+    return (
+      <div className="flex justify-center py-3 px-3 md:px-6">
+        {loadingMoreMessages ? (
+          <div className="flex items-center gap-2 text-[13px] text-gray-500">
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <span>불러오는 중...</span>
+          </div>
+        ) : (
+          <div className="text-[11px] text-gray-600">↑ 스크롤하면 이전 메시지를 불러옵니다</div>
+        )}
+      </div>
+    );
+  }, [hasMoreMessages, loadingMoreMessages]);
+
+  // ── Footer: thinking indicator ──
+  const footerComponent = useMemo(() => {
+    if (!isWaitingForAssistant) return undefined;
+    return (
+      <div className="px-3 md:px-6">
+        <div className="flex gap-3 py-5">
+          <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
+            C
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
+            </div>
+            <TurnMetricsBar />
+          </div>
+        </div>
+      </div>
+    );
+  }, [isWaitingForAssistant]);
+
   return (
     <div className="flex h-full">
       {/* Main chat area */}
       <div className="flex flex-col flex-1 min-w-0 h-full">
         {/* Messages area */}
-        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" style={{ willChange: 'scroll-position', WebkitOverflowScrolling: 'touch' }}>
-
-          <div className="px-3 md:px-6">
-            {/* Load older messages button */}
-            {hasMoreMessages && (
-              <div className="flex justify-center py-3">
-                <button
-                  onClick={handleLoadMore}
-                  disabled={loadingMoreMessages}
-                  className="flex items-center gap-2 px-4 py-2 text-[13px] rounded-lg bg-surface-800/60 hover:bg-surface-800 border border-surface-700/50 text-gray-400 hover:text-gray-300 transition-colors disabled:opacity-50"
-                >
-                  {loadingMoreMessages ? (
-                    <>
-                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                      </svg>
-                      <span>불러오는 중...</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                      </svg>
-                      <span>이전 메시지 불러오기</span>
-                    </>
-                  )}
-                </button>
+        {messages.length === 0 ? (
+          /* Empty state */
+          <div className="flex-1 overflow-y-auto px-3 md:px-6">
+            <div className="flex flex-col items-center justify-center h-full text-center mt-20">
+              <div className="w-20 h-20 rounded-full bg-surface-900 border border-surface-800 shadow-2xl flex items-center justify-center mb-6 relative group">
+                <div className="absolute inset-0 rounded-full bg-primary-500/20 blur-xl group-hover:bg-primary-500/30 transition-colors"></div>
+                <span className="text-4xl relative z-10">✨</span>
               </div>
-            )}
-
-            {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-center mt-20">
-                <div className="w-20 h-20 rounded-full bg-surface-900 border border-surface-800 shadow-2xl flex items-center justify-center mb-6 relative group">
-                  <div className="absolute inset-0 rounded-full bg-primary-500/20 blur-xl group-hover:bg-primary-500/30 transition-colors"></div>
-                  <span className="text-4xl relative z-10">✨</span>
-                </div>
-                <h2 className="text-2xl font-bold text-gray-100 mb-3 tracking-tight">Tower</h2>
-                <p className="text-[15px] text-gray-400 max-w-md leading-relaxed">
-                  Chat with Claude to research, edit files, and run code.
-                  <br />
-                  <span className="text-surface-700 mt-2 block font-medium">Type / to use commands.</span>
-                </p>
-              </div>
-            )}
-
-            {mergedMessages.map((msg, idx) => (
-              <MessageBubble key={msg.id} message={msg} onFileClick={onFileClick} onRetry={onSend} showMetrics={msg.role === 'assistant' && (msg.durationMs != null || (idx === lastAssistantIndex && !isWaitingForAssistant))} isLastAssistant={idx === lastAssistantIndex} />
-            ))}
-
-            {isWaitingForAssistant && (
-              <div className="flex gap-3 my-5">
-                <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
-                  C
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit">
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
-                  </div>
-                  <TurnMetricsBar />
-                </div>
-              </div>
-            )}
-
-            <div ref={bottomRef} className="h-4" />
+              <h2 className="text-2xl font-bold text-gray-100 mb-3 tracking-tight">Tower</h2>
+              <p className="text-[15px] text-gray-400 max-w-md leading-relaxed">
+                Chat with Claude to research, edit files, and run code.
+                <br />
+                <span className="text-surface-700 mt-2 block font-medium">Type / to use commands.</span>
+              </p>
+            </div>
           </div>
-        </div>
+        ) : (
+          /* Virtualized message list */
+          <Virtuoso
+            key={activeSessionId}
+            ref={virtuosoRef}
+            className="flex-1 min-h-0"
+            style={{ willChange: 'transform' }}
+            data={mergedMessages}
+            {...(savedSnapshot
+              ? { restoreStateFrom: savedSnapshot }
+              : { initialTopMostItemIndex: mergedMessages.length - 1, alignToBottom: true }
+            )}
+            itemContent={renderMessage}
+            components={{
+              Header: headerComponent ? () => headerComponent : undefined,
+              Footer: footerComponent ? () => footerComponent : undefined,
+            }}
+            followOutput={followOutput}
+            atBottomStateChange={(atBottom) => { isAtBottom.current = atBottom; }}
+            atBottomThreshold={50}
+            rangeChanged={handleRangeChanged}
+            startReached={handleStartReached}
+            increaseViewportBy={{ top: 400, bottom: 100 }}
+            defaultItemHeight={80}
+          />
+        )}
 
         {/* Autocompact banner */}
         {isCompacting && (
@@ -363,13 +411,11 @@ function CumulativeTokenBar() {
   const messages = useChatStore((s) => s.messages);
   const cost = useChatStore((s) => s.cost);
 
-  // Context tracking from SDK (last iteration = real context size)
   let contextInput = cost.contextInputTokens || 0;
   let contextOutput = cost.contextOutputTokens || 0;
   let maxTokens = cost.contextWindowSize || 0;
   let turnCount = cost.turnCount || 0;
 
-  // Fallback: search messages (useful after page reload when cost store is reset)
   if (contextInput === 0) {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -386,12 +432,10 @@ function CumulativeTokenBar() {
     }
   }
 
-  // Don't show if no data
   if (contextInput <= 0 && messages.length === 0) return null;
 
   if (maxTokens === 0) maxTokens = FALLBACK_MAX_TOKENS;
 
-  // Next turn prediction: current context input + output ≈ next turn's input
   const contextUsed = contextInput + contextOutput;
   const pct = Math.min((contextUsed / maxTokens) * 100, 100);
   const isHigh = pct > 70;
@@ -399,13 +443,11 @@ function CumulativeTokenBar() {
 
   return (
     <div className="flex items-center gap-2 mb-1.5 px-1">
-      {/* Context usage */}
       <span className={`text-[10px] tabular-nums font-medium whitespace-nowrap ${
         isCritical ? 'text-red-400' : isHigh ? 'text-amber-400' : 'text-gray-500'
       }`} title={`Context: ${fmtTokensShort(contextInput)} in + ${fmtTokensShort(contextOutput)} out (last API call)\nCumulative: ${fmtTokensShort(cost.cumulativeInputTokens)} in + ${fmtTokensShort(cost.cumulativeOutputTokens)} out (all calls)`}>
         {fmtTokensShort(contextUsed)} / {fmtTokensShort(maxTokens)}
       </span>
-      {/* Progress bar */}
       <div className="flex-1 h-1 bg-surface-800/60 rounded-full overflow-hidden max-w-[120px]">
         <div
           className={`h-full rounded-full transition-all duration-500 ${
@@ -414,7 +456,6 @@ function CumulativeTokenBar() {
           style={{ width: `${pct}%` }}
         />
       </div>
-      {/* Turn count */}
       {turnCount > 0 && (
         <span className="text-[10px] text-gray-600 tabular-nums">
           {turnCount} turns

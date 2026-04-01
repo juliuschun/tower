@@ -29,7 +29,7 @@ import { useSettingsStore } from './stores/settings-store';
 import { useModelStore, getEngineFromModel } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
 import { useProjectStore } from './stores/project-store';
-import { normalizeContentBlocks } from './utils/message-parser';
+// normalizeContentBlocks moved to ChatPanel — lazy, only for visible ~20 messages
 import { generateUUID } from './utils/uuid';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
@@ -347,7 +347,7 @@ function App() {
           if (stored?.length > 0) {
             const msgs = stored.map((m: any) => ({
               id: m.id, role: m.role,
-              content: normalizeContentBlocks(typeof m.content === 'string' ? JSON.parse(m.content) : m.content),
+              content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
               timestamp: new Date(m.created_at).getTime(),
               parentToolUseId: m.parent_tool_use_id,
             }));
@@ -355,6 +355,7 @@ function App() {
             useChatStore.getState().setMessages(msgs);
             useChatStore.getState().setHasMoreMessages(msgData.hasMore ?? false);
             useChatStore.getState().setOldestMessageId(msgData.oldestId ?? null);
+            useChatStore.getState().bumpScrollGeneration();
           }
         }
       });
@@ -382,7 +383,7 @@ function App() {
         if (stored.length > 0) {
           const msgs = stored.map((m: any) => ({
             id: m.id, role: m.role,
-            content: normalizeContentBlocks(typeof m.content === 'string' ? JSON.parse(m.content) : m.content),
+            content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
             timestamp: new Date(m.created_at).getTime(),
             parentToolUseId: m.parent_tool_use_id,
           }));
