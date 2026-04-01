@@ -59,7 +59,10 @@ export const useAiPanelStore = create<AiPanelState>((set) => ({
   setActiveThreadId: (id) => set({ activeThreadId: id }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((s) => {
-    if (s.messages.some((m) => m.id === message.id)) return s;
+    if (s.messages.some((m) => m.id === message.id)) {
+      console.warn('[ai-panel-store] duplicate message dropped:', message.id, message.role);
+      return s;
+    }
     return { messages: [...s.messages, message] };
   }),
   updateAssistantById: (id, content) =>

@@ -195,7 +195,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   scrollGeneration: 0,
 
   addMessage: (msg) => set((s) => {
-    if (s.messages.some((m) => m.id === msg.id)) return s;
+    if (s.messages.some((m) => m.id === msg.id)) {
+      console.warn('[chat-store] duplicate message dropped:', msg.id, msg.role);
+      return s;
+    }
     return { messages: [...s.messages, msg] };
   }),
 

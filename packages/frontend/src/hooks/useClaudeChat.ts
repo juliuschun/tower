@@ -564,7 +564,7 @@ export function useClaudeChat() {
             const total = cumulativeInputTokens + cumulativeOutputTokens;
             const tokenNote = total > 0 ? ` (누적 ${total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total} tokens)` : '';
             useChatStore.getState().addMessage({
-              id: `compact-${Date.now()}`,
+              id: crypto.randomUUID(),
               role: 'system',
               content: [{ type: 'text', text: `✂️ Autocompact 완료 — 컨텍스트가 압축되었습니다${tokenNote}` }],
               timestamp: Date.now(),
@@ -596,7 +596,7 @@ export function useClaudeChat() {
             const total = cumulativeInputTokens + cumulativeOutputTokens;
             const tokenNote = total > 0 ? ` (누적 ${total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total} tokens)` : '';
             useChatStore.getState().addMessage({
-              id: `compact-${Date.now()}`,
+              id: crypto.randomUUID(),
               role: 'system',
               content: [{ type: 'text', text: `✂️ Autocompact 완료 — 컨텍스트가 압축되었습니다${tokenNote}` }],
               timestamp: Date.now(),
