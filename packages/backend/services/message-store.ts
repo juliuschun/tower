@@ -126,6 +126,56 @@ export async function getMessages(sessionId: string): Promise<StoredMessage[]> {
   ) as StoredMessage[];
 }
 
+/**
+ * Paginated message loading: returns the most recent `limit` messages,
+ * with optional cursor (`before` message id) for loading older ones.
+ * Returns { messages, hasMore, oldestId } for infinite-scroll support.
+ */
+export async function getMessagesPaginated(
+  sessionId: string,
+  opts: { limit?: number; before?: string }
+): Promise<{ messages: StoredMessage[]; hasMore: boolean; oldestId: string | null }> {
+  const limit = Math.min(opts.limit || 100, 500);
+
+  let rows: StoredMessage[];
+  if (opts.before) {
+    // Load messages older than the cursor
+    const cursor = await queryOne(
+      `SELECT created_at FROM messages WHERE id = $1 AND session_id = $2`,
+      [opts.before, sessionId]
+    ) as { created_at: string } | null;
+
+    if (!cursor) {
+      // Invalid cursor — fall back to latest
+      rows = await query(
+        `SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [sessionId, limit + 1]
+      ) as StoredMessage[];
+    } else {
+      rows = await query(
+        `SELECT * FROM messages WHERE session_id = $1 AND created_at < $2 ORDER BY created_at DESC LIMIT $3`,
+        [sessionId, cursor.created_at, limit + 1]
+      ) as StoredMessage[];
+    }
+  } else {
+    // Initial load — most recent messages
+    rows = await query(
+      `SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [sessionId, limit + 1]
+    ) as StoredMessage[];
+  }
+
+  const hasMore = rows.length > limit;
+  if (hasMore) rows = rows.slice(0, limit);
+
+  // Reverse to chronological order (ASC)
+  rows.reverse();
+
+  const oldestId = rows.length > 0 ? rows[0].id : null;
+
+  return { messages: rows, hasMore, oldestId };
+}
+
 export async function updateMessageContent(messageId: string, content: any): Promise<void> {
   const compacted = Array.isArray(content) ? compactContent(content) : content;
   const contentStr = typeof compacted === 'string' ? compacted : JSON.stringify(compacted);

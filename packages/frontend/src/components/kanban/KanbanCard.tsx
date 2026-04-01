@@ -286,8 +286,61 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
         </div>
       </div>
 
-      {/* Stage pills (for done/failed) */}
-      {(task.status === 'done' || task.status === 'failed') && task.progressSummary.length > 1 && (
+      {/* Todo snapshot preview (for done/failed/in_progress with todos) */}
+      {task.todoSnapshot && task.todoSnapshot.length > 0 && (
+        <div className="mt-2">
+          <div className="space-y-0.5">
+            {task.todoSnapshot.slice(0, 4).map((todo, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                <span className="shrink-0 mt-0.5">
+                  {todo.status === 'completed' ? (
+                    <svg className="w-3 h-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" fillOpacity="0.15" stroke="currentColor" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" />
+                    </svg>
+                  ) : todo.status === 'in_progress' ? (
+                    <svg className="w-3 h-3 text-blue-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" />
+                      <circle cx="12" cy="12" r="3" fill="currentColor" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" />
+                    </svg>
+                  )}
+                </span>
+                <span className={`truncate ${todo.status === 'completed' ? 'text-gray-500 line-through' : todo.status === 'in_progress' ? 'text-blue-300' : 'text-gray-400'}`}>
+                  {todo.content}
+                </span>
+              </div>
+            ))}
+            {task.todoSnapshot.length > 4 && (
+              <span className="text-[10px] text-gray-600 pl-4.5">+{task.todoSnapshot.length - 4} more</span>
+            )}
+          </div>
+          {/* Progress bar */}
+          {(() => {
+            const completed = task.todoSnapshot!.filter(t => t.status === 'completed').length;
+            const total = task.todoSnapshot!.length;
+            return (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <div className="flex-1 h-1 bg-surface-700 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${completed === total ? 'bg-green-500' : 'bg-blue-500'}`}
+                    style={{ width: `${(completed / total) * 100}%` }}
+                  />
+                </div>
+                <span className={`text-[10px] shrink-0 ${completed === total ? 'text-green-400' : 'text-gray-500'}`}>
+                  {completed}/{total}
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Stage pills (for done/failed, only when no todo snapshot) */}
+      {!task.todoSnapshot && (task.status === 'done' || task.status === 'failed') && task.progressSummary.length > 1 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {task.progressSummary.slice(1, -1).map((stage, i) => (
             <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded ${styles.badge}`}>

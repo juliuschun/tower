@@ -69,6 +69,10 @@ export interface CostInfo {
   cumulativeInputTokens: number;
   cumulativeOutputTokens: number;
   turnCount: number;
+  // Context window tracking (from SDK last iteration)
+  contextInputTokens: number;   // last iteration input (= real context size)
+  contextOutputTokens: number;  // last iteration output
+  contextWindowSize: number;    // model's context window (e.g. 200000)
 }
 
 export interface TurnMetrics {
@@ -126,6 +130,10 @@ interface ChatState {
   lastTurnMetrics: TurnMetrics | null;
   /** Per-session message queue: sessionId → messages[] */
   messageQueue: Record<string, string[]>;
+  /** Pagination state for windowed message loading */
+  hasMoreMessages: boolean;
+  loadingMoreMessages: boolean;
+  oldestMessageId: string | null;
 
   addMessage: (msg: ChatMessage) => void;
   updateAssistantById: (id: string, content: ContentBlock[]) => void;
@@ -155,6 +163,10 @@ interface ChatState {
   dequeueMessage: (sessionId: string) => string | null;
   removeQueuedMessage: (sessionId: string, index: number) => void;
   clearSessionQueue: (sessionId: string) => void;
+  setHasMoreMessages: (v: boolean) => void;
+  setLoadingMoreMessages: (v: boolean) => void;
+  setOldestMessageId: (id: string | null) => void;
+  prependMessages: (msgs: ChatMessage[]) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -165,7 +177,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   slashCommands: [],
   tools: [],
   model: null,
-  cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0 },
+  cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0, contextInputTokens: 0, contextOutputTokens: 0, contextWindowSize: 0 },
   rateLimit: null,
   attachments: [],
   pendingQuestion: null,
@@ -174,6 +186,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   turnStartTime: null,
   lastTurnMetrics: null,
   messageQueue: loadQueueFromStorage(),
+  hasMoreMessages: false,
+  loadingMoreMessages: false,
+  oldestMessageId: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -249,7 +264,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   }),
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
-  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0 }, rateLimit: null, pendingQuestion: null, lastTurnMetrics: null }),
+  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0, contextInputTokens: 0, contextOutputTokens: 0, contextWindowSize: 0 }, rateLimit: null, pendingQuestion: null, lastTurnMetrics: null, hasMoreMessages: false, loadingMoreMessages: false, oldestMessageId: null }),
   setSessionStartTime: (time) => set({ sessionStartTime: time }),
   setTurnStartTime: (time) => set({ turnStartTime: time }),
   markPendingDelivered: () =>
@@ -327,4 +342,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     saveQueueToStorage(rest);
     return { messageQueue: rest };
   }),
+
+  // Pagination actions
+  setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
+  setLoadingMoreMessages: (v) => set({ loadingMoreMessages: v }),
+  setOldestMessageId: (id) => set({ oldestMessageId: id }),
+  prependMessages: (msgs) => set((s) => ({ messages: [...msgs, ...s.messages] })),
 }));

@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
 import { RichContent } from '../shared/RichContent';
 import { splitDynamicBlocks } from '../shared/split-dynamic-blocks';
+// getToolLabel / getToolSummary used by ToolUseCard.tsx
 import { toastSuccess } from '../../utils/toast';
 import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
 
@@ -70,6 +71,19 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
   const isSystem = message.role === 'system';
 
   if (isSystem) {
+    // Compact marker — show as a divider line
+    const isCompactMarker = message.id.startsWith('compact-');
+    if (isCompactMarker) {
+      return (
+        <div className="flex items-center gap-3 my-5 px-2">
+          <div className="flex-1 h-px bg-surface-700/50" />
+          <span className="text-[11px] text-gray-600 whitespace-nowrap select-none">
+            ✂️ Compacted
+          </span>
+          <div className="flex-1 h-px bg-surface-700/50" />
+        </div>
+      );
+    }
     return (
       <div className="flex justify-center my-3">
         <div className="bg-surface-900/60 border border-surface-700/40 text-gray-500 text-[13px] px-4 py-1.5 rounded-full max-w-lg">
@@ -116,10 +130,11 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
             const inputT = message.inputTokens || 0;
             const label = fmtContextLabel(inputT);
             if (!label) return null;
-            const pct = Math.round((inputT / CONTEXT_MAX) * 100);
+            const ctxMax = useChatStore.getState().cost.contextWindowSize || CONTEXT_MAX_FALLBACK;
+            const pct = Math.round((inputT / ctxMax) * 100);
             const color = pct > 90 ? 'text-red-400' : pct > 70 ? 'text-amber-400' : 'text-gray-700';
             return (
-              <span className={`text-[9px] ${color} select-none whitespace-nowrap tabular-nums`} title={`Context: ${fmtTokens(inputT)} / 500k (${pct}%) · Output: ${fmtTokens(message.outputTokens || 0)}`}>
+              <span className={`text-[9px] ${color} select-none whitespace-nowrap tabular-nums`} title={`Context: ${fmtTokens(inputT)} / ${fmtTokens(ctxMax)} (${pct}%) · Output: ${fmtTokens(message.outputTokens || 0)}`}>
                 {label}
               </span>
             );
@@ -173,91 +188,13 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
             )}
           </div>
         ) : (
-          <div className="relative space-y-2.5">
-            <CopyButton
-              text={getMessageText(message.content)}
-              className="absolute -top-1 -right-1 opacity-40 hover:opacity-100 transition-opacity z-10"
-            />
-            {groups.map((group, gi) => {
-              // Tool use blocks — chip layout (single or multiple)
-              // TodoWrite gets special inline checklist rendering
-              if (group.type === 'tool_use') {
-                const todoBlocks = group.blocks.filter(b => b.toolUse?.name === 'TodoWrite');
-                const otherBlocks = group.blocks.filter(b => b.toolUse?.name !== 'TodoWrite');
-                return (
-                  <React.Fragment key={gi}>
-                    {otherBlocks.length > 0 && (
-                      <ToolChipGroup
-                        blocks={otherBlocks}
-                        onFileClick={onFileClick}
-                      />
-                    )}
-                    {todoBlocks.map((block, ti) => {
-                      // Only the very last TodoWrite in the last assistant message gets "live" treatment
-                      const isLastTodo = !!isLastAssistant && gi === groups.length - 1 && ti === todoBlocks.length - 1;
-                      return (
-                        <TodoInlineCard
-                          key={`todo-${gi}-${ti}`}
-                          input={block.toolUse!.input}
-                          isLive={isLastTodo}
-                        />
-                      );
-                    })}
-                  </React.Fragment>
-                );
-              }
-
-              // Thinking — chip row (same layout as tool chips)
-              if (group.type === 'thinking') {
-                return (
-                  <ThinkingChipGroup key={gi} blocks={group.blocks} />
-                );
-              }
-
-              // Text — render with RichContent (markdown + mermaid + chart + …)
-              if (group.type === 'text') {
-                return group.blocks.map((block, bi) => {
-                  if (!block.text) return null;
-                  return (
-                    <RichContent
-                      key={`${gi}-${bi}`}
-                      text={block.text}
-                      onFileClick={onFileClick}
-                    />
-                  );
-                });
-              }
-
-              // Tool results — usually already merged into tool_use via attachToolResult
-              // Standalone tool_result blocks get a minimal inline display
-              if (group.type === 'tool_result') {
-                return (
-                  <div key={gi} className="flex flex-wrap gap-1.5">
-                    {group.blocks.map((block, bi) => {
-                      const resultText = block.toolUse?.result;
-                      if (!resultText) return null;
-                      return (
-                        <span
-                          key={bi}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-800/50 border border-surface-700/30 text-[11px] text-gray-500 max-w-[300px] truncate"
-                        >
-                          <svg className="w-3 h-3 text-emerald-500/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          Result
-                        </span>
-                      );
-                    })}
-                  </div>
-                );
-              }
-
-              // Unknown block type — warn and skip
-              console.warn('[MessageBubble] unknown block group type:', group.type);
-              return null;
-            })}
-            {showMetrics && <TurnMetricsBar message={message} isLast={!!isLastAssistant} />}
-          </div>
+          <MessageBody
+            groups={groups}
+            message={message}
+            onFileClick={onFileClick}
+            isLastAssistant={isLastAssistant}
+            showMetrics={showMetrics}
+          />
         )}
       </div>
 
@@ -271,16 +208,91 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
 }
 
 function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void }) {
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const [expanded, setExpanded] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   // Filter out blocks without valid toolUse data
   const validBlocks = blocks.filter((b) => b.toolUse?.name);
 
   if (validBlocks.length === 0) return null;
 
+  const total = validBlocks.length;
+  const completed = validBlocks.filter((b) => b.toolUse!.result).length;
+  const running = isStreaming && completed < total;
+
+  // Build tool type summary for the collapsed bar (e.g. "Bash 3, Read 2, Edit 1")
+  const typeCounts = validBlocks.reduce<Record<string, number>>((acc, b) => {
+    const name = b.toolUse!.name;
+    acc[name] = (acc[name] || 0) + 1;
+    return acc;
+  }, {});
+  const typeLabels = Object.entries(typeCounts).map(([name, count]) =>
+    count > 1 ? `${name} ×${count}` : name
+  );
+
+  // Collapsed summary bar
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        data-tool-text={`Tools ×${total}: ${typeLabels.join(', ')}`}
+        className="group/tool-bar inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-surface-700/30 bg-surface-800/20 hover:bg-surface-800/40 hover:border-surface-600/40 transition-all duration-150 cursor-pointer max-w-full align-middle"
+      >
+        {/* Wrench icon */}
+        <svg className="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
+        </svg>
+
+        {/* Count badge */}
+        <span className="text-[11px] font-semibold text-gray-400 tabular-nums shrink-0">
+          {total}
+        </span>
+
+        {/* Type summary - truncated */}
+        <span className="text-[11px] text-gray-500 truncate">
+          {typeLabels.join(', ')}
+        </span>
+
+        {/* Running indicator */}
+        {running && (
+          <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse shrink-0" />
+        )}
+
+        {/* All done check */}
+        {!running && completed === total && (
+          <svg className="w-3 h-3 text-emerald-500/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+
+        {/* Expand arrow */}
+        <svg className="w-3 h-3 text-gray-600 group-hover/tool-bar:text-gray-400 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+    );
+  }
+
+  // Expanded: chip row + detail card
   return (
-    <div>
-      {/* Chip row — horizontal scroll on mobile */}
-      <div className="flex flex-wrap gap-1.5 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1">
+    <div className="rounded-lg border border-surface-700/30 bg-surface-800/10 overflow-hidden">
+      {/* Header bar — click to collapse */}
+      <button
+        onClick={() => { setExpanded(false); setActiveIndex(null); }}
+        className="group/tool-bar flex items-center gap-2 px-3 py-1.5 w-full hover:bg-surface-800/30 transition-colors"
+      >
+        <svg className="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
+        </svg>
+        <span className="text-[11px] font-semibold text-gray-400 tabular-nums">{total}</span>
+        <span className="text-[11px] text-gray-500 truncate flex-1 text-left">{typeLabels.join(', ')}</span>
+        <svg className="w-3 h-3 text-gray-500 rotate-180 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Chip row */}
+      <div className="px-3 pb-2 pt-1 flex flex-wrap gap-1.5 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-2">
         {validBlocks.map((block, i) => (
           <ToolChip
             key={i}
@@ -292,9 +304,10 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
           />
         ))}
       </div>
+
       {/* Expanded detail card below */}
       {activeIndex !== null && validBlocks[activeIndex] && (
-        <div className="mt-2">
+        <div className="px-3 pb-3">
           <ToolUseCard
             name={validBlocks[activeIndex].toolUse!.name}
             input={validBlocks[activeIndex].toolUse!.input}
@@ -429,6 +442,305 @@ function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?
   );
 }
 
+/* ── MessageBody — clipboard-aware wrapper with inline tool chips ── */
+
+function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetrics }: {
+  groups: BlockGroup[];
+  message: ChatMessage;
+  onFileClick?: (path: string) => void;
+  isLastAssistant?: boolean;
+  showMetrics?: boolean;
+}) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Clipboard handler: on copy, produce clean text-only version
+  const handleCopy = useCallback((e: ClipboardEvent) => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+
+    // Get selected range
+    const range = sel.getRangeAt(0);
+    if (!bodyRef.current?.contains(range.commonAncestorContainer)) return;
+
+    // Build clean text: walk selected nodes, skip tool chips that have data-tool-text
+    const fragment = range.cloneContents();
+    const cleanText = extractCleanText(fragment);
+    if (cleanText) {
+      e.clipboardData?.setData('text/plain', cleanText);
+      // Also set HTML for rich paste
+      e.clipboardData?.setData('text/html', `<div>${cleanText.replace(/\n/g, '<br>')}</div>`);
+      e.preventDefault();
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.addEventListener('copy', handleCopy);
+    return () => el.removeEventListener('copy', handleCopy);
+  }, [handleCopy]);
+
+  return (
+    <div ref={bodyRef} className="relative space-y-2">
+      <CopyButton
+        text={getMessageText(message.content)}
+        className="absolute -top-1 -right-1 opacity-40 hover:opacity-100 transition-opacity z-10"
+      />
+      {groups.map((group, gi) => {
+        // Tool use blocks — split into agents, todos, and regular tools
+        if (group.type === 'tool_use') {
+          const agentBlocks = group.blocks.filter(b => isAgentTool(b.toolUse?.name));
+          const todoBlocks = group.blocks.filter(b => b.toolUse?.name === 'TodoWrite');
+          const regularBlocks = group.blocks.filter(b => !isAgentTool(b.toolUse?.name) && b.toolUse?.name !== 'TodoWrite');
+          return (
+            <React.Fragment key={gi}>
+              {/* Regular tools — inline collapsible bar */}
+              {regularBlocks.length > 0 && (
+                <ToolChipGroup blocks={regularBlocks} onFileClick={onFileClick} />
+              )}
+              {/* Agent cards — individual, one per line */}
+              {agentBlocks.map((block, ai) => (
+                <AgentCard key={`agent-${gi}-${ai}`} block={block} />
+              ))}
+              {/* TodoWrite — inline checklist */}
+              {todoBlocks.map((block, ti) => {
+                const isLastTodo = !!isLastAssistant && gi === groups.length - 1 && ti === todoBlocks.length - 1;
+                return (
+                  <TodoInlineCard
+                    key={`todo-${gi}-${ti}`}
+                    input={block.toolUse!.input}
+                    isLive={isLastTodo}
+                  />
+                );
+              })}
+            </React.Fragment>
+          );
+        }
+
+        // Thinking — chip row
+        if (group.type === 'thinking') {
+          return <ThinkingChipGroup key={gi} blocks={group.blocks} />;
+        }
+
+        // Text — render with RichContent
+        if (group.type === 'text') {
+          return group.blocks.map((block, bi) => {
+            if (!block.text) return null;
+            return (
+              <RichContent
+                key={`${gi}-${bi}`}
+                text={block.text}
+                onFileClick={onFileClick}
+              />
+            );
+          });
+        }
+
+        // Tool results — minimal inline display
+        if (group.type === 'tool_result') {
+          return (
+            <div key={gi} className="flex flex-wrap gap-1.5">
+              {group.blocks.map((block, bi) => {
+                const resultText = block.toolUse?.result;
+                if (!resultText) return null;
+                return (
+                  <span
+                    key={bi}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-800/50 border border-surface-700/30 text-[11px] text-gray-500 max-w-[300px] truncate"
+                  >
+                    <svg className="w-3 h-3 text-emerald-500/50 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Result
+                  </span>
+                );
+              })}
+            </div>
+          );
+        }
+
+        console.warn('[MessageBubble] unknown block group type:', group.type);
+        return null;
+      })}
+      {showMetrics && <TurnMetricsBar message={message} isLast={!!isLastAssistant} />}
+    </div>
+  );
+}
+
+/** Check if a tool name is an agent/subagent tool */
+function isAgentTool(name?: string): boolean {
+  if (!name) return false;
+  const n = name.charAt(0).toUpperCase() + name.slice(1);
+  return n === 'Task' || n === 'Agent';
+}
+
+/** Extract clean text from a DOM fragment, skipping tool chip decorations */
+function extractCleanText(fragment: DocumentFragment): string {
+  const parts: string[] = [];
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parts.push(node.textContent || '');
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as HTMLElement;
+
+    // Tool summary bars: emit their data-tool-text as a short notation
+    const toolText = el.getAttribute('data-tool-text');
+    if (toolText) {
+      parts.push(`[${toolText}]`);
+      return;
+    }
+
+    // Agent cards: emit their data-agent-text
+    const agentText = el.getAttribute('data-agent-text');
+    if (agentText) {
+      parts.push(`[Agent: ${agentText}]`);
+      return;
+    }
+
+    // Skip SVGs and buttons within tool UI
+    if (el.tagName === 'SVG' || el.tagName === 'svg') return;
+
+    // Block-level elements add newlines
+    const display = getComputedStyle(el).display;
+    const isBlock = display === 'block' || display === 'flex' || display === 'grid';
+
+    if (isBlock && parts.length > 0 && !parts[parts.length - 1].endsWith('\n')) {
+      parts.push('\n');
+    }
+
+    for (const child of Array.from(node.childNodes)) {
+      walk(child);
+    }
+
+    if (isBlock && parts.length > 0 && !parts[parts.length - 1].endsWith('\n')) {
+      parts.push('\n');
+    }
+  };
+
+  for (const child of Array.from(fragment.childNodes)) {
+    walk(child);
+  }
+
+  return parts.join('').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/* ── AgentCard — individual agent/subagent display ── */
+
+function AgentCard({ block }: { block: ContentBlock }) {
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const [expanded, setExpanded] = useState(false);
+  const tool = block.toolUse!;
+  const isRunning = !tool.result && isStreaming;
+  const description = tool.input.description || 'Agent';
+  const subagentType = tool.input.subagent_type || '';
+
+  // Count tools mentioned in result (heuristic)
+  const resultToolCount = useMemo(() => {
+    if (!tool.result) return null;
+    // Agent results often mention tool calls
+    const matches = tool.result.match(/tool[_\s]?(use|call)/gi);
+    return matches?.length || null;
+  }, [tool.result]);
+
+  return (
+    <div
+      className="rounded-xl border border-purple-500/20 bg-gradient-to-r from-purple-500/5 to-pink-500/5 overflow-hidden transition-all duration-200"
+      data-agent-text={description}
+    >
+      {/* Header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-white/[0.02] transition-colors"
+      >
+        {/* Agent chip icon */}
+        <div className="w-7 h-7 rounded-lg bg-purple-500/15 border border-purple-500/25 flex items-center justify-center shrink-0">
+          <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="7" y="7" width="10" height="10" rx="1.5" strokeWidth={1.5} />
+            <path strokeLinecap="round" strokeWidth={1.5} d="M9 3v4M12 3v4M15 3v4M9 17v4M12 17v4M15 17v4M3 9h4M3 12h4M3 15h4M17 9h4M17 12h4M17 15h4" />
+          </svg>
+        </div>
+
+        {/* Description */}
+        <div className="flex-1 text-left min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold text-purple-300 truncate">{description}</span>
+            {subagentType && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400/70">{subagentType}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {isRunning && (
+              <span className="flex items-center gap-1 text-[11px] text-purple-400/80 font-medium">
+                <div className="w-2.5 h-2.5 border-[1.5px] border-purple-500/30 border-t-purple-400 rounded-full animate-spin" />
+                Running
+              </span>
+            )}
+            {tool.result && !isRunning && (
+              <span className="text-[11px] text-emerald-400/80 font-medium flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Done
+              </span>
+            )}
+            {resultToolCount && (
+              <span className="text-[10px] text-gray-500">{resultToolCount} tool calls</span>
+            )}
+          </div>
+        </div>
+
+        {/* Expand chevron */}
+        <svg
+          className={`w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0 ${expanded ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-purple-500/10 px-3.5 py-3 space-y-2">
+          {tool.input.prompt && (
+            <div className="bg-surface-950/60 rounded-lg p-3 text-[11px] text-gray-400 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap">
+              {tool.input.prompt.slice(0, 500)}{tool.input.prompt.length > 500 ? '...' : ''}
+            </div>
+          )}
+          {tool.result && (
+            <AgentResultSection result={tool.result} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentResultSection({ result }: { result: string }) {
+  const [showResult, setShowResult] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setShowResult(!showResult)}
+        className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+      >
+        <svg className={`w-3 h-3 transition-transform ${showResult ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        Result
+        <span className="text-gray-600">({result.length.toLocaleString()} chars)</span>
+      </button>
+      {showResult && (
+        <div className="mt-1.5 bg-surface-950/60 rounded-lg p-3 font-mono text-[11px] text-gray-300 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
+          {result.slice(0, 2000)}{result.length > 2000 ? '\n\n... (truncated)' : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function fmtDuration(ms: number): string {
   if (ms < 1000) return '0.0s';
   const s = ms / 1000;
@@ -448,7 +760,7 @@ function fmtContextLabel(input: number): string | null {
   return fmtTokens(input);
 }
 
-const CONTEXT_MAX = 500_000;
+const CONTEXT_MAX_FALLBACK = 200_000;
 
 export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isLast?: boolean }) {
   const isStreaming = useChatStore((s) => s.isStreaming);

@@ -576,6 +576,17 @@ async function runTaskAgent(
         await saveMessage(sessionId, { id: msgId, role: 'assistant', content });
         turnCount++;
 
+        // Extract TodoWrite snapshots from tool_use blocks
+        for (const block of content) {
+          const b = block as any;
+          if (b.type === 'tool_use' && b.name === 'TodoWrite' && b.input?.todos) {
+            const todos = (b.input.todos as Array<{ content: string; status: string }>)
+              .map((t: any) => ({ content: t.content, status: t.status }));
+            await updateTask(taskId, { todoSnapshot: todos as any });
+            broadcastToAll('task_update', { taskId, todoSnapshot: todos });
+          }
+        }
+
         // Extract progress from text blocks
         const textBlocks = content.filter((b: any) => b.type === 'text');
         for (const block of textBlocks) {

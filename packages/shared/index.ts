@@ -39,6 +39,11 @@ export interface SessionMeta {
 
 export type WorkflowMode = 'auto' | 'simple' | 'default' | 'feature' | 'big_task';
 
+export interface TodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
 export interface TaskMeta {
   id: string;
   title: string;
@@ -49,6 +54,7 @@ export interface TaskMeta {
   sessionId: string | null;
   sortOrder: number;
   progressSummary: string[];
+  todoSnapshot: TodoItem[] | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

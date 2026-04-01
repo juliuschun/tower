@@ -122,11 +122,29 @@ case "${1:-start}" in
     pm2 stop tower-prod
     ;;
   prod-restart)
+    # Build first (while server is still running), then detach the deploy
+    # step via setsid+nohup so it works even when called from the web app
+    # (the calling process dies when pm2 stops the server).
     if [[ "$FORCE" != true ]]; then
       check_cooldown "tower-prod" || exit 0
     fi
     build
-    safe_deploy "tower-prod"
+    LOGFILE="/tmp/tower-deploy.log"
+    echo "🔄 Deploying tower-prod (detached)..."
+    setsid nohup bash -c '
+      cd "$(dirname "$0")"
+      sleep 1
+      echo "[$(date)] Deploying tower-prod..." >> '"$LOGFILE"'
+      pm2 stop tower-prod >> '"$LOGFILE"' 2>&1
+      rm -rf dist-old
+      [[ -d dist ]] && mv dist dist-old
+      mv dist-new dist
+      pm2 restart tower-prod >> '"$LOGFILE"' 2>&1
+      date +%s > /tmp/tower-deploy.lock-tower-prod
+      rm -rf dist-old
+      echo "[$(date)] ✅ tower-prod deployed" >> '"$LOGFILE"'
+    ' "$0" </dev/null >/dev/null 2>&1 &
+    echo "✅ Build done. Deploy completes in ~2s (log: $LOGFILE)"
     ;;
   prod-logs)
     pm2 logs tower-prod --lines "${2:-50}"

@@ -84,6 +84,25 @@ export class ClaudeEngine implements Engine {
           engineSessionId = message.session_id;
         }
 
+        // ── Autocompact lifecycle events ──
+        if ((message as any).type === 'system') {
+          const subtype = (message as any).subtype;
+          const status = (message as any).status;
+
+          if (subtype === 'compact_boundary') {
+            yield { type: 'compact', sessionId, phase: 'boundary' };
+            continue;
+          }
+          if (subtype === 'status') {
+            yield {
+              type: 'compact',
+              sessionId,
+              phase: status === 'compacting' ? 'compacting' : 'done',
+            };
+            continue;
+          }
+        }
+
         // Handle resume failure
         if ((message as any).type === 'system' && (message as any).subtype === 'resume_failed') {
           yield {
@@ -177,15 +196,31 @@ export class ClaudeEngine implements Engine {
         // Turn metrics
         if ((message as any).type === 'result' && currentAssistantId) {
           const usage = (message as any).usage;
-          // Context size = all input tokens (new + cache read + cache creation)
-          const totalInputTokens = (usage?.input_tokens || 0)
+          const modelUsage = (message as any).modelUsage as Record<string, { contextWindow?: number }> | undefined;
+
+          // Cumulative tokens across all iterations (for cost tracking)
+          const cumulativeInputTokens = (usage?.input_tokens || 0)
             + (usage?.cache_read_input_tokens || 0)
             + (usage?.cache_creation_input_tokens || 0);
+
+          // Context window usage = last iteration's input (= actual context size right now)
+          const iterations: Array<{ input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; type?: string }> | null = usage?.iterations;
+          const lastIter = iterations?.filter(it => it.type === 'message').pop();
+          const contextInputTokens = lastIter
+            ? (lastIter.input_tokens || 0) + (lastIter.cache_read_input_tokens || 0) + (lastIter.cache_creation_input_tokens || 0)
+            : cumulativeInputTokens; // fallback if no iterations
+          const contextOutputTokens = lastIter?.output_tokens ?? (usage?.output_tokens || 0);
+
+          // Model's context window size from SDK
+          const contextWindowSize = modelUsage
+            ? Math.max(...Object.values(modelUsage).map(m => m.contextWindow || 0)) || 0
+            : 0;
+
           try {
             callbacks.updateMessageMetrics(currentAssistantId, {
               durationMs: (message as any).duration_ms,
-              inputTokens: totalInputTokens,
-              outputTokens: usage?.output_tokens,
+              inputTokens: contextInputTokens,
+              outputTokens: contextOutputTokens,
             });
           } catch {}
 
@@ -194,11 +229,16 @@ export class ClaudeEngine implements Engine {
             sessionId,
             msgId: currentAssistantId,
             usage: {
-              inputTokens: totalInputTokens,
+              inputTokens: cumulativeInputTokens,
               outputTokens: usage?.output_tokens || 0,
               cacheReadTokens: usage?.cache_read_input_tokens || 0,
               cacheCreationTokens: usage?.cache_creation_input_tokens || 0,
               durationMs: (message as any).duration_ms || 0,
+              // Context window tracking (last iteration = real context size)
+              contextInputTokens,
+              contextOutputTokens,
+              contextWindowSize,
+              numIterations: iterations?.filter(it => it.type === 'message').length || 1,
             },
           };
         }
@@ -273,7 +313,7 @@ export class ClaudeEngine implements Engine {
         permissionMode: 'plan',  // no tool execution
         model: opts.model,
         systemPrompt: opts.systemPrompt,
-        maxTurns: 1,
+        maxTurns: 3,  // thinking models may use extra turns
       },
     });
 

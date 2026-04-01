@@ -67,12 +67,21 @@ export interface TowerErrorMsg {
   recoverable?: boolean;
 }
 
+/** Autocompact lifecycle events — forwarded to frontend for UI feedback */
+export interface TowerCompactMsg {
+  type: 'compact';
+  sessionId: string;
+  /** 'boundary' = compaction about to start, 'compacting' = in progress, 'done' = finished */
+  phase: 'boundary' | 'compacting' | 'done';
+}
+
 export type TowerMessage =
   | TowerAssistantMsg
   | TowerToolResultMsg
   | TowerTurnDoneMsg
   | TowerDoneMsg
-  | TowerErrorMsg;
+  | TowerErrorMsg
+  | TowerCompactMsg;
 
 // Note: ask_user is handled via EngineCallbacks, not yielded as TowerMessage.
 // ws-handler owns pending question state for reconnection/session-switch.
@@ -84,6 +93,11 @@ export interface TowerUsage {
   cacheCreationTokens?: number;
   costUsd?: number;       // Pi: auto-calculated, Claude Max: undefined (subscription)
   durationMs: number;
+  // Context window tracking (last iteration = real context size, not cumulative)
+  contextInputTokens?: number;
+  contextOutputTokens?: number;
+  contextWindowSize?: number;   // model's context window (e.g. 200000)
+  numIterations?: number;       // how many API calls in this turn
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -23,35 +23,81 @@ function getSessionOwnerUsername(sessionId: string): string | undefined {
   return session?.ownerUsername || localStorage.getItem('username') || undefined;
 }
 
-/** Recover messages from DB for the active session (full replace) */
+/** Default page size for initial message load */
+const MESSAGE_PAGE_SIZE = 500;
+
+/** Map raw DB message to ChatMessage */
+function mapStoredToChat(m: any, ownerUsername?: string): import('../stores/chat-store').ChatMessage {
+  return {
+    id: m.id,
+    role: m.role,
+    content: normalizeContentBlocks(
+      typeof m.content === 'string' ? JSON.parse(m.content) : m.content
+    ),
+    timestamp: new Date(m.created_at).getTime(),
+    username: m.role === 'user' ? ownerUsername : undefined,
+    parentToolUseId: m.parent_tool_use_id,
+    durationMs: m.duration_ms || undefined,
+    inputTokens: m.input_tokens || undefined,
+    outputTokens: m.output_tokens || undefined,
+  };
+}
+
+/** Recover messages from DB for the active session (paginated — most recent N) */
 async function recoverMessagesFromDb(sessionId: string) {
   try {
     const tk = localStorage.getItem('token');
     const hdrs: Record<string, string> = {};
     if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
-    const res = await fetch(`/api/sessions/${sessionId}/messages`, { headers: hdrs });
+    const res = await fetch(`/api/sessions/${sessionId}/messages?limit=${MESSAGE_PAGE_SIZE}`, { headers: hdrs });
     if (res.ok) {
-      const stored = await res.json();
+      const data = await res.json();
+      const stored = data.messages ?? data; // backward compat: if backend returns flat array
+      const hasMore = data.hasMore ?? false;
+      const oldestId = data.oldestId ?? null;
+      const store = useChatStore.getState();
       if (stored.length > 0) {
         const ownerUsername = getSessionOwnerUsername(sessionId);
-        const msgs = stored.map((m: any) => ({
-          id: m.id,
-          role: m.role,
-          content: normalizeContentBlocks(
-            typeof m.content === 'string' ? JSON.parse(m.content) : m.content
-          ),
-          timestamp: new Date(m.created_at).getTime(),
-          username: m.role === 'user' ? ownerUsername : undefined,
-          parentToolUseId: m.parent_tool_use_id,
-          durationMs: m.duration_ms || undefined,
-          inputTokens: m.input_tokens || undefined,
-          outputTokens: m.output_tokens || undefined,
-        }));
-        useChatStore.getState().setMessages(msgs);
+        const msgs = stored.map((m: any) => mapStoredToChat(m, ownerUsername));
+        store.setMessages(msgs);
       }
+      store.setHasMoreMessages(hasMore);
+      store.setOldestMessageId(oldestId);
     }
   } catch (err) {
     console.warn('[recoverMessagesFromDb] failed:', err);
+  }
+}
+
+/** Load older messages (prepend to existing) */
+async function loadMoreMessages(sessionId: string): Promise<void> {
+  const store = useChatStore.getState();
+  if (store.loadingMoreMessages || !store.hasMoreMessages || !store.oldestMessageId) return;
+
+  store.setLoadingMoreMessages(true);
+  try {
+    const tk = localStorage.getItem('token');
+    const hdrs: Record<string, string> = {};
+    if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+    const res = await fetch(
+      `/api/sessions/${sessionId}/messages?limit=${MESSAGE_PAGE_SIZE}&before=${store.oldestMessageId}`,
+      { headers: hdrs }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const stored = data.messages ?? [];
+      if (stored.length > 0) {
+        const ownerUsername = getSessionOwnerUsername(sessionId);
+        const older = stored.map((m: any) => mapStoredToChat(m, ownerUsername));
+        store.prependMessages(older);
+        store.setOldestMessageId(data.oldestId ?? null);
+      }
+      store.setHasMoreMessages(data.hasMore ?? false);
+    }
+  } catch (err) {
+    console.warn('[loadMoreMessages] failed:', err);
+  } finally {
+    useChatStore.getState().setLoadingMoreMessages(false);
   }
 }
 
@@ -67,19 +113,7 @@ async function mergeMessagesFromDb(sessionId: string) {
     if (stored.length === 0) return;
 
     const ownerUsername = getSessionOwnerUsername(sessionId);
-    const dbMsgs: import('../stores/chat-store').ChatMessage[] = stored.map((m: any) => ({
-      id: m.id,
-      role: m.role,
-      content: normalizeContentBlocks(
-        typeof m.content === 'string' ? JSON.parse(m.content) : m.content
-      ),
-      timestamp: new Date(m.created_at).getTime(),
-      username: m.role === 'user' ? ownerUsername : undefined,
-      parentToolUseId: m.parent_tool_use_id,
-      durationMs: m.duration_ms || undefined,
-      inputTokens: m.input_tokens || undefined,
-      outputTokens: m.output_tokens || undefined,
-    }));
+    const dbMsgs: ChatMessage[] = stored.map((m: any) => mapStoredToChat(m, ownerUsername));
 
     const currentMsgs = useChatStore.getState().messages;
     const currentIds = new Set(currentMsgs.map((m) => m.id));
@@ -92,7 +126,7 @@ async function mergeMessagesFromDb(sessionId: string) {
 
     // Build merged list: start with DB messages (authoritative order),
     // update content for existing ones, add missing ones
-    const merged = dbMsgs.map((dbMsg) => {
+    const merged: ChatMessage[] = dbMsgs.map((dbMsg: ChatMessage) => {
       if (currentIds.has(dbMsg.id)) {
         const uiMsg = currentMsgs.find((m) => m.id === dbMsg.id)!;
         // 현재 스트리밍 중인 마지막 assistant 메시지는 UI 버전 유지 (DB가 뒤처질 수 있음)
@@ -595,8 +629,13 @@ export function useClaudeChat() {
           return;
         }
 
-        // Result — input_tokens already includes cache_read + cache_creation (summed in backend)
+        // Result — usage = cumulative, context = last iteration (real context window usage)
         if (sdkMsg.type === 'result') {
+          const ctx = sdkMsg.context;
+          const ctxInput = ctx?.input_tokens || sdkMsg.usage?.input_tokens || 0;
+          const ctxOutput = ctx?.output_tokens || sdkMsg.usage?.output_tokens || 0;
+          const ctxWindowSize = ctx?.window_size || 0;
+          console.log('[Context Debug] cumulative:', sdkMsg.usage?.input_tokens, '+ last iter:', ctxInput, '/ window:', ctxWindowSize, 'iters:', ctx?.num_iterations);
           setCost({
             totalCost: sdkMsg.total_cost_usd,
             inputTokens: sdkMsg.usage?.input_tokens || 0,
@@ -604,10 +643,13 @@ export function useClaudeChat() {
             cacheCreationTokens: sdkMsg.usage?.cache_creation_input_tokens,
             cacheReadTokens: sdkMsg.usage?.cache_read_input_tokens,
             duration: sdkMsg.duration_ms,
+            contextInputTokens: ctxInput,
+            contextOutputTokens: ctxOutput,
+            contextWindowSize: ctxWindowSize,
           });
           const turnMetrics = {
-            inputTokens: sdkMsg.usage?.input_tokens || 0,
-            outputTokens: sdkMsg.usage?.output_tokens || 0,
+            inputTokens: ctxInput,
+            outputTokens: ctxOutput,
             durationMs: sdkMsg.duration_ms || 0,
           };
           useChatStore.getState().setLastTurnMetrics(turnMetrics);
@@ -1213,5 +1255,6 @@ export function useClaudeChat() {
     saveFile,
     answerQuestion,
     connected,
+    loadMoreMessages,
   };
 }

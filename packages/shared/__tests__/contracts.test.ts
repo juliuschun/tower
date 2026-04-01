@@ -21,7 +21,7 @@ describe('@tower/shared — type contracts', () => {
     expect(src).toMatch(/engine\??\s*:/);
   });
 
-  it('TaskMeta base에 roomId/triggeredBy/roomMessageId/userId 포함', () => {
+  it('TaskMeta base에 roomId/triggeredBy/roomMessageId/userId/todoSnapshot 포함', () => {
     const src = readSource('index.ts');
     // Extract only the TaskMeta interface block
     const taskMetaMatch = src.match(/export interface TaskMeta\s*\{[\s\S]*?\n\}/);
@@ -31,6 +31,16 @@ describe('@tower/shared — type contracts', () => {
     expect(taskMetaBlock).toMatch(/\btriggeredBy\b/);
     expect(taskMetaBlock).toMatch(/\broomMessageId\b/);
     expect(taskMetaBlock).toMatch(/\buserId\b/);
+    expect(taskMetaBlock).toMatch(/\btodoSnapshot\b/);
+  });
+
+  it('TodoItem 인터페이스 존재 (content + status)', () => {
+    const src = readSource('index.ts');
+    const todoItemMatch = src.match(/export interface TodoItem\s*\{[\s\S]*?\n\}/);
+    expect(todoItemMatch).toBeTruthy();
+    const block = todoItemMatch![0];
+    expect(block).toMatch(/\bcontent\b/);
+    expect(block).toMatch(/\bstatus\b/);
   });
 
   it('Project base에 userId 없음', () => {

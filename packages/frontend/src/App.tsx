@@ -97,7 +97,7 @@ function App() {
     localStorage.setItem('expandedPanelHeight', String(height));
   }, []);
 
-  const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, answerQuestion, connected } = useClaudeChat();
+  const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, answerQuestion, connected, loadMoreMessages } = useClaudeChat();
   const { theme } = useTheme();
   const isMobileQuery = useMediaQuery('(max-width: 768px)');
   const isMobile = useSessionStore((s) => s.isMobile);
@@ -304,46 +304,82 @@ function App() {
     // DON'T abort streaming — let the SDK query run in the background and save to DB.
     // When user switches back, messages are loaded from DB.
     useChatStore.getState().setStreaming(false);
-
     useChatStore.getState().clearAttachments();
     setActiveSessionId(session.id);
     localStorage.setItem(lastViewedKey(getTokenUserId(token)), session.id);
-    clearMessages();
     useChatStore.getState().setSessionId(session.id);
 
-    // Always fetch fresh claudeSessionId from server — the session store value
-    // can be stale when sdk_done fired while viewing a different session.
-    let resolvedClaudeSessionId = session.claudeSessionId || null;
-    try {
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      const freshRes = await fetch(`${API_BASE}/sessions/${session.id}`, { headers });
-      if (freshRes.ok) {
-        const fresh = await freshRes.json();
-        if (fresh.claudeSessionId) {
-          resolvedClaudeSessionId = fresh.claudeSessionId;
-          useSessionStore.getState().updateSessionMeta(session.id, { claudeSessionId: fresh.claudeSessionId });
-        }
-      }
-    } catch {}
-    useChatStore.getState().setClaudeSessionId(resolvedClaudeSessionId);
+    const PAGE_SIZE = 500;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    // Notify backend of session switch
-    setActiveSession(session.id, resolvedClaudeSessionId);
-
-    // Load persisted messages — cache hit: 즉시 표시 후 백그라운드 갱신
+    // ── Cache hit: atomic replace (no clearMessages flash) ──
     const cached = sessionMsgCache.get(session.id);
     if (cached && cached.length > 0) {
-      useChatStore.getState().setMessages(cached);
-      // 백그라운드 갱신 (스트리밍 중 추가된 메시지 반영)
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      fetch(`${API_BASE}/sessions/${session.id}/messages`, { headers })
-        .then(r => r.ok ? r.json() : null)
-        .then(stored => {
-          if (!stored || stored.length === 0) return;
-          // 현재 보고 있는 세션일 때만 갱신
-          if (useSessionStore.getState().activeSessionId !== session.id) return;
+      // Replace messages atomically — skip clearMessages() to avoid 1-frame empty flash.
+      // Reset non-message state inline instead.
+      const store = useChatStore.getState();
+      store.setMessages(cached);
+      store.setCost({ totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0, contextInputTokens: 0, contextOutputTokens: 0, contextWindowSize: 0 });
+      store.setRateLimit(null);
+      store.setPendingQuestion(null);
+      store.setLastTurnMetrics(null);
+
+      // Use optimistic claudeSessionId — don't await
+      const optimisticCsid = session.claudeSessionId || null;
+      useChatStore.getState().setClaudeSessionId(optimisticCsid);
+      setActiveSession(session.id, optimisticCsid);
+
+      // Background: parallel refresh of session metadata + messages
+      Promise.all([
+        fetch(`${API_BASE}/sessions/${session.id}`, { headers }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_BASE}/sessions/${session.id}/messages?limit=${PAGE_SIZE}`, { headers }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]).then(([freshSession, msgData]) => {
+        if (useSessionStore.getState().activeSessionId !== session.id) return;
+        // Update claudeSessionId if changed
+        if (freshSession?.claudeSessionId && freshSession.claudeSessionId !== optimisticCsid) {
+          useChatStore.getState().setClaudeSessionId(freshSession.claudeSessionId);
+          useSessionStore.getState().updateSessionMeta(session.id, { claudeSessionId: freshSession.claudeSessionId });
+        }
+        // Update messages
+        if (msgData) {
+          const stored = msgData.messages ?? msgData;
+          if (stored?.length > 0) {
+            const msgs = stored.map((m: any) => ({
+              id: m.id, role: m.role,
+              content: normalizeContentBlocks(typeof m.content === 'string' ? JSON.parse(m.content) : m.content),
+              timestamp: new Date(m.created_at).getTime(),
+              parentToolUseId: m.parent_tool_use_id,
+            }));
+            sessionMsgCache.set(session.id, msgs);
+            useChatStore.getState().setMessages(msgs);
+            useChatStore.getState().setHasMoreMessages(msgData.hasMore ?? false);
+            useChatStore.getState().setOldestMessageId(msgData.oldestId ?? null);
+          }
+        }
+      });
+      return;
+    }
+
+    // ── Cache miss: clear state then fetch ──
+    clearMessages();
+
+    try {
+      const res = await fetch(`${API_BASE}/sessions/${session.id}/full?limit=${PAGE_SIZE}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+
+        // Apply claudeSessionId
+        const resolvedClaudeSessionId = data.session?.claudeSessionId || session.claudeSessionId || null;
+        if (data.session?.claudeSessionId) {
+          useSessionStore.getState().updateSessionMeta(session.id, { claudeSessionId: data.session.claudeSessionId });
+        }
+        useChatStore.getState().setClaudeSessionId(resolvedClaudeSessionId);
+        setActiveSession(session.id, resolvedClaudeSessionId);
+
+        // Apply messages
+        const stored = data.messages ?? [];
+        if (stored.length > 0) {
           const msgs = stored.map((m: any) => ({
             id: m.id, role: m.role,
             content: normalizeContentBlocks(typeof m.content === 'string' ? JSON.parse(m.content) : m.content),
@@ -352,31 +388,9 @@ function App() {
           }));
           sessionMsgCache.set(session.id, msgs);
           useChatStore.getState().setMessages(msgs);
-        })
-        .catch(() => {});
-      return;
-    }
-
-    // 캐시 없음 — 서버에서 로드 후 캐시 저장
-    try {
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      const res = await fetch(`${API_BASE}/sessions/${session.id}/messages`, { headers });
-      if (res.ok) {
-        const stored = await res.json();
-        if (stored.length > 0) {
-          const msgs = stored.map((m: any) => ({
-            id: m.id,
-            role: m.role,
-            content: normalizeContentBlocks(
-              typeof m.content === 'string' ? JSON.parse(m.content) : m.content
-            ),
-            timestamp: new Date(m.created_at).getTime(),
-            parentToolUseId: m.parent_tool_use_id,
-          }));
-          sessionMsgCache.set(session.id, msgs); // 캐시 저장
-          useChatStore.getState().setMessages(msgs);
-          return; // Skip system message if we restored messages
+          useChatStore.getState().setHasMoreMessages(data.hasMore ?? false);
+          useChatStore.getState().setOldestMessageId(data.oldestId ?? null);
+          return;
         }
       }
     } catch (err) { console.warn('[app] handleSelectSession load messages failed:', err); }
@@ -571,9 +585,34 @@ function App() {
     } catch (err) { console.warn('[app] handleUnpinFile failed:', err); }
   }, [token]);
 
-  const handlePinClick = useCallback((pin: Pin) => {
-    requestFile(pin.file_path);
-  }, [requestFile]);
+  const handlePinClick = useCallback(async (pin: Pin) => {
+    // Use HTTP API directly instead of WebSocket — more reliable
+    // (WS send silently drops messages when connection is unstable)
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`${API_BASE}/files/read?path=${encodeURIComponent(pin.file_path)}`, { headers });
+      if (!res.ok) {
+        // Fallback to WebSocket if HTTP fails
+        requestFile(pin.file_path);
+        return;
+      }
+      const data = await res.json();
+      useFileStore.getState().setOpenFile({
+        path: data.path,
+        content: data.content,
+        language: data.language,
+        modified: false,
+        ...(data.encoding && { encoding: data.encoding }),
+      });
+      if (useSessionStore.getState().isMobile) {
+        useSessionStore.getState().openMobileContext();
+      }
+    } catch {
+      // Fallback to WebSocket
+      requestFile(pin.file_path);
+    }
+  }, [token, requestFile]);
 
   // ───── Prompt handlers ─────
   const [promptEditorOpen, setPromptEditorOpen] = useState(false);
@@ -915,6 +954,7 @@ function App() {
                       onAbort={abort}
                       onFileClick={handleFileClick}
                       onAnswerQuestion={answerQuestion}
+                      onLoadMore={loadMoreMessages}
                     />
                   )}
                 </ErrorBoundary>
@@ -942,6 +982,7 @@ function App() {
                       onAbort={abort}
                       onFileClick={handleFileClick}
                       onAnswerQuestion={answerQuestion}
+                      onLoadMore={loadMoreMessages}
                     />
                   )}
                 </ErrorBoundary>

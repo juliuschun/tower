@@ -20,7 +20,7 @@ import { getTasks } from '../services/task-manager.js';
 import { addRoomClient, removeRoomClient, removeClientFromAllRooms, getRoomClientIds } from '../services/room-guards.js';
 import type { RoomClient } from '../services/room-guards.js';
 import { isPgEnabled } from '../db/pg.js';
-import { canAccessRoom, isPathAccessible } from '../services/project-access.js';
+import { canAccessRoom, canAccessSession, isPathAccessible } from '../services/project-access.js';
 
 interface WsClient {
   id: string;
@@ -103,6 +103,40 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
             cache_read_input_tokens: msg.usage.cacheReadTokens || 0,
             cache_creation_input_tokens: msg.usage.cacheCreationTokens || 0,
           },
+          // Context window tracking (last iteration = real context size)
+          context: {
+            input_tokens: msg.usage.contextInputTokens ?? msg.usage.inputTokens,
+            output_tokens: msg.usage.contextOutputTokens ?? msg.usage.outputTokens,
+            window_size: msg.usage.contextWindowSize || 0,
+            num_iterations: msg.usage.numIterations || 1,
+          },
+        },
+      };
+    case 'compact':
+      // Forward autocompact lifecycle to frontend as SDK system messages
+      if (msg.phase === 'boundary') {
+        return {
+          type: 'sdk_message',
+          sessionId,
+          data: { type: 'system', subtype: 'compact_boundary' },
+        };
+      }
+      // When compact finishes, persist a marker in DB so it survives reload
+      if (msg.phase === 'done') {
+        const markerId = `compact-${Date.now()}`;
+        saveMessage(sessionId, {
+          id: markerId,
+          role: 'system',
+          content: [{ type: 'text', text: '✂️ Context compacted' }],
+        }).catch(() => {});
+      }
+      return {
+        type: 'sdk_message',
+        sessionId,
+        data: {
+          type: 'system',
+          subtype: 'status',
+          status: msg.phase === 'compacting' ? 'compacting' : null,
         },
       };
     case 'engine_done':
@@ -441,10 +475,20 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
   }
 }
 
-function handleSetActiveSession(client: WsClient, data: { sessionId: string; claudeSessionId?: string }) {
+async function handleSetActiveSession(client: WsClient, data: { sessionId: string; claudeSessionId?: string }) {
   const oldSessionId = client.sessionId;
   const newSessionId = data.sessionId;
   console.log(`[ws] setActiveSession old=${oldSessionId} new=${newSessionId} client=${client.id}`);
+
+  // Access control: verify this client can access the target session
+  if (client.userId) {
+    const access = await canAccessSession(newSessionId, client.userId, client.userRole || 'user');
+    if (!access.allowed) {
+      console.warn(`[ws] setActiveSession DENIED client=${client.id.slice(0, 8)} session=${newSessionId.slice(0, 8)} reason=${access.message}`);
+      send(client.ws, { type: 'error', message: access.message, errorCode: 'ACCESS_DENIED', sessionId: newSessionId });
+      return;
+    }
+  }
 
   if (oldSessionId && oldSessionId !== newSessionId) {
     // Cleanup idle SDK sessions (only if no other viewers)

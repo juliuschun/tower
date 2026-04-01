@@ -35,18 +35,41 @@ interface ChatPanelProps {
   onAbort: () => void;
   onFileClick?: (path: string) => void;
   onAnswerQuestion?: (questionId: string, answer: string) => void;
+  onLoadMore?: (sessionId: string) => Promise<void>;
 }
 
-export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: ChatPanelProps) {
+export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLoadMore }: ChatPanelProps) {
   const messages = useChatStore((s) => s.messages);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const compactingSessionId = useChatStore((s) => s.compactingSessionId);
   const pendingQuestion = useChatStore((s) => s.pendingQuestion);
+  const hasMoreMessages = useChatStore((s) => s.hasMoreMessages);
+  const loadingMoreMessages = useChatStore((s) => s.loadingMoreMessages);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const isCompacting = compactingSessionId !== null && compactingSessionId === activeSessionId;
   const sessions = useSessionStore((s) => s.sessions);
   const isMobile = useSessionStore((s) => s.isMobile);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const isNearBottom = useRef(true);
+
+  /** Load older messages, preserving scroll position */
+  const handleLoadMore = useCallback(async () => {
+    if (!activeSessionId || !onLoadMore) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // Capture scroll position from bottom before prepending
+    const scrollHeightBefore = el.scrollHeight;
+    await onLoadMore(activeSessionId);
+    // After DOM update, restore scroll position so user stays at the same spot
+    requestAnimationFrame(() => {
+      const scrollHeightAfter = el.scrollHeight;
+      const added = scrollHeightAfter - scrollHeightBefore;
+      el.scrollTop += added;
+    });
+  }, [activeSessionId, onLoadMore]);
 
   // Track answered state: keep question data + answer briefly after answering
   const [answeredState, setAnsweredState] = useState<{
@@ -116,12 +139,13 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
 
   // Detect "waiting for first assistant content" — streaming started but no assistant msg yet
   const isWaitingForAssistant = isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant';
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const isNearBottom = useRef(true);
 
-  // Reset scroll-to-bottom on session switch so new session always starts at bottom
-  useEffect(() => {
+  // Reset scroll-to-bottom on session switch so new session always starts at bottom.
+  // MUST be useLayoutEffect (not useEffect) — the scroll-to-bottom in the next
+  // useLayoutEffect([messages]) reads isNearBottom synchronously. If this were
+  // useEffect, it would fire AFTER the scroll check, leaving isNearBottom=false
+  // when the user had scrolled up in the previous session.
+  useLayoutEffect(() => {
     isNearBottom.current = true;
   }, [activeSessionId]);
 
@@ -204,6 +228,34 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
         <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" style={{ willChange: 'scroll-position', WebkitOverflowScrolling: 'touch' }}>
 
           <div className="px-3 md:px-6">
+            {/* Load older messages button */}
+            {hasMoreMessages && (
+              <div className="flex justify-center py-3">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMoreMessages}
+                  className="flex items-center gap-2 px-4 py-2 text-[13px] rounded-lg bg-surface-800/60 hover:bg-surface-800 border border-surface-700/50 text-gray-400 hover:text-gray-300 transition-colors disabled:opacity-50"
+                >
+                  {loadingMoreMessages ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                      </svg>
+                      <span>불러오는 중...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                      </svg>
+                      <span>이전 메시지 불러오기</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center mt-20">
                 <div className="w-20 h-20 rounded-full bg-surface-900 border border-surface-800 shadow-2xl flex items-center justify-center mb-6 relative group">
@@ -294,35 +346,36 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion }: Ch
 
 /* ── Context Window Usage Bar ── */
 
-const DEFAULT_MAX_TOKENS = 500_000;
+const FALLBACK_MAX_TOKENS = 200_000;
 
 function fmtTokensShort(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  return `${(n / 1_000).toFixed(1)}k`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return `${n}`;
 }
 
 /**
- * Shows current context window usage based on the last assistant message's inputTokens.
- * Each turn's inputTokens = full conversation context sent to the model,
- * so the last one represents "how full is the context window right now".
+ * Shows current context window usage based on last iteration's tokens.
+ * "Context used" = last iteration's (input + output) → predicts next turn's input size.
+ * "Max" = model's context_window_size from SDK (fallback 200K).
  */
 function CumulativeTokenBar() {
   const messages = useChatStore((s) => s.messages);
   const cost = useChatStore((s) => s.cost);
 
-  // Best source: cost store's latest turn inputTokens (set on every result event)
-  // This always has the most recent value, even mid-stream in a new turn.
-  let lastInputTokens = cost.inputTokens || 0;
-  let lastOutputTokens = cost.outputTokens || 0;
+  // Context tracking from SDK (last iteration = real context size)
+  let contextInput = cost.contextInputTokens || 0;
+  let contextOutput = cost.contextOutputTokens || 0;
+  let maxTokens = cost.contextWindowSize || 0;
   let turnCount = cost.turnCount || 0;
 
   // Fallback: search messages (useful after page reload when cost store is reset)
-  if (lastInputTokens === 0) {
+  if (contextInput === 0) {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role === 'assistant' && m.inputTokens && m.inputTokens > 0) {
-        lastInputTokens = m.inputTokens;
-        lastOutputTokens = m.outputTokens || 0;
+        contextInput = m.inputTokens;
+        contextOutput = m.outputTokens || 0;
         break;
       }
     }
@@ -334,10 +387,12 @@ function CumulativeTokenBar() {
   }
 
   // Don't show if no data
-  if (lastInputTokens <= 0 && messages.length === 0) return null;
+  if (contextInput <= 0 && messages.length === 0) return null;
 
-  const contextUsed = lastInputTokens + lastOutputTokens;
-  const maxTokens = DEFAULT_MAX_TOKENS;
+  if (maxTokens === 0) maxTokens = FALLBACK_MAX_TOKENS;
+
+  // Next turn prediction: current context input + output ≈ next turn's input
+  const contextUsed = contextInput + contextOutput;
   const pct = Math.min((contextUsed / maxTokens) * 100, 100);
   const isHigh = pct > 70;
   const isCritical = pct > 90;
@@ -347,7 +402,7 @@ function CumulativeTokenBar() {
       {/* Context usage */}
       <span className={`text-[10px] tabular-nums font-medium whitespace-nowrap ${
         isCritical ? 'text-red-400' : isHigh ? 'text-amber-400' : 'text-gray-500'
-      }`} title={`Input: ${fmtTokensShort(lastInputTokens)} + Output: ${fmtTokensShort(lastOutputTokens)}`}>
+      }`} title={`Context: ${fmtTokensShort(contextInput)} in + ${fmtTokensShort(contextOutput)} out (last API call)\nCumulative: ${fmtTokensShort(cost.cumulativeInputTokens)} in + ${fmtTokensShort(cost.cumulativeOutputTokens)} out (all calls)`}>
         {fmtTokensShort(contextUsed)} / {fmtTokensShort(maxTokens)}
       </span>
       {/* Progress bar */}

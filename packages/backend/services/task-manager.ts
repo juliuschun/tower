@@ -13,6 +13,10 @@ export interface ScheduleCron {
 }
 
 function mapRow(row: any): TaskMeta {
+  let todoSnapshot = null;
+  if (row.todo_snapshot) {
+    try { todoSnapshot = JSON.parse(row.todo_snapshot); } catch {}
+  }
   return {
     id: row.id,
     title: row.title,
@@ -23,6 +27,7 @@ function mapRow(row: any): TaskMeta {
     sessionId: row.session_id,
     sortOrder: row.sort_order,
     progressSummary: JSON.parse(row.progress_summary || '[]'),
+    todoSnapshot,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
@@ -126,7 +131,7 @@ export async function getTask(id: string): Promise<TaskMeta | null> {
   return row ? mapRow(row) : null;
 }
 
-export async function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' | 'description' | 'cwd' | 'model' | 'status' | 'sessionId' | 'sortOrder' | 'progressSummary' | 'completedAt' | 'scheduledAt' | 'scheduleCron' | 'scheduleEnabled' | 'workflow' | 'parentTaskId' | 'worktreePath' | 'projectId' | 'roomId' | 'triggeredBy' | 'roomMessageId'>>): Promise<TaskMeta | null> {
+export async function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'title' | 'description' | 'cwd' | 'model' | 'status' | 'sessionId' | 'sortOrder' | 'progressSummary' | 'todoSnapshot' | 'completedAt' | 'scheduledAt' | 'scheduleCron' | 'scheduleEnabled' | 'workflow' | 'parentTaskId' | 'worktreePath' | 'projectId' | 'roomId' | 'triggeredBy' | 'roomMessageId'>>): Promise<TaskMeta | null> {
   const fields: string[] = [];
   const values: any[] = [];
   let paramIndex = 1;
@@ -139,6 +144,7 @@ export async function updateTask(id: string, updates: Partial<Pick<TaskMeta, 'ti
   if (updates.sessionId !== undefined) { fields.push(`session_id = $${paramIndex++}`); values.push(updates.sessionId); }
   if (updates.sortOrder !== undefined) { fields.push(`sort_order = $${paramIndex++}`); values.push(updates.sortOrder); }
   if (updates.progressSummary !== undefined) { fields.push(`progress_summary = $${paramIndex++}`); values.push(JSON.stringify(updates.progressSummary)); }
+  if (updates.todoSnapshot !== undefined) { fields.push(`todo_snapshot = $${paramIndex++}`); values.push(updates.todoSnapshot ? JSON.stringify(updates.todoSnapshot) : null); }
   if (updates.completedAt !== undefined) { fields.push(`completed_at = $${paramIndex++}`); values.push(updates.completedAt); }
   if (updates.scheduledAt !== undefined) { fields.push(`scheduled_at = $${paramIndex++}`); values.push(updates.scheduledAt); }
   if (updates.scheduleCron !== undefined) { fields.push(`schedule_cron = $${paramIndex++}`); values.push(updates.scheduleCron); }

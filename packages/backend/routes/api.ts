@@ -16,7 +16,7 @@ import { getFileTree, getFileTreeAsync, invalidateTreeCache, readFile, writeFile
 import fs from 'fs';
 import { loadCommands } from '../services/command-loader.js';
 import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref } from '../services/skill-registry.js';
-import { getMessages } from '../services/message-store.js';
+import { getMessages, getMessagesPaginated } from '../services/message-store.js';
 import { generateSessionName } from '../services/auto-namer.js';
 import { generateSummary } from '../services/summarizer.js';
 import {
@@ -819,7 +819,30 @@ router.get('/search', async (req, res) => {
   res.json(results);
 });
 
+// ───── Session + Messages (combined endpoint for fast session switching) ─────
+router.get('/sessions/:id/full', async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    if (userId) {
+      const access = await canAccessSession(req.params.id as string, userId, role);
+      if (!access.allowed) return res.status(access.status).json({ error: access.message });
+    }
+    const limit = parseInt(req.query.limit as string) || 500;
+    const [session, msgResult] = await Promise.all([
+      getSession(req.params.id as string),
+      getMessagesPaginated(req.params.id as string, { limit }),
+    ]);
+    res.json({ session, ...msgResult });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ───── Session Messages ─────
+// Supports pagination: ?limit=100&before=<messageId>
+// Without params → returns all messages (backward-compatible)
+// With limit → returns { messages, hasMore, oldestId }
 router.get('/sessions/:id/messages', async (req, res) => {
   try {
     // Project access check
@@ -829,8 +852,22 @@ router.get('/sessions/:id/messages', async (req, res) => {
       const access = await canAccessSession(req.params.id as string, userId, role);
       if (!access.allowed) return res.status(access.status).json({ error: access.message });
     }
-    const messages = await getMessages(req.params.id as string);
-    res.json(messages);
+
+    const limitParam = req.query.limit as string | undefined;
+    const before = req.query.before as string | undefined;
+
+    if (limitParam) {
+      // Paginated mode
+      const result = await getMessagesPaginated(req.params.id as string, {
+        limit: parseInt(limitParam) || 100,
+        before,
+      });
+      res.json(result);
+    } else {
+      // Legacy mode — return flat array (backward-compatible)
+      const messages = await getMessages(req.params.id as string);
+      res.json(messages);
+    }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
