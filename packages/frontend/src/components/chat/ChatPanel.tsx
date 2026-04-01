@@ -423,6 +423,7 @@ function CumulativeTokenBar() {
   let maxTokens = cost.contextWindowSize || 0;
   let turnCount = cost.turnCount || 0;
 
+  // Fallback: after session reload, cost is zeroed — read from last message's stored metrics
   if (contextInput === 0) {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -442,6 +443,9 @@ function CumulativeTokenBar() {
   if (contextInput <= 0 && messages.length === 0) return null;
 
   if (maxTokens === 0) maxTokens = FALLBACK_MAX_TOKENS;
+
+  // Safety: context can't exceed window size (catches stale cumulative values from old DB entries)
+  if (contextInput > maxTokens) contextInput = maxTokens;
 
   const contextUsed = contextInput + contextOutput;
   const pct = Math.min((contextUsed / maxTokens) * 100, 100);

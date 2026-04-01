@@ -558,15 +558,13 @@ export function useClaudeChat() {
           const sid = useChatStore.getState().sessionId;
           const wasCompacting = useChatStore.getState().compactingSessionId !== null;
           useChatStore.getState().setCompacting(sdkMsg.status === 'compacting' ? sid : null);
-          // Insert system message when autocompact finishes
+          // Insert compact divider when autocompact finishes (use backend markerId for dedup)
           if (wasCompacting && sdkMsg.status !== 'compacting') {
-            const { cumulativeInputTokens, cumulativeOutputTokens } = useChatStore.getState().cost;
-            const total = cumulativeInputTokens + cumulativeOutputTokens;
-            const tokenNote = total > 0 ? ` (누적 ${total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total} tokens)` : '';
+            const markerId = sdkMsg.compactMarkerId || `compact-${Date.now()}`;
             useChatStore.getState().addMessage({
-              id: crypto.randomUUID(),
+              id: markerId,
               role: 'system',
-              content: [{ type: 'text', text: `✂️ Autocompact 완료 — 컨텍스트가 압축되었습니다${tokenNote}` }],
+              content: [{ type: 'text', text: '✂️ Context compacted' }],
               timestamp: Date.now(),
             });
           }
@@ -589,16 +587,16 @@ export function useClaudeChat() {
         // Safety net: clear compacting banner when assistant message arrives
         // (SDK may not send explicit status:null after compaction)
         if (sdkMsg.type === 'assistant' && useChatStore.getState().compactingSessionId !== null) {
-          const wasCompacting = true;
           useChatStore.getState().setCompacting(null);
-          if (wasCompacting) {
-            const { cumulativeInputTokens, cumulativeOutputTokens } = useChatStore.getState().cost;
-            const total = cumulativeInputTokens + cumulativeOutputTokens;
-            const tokenNote = total > 0 ? ` (누적 ${total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total} tokens)` : '';
+          // The status handler (or DB marker on next merge) handles the divider.
+          // Only add a fallback marker if the last message isn't already a compact marker.
+          const msgs = useChatStore.getState().messages;
+          const lastMsg = msgs[msgs.length - 1];
+          if (!lastMsg || !lastMsg.id.startsWith('compact-')) {
             useChatStore.getState().addMessage({
-              id: crypto.randomUUID(),
+              id: `compact-${Date.now()}`,
               role: 'system',
-              content: [{ type: 'text', text: `✂️ Autocompact 완료 — 컨텍스트가 압축되었습니다${tokenNote}` }],
+              content: [{ type: 'text', text: '✂️ Context compacted' }],
               timestamp: Date.now(),
             });
           }
@@ -648,18 +646,20 @@ export function useClaudeChat() {
         // Result — usage = cumulative, context = last iteration (real context window usage)
         if (sdkMsg.type === 'result') {
           const ctx = sdkMsg.context;
-          // Prefer context block (last iteration). Fallback to cumulative usage only if ctx missing.
-          // If fallback exceeds window size, it's cumulative leaking — cap to avoid misleading display.
           const windowSize = ctx?.window_size || 0;
+          const numIter = ctx?.num_iterations || 1;
           let ctxInput = ctx?.input_tokens ?? 0;
           let ctxOutput = ctx?.output_tokens ?? 0;
-          if (!ctx || ctxInput === 0) {
-            // Fallback: use cumulative, but cap to window size if known
-            ctxInput = sdkMsg.usage?.input_tokens || 0;
-            ctxOutput = sdkMsg.usage?.output_tokens || 0;
-            if (windowSize > 0 && ctxInput > windowSize) {
-              ctxInput = windowSize; // cumulative leaked — cap it
-            }
+
+          // When SDK doesn't provide per-iteration data, estimate from cumulative.
+          // cumulative / numIterations ≈ last iteration's input (rough but much better than raw cumulative).
+          if (ctxInput === 0 && sdkMsg.usage?.input_tokens) {
+            ctxInput = Math.round((sdkMsg.usage.input_tokens + (sdkMsg.usage.cache_read_input_tokens || 0) + (sdkMsg.usage.cache_creation_input_tokens || 0)) / numIter);
+            ctxOutput = Math.round((sdkMsg.usage.output_tokens || 0) / numIter);
+          }
+          // Safety cap: context can't exceed window size
+          if (windowSize > 0 && ctxInput > windowSize) {
+            ctxInput = windowSize;
           }
           setCost({
             totalCost: sdkMsg.total_cost_usd,

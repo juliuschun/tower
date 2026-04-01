@@ -227,11 +227,16 @@ export class ClaudeEngine implements Engine {
             ? Math.max(...Object.values(modelUsage).map(m => m.contextWindow || 0)) || 0
             : 0;
 
+          // Per-message metrics: prefer context (last iteration) for accurate display.
+          // When iterations unavailable, estimate ≈ cumulative / numIterations.
+          const iterCount = iterations?.filter(it => it.type === 'message').length || 1;
+          const estimatedInput = contextInputTokens || Math.round(cumulativeInputTokens / iterCount);
+          const estimatedOutput = contextOutputTokens || Math.round((usage?.output_tokens || 0) / iterCount);
           try {
             callbacks.updateMessageMetrics(currentAssistantId, {
               durationMs: (message as any).duration_ms,
-              inputTokens: contextInputTokens || cumulativeInputTokens,
-              outputTokens: contextOutputTokens || (usage?.output_tokens || 0),
+              inputTokens: estimatedInput,
+              outputTokens: estimatedOutput,
             });
           } catch {}
 

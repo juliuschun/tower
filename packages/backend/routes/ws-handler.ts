@@ -104,9 +104,11 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
             cache_creation_input_tokens: msg.usage.cacheCreationTokens || 0,
           },
           // Context window tracking (last iteration = real context size)
+          // Don't fallback to cumulative inputTokens — it inflates context display.
+          // Frontend handles 0 gracefully (shows estimate or hides bar).
           context: {
-            input_tokens: msg.usage.contextInputTokens ?? msg.usage.inputTokens,
-            output_tokens: msg.usage.contextOutputTokens ?? msg.usage.outputTokens,
+            input_tokens: msg.usage.contextInputTokens || 0,
+            output_tokens: msg.usage.contextOutputTokens || 0,
             window_size: msg.usage.contextWindowSize || 0,
             num_iterations: msg.usage.numIterations || 1,
           },
@@ -129,6 +131,16 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
           role: 'system',
           content: [{ type: 'text', text: '✂️ Context compacted' }],
         }).catch(() => {});
+        return {
+          type: 'sdk_message',
+          sessionId,
+          data: {
+            type: 'system',
+            subtype: 'status',
+            status: null,
+            compactMarkerId: markerId,
+          },
+        };
       }
       return {
         type: 'sdk_message',
