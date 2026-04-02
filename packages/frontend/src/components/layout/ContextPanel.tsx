@@ -366,7 +366,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
               </div>
             </div>
           ) : OFFICE_FORMATS.has(openFile.language) ? (
-            <div className="absolute inset-0">
+            <div className="absolute inset-0 flex flex-col">
               <React.Suspense fallback={
                 <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                   <svg className="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">

@@ -93,6 +93,19 @@ export function DocxPreview({ filePath }: { filePath: string }) {
           margin: 0 auto 16px;
           padding: 40px;
         }
+        /* Korean/CJK text spacing fixes */
+        .docx-container p,
+        .docx-container span,
+        .docx-container div {
+          line-height: 1.6;
+        }
+        .docx-container p {
+          margin-bottom: 0.4em;
+        }
+        /* Preserve explicit line-height from docx-preview inline styles */
+        .docx-container [style*="line-height"] {
+          line-height: unset;
+        }
       `}</style>
     </div>
   );
