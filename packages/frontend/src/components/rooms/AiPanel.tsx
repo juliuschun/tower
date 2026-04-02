@@ -3,7 +3,7 @@ import { useAiPanelStore, fetchPanelThreads, createPanelThread, fetchThreadMessa
 import { useRoomStore } from '../../stores/room-store';
 import { useSessionStore } from '../../stores/session-store';
 import type { ChatMessage, ContentBlock } from '../../stores/chat-store';
-import { normalizeContentBlocks } from '../../utils/message-parser';
+import { extractThinkingTitle, normalizeContentBlocks } from '../../utils/message-parser';
 import { generateUUID } from '../../utils/uuid';
 import { RichContent } from '../shared/RichContent';
 
@@ -102,9 +102,10 @@ function PanelMessage({ message, onShare }: { message: ChatMessage; onShare?: (c
               );
             }
             if (block.type === 'thinking' && block.thinking) {
+              const title = block.thinking.title || extractThinkingTitle(block.thinking.text) || 'Thinking';
               return (
                 <details key={i} className="my-1">
-                  <summary className="text-[11px] text-gray-500 cursor-pointer">Thinking...</summary>
+                  <summary className="text-[11px] text-gray-500 cursor-pointer truncate">{title}</summary>
                   <div className="text-[11px] text-gray-600 mt-1">{block.thinking.text?.slice(0, 300)}</div>
                 </details>
               );

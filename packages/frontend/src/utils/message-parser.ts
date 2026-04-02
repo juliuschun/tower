@@ -1,5 +1,35 @@
 import type { ContentBlock } from '../stores/chat-store';
 
+export function extractThinkingTitle(raw?: string): string | undefined {
+  if (!raw) return undefined;
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const firstLine = lines[0];
+  if (!firstLine) return undefined;
+
+  const boldTitle = firstLine.match(/^\*\*(.+?)\*\*[：:]?$/);
+  if (boldTitle?.[1]) return boldTitle[1].trim();
+
+  const headingTitle = firstLine.match(/^#{1,6}\s+(.+)$/);
+  if (headingTitle?.[1]) return headingTitle[1].trim();
+
+  return undefined;
+}
+
+function normalizeThinkingBlock(raw: string, explicitTitle?: string): ContentBlock {
+  return {
+    type: 'thinking',
+    thinking: {
+      text: raw,
+      title: explicitTitle || extractThinkingTitle(raw),
+    },
+  };
+}
+
 /**
  * Extract <thinking> blocks from a raw text string.
  * Handles: leading, mid-text, trailing, multiple, and partial (streaming) thinking blocks.
@@ -14,7 +44,7 @@ function extractThinkingFromText(raw: string): ContentBlock[] {
   while ((match = pattern.exec(raw)) !== null) {
     const before = raw.slice(lastIndex, match.index).trim();
     if (before) result.push({ type: 'text', text: before });
-    result.push({ type: 'thinking', thinking: { text: match[2] } });
+    result.push(normalizeThinkingBlock(match[2]));
     lastIndex = match.index + match[0].length;
   }
 
@@ -26,7 +56,7 @@ function extractThinkingFromText(raw: string): ContentBlock[] {
   if (openTagMatch) {
     const beforeOpen = openTagMatch[1].trim();
     if (beforeOpen) result.push({ type: 'text', text: beforeOpen });
-    result.push({ type: 'thinking', thinking: { text: openTagMatch[2] } });
+    result.push(normalizeThinkingBlock(openTagMatch[2]));
   } else {
     const trimmed = after.trim();
     if (trimmed) result.push({ type: 'text', text: trimmed });
@@ -53,12 +83,13 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
 
   for (const item of sdkMsg.message.content) {
     if (item.type === 'thinking') {
-      // SDK may send thinking as item.thinking (string) or item.text
-      const thinkingText = typeof item.thinking === 'string' ? item.thinking : (item.text || '');
-      blocks.push({
-        type: 'thinking',
-        thinking: { text: thinkingText },
-      });
+      const thinkingText = typeof item.thinking === 'string'
+        ? item.thinking
+        : (item.thinking?.text || item.text || '');
+      const thinkingTitle = typeof item.thinking === 'object'
+        ? item.thinking?.title
+        : item.title;
+      blocks.push(normalizeThinkingBlock(thinkingText, thinkingTitle));
     } else if (item.type === 'text') {
       const raw = item.text || '';
       blocks.push(...extractThinkingFromText(raw));
@@ -102,7 +133,9 @@ export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
   return blocks.flatMap((item) => {
     // Already in ContentBlock format (has toolUse/thinking wrapper)
     if (item.type === 'tool_use' && item.toolUse) return item;
-    if (item.type === 'thinking' && item.thinking?.text) return item;
+    if (item.type === 'thinking' && item.thinking?.text) {
+      return normalizeThinkingBlock(item.thinking.text, item.thinking.title);
+    }
     // Extract <thinking> tags from text blocks (DB stores them embedded)
     if (item.type === 'text' && item.text) {
       const extracted = extractThinkingFromText(item.text);
@@ -124,10 +157,13 @@ export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
       };
     }
     if (item.type === 'thinking') {
-      return {
-        type: 'thinking' as const,
-        thinking: { text: typeof item.thinking === 'string' ? item.thinking : (item.text || '') },
-      };
+      const thinkingText = typeof item.thinking === 'string'
+        ? item.thinking
+        : (item.thinking?.text || item.text || '');
+      const thinkingTitle = typeof item.thinking === 'object'
+        ? item.thinking?.title
+        : item.title;
+      return normalizeThinkingBlock(thinkingText, thinkingTitle);
     }
     return item;
   });

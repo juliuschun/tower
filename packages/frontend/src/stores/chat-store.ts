@@ -36,6 +36,7 @@ export interface ToolUse {
 
 export interface ThinkingBlock {
   text: string;
+  title?: string;
 }
 
 export interface ContentBlock {

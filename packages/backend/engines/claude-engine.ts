@@ -30,6 +30,26 @@ import { autoCommit } from '../services/git-manager.js';
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
 delete process.env.CLAUDECODE;
 
+function extractThinkingTitle(raw?: string): string | undefined {
+  if (!raw) return undefined;
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const firstLine = lines[0];
+  if (!firstLine) return undefined;
+
+  const boldTitle = firstLine.match(/^\*\*(.+?)\*\*[：:]?$/);
+  if (boldTitle?.[1]) return boldTitle[1].trim();
+
+  const headingTitle = firstLine.match(/^#{1,6}\s+(.+)$/);
+  if (headingTitle?.[1]) return headingTitle[1].trim();
+
+  return undefined;
+}
+
 export class ClaudeEngine implements Engine {
 
   // ═══════════════════════════════════════════════════════════════
@@ -443,7 +463,13 @@ export class ClaudeEngine implements Engine {
     if (!Array.isArray(content)) return [];
     return content.map(block => {
       if (block.type === 'text') return { type: 'text' as const, text: block.text || '' };
-      if (block.type === 'thinking') return { type: 'thinking' as const, text: block.thinking || block.text || '' };
+      if (block.type === 'thinking') {
+        const thinkingText = block.thinking || block.text || '';
+        const thinkingTitle = typeof block.title === 'string'
+          ? block.title
+          : extractThinkingTitle(thinkingText);
+        return { type: 'thinking' as const, text: thinkingText, title: thinkingTitle };
+      }
       if (block.type === 'tool_use') return {
         type: 'tool_use' as const,
         id: block.id || '',

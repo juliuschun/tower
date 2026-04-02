@@ -14,7 +14,7 @@
 
 export type TowerContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; text: string }
+  | { type: 'thinking'; text: string; title?: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, any> };
 
 // ═══════════════════════════════════════════════════════════════════

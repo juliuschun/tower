@@ -81,7 +81,14 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
           message: {
             content: msg.content.map(b => {
               if (b.type === 'text') return { type: 'text', text: b.text };
-              if (b.type === 'thinking') return { type: 'thinking', thinking: b.text };
+              if (b.type === 'thinking') {
+                return {
+                  type: 'thinking',
+                  thinking: typeof b.title === 'string'
+                    ? { text: b.text, title: b.title }
+                    : b.text,
+                };
+              }
               if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
               return b;
             }),

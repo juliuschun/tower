@@ -340,20 +340,28 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
   );
 }
 
-function ThinkingChipGroup({ blocks }: { blocks: ContentBlock[] }) {
+function ThinkingChipGroup({ blocks, inlineToolBlocks, onFileClick }: {
+  blocks: ContentBlock[];
+  inlineToolBlocks?: ContentBlock[];
+  onFileClick?: (path: string) => void;
+}) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   return (
     <div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-start gap-1.5">
         {blocks.map((block, i) => (
           <ThinkingChip
             key={i}
             text={block.thinking!.text}
+            title={block.thinking?.title}
             isActive={activeIndex === i}
             onClick={() => setActiveIndex(activeIndex === i ? null : i)}
           />
         ))}
+        {inlineToolBlocks && inlineToolBlocks.length > 0 && (
+          <ToolChipGroup blocks={inlineToolBlocks} onFileClick={onFileClick} />
+        )}
       </div>
       {activeIndex !== null && blocks[activeIndex] && (
         <div className="mt-2">
@@ -505,13 +513,21 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
         text={getMessageText(message.content)}
         className="absolute -top-1 -right-1 opacity-40 hover:opacity-100 transition-opacity z-10"
       />
-      {groups.map((group, gi) => {
+      {groups.flatMap((group, gi) => {
+        const previousGroup = groups[gi - 1];
+        const nextGroup = groups[gi + 1];
+
+        // Tool use blocks already rendered inline with the preceding thinking group
+        if (group.type === 'tool_use' && previousGroup?.type === 'thinking') {
+          return [];
+        }
+
         // Tool use blocks — split into agents, todos, and regular tools
         if (group.type === 'tool_use') {
           const agentBlocks = group.blocks.filter(b => isAgentTool(b.toolUse?.name));
           const todoBlocks = group.blocks.filter(b => b.toolUse?.name === 'TodoWrite');
           const regularBlocks = group.blocks.filter(b => !isAgentTool(b.toolUse?.name) && b.toolUse?.name !== 'TodoWrite');
-          return (
+          return [
             <React.Fragment key={gi}>
               {/* Regular tools — inline collapsible bar */}
               {regularBlocks.length > 0 && (
@@ -536,13 +552,50 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
                   />
                 );
               })}
-            </React.Fragment>
-          );
+            </React.Fragment>,
+          ];
         }
 
-        // Thinking — chip row
+        // Thinking — show title chip and keep adjacent regular tools on the same line
         if (group.type === 'thinking') {
-          return <ThinkingChipGroup key={gi} blocks={group.blocks} />;
+          const inlineToolGroup = nextGroup?.type === 'tool_use' ? nextGroup : null;
+          const inlineToolGroupIndex = inlineToolGroup ? gi + 1 : gi;
+          const inlineRegularBlocks = inlineToolGroup
+            ? inlineToolGroup.blocks.filter(b => !isAgentTool(b.toolUse?.name) && b.toolUse?.name !== 'TodoWrite')
+            : [];
+          const inlineAgentBlocks = inlineToolGroup
+            ? inlineToolGroup.blocks.filter(b => isAgentTool(b.toolUse?.name))
+            : [];
+          const inlineTodoBlocks = inlineToolGroup
+            ? inlineToolGroup.blocks.filter(b => b.toolUse?.name === 'TodoWrite')
+            : [];
+
+          return [
+            <React.Fragment key={gi}>
+              <ThinkingChipGroup
+                blocks={group.blocks}
+                inlineToolBlocks={inlineRegularBlocks}
+                onFileClick={onFileClick}
+              />
+              {inlineAgentBlocks.length > 0 && (
+                <div className="pl-2 border-l-2 border-surface-700/30 space-y-1">
+                  {inlineAgentBlocks.map((block, ai) => (
+                    <AgentCard key={`agent-inline-${gi}-${ai}`} block={block} />
+                  ))}
+                </div>
+              )}
+              {inlineTodoBlocks.map((block, ti) => {
+                const isLastTodo = !!isLastAssistant && inlineToolGroupIndex === groups.length - 1 && ti === inlineTodoBlocks.length - 1;
+                return (
+                  <TodoInlineCard
+                    key={`todo-inline-${gi}-${ti}`}
+                    input={block.toolUse!.input}
+                    isLive={isLastTodo}
+                  />
+                );
+              })}
+            </React.Fragment>,
+          ];
         }
 
         // Text — render with RichContent
@@ -561,7 +614,7 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
 
         // Tool results — minimal inline display
         if (group.type === 'tool_result') {
-          return (
+          return [
             <div key={gi} className="flex flex-wrap gap-1.5">
               {group.blocks.map((block, bi) => {
                 const resultText = block.toolUse?.result;
@@ -578,12 +631,12 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
                   </span>
                 );
               })}
-            </div>
-          );
+            </div>,
+          ];
         }
 
         console.warn('[MessageBubble] unknown block group type:', group.type);
-        return null;
+        return [];
       })}
       {showMetrics && <TurnMetricsBar message={message} isLast={!!isLastAssistant} />}
     </div>
