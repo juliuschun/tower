@@ -87,7 +87,7 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
   const systemPrompt = `You are a helpful AI assistant in a team channel called "${roomName}".
 Read the recent conversation and respond naturally.
 Keep answers concise and relevant to the discussion.
-Do not execute code or modify files — just answer.
+You can use tools to read files, search code, and execute commands when needed.
 Respond in the same language as the user's message.
 
 When your answer involves data or processes, proactively use visualization code blocks:
@@ -102,6 +102,8 @@ Use these automatically when helpful — don't wait for the user to ask.`;
     ? `Here are recent messages from the channel:\n\n${contextMessages}\n\nUser's question: ${prompt}`
     : prompt;
 
+  let streamedContent = '';  // track what has been streamed so far
+
   try {
     const engine = await getEngine(engineName);
 
@@ -110,6 +112,7 @@ Use these automatically when helpful — don't wait for the user to ask.`;
       model: modelId,
       systemPrompt,
       onChunk: (chunk, content) => {
+        streamedContent = content;  // always track latest
         broadcastToRoom(roomId, {
           type: 'room_ai_stream',
           roomId,
@@ -141,16 +144,38 @@ Use these automatically when helpful — don't wait for the user to ask.`;
     console.log(`[ai-quick-reply] Done room=${roomId} engine=${engineName} model=${modelId} len=${fullContent.length}`);
   } catch (err: any) {
     console.error('[ai-quick-reply] Error:', err.message);
-    // Remove the streaming placeholder so "typing..." doesn't hang forever
+
+    // If we already streamed some content, preserve it instead of deleting
+    if (streamedContent.length > 0) {
+      const savedMsg = await sendMessage(roomId, null, streamedContent, 'ai_reply', {
+        model: modelId,
+        engine: engineName,
+        triggered_by: userId,
+        triggered_by_name: username,
+        source_message_id: messageId,
+        partial: true,
+        error: err.message,
+      }, undefined, replyTo);
+      broadcastToRoom(roomId, {
+        type: 'room_ai_stream_done',
+        roomId,
+        messageId: replyId,
+        finalMessageId: savedMsg.id,
+        content: streamedContent,
+      });
+      console.log(`[ai-quick-reply] Partial save room=${roomId} len=${streamedContent.length} err=${err.message}`);
+      return;
+    }
+
+    // No content was streamed — remove placeholder and show error
     broadcastToRoom(roomId, {
       type: 'room_ai_stream_done',
       roomId,
       messageId: replyId,
       finalMessageId: `err-${Date.now()}`,
       content: '',
-      remove: true,  // signal frontend to remove placeholder
+      remove: true,
     });
-    // Save error to DB and broadcast
     const errContent = `AI reply failed: ${err.message}`;
     try {
       const errMsg = await sendMessage(roomId, null, errContent, 'ai_error', {

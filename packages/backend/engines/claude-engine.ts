@@ -326,10 +326,11 @@ export class ClaudeEngine implements Engine {
         abortController,
         pathToClaudeCodeExecutable: config.claudeExecutable,
         cwd: config.defaultCwd,
-        permissionMode: 'plan',  // no tool execution
+        permissionMode: 'bypassPermissions',  // allow tool execution (read/write/bash)
+        allowDangerouslySkipPermissions: true,
         model: opts.model,
         systemPrompt: opts.systemPrompt,
-        maxTurns: 3,  // thinking models may use extra turns
+        maxTurns: 5,  // allow multi-turn tool usage
       },
     });
 
