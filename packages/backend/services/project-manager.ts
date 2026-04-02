@@ -85,6 +85,17 @@ export async function createProject(
       const claudeLink = path.join(finalDir, 'CLAUDE.md');
       try { fs.symlinkSync('AGENTS.md', claudeLink); } catch {}
     }
+    // Seed .project/ — progress log + decisions + state for recursive project evolution
+    const projectMetaDir = path.join(finalDir, '.project');
+    if (!fs.existsSync(projectMetaDir)) {
+      fs.mkdirSync(path.join(projectMetaDir, 'decisions'), { recursive: true });
+      fs.writeFileSync(path.join(projectMetaDir, 'progress.md'),
+        `# Progress Log\n\n<!-- Append dated entries as work progresses. -->\n<!-- This log feeds into AGENTS.md evolution. -->\n`, 'utf-8');
+      fs.writeFileSync(path.join(projectMetaDir, 'decisions', '.template.md'),
+        `# [제목]\n\n**날짜**: YYYY-MM-DD\n\n## 배경\n## 선택지\n## 결정\n## 이유\n`, 'utf-8');
+      fs.writeFileSync(path.join(projectMetaDir, 'state.json'),
+        JSON.stringify({ lastAgentsUpdate: null, lastProgressLine: 0, cycle: 0, changeLog: [] }, null, 2), 'utf-8');
+    }
     rootPath = finalDir;
   }
 

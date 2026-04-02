@@ -309,7 +309,11 @@ else
   if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     mkdir -p "$WORKSPACE_DIR"
     # Copy templates (don't overwrite existing files)
-    for item in templates/workspace/*; do
+    for item in templates/workspace/* templates/workspace/.*; do
+      # Skip . and .. entries
+      [[ "$item" == */. || "$item" == */.. ]] && continue
+      # Skip if glob didn't match (literal pattern returned)
+      [ ! -e "$item" ] && continue
       name=$(basename "$item")
       if [ -d "$item" ]; then
         if [ ! -d "$WORKSPACE_DIR/$name" ]; then
