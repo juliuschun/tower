@@ -142,6 +142,21 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     prevStreaming.current = isStreaming;
   }, [isStreaming, mergedMessages.length]);
 
+  // When compact finishes → force scroll to bottom
+  // During compacting, banner/layout changes can push isAtBottom to false.
+  // Once it ends, the user expects to see the resumed response at bottom.
+  const prevCompacting = useRef(isCompacting);
+  useEffect(() => {
+    if (prevCompacting.current && !isCompacting) {
+      // Compact just finished → scroll to bottom
+      isAtBottom.current = true;
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
+      });
+    }
+    prevCompacting.current = isCompacting;
+  }, [isCompacting, mergedMessages.length]);
+
   // Background refresh: only scroll to bottom if user was already at bottom
   const scrollGen = useChatStore((s) => s.scrollGeneration);
   const prevScrollGen = useRef(scrollGen);
@@ -170,9 +185,10 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   }, [activeSessionId, onLoadMore, loadingMoreMessages, hasMoreMessages]);
 
   // ── Virtuoso: followOutput keeps scroll at bottom during streaming ──
-  // Returns 'smooth' to auto-scroll, false to stay put (user scrolled up)
+  // During streaming/compacting, always follow (compact can push isAtBottom false).
+  // Otherwise, only follow if user is already at bottom.
   const followOutput = useCallback((isAtBottomNow: boolean) => {
-    if (isAtBottomNow) return 'auto';
+    if (isAtBottomNow || isAtBottom.current) return 'auto';
     return false;
   }, []);
 

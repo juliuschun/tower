@@ -20,7 +20,7 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
-  const [tab, setTab] = useState<'users' | 'groups' | 'models' | 'prompts' | 'skills' | 'system'>('users');
+  const [tab, setTab] = useState<'users' | 'groups' | 'models' | 'prompts' | 'skills' | 'heartbeat' | 'system'>('users');
 
   if (!open) return null;
 
@@ -60,6 +60,7 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
           <button className={tabClass('models')} onClick={() => setTab('models')}>Models</button>
           <button className={tabClass('prompts')} onClick={() => setTab('prompts')}>System Prompt</button>
           <button className={tabClass('skills')} onClick={() => setTab('skills')}>Skills</button>
+          <button className={tabClass('heartbeat')} onClick={() => setTab('heartbeat')}>Heartbeat</button>
           <button className={tabClass('system')} onClick={() => setTab('system')}>System</button>
         </div>
 
@@ -70,6 +71,7 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
           {tab === 'models' && <ModelManagement token={token} />}
           {tab === 'prompts' && <SystemPromptEditor token={token} />}
           {tab === 'skills' && <SkillsManagement token={token} />}
+          {tab === 'heartbeat' && <HeartbeatManagement token={token} />}
           {tab === 'system' && <SystemInfo />}
         </div>
       </div>
@@ -1402,6 +1404,236 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
       <span className={`text-[13px] text-gray-200 ${mono ? 'font-mono' : ''} max-w-[400px] truncate`} title={value}>
         {value}
       </span>
+    </div>
+  );
+}
+
+// ───── Heartbeat Tab ─────
+
+interface HeartbeatConfig {
+  projectId: string;
+  projectName: string;
+  projectPath: string;
+  roomId?: string;
+  intervalMinutes: number;
+  autonomyLevel: 0 | 1 | 2;
+  enabled: boolean;
+  runHour?: number;
+  deltaThreshold?: number;
+  action?: string;
+}
+
+const AUTONOMY_LABELS: Record<number, { label: string; color: string }> = {
+  0: { label: 'L0 Silent', color: 'text-gray-500' },
+  1: { label: 'L1 Notify', color: 'text-blue-400' },
+  2: { label: 'L2 Auto', color: 'text-amber-400' },
+};
+
+function HeartbeatManagement({ token }: { token?: string | null }) {
+  const [heartbeats, setHeartbeats] = useState<HeartbeatConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState<string | null>(null);
+  const [runResults, setRunResults] = useState<{ ran: number; results: string[] } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null); // projectId being edited
+
+  const headers = useCallback(() => ({
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }), [token]);
+
+  const fetchHeartbeats = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/heartbeats`, { headers: headers() });
+      const data = await res.json();
+      setHeartbeats(data.heartbeats || []);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [headers]);
+
+  useEffect(() => { fetchHeartbeats(); }, [fetchHeartbeats]);
+
+  const patchProject = async (projectId: string, updates: Partial<HeartbeatConfig>) => {
+    await fetch(`${API_BASE}/heartbeats/${projectId}`, {
+      method: 'PATCH', headers: headers(),
+      body: JSON.stringify(updates),
+    });
+    fetchHeartbeats();
+  };
+
+  const runNow = async (projectId?: string) => {
+    const key = projectId || 'all';
+    setRunning(key);
+    setRunResults(null);
+    try {
+      const res = await fetch(`${API_BASE}/heartbeats/run`, {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify(projectId ? { projectId } : {}),
+      });
+      const data = await res.json();
+      setRunResults(data);
+    } catch (err: any) {
+      setRunResults({ ran: 0, results: [`❌ ${err.message}`] });
+    }
+    setRunning(null);
+  };
+
+  const enabledCount = heartbeats.filter(h => h.enabled).length;
+  const l2Count = heartbeats.filter(h => h.autonomyLevel === 2).length;
+
+  if (loading) return <div className="text-gray-500 text-sm p-4">Loading...</div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary bar */}
+      <div className="flex items-center justify-between">
+        <div className="text-[13px] text-gray-400 flex items-center gap-4">
+          <span><span className="text-gray-200 font-medium">{enabledCount}</span>/{heartbeats.length} enabled</span>
+          {l2Count > 0 && <span className="text-amber-400/70">{l2Count} auto-execute</span>}
+        </div>
+        <button
+          onClick={() => runNow()}
+          disabled={running !== null}
+          className="px-3 py-1.5 text-[12px] font-medium bg-primary-600 hover:bg-primary-500 disabled:bg-gray-700 text-white rounded-lg transition-colors"
+        >
+          {running === 'all' ? '⏳ Running...' : '▶ Run All Now'}
+        </button>
+      </div>
+
+      {/* Run Results */}
+      {runResults && (
+        <div className="bg-surface-800 border border-surface-700 rounded-lg p-3 text-[12px]">
+          <div className="text-gray-400 mb-1">Ran {runResults.ran} project(s):</div>
+          <div className="max-h-32 overflow-y-auto">
+            {runResults.results.map((r, i) => (
+              <div key={i} className="text-gray-300 py-0.5">{r}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Project List */}
+      <div className="bg-surface-800 border border-surface-700 rounded-lg divide-y divide-surface-700">
+        {heartbeats.length === 0 ? (
+          <div className="px-4 py-8 text-center text-gray-500 text-[13px]">
+            No heartbeats registered. Projects with <code className="text-gray-400">.project/state.json</code> auto-register on server start.
+          </div>
+        ) : heartbeats.map(hb => {
+          const isEditing = editing === hb.projectId;
+          const al = AUTONOMY_LABELS[hb.autonomyLevel] || AUTONOMY_LABELS[1];
+
+          return (
+            <div key={hb.projectId} className="px-4 py-3">
+              {/* Row: name + controls */}
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${hb.enabled ? 'bg-green-500' : 'bg-gray-600'}`} />
+                    <span className="text-[13px] text-gray-200 font-medium truncate">{hb.projectName}</span>
+                    <span className={`text-[11px] font-mono ${al.color}`}>{al.label}</span>
+                    <span className="text-[11px] text-gray-600">{(hb.runHour ?? 3).toString().padStart(2, '0')}:00</span>
+                    <span className="text-[11px] text-gray-600">Δ≥{hb.deltaThreshold ?? 5}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 ml-3">
+                  <button
+                    onClick={() => runNow(hb.projectId)}
+                    disabled={running !== null}
+                    className="px-2 py-1 text-[11px] text-gray-400 hover:text-primary-400 hover:bg-surface-700 rounded transition-colors disabled:opacity-30"
+                    title="Run now"
+                  >
+                    {running === hb.projectId ? '⏳' : '▶'}
+                  </button>
+                  <button
+                    onClick={() => setEditing(isEditing ? null : hb.projectId)}
+                    className={`px-2 py-1 text-[11px] rounded transition-colors ${isEditing ? 'text-primary-400 bg-surface-700' : 'text-gray-500 hover:text-gray-300 hover:bg-surface-700'}`}
+                    title="Settings"
+                  >⚙</button>
+                  <button
+                    onClick={() => patchProject(hb.projectId, { enabled: !hb.enabled })}
+                    className={`px-2 py-1 text-[11px] rounded transition-colors ${
+                      hb.enabled ? 'text-green-400 hover:text-red-400 hover:bg-surface-700' : 'text-gray-600 hover:text-green-400 hover:bg-surface-700'
+                    }`}
+                  >
+                    {hb.enabled ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Expanded settings panel */}
+              {isEditing && (
+                <div className="mt-3 ml-4 p-3 bg-surface-900 border border-surface-700 rounded-lg space-y-3">
+                  {/* Autonomy Level */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Autonomy</label>
+                    <div className="flex gap-1">
+                      {([0, 1, 2] as const).map(level => {
+                        const info = AUTONOMY_LABELS[level];
+                        return (
+                          <button
+                            key={level}
+                            onClick={() => patchProject(hb.projectId, { autonomyLevel: level })}
+                            className={`px-2 py-1 text-[11px] rounded transition-colors ${
+                              hb.autonomyLevel === level
+                                ? `${info.color} bg-surface-700 font-medium`
+                                : 'text-gray-600 hover:text-gray-400 hover:bg-surface-800'
+                            }`}
+                          >{info.label}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Run Hour */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Run hour</label>
+                    <select
+                      value={hb.runHour ?? 3}
+                      onChange={e => patchProject(hb.projectId, { runHour: Number(e.target.value) })}
+                      className="bg-surface-800 border border-surface-700 text-gray-300 text-[12px] rounded px-2 py-1 w-24"
+                    >
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <option key={i} value={i}>{i.toString().padStart(2, '0')}:00</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Delta Threshold */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Delta ≥</label>
+                    <input
+                      type="number" min={1} max={100}
+                      value={hb.deltaThreshold ?? 5}
+                      onChange={e => patchProject(hb.projectId, { deltaThreshold: Number(e.target.value) })}
+                      className="bg-surface-800 border border-surface-700 text-gray-300 text-[12px] rounded px-2 py-1 w-20"
+                    />
+                    <span className="text-[11px] text-gray-600">lines in progress.md</span>
+                  </div>
+
+                  {/* Action (L2 only) */}
+                  {hb.autonomyLevel === 2 && (
+                    <div className="flex items-center gap-3">
+                      <label className="text-[11px] text-gray-500 w-20 shrink-0">Action</label>
+                      <input
+                        type="text"
+                        value={hb.action ?? '/agents-md --evolve'}
+                        onChange={e => patchProject(hb.projectId, { action: e.target.value })}
+                        placeholder="/agents-md --evolve"
+                        className="bg-surface-800 border border-surface-700 text-gray-300 text-[12px] rounded px-2 py-1 flex-1 font-mono"
+                      />
+                    </div>
+                  )}
+
+                  {/* Path (read-only) */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Path</label>
+                    <span className="text-[11px] text-gray-600 font-mono truncate">{hb.projectPath}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

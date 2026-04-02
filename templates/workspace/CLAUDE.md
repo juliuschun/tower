@@ -9,9 +9,16 @@ It is *not* a code project. For code-specific rules, see each repo's own CLAUDE.
 workspace/
 ├── CLAUDE.md              # ← This file (AI behavior + workspace guide)
 ├── principles.md          # Team principles
-├── decisions/             # Decision records (immutable — never delete/modify)
+├── decisions/             # Team-wide decision records (immutable)
 ├── docs/                  # Process docs, guides, SOPs
 └── projects/              # Project folders (Tower auto-creates)
+    └── <project>/
+        ├── AGENTS.md      # Project context for AI (auto-generated)
+        ├── CLAUDE.md      # → symlink to AGENTS.md
+        └── .project/      # System-managed metadata
+            ├── progress.md      # Work log (append-only)
+            ├── decisions/       # Project-level decisions
+            └── state.json       # Evolution tracking
 ```
 
 ## Project-Centric Architecture
@@ -33,9 +40,11 @@ Inviting someone to a project grants access to all of the above.
 
 ### While Working
 
-- **Decisions → suggest recording**: "Want to record this in `decisions/`?"
+- **Work log**: After meaningful work, append a dated entry to `.project/progress.md`. Even one line counts.
+- **Decisions → right place**: Does it affect other projects? → `workspace/decisions/`. Just this project? → `.project/decisions/`. Not sure? → `.project/decisions/` (can move later).
 - **File naming**: decisions → `YYYY-MM-DD-title.md`
 - **`decisions/` files are immutable.** To change a decision, create a new file.
+- **AGENTS.md is auto-generated.** Don't edit directly — use `/agents-md --evolve` to refresh from progress & decisions.
 - **Tasks under 15 min: just do them.** The task system is for 30+ min work.
 
 ### When Writing Docs

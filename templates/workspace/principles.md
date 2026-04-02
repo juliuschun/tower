@@ -19,3 +19,18 @@ A one-paragraph memo is 100x better than nothing.
 ## 5. Revisit
 Writing it down isn't the end. Once a month,
 just ask: "is this still right?"
+
+## 6. Put it in the right place
+Records have a home. In the wrong place, it's the same as lost.
+
+| This kind of record | Goes here | Example |
+|---------------------|-----------|---------|
+| Work log — what you did and learned today | `.project/progress.md` | "Narrowed ETF screening to PER < 20" |
+| A decision for this project | `.project/decisions/` | "Switched data source from Bloomberg to Yahoo" |
+| A decision affecting multiple projects | `workspace/decisions/` | "All client proposals written in Korean" |
+| Project context for AI | `AGENTS.md` | Auto-generated — synthesized from progress & decisions |
+
+**Rule of thumb**: "Does this decision affect other projects too?"
+- Yes → `workspace/decisions/`
+- No → `.project/decisions/`
+- Not sure → `.project/decisions/` (can move later)

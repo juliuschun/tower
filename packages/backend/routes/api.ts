@@ -2225,7 +2225,7 @@ router.post('/heartbeats', authMiddleware, async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-router.patch('/heartbeats/:projectId', authMiddleware, async (req, res) => {
+router.patch('/heartbeats/:projectId', adminMiddleware, async (req, res) => {
   try {
     const { updateHeartbeat, getHeartbeatConfig } = await import('../services/heartbeat.js');
     const { projectId } = req.params;
@@ -2242,6 +2242,16 @@ router.delete('/heartbeats/:projectId', authMiddleware, async (req, res) => {
     const { unregisterHeartbeat } = await import('../services/heartbeat.js');
     unregisterHeartbeat(req.params.projectId as string);
     res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Run heartbeat now (all or single project)
+router.post('/heartbeats/run', adminMiddleware, async (req, res) => {
+  try {
+    const { runHeartbeatNow } = await import('../services/heartbeat.js');
+    const { projectId } = req.body || {};
+    const result = await runHeartbeatNow(projectId);
+    res.json(result);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

@@ -9,10 +9,10 @@
  * Autonomy levels:
  *   L0 — Read only, never report (silent monitoring)
  *   L1 — Surface observations to room/notifications
- *   L2 — Take minor actions (future) and report
+ *   L2 — Detect + auto-execute task (e.g., /agents-md --evolve via task-runner)
  */
 
-import { readFile, writeFile } from 'fs/promises';
+import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { getEngine } from '../engines/index.js';
@@ -29,9 +29,13 @@ export interface HeartbeatConfig {
   projectName: string;
   projectPath: string;       // workspace root for this project
   roomId?: string;            // associated room (if any)
-  intervalMinutes: number;    // default 4320 (3 days)
-  autonomyLevel: 0 | 1 | 2;  // L0/L1/L2
+  intervalMinutes: number;    // unused — daily cron at runHour
+  autonomyLevel: 0 | 1 | 2;  // L0=silent / L1=notify / L2=auto-execute
   enabled: boolean;
+  // ── Configurable fields (saved/restored from admin UI) ──
+  runHour?: number;           // 0-23, default 3 (3 AM)
+  deltaThreshold?: number;    // min progress.md lines to trigger, default 5
+  action?: string;            // L2 action prompt (default: "/agents-md --evolve")
 }
 
 interface HeartbeatResult {
@@ -54,8 +58,11 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let broadcastFn: BroadcastFn | null = null;
 
 const HEARTBEAT_INTERVAL = 60_000; // check every 60s if it's time
-const DAILY_RUN_HOUR = 3; // 3 AM KST (server timezone)
-let lastRunDate: string | null = null; // 'YYYY-MM-DD' — prevents re-runs on same day
+const DAILY_RUN_HOUR = 3; // default 3 AM KST (server timezone)
+
+// ── Growth Limits ────────────────────────────────────────────────
+const PROGRESS_ARCHIVE_THRESHOLD = 300; // lines — archive when exceeded
+const STATE_CHANGELOG_MAX = 20;          // keep only last N changeLog entries
 
 // ── Project State Helpers ────────────────────────────────────────
 
@@ -109,6 +116,69 @@ async function getProgressDelta(projectPath: string, state: ProjectState): Promi
   // Extract only the new content
   const deltaContent = lines.slice(state.lastProgressLine).join('\n').trim();
   return { totalLines, newLines, deltaContent: deltaContent || null };
+}
+
+/**
+ * Archive old progress.md content when it exceeds threshold.
+ * Moves everything except the header + last 50 lines to .project/progress-archive/YYYY-MM.md.
+ * Resets lastProgressLine in state.json so delta tracking stays accurate.
+ */
+async function archiveProgressIfNeeded(projectPath: string, state: ProjectState): Promise<boolean> {
+  const progressPath = join(projectPath, '.project', 'progress.md');
+  const progress = await readProgressMd(projectPath);
+  if (!progress) return false;
+
+  const lines = progress.split('\n');
+  if (lines.length < PROGRESS_ARCHIVE_THRESHOLD) return false;
+
+  // Keep header (first 4 lines = title + blank + comments) + last 50 lines
+  const headerLines = lines.slice(0, 4);
+  const keepLines = lines.slice(-50);
+  const archiveLines = lines.slice(4, lines.length - 50);
+
+  if (archiveLines.length < 10) return false; // not worth archiving
+
+  // Write archive file
+  const now = new Date();
+  const archiveDir = join(projectPath, '.project', 'progress-archive');
+  await mkdir(archiveDir, { recursive: true });
+
+  const archiveFile = join(archiveDir, `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}.md`);
+
+  // Append to existing archive file (same month) or create new
+  let existing = '';
+  try { existing = await readFile(archiveFile, 'utf-8'); } catch { /* new file */ }
+  const archiveContent = existing
+    ? `${existing}\n${archiveLines.join('\n')}`
+    : `# Progress Archive — ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}\n\n${archiveLines.join('\n')}`;
+  await writeFile(archiveFile, archiveContent, 'utf-8');
+
+  // Rewrite progress.md with header + kept lines
+  const newContent = [...headerLines, '', '<!-- Older entries archived to .project/progress-archive/ -->', '', ...keepLines].join('\n');
+  await writeFile(progressPath, newContent, 'utf-8');
+
+  // Adjust lastProgressLine — new file is shorter
+  const newTotalLines = newContent.split('\n').length;
+  await writeProjectState(projectPath, {
+    ...state,
+    lastProgressLine: Math.min(state.lastProgressLine, newTotalLines),
+  });
+
+  console.log(`[heartbeat] Archived ${archiveLines.length} lines from progress.md → ${archiveFile}`);
+  return true;
+}
+
+/**
+ * Trim state.json changeLog to prevent unbounded growth.
+ */
+function trimChangeLog(state: ProjectState): ProjectState {
+  if (state.changeLog && state.changeLog.length > STATE_CHANGELOG_MAX) {
+    return {
+      ...state,
+      changeLog: state.changeLog.slice(-STATE_CHANGELOG_MAX),
+    };
+  }
+  return state;
 }
 
 // ── Legacy: HEARTBEAT.md ─────────────────────────────────────────
@@ -249,13 +319,18 @@ async function executeHeartbeat(config: HeartbeatConfig): Promise<void> {
   }
 
   // ── Mode 1: Project evolution (.project/state.json exists) ──
-  const state = await readProjectState(config.projectPath);
+  let state = await readProjectState(config.projectPath);
   if (state) {
-    const { totalLines, newLines, deltaContent } = await getProgressDelta(config.projectPath, state);
+    // Housekeeping: archive bloated progress.md, trim changeLog
+    await archiveProgressIfNeeded(config.projectPath, state);
+    state = trimChangeLog(state);
 
-    // Need at least 5 new lines in progress.md to trigger a check
-    if (newLines < 5 || !deltaContent) {
-      console.log(`[heartbeat] "${config.projectName}" — progress delta: ${newLines} lines (threshold: 5), skipping`);
+    const { totalLines, newLines, deltaContent } = await getProgressDelta(config.projectPath, state);
+    const threshold = config.deltaThreshold ?? 5;
+
+    // Need enough new lines to trigger a check
+    if (newLines < threshold || !deltaContent) {
+      console.log(`[heartbeat] "${config.projectName}" — progress delta: ${newLines} lines (threshold: ${threshold}), skipping`);
       return;
     }
 
@@ -271,20 +346,68 @@ async function executeHeartbeat(config: HeartbeatConfig): Promise<void> {
 
     if (result.status === 'ok') {
       console.log(`[heartbeat] "${config.projectName}" — AGENTS.md still current`);
-      // Update state to avoid rechecking the same delta
-      await writeProjectState(config.projectPath, {
+      await writeProjectState(config.projectPath, trimChangeLog({
         ...state,
         lastProgressLine: totalLines,
-      });
+      }));
       return;
     }
 
-    // Report: AGENTS.md needs updating
-    console.log(`[heartbeat] "${config.projectName}" — ${result.items?.length ?? 0} evolution suggestion(s)`);
+    // ── L2: Auto-execute task via task-runner ──
+    if (config.autonomyLevel === 2) {
+      const actionPrompt = config.action || '/agents-md --evolve';
+      console.log(`[heartbeat] "${config.projectName}" — L2 auto-execute: "${actionPrompt}"`);
 
-    const messageContent = `**🔄 Project Evolution** — ${config.projectName}\n\nprogress.md에 ${newLines}줄이 축적되었습니다. AGENTS.md 갱신을 권장합니다.\n\n**제안사항:**\n${result.items?.map((i: string) => `- ${i}`).join('\n') ?? ''}\n\n> \`/agents-md --evolve\`로 갱신할 수 있습니다.`;
+      try {
+        const { createTask } = await import('./task-manager.js');
+        const { spawnTask } = await import('./task-runner.js');
 
-    await deliverReport(config, messageContent, result);
+        const task = await createTask(
+          `🫀 Heartbeat: ${config.projectName}`,
+          `Automated heartbeat task — progress.md에 ${newLines}줄 축적됨.\n\n**실행할 작업:**\n${actionPrompt}\n\n**감지된 변화:**\n${deltaContent}\n\n**현재 AGENTS.md 요약:**\n${agentsMd.slice(0, 500)}...`,
+          config.projectPath,
+          undefined,         // system task, no userId
+          undefined,         // default model
+          undefined,         // no scheduling
+          'default',         // workflow
+          undefined,         // no parent
+          config.projectId,  // project association
+          config.roomId ? {
+            roomId: config.roomId,
+            triggeredBy: 0,
+            roomMessageId: '',
+          } : undefined,
+        );
+
+        if (broadcastFn) {
+          await spawnTask(task.id, broadcastFn, undefined, 'admin', config.projectPath);
+        }
+
+        console.log(`[heartbeat] "${config.projectName}" — task spawned: ${task.id}`);
+
+        // Notify about auto-execution
+        const messageContent = `**🤖 Heartbeat Auto-Execute** — ${config.projectName}\n\nprogress.md에 ${newLines}줄 축적 → 자동 실행 시작\n**Action:** \`${actionPrompt}\`\n**Task:** ${task.id}`;
+        await deliverReport(config, messageContent, result);
+      } catch (err: any) {
+        console.error(`[heartbeat] "${config.projectName}" — L2 task spawn failed:`, err.message);
+        // Fall back to L1 behavior (just notify)
+        const messageContent = `**⚠️ Heartbeat Auto-Execute Failed** — ${config.projectName}\n\nTask 생성 실패: ${err.message}\n\n수동으로 \`/agents-md --evolve\`를 실행해주세요.`;
+        await deliverReport(config, messageContent, result);
+      }
+    } else {
+      // ── L1: Notify only ──
+      console.log(`[heartbeat] "${config.projectName}" — ${result.items?.length ?? 0} evolution suggestion(s)`);
+
+      const messageContent = `**🔄 Project Evolution** — ${config.projectName}\n\nprogress.md에 ${newLines}줄이 축적되었습니다. AGENTS.md 갱신을 권장합니다.\n\n**제안사항:**\n${result.items?.map((i: string) => `- ${i}`).join('\n') ?? ''}\n\n> \`/agents-md --evolve\`로 갱신할 수 있습니다.`;
+
+      await deliverReport(config, messageContent, result);
+    }
+
+    // Update state so we don't re-trigger the same delta
+    await writeProjectState(config.projectPath, trimChangeLog({
+      ...state,
+      lastProgressLine: totalLines,
+    }));
     return;
   }
 
@@ -391,26 +514,34 @@ async function deliverReport(
 }
 
 /**
- * Heartbeat scheduler tick — runs all heartbeats once daily at DAILY_RUN_HOUR.
- * Wall-clock based, so server restarts don't reset the schedule.
+ * Heartbeat scheduler tick — checks every minute, runs projects whose runHour matches.
+ * Each project tracks its own last-run date to prevent double execution.
  */
+const lastRunDates = new Map<string, string>(); // projectId → 'YYYY-MM-DD'
+
 async function tick(): Promise<void> {
   const now = new Date();
-  const today = now.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  const today = now.toISOString().slice(0, 10);
   const hour = now.getHours();
 
-  // Only run at the designated hour, and only once per day
-  if (hour !== DAILY_RUN_HOUR) return;
-  if (lastRunDate === today) return;
-
-  lastRunDate = today;
   const enabled = [...heartbeats.values()].filter(c => c.enabled);
   if (enabled.length === 0) return;
 
-  console.log(`[heartbeat] Daily run started — ${enabled.length} project(s) to check`);
+  // Filter to projects whose runHour matches current hour and haven't run today
+  const due = enabled.filter(c => {
+    const targetHour = c.runHour ?? DAILY_RUN_HOUR;
+    if (hour !== targetHour) return false;
+    if (lastRunDates.get(c.projectId) === today) return false;
+    return true;
+  });
+
+  if (due.length === 0) return;
+
+  console.log(`[heartbeat] Running ${due.length} project(s) at hour ${hour}`);
 
   // Run sequentially to avoid overloading (1 AI call per project max)
-  for (const config of enabled) {
+  for (const config of due) {
+    lastRunDates.set(config.projectId, today);
     try {
       await executeHeartbeat(config);
     } catch (err: any) {
@@ -463,7 +594,8 @@ export async function autoRegisterProjectHeartbeats(): Promise<void> {
 
 export function registerHeartbeat(config: HeartbeatConfig): void {
   heartbeats.set(config.projectId, config);
-  console.log(`[heartbeat] Registered "${config.projectName}" (daily ${DAILY_RUN_HOUR}:00, L${config.autonomyLevel})`);
+  const h = config.runHour ?? DAILY_RUN_HOUR;
+  console.log(`[heartbeat] Registered "${config.projectName}" (daily ${h}:00, L${config.autonomyLevel}, Δ≥${config.deltaThreshold ?? 5})`);
 }
 
 export function unregisterHeartbeat(projectId: string): void {
@@ -484,6 +616,27 @@ export function getHeartbeatConfig(projectId: string): HeartbeatConfig | undefin
 
 export function listHeartbeats(): HeartbeatConfig[] {
   return Array.from(heartbeats.values());
+}
+
+/**
+ * Manually trigger heartbeat for a single project (by projectId) or all projects.
+ * Returns summary of what happened.
+ */
+export async function runHeartbeatNow(projectId?: string): Promise<{ ran: number; results: string[] }> {
+  const targets = projectId
+    ? [heartbeats.get(projectId)].filter(Boolean) as HeartbeatConfig[]
+    : [...heartbeats.values()].filter(c => c.enabled);
+
+  const results: string[] = [];
+  for (const config of targets) {
+    try {
+      await executeHeartbeat(config);
+      results.push(`✅ ${config.projectName}`);
+    } catch (err: any) {
+      results.push(`❌ ${config.projectName}: ${err.message}`);
+    }
+  }
+  return { ran: targets.length, results };
 }
 
 export function startHeartbeatScheduler(broadcast: BroadcastFn): void {
