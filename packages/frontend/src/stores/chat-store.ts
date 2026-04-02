@@ -273,7 +273,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   }),
   setRateLimit: (info) => set({ rateLimit: info }),
   setMessages: (msgs) => set({ messages: msgs }),
-  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0, contextInputTokens: 0, contextOutputTokens: 0, contextWindowSize: 0 }, rateLimit: null, pendingQuestion: null, lastTurnMetrics: null, hasMoreMessages: false, loadingMoreMessages: false, oldestMessageId: null }),
+  clearMessages: () => set({ messages: [], cost: { totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0, contextInputTokens: 0, contextOutputTokens: 0, contextWindowSize: 0 }, rateLimit: null, pendingQuestion: null, lastTurnMetrics: null, hasMoreMessages: false, loadingMoreMessages: false, oldestMessageId: null, compactingSessionId: null }),
   setSessionStartTime: (time) => set({ sessionStartTime: time }),
   setTurnStartTime: (time) => set({ turnStartTime: time }),
   markPendingDelivered: () =>

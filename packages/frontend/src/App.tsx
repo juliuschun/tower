@@ -341,7 +341,7 @@ function App() {
           useChatStore.getState().setClaudeSessionId(freshSession.claudeSessionId);
           useSessionStore.getState().updateSessionMeta(session.id, { claudeSessionId: freshSession.claudeSessionId });
         }
-        // Update messages
+        // Update messages — skip setMessages if IDs haven't changed (prevents Virtuoso scroll drift)
         if (msgData) {
           const stored = msgData.messages ?? msgData;
           if (stored?.length > 0) {
@@ -352,10 +352,17 @@ function App() {
               parentToolUseId: m.parent_tool_use_id,
             }));
             sessionMsgCache.set(session.id, msgs);
-            useChatStore.getState().setMessages(msgs);
+
+            // Only replace messages if the set of IDs actually changed
+            const currentMsgs = useChatStore.getState().messages;
+            const currentIds = currentMsgs.map(m => m.id).join(',');
+            const freshIds = msgs.map((m: any) => m.id).join(',');
+            if (currentIds !== freshIds) {
+              useChatStore.getState().setMessages(msgs);
+              useChatStore.getState().bumpScrollGeneration();
+            }
             useChatStore.getState().setHasMoreMessages(msgData.hasMore ?? false);
             useChatStore.getState().setOldestMessageId(msgData.oldestId ?? null);
-            useChatStore.getState().bumpScrollGeneration();
           }
         }
       });
