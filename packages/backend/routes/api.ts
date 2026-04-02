@@ -1280,6 +1280,96 @@ router.post('/pins/reorder', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ───── DOCX → PDF conversion (LibreOffice headless) ─────
+router.get('/files/docx-pdf', async (req, res) => {
+  try {
+    const filePath = req.query.path as string;
+    if (!filePath) return res.status(400).json({ error: 'path required' });
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (userId) {
+      const pathOk = await isPathAccessible(filePath, userId, role);
+      if (!pathOk) return res.status(403).json({ error: 'Access denied: project path' });
+    }
+
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    if (ext !== 'docx' && ext !== 'doc') {
+      return res.status(400).json({ error: 'Only .docx/.doc files supported' });
+    }
+
+    // Check source file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Cache directory: /tmp/tower-docx-cache/
+    const cacheDir = path.join(os.tmpdir(), 'tower-docx-cache');
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+    // Cache key: hash of absolute path + mtime
+    const stat = fs.statSync(filePath);
+    const crypto = await import('crypto');
+    const hash = crypto.createHash('md5')
+      .update(filePath + ':' + stat.mtimeMs)
+      .digest('hex');
+    const cachedPdf = path.join(cacheDir, `${hash}.pdf`);
+
+    // Return cached if exists
+    if (fs.existsSync(cachedPdf)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+      const stream = fs.createReadStream(cachedPdf);
+      stream.pipe(res);
+      return;
+    }
+
+    // Convert with LibreOffice
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const execFileAsync = promisify(execFile);
+
+    // LibreOffice needs a unique user profile for concurrent calls
+    const profileDir = path.join(os.tmpdir(), `lo-profile-${hash}`);
+
+    try {
+      await execFileAsync('libreoffice', [
+        '--headless',
+        '--norestore',
+        `-env:UserInstallation=file://${profileDir}`,
+        '--convert-to', 'pdf',
+        '--outdir', cacheDir,
+        filePath,
+      ], { timeout: 30000 });
+
+      // LibreOffice outputs with original filename but .pdf extension
+      const baseName = path.basename(filePath).replace(/\.docx?$/i, '.pdf');
+      const outputPdf = path.join(cacheDir, baseName);
+
+      // Rename to our cache key
+      if (fs.existsSync(outputPdf) && outputPdf !== cachedPdf) {
+        fs.renameSync(outputPdf, cachedPdf);
+      }
+
+      if (!fs.existsSync(cachedPdf)) {
+        return res.status(500).json({ error: 'PDF conversion failed' });
+      }
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+      const stream = fs.createReadStream(cachedPdf);
+      stream.pipe(res);
+    } finally {
+      // Cleanup temp profile
+      fs.rm(profileDir, { recursive: true, force: true }, () => {});
+    }
+  } catch (error: any) {
+    console.error('[docx-pdf] conversion error:', error.message);
+    res.status(500).json({ error: 'PDF conversion failed: ' + error.message });
+  }
+});
+
 // ───── File Serve (for pin iframe) ─────
 router.get('/files/serve', async (req, res) => {
   try {

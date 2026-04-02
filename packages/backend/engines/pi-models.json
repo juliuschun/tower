@@ -1,35 +1,11 @@
 {
   "models": [
     {
-      "provider": "openrouter",
-      "modelId": "anthropic/claude-sonnet-4.6",
-      "name": "Sonnet 4.6",
-      "badge": "OR"
-    },
-    {
-      "provider": "openrouter",
-      "modelId": "google/gemini-3.1-pro-preview",
-      "name": "Gemini 3.1 Pro",
-      "badge": "OR"
-    },
-    {
-      "provider": "openrouter",
-      "modelId": "x-ai/grok-4.1-fast",
-      "name": "Grok 4.1 Fast",
-      "badge": "OR"
-    },
-    {
-      "provider": "openrouter",
-      "modelId": "moonshotai/kimi-k2.5",
-      "name": "Kimi K2.5",
-      "badge": "OR"
-    },
-    {
-      "provider": "openrouter",
-      "modelId": "minimax/minimax-m2.5",
-      "name": "MiniMax M2.5",
-      "badge": "OR"
+      "provider": "azure-openai-responses",
+      "modelId": "gpt-5.4",
+      "name": "GPT-5.4",
+      "badge": "AZ"
     }
   ],
-  "_comment": "Each entry: provider = Pi SDK provider name, modelId = model identifier within that provider. Badge shown in UI. To add Azure: provider='azure', modelId='gpt-4o', badge='AZ'"
+  "_comment": "provider='azure-openai-responses' uses AZURE_OPENAI_BASE_URL + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT_NAME_MAP (e.g. 'gpt-5.4=gpt-54-tower'). provider='openrouter' uses OPENROUTER_API_KEY."
 }

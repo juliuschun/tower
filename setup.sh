@@ -176,6 +176,18 @@ else
 fi
 
 # ───────────────────────────────────
+# Step 1.5: System packages
+# ───────────────────────────────────
+# LibreOffice Writer — required for DOCX → PDF preview
+if command -v libreoffice &>/dev/null && dpkg -l libreoffice-writer &>/dev/null 2>&1; then
+  info "LibreOffice Writer found"
+else
+  info "Installing LibreOffice Writer (required for DOCX preview)..."
+  sudo apt-get install -y libreoffice-writer 2>&1 | tail -3
+  info "LibreOffice Writer installed"
+fi
+
+# ───────────────────────────────────
 # Step 2: npm install
 # ───────────────────────────────────
 step "Step 2/7: Installing dependencies"

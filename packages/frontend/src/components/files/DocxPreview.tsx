@@ -1,69 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 /**
- * DOCX Preview using docx-preview library.
- * Renders Word documents with accurate layout, images, and Korean text.
+ * DOCX Preview via server-side LibreOffice PDF conversion.
+ * Renders Word documents with near-perfect layout including Korean text.
  */
 export function DocxPreview({ filePath }: { filePath: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (!filePath || !containerRef.current) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        setLoading(true);
-        setError('');
-
-        // Fetch the binary file
-        const token = localStorage.getItem('token') || '';
-        const res = await fetch(
-          `/api/files/serve?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`
-        );
-        if (!res.ok) throw new Error(`Failed to load file (${res.status})`);
-        const blob = await res.blob();
-
-        if (cancelled) return;
-
-        // Dynamically import docx-preview (code-split)
-        const { renderAsync } = await import('docx-preview');
-
-        if (cancelled || !containerRef.current) return;
-
-        // Clear previous content
-        containerRef.current.innerHTML = '';
-
-        await renderAsync(blob, containerRef.current, undefined, {
-          className: 'docx-container',
-          inWrapper: true,
-          ignoreWidth: false,
-          ignoreFonts: false,
-          breakPages: true,
-          useBase64URL: true,
-        });
-      } catch (err: any) {
-        if (!cancelled) setError(err.message || 'Failed to render DOCX');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [filePath]);
+  const token = localStorage.getItem('token') || '';
+  const pdfUrl = `/api/files/docx-pdf?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {loading && (
+      {loading && !error && (
         <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
           <svg className="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Loading document...
+          Converting document...
         </div>
       )}
       {error && (
@@ -71,42 +27,17 @@ export function DocxPreview({ filePath }: { filePath: string }) {
           {error}
         </div>
       )}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-auto bg-gray-100"
-        style={{
-          /* docx-preview renders white pages — give them breathing room */
-          padding: '16px',
+      <iframe
+        src={pdfUrl}
+        className="flex-1 border-0 bg-white"
+        style={{ display: error ? 'none' : 'block' }}
+        title="docx-preview"
+        onLoad={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setError('Failed to load document preview');
         }}
       />
-      <style>{`
-        .docx-container {
-          font-family: 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
-        }
-        .docx-container .docx-wrapper {
-          background: #f3f4f6;
-          padding: 16px;
-        }
-        .docx-container .docx-wrapper > section.docx {
-          background: white;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-          margin: 0 auto 16px;
-          padding: 40px;
-        }
-        /* Korean/CJK text spacing fixes */
-        .docx-container p,
-        .docx-container span,
-        .docx-container div {
-          line-height: 1.6;
-        }
-        .docx-container p {
-          margin-bottom: 0.4em;
-        }
-        /* Preserve explicit line-height from docx-preview inline styles */
-        .docx-container [style*="line-height"] {
-          line-height: unset;
-        }
-      `}</style>
     </div>
   );
 }

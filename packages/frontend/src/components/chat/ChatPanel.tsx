@@ -111,63 +111,95 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     return mergeConsecutiveAssistant(visible);
   }, [messages]);
 
-  // ── Scroll: always start at bottom on session switch ──
-  // Virtuoso key={activeSessionId} remounts on switch → initialTopMostItemIndex handles it.
-  // For cache-miss (messages arrive after empty mount), scroll to bottom explicitly.
+  // ── Scroll: always start at bottom ──
+  //
+  // Root cause of scroll drift: defaultItemHeight (estimated) vs real height mismatch.
+  // Virtuoso estimates total scroll height = itemCount × defaultItemHeight.
+  // Real messages (code blocks, tool results) are 300-500px+, not 80px.
+  // After items render and measure taller, total height grows but scroll position
+  // stays at the old estimated offset → lands in the middle.
+  //
+  // Fix:
+  // 1. Use realistic defaultItemHeight (200px) — closer to actual average.
+  // 2. Imperative scrollToBottom with retries after items measure.
+  // 3. Suppress isAtBottom=false during settle period (height measurement drift).
+
+  const scrollToBottom = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({
+      index: mergedMessages.length - 1,
+      align: 'end',
+      behavior: 'auto',
+    });
+  }, [mergedMessages.length]);
+
+  // Settle period: suppress atBottomStateChange(false) caused by height drift.
+  // Without this, Virtuoso fires atBottom=false as items re-measure,
+  // then followOutput stops auto-scrolling → stuck in the middle.
+  const settleUntil = useRef(0);
+
+  // On session switch: force bottom with retries (items need time to measure)
+  useEffect(() => {
+    if (!activeSessionId || mergedMessages.length === 0) return;
+    isAtBottom.current = true;
+    settleUntil.current = Date.now() + 1000; // suppress false-negatives for 1s
+    scrollToBottom();
+    const t1 = setTimeout(scrollToBottom, 100);
+    const t2 = setTimeout(scrollToBottom, 300);
+    const t3 = setTimeout(scrollToBottom, 600);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cache-miss: messages arrive after empty mount → scroll to bottom
   const hadMessages = useRef(false);
   useEffect(() => {
-    if (activeSessionId) {
-      hadMessages.current = false;
-      isAtBottom.current = true;
-    }
+    if (activeSessionId) hadMessages.current = false;
   }, [activeSessionId]);
   useEffect(() => {
     const has = mergedMessages.length > 0;
     if (has && !hadMessages.current) {
-      // Messages just appeared (cache-miss or first load) → go to bottom
-      requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
-      });
+      isAtBottom.current = true;
+      settleUntil.current = Date.now() + 1000;
+      scrollToBottom();
+      const t1 = setTimeout(scrollToBottom, 100);
+      const t2 = setTimeout(scrollToBottom, 300);
+      hadMessages.current = true;
+      return () => { clearTimeout(t1); clearTimeout(t2); };
     }
     hadMessages.current = has;
-  }, [mergedMessages.length]);
+  }, [mergedMessages.length, scrollToBottom]);
 
-  // When streaming starts → user just sent a message → always scroll to bottom
+  // When streaming starts → always scroll to bottom
   const prevStreaming = useRef(isStreaming);
   useEffect(() => {
     if (isStreaming && !prevStreaming.current) {
       isAtBottom.current = true;
-      virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
+      scrollToBottom();
     }
     prevStreaming.current = isStreaming;
-  }, [isStreaming, mergedMessages.length]);
+  }, [isStreaming, scrollToBottom]);
 
   // When compact finishes → force scroll to bottom
-  // During compacting, banner/layout changes can push isAtBottom to false.
-  // Once it ends, the user expects to see the resumed response at bottom.
   const prevCompacting = useRef(isCompacting);
   useEffect(() => {
     if (prevCompacting.current && !isCompacting) {
-      // Compact just finished → scroll to bottom
       isAtBottom.current = true;
-      requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
-      });
+      settleUntil.current = Date.now() + 500;
+      scrollToBottom();
+      const t = setTimeout(scrollToBottom, 200);
+      return () => clearTimeout(t);
     }
     prevCompacting.current = isCompacting;
-  }, [isCompacting, mergedMessages.length]);
+  }, [isCompacting, scrollToBottom]);
 
-  // Background refresh: only scroll to bottom if user was already at bottom
+  // Background refresh: only scroll if user was already at bottom
   const scrollGen = useChatStore((s) => s.scrollGeneration);
   const prevScrollGen = useRef(scrollGen);
   useEffect(() => {
     if (scrollGen !== prevScrollGen.current) {
       prevScrollGen.current = scrollGen;
-      if (isAtBottom.current) {
-        virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
-      }
+      if (isAtBottom.current) scrollToBottom();
     }
-  }, [scrollGen, mergedMessages.length]);
+  }, [scrollGen, scrollToBottom]);
 
   const lastAssistantIndex = useMemo(() => {
     for (let i = mergedMessages.length - 1; i >= 0; i--) {
@@ -322,11 +354,16 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
               Footer: footerComponent ? () => footerComponent : undefined,
             }}
             followOutput={followOutput}
-            atBottomStateChange={(atBottom) => { isAtBottom.current = atBottom; }}
-            atBottomThreshold={50}
+            atBottomStateChange={(atBottom) => {
+              // During settle period, ignore false signals caused by height re-measurement.
+              // Only accept true (confirms we're at bottom) or false after settle.
+              if (!atBottom && Date.now() < settleUntil.current) return;
+              isAtBottom.current = atBottom;
+            }}
+            atBottomThreshold={150}
             startReached={handleStartReached}
             increaseViewportBy={{ top: 400, bottom: 100 }}
-            defaultItemHeight={80}
+            defaultItemHeight={200}
           />
         )}
 

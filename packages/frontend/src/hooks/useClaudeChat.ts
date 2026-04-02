@@ -703,33 +703,22 @@ export function useClaudeChat() {
           useSessionStore.getState().updateSessionMeta(data.sessionId, { claudeSessionId: data.claudeSessionId });
         }
 
-        // Ignore done signals for sessions we're not currently viewing
-        const _doneSid = useChatStore.getState().sessionId;
-        if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
-
-        setStreaming(false);
-        setTurnStartTime(null);
-        useChatStore.getState().setCompacting(null);
-        useChatStore.getState().setPendingQuestion(null);
-        currentAssistantMsg.current = null;
-        const activeId = useSessionStore.getState().activeSessionId;
-        if (data.claudeSessionId) {
-          setClaudeSessionId(data.claudeSessionId);
-        }
-
-        // Auto-name: trigger if session name looks like default (date format)
+        // Auto-name: trigger BEFORE the session drop check.
+        // User may have switched away during streaming — sdk_done arrives for
+        // a background session. We still want to name it.
         {
-          const msgs = useChatStore.getState().messages;
+          const activeId = useSessionStore.getState().activeSessionId;
           const targetSessionId = data.sessionId || activeId;
           const session = targetSessionId
             ? useSessionStore.getState().sessions.find((s) => s.id === targetSessionId)
             : undefined;
+          // For auto-name we don't need current messages — just check session name
           const autoNameTarget = resolveAutoNameTarget({
             doneSessionId: data.sessionId,
             activeSessionId: activeId,
             sessionName: session?.name,
-            hasUserMsg: msgs.some((m) => m.role === 'user'),
-            hasAssistantMsg: msgs.some((m) => m.role === 'assistant'),
+            hasUserMsg: true,   // sdk_done means at least one exchange happened
+            hasAssistantMsg: true,
           });
           if (autoNameTarget) {
             const tk = localStorage.getItem('token');
@@ -747,6 +736,19 @@ export function useClaudeChat() {
               })
               .catch((err) => { console.warn('[chat] auto-name failed:', err); });
           }
+        }
+
+        // Ignore done signals for sessions we're not currently viewing
+        const _doneSid = useChatStore.getState().sessionId;
+        if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
+
+        setStreaming(false);
+        setTurnStartTime(null);
+        useChatStore.getState().setCompacting(null);
+        useChatStore.getState().setPendingQuestion(null);
+        currentAssistantMsg.current = null;
+        if (data.claudeSessionId) {
+          setClaudeSessionId(data.claudeSessionId);
         }
         break;
       }

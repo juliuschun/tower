@@ -41,6 +41,8 @@ export function ModelSelector() {
         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
           model.badge === 'OR'
             ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
+            : model.badge === 'AZ'
+            ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
             : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
         }`}>
           {model.badge}
@@ -60,6 +62,8 @@ export function ModelSelector() {
           <span className={`text-[9px] font-bold px-1 py-px rounded ${
             current.badge === 'OR'
               ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
+              : current.badge === 'AZ'
+              ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
               : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
           }`}>
             {current.badge}

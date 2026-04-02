@@ -56,6 +56,9 @@ export class PiEngine implements Engine {
       if (process.env.OPENAI_API_KEY) {
         this.authStorage.setRuntimeApiKey('openai', process.env.OPENAI_API_KEY);
       }
+      if (process.env.AZURE_OPENAI_API_KEY) {
+        this.authStorage.setRuntimeApiKey('azure-openai-responses', process.env.AZURE_OPENAI_API_KEY);
+      }
     }
     return this.authStorage;
   }
@@ -426,12 +429,20 @@ export class PiEngine implements Engine {
   }
 
   async quickReply(prompt: string, opts: QuickReplyOpts): Promise<string> {
+    // Parse model provider: "azure-openai-responses/gpt-5.4" or "openrouter/..."
+    const modelStr = opts.model || '';
+    const isAzure = modelStr.startsWith('azure-openai-responses/');
+
+    if (isAzure) {
+      return this.quickReplyAzure(prompt, opts, modelStr.slice('azure-openai-responses/'.length));
+    }
+
     // Pi quick reply: use OpenRouter API directly (lightweight, no session needed)
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error('OPENROUTER_API_KEY not configured for Pi quick reply');
 
     // Parse model: "openrouter/anthropic/claude-sonnet-4.6" → "anthropic/claude-sonnet-4.6"
-    let modelId = opts.model || '';
+    let modelId = modelStr;
     if (modelId.startsWith('openrouter/')) modelId = modelId.slice('openrouter/'.length);
     if (!modelId) {
       // Fallback to first available Pi model
@@ -441,12 +452,48 @@ export class PiEngine implements Engine {
       else throw new Error('No Pi models available');
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    return this.streamChatCompletion(prompt, opts, 'https://openrouter.ai/api/v1/chat/completions', {
+      'Authorization': `Bearer ${apiKey}`,
+    }, modelId);
+  }
+
+  private async quickReplyAzure(prompt: string, opts: QuickReplyOpts, modelId: string): Promise<string> {
+    const apiKey = process.env.AZURE_OPENAI_API_KEY;
+    if (!apiKey) throw new Error('AZURE_OPENAI_API_KEY not configured');
+
+    const baseUrl = (process.env.AZURE_OPENAI_BASE_URL || '').replace(/\/$/, '');
+    if (!baseUrl) throw new Error('AZURE_OPENAI_BASE_URL not configured');
+
+    const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2025-03-01-preview';
+
+    // Resolve deployment name via AZURE_OPENAI_DEPLOYMENT_NAME_MAP (e.g. "gpt-5.4=gpt-54-tower")
+    const deploymentName = this.resolveAzureDeployment(modelId);
+
+    // Strip trailing /openai if present (Pi SDK expects it in AZURE_OPENAI_BASE_URL, but chat completions URL includes /openai/)
+    const rawBase = baseUrl.replace(/\/openai$/, '');
+    const url = `${rawBase}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`;
+    return this.streamChatCompletion(prompt, opts, url, { 'api-key': apiKey }, modelId);
+  }
+
+  private resolveAzureDeployment(modelId: string): string {
+    const mapStr = process.env.AZURE_OPENAI_DEPLOYMENT_NAME_MAP || '';
+    for (const entry of mapStr.split(',')) {
+      const [id, deployment] = entry.trim().split('=', 2);
+      if (id?.trim() === modelId && deployment?.trim()) return deployment.trim();
+    }
+    return modelId; // fallback: use model ID as deployment name
+  }
+
+  private async streamChatCompletion(
+    prompt: string,
+    opts: QuickReplyOpts,
+    url: string,
+    extraHeaders: Record<string, string>,
+    modelId: string,
+  ): Promise<string> {
+    const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
+      headers: { 'Content-Type': 'application/json', ...extraHeaders },
       body: JSON.stringify({
         model: modelId,
         max_tokens: 2048,
@@ -460,7 +507,7 @@ export class PiEngine implements Engine {
 
     if (!response.ok) {
       const errBody = await response.text();
-      throw new Error(`OpenRouter API error ${response.status}: ${errBody.slice(0, 200)}`);
+      throw new Error(`API error ${response.status}: ${errBody.slice(0, 200)}`);
     }
 
     const reader = response.body?.getReader();
