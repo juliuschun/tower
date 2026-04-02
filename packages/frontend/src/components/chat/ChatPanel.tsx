@@ -1,5 +1,5 @@
-import { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
-import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useChatStore, type ChatMessage, type PendingQuestion } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useAiPanelStore } from '../../stores/ai-panel-store';
@@ -9,11 +9,10 @@ import { InputBox } from './InputBox';
 import { FloatingQuestionCard } from './FloatingQuestionCard';
 import { AiPanel } from '../rooms/AiPanel';
 
-/**
- * Per-session Virtuoso state snapshots.
- * Stores full scroll position + measured item heights for reliable restore.
- */
-const sessionSnapshots = new Map<string, StateSnapshot>();
+/* Snapshot system removed — always start at bottom on session switch.
+ * Virtuoso's restoreStateFrom was unreliable across session switches
+ * (stale heights, race conditions with debounced saves, message count drift).
+ * Simple "always bottom" is correct 99% of the time and never breaks. */
 
 /**
  * Merge consecutive assistant messages into one visual message.
@@ -112,58 +111,26 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     return mergeConsecutiveAssistant(visible);
   }, [messages]);
 
-  // ── Scroll position save/restore (getState / restoreStateFrom) ──
-  // Virtuoso's official API: saves measured item heights + scroll offset as a snapshot.
-  // On revisit, restoreStateFrom replays the exact position without re-measuring.
-
-  // Continuously save snapshot on scroll (debounced).
-  // Skip saving for 800ms after session switch to let restoreStateFrom settle.
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const activeSessionRef = useRef(activeSessionId);
-  const settleUntil = useRef(0); // timestamp until which saves are suppressed
-  activeSessionRef.current = activeSessionId;
-
-  const handleRangeChanged = useCallback((_range: { startIndex: number; endIndex: number }) => {
-    if (Date.now() < settleUntil.current) return; // still settling after session switch
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      const sid = activeSessionRef.current;
-      if (sid && virtuosoRef.current) {
-        virtuosoRef.current.getState((snapshot) => {
-          sessionSnapshots.set(sid, snapshot);
-        });
-      }
-    }, 300);
-  }, []);
-
-  // Compute restoreStateFrom: saved snapshot or undefined (first visit)
-  const savedSnapshot = useMemo(() => {
-    if (!activeSessionId) return undefined;
-    return sessionSnapshots.get(activeSessionId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId]); // only recompute on session switch
-
-  // Reset isAtBottom on session switch + suppress snapshot saves during settle
-  useLayoutEffect(() => {
-    isAtBottom.current = !savedSnapshot; // first visit → true (at bottom), revisit → false
-    settleUntil.current = Date.now() + 800; // suppress saves for 800ms
-  }, [activeSessionId, savedSnapshot]);
-
-  // Cache-miss: data arrives after empty Virtuoso mount → scroll to bottom (first visit only)
+  // ── Scroll: always start at bottom on session switch ──
+  // Virtuoso key={activeSessionId} remounts on switch → initialTopMostItemIndex handles it.
+  // For cache-miss (messages arrive after empty mount), scroll to bottom explicitly.
   const hadMessages = useRef(false);
   useEffect(() => {
-    if (activeSessionId) hadMessages.current = false;
+    if (activeSessionId) {
+      hadMessages.current = false;
+      isAtBottom.current = true;
+    }
   }, [activeSessionId]);
   useEffect(() => {
     const has = mergedMessages.length > 0;
-    if (has && !hadMessages.current && !savedSnapshot) {
-      // First visit, no snapshot → go to bottom
+    if (has && !hadMessages.current) {
+      // Messages just appeared (cache-miss or first load) → go to bottom
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: mergedMessages.length - 1, align: 'end', behavior: 'auto' });
       });
     }
     hadMessages.current = has;
-  }, [mergedMessages.length, savedSnapshot]);
+  }, [mergedMessages.length]);
 
   // When streaming starts → user just sent a message → always scroll to bottom
   const prevStreaming = useRef(isStreaming);
@@ -331,10 +298,8 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
             className="flex-1 min-h-0"
             style={{ willChange: 'transform' }}
             data={mergedMessages}
-            {...(savedSnapshot
-              ? { restoreStateFrom: savedSnapshot }
-              : { initialTopMostItemIndex: mergedMessages.length - 1, alignToBottom: true }
-            )}
+            initialTopMostItemIndex={mergedMessages.length - 1}
+            alignToBottom={true}
             itemContent={renderMessage}
             components={{
               Header: headerComponent ? () => headerComponent : undefined,
@@ -343,7 +308,6 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
             followOutput={followOutput}
             atBottomStateChange={(atBottom) => { isAtBottom.current = atBottom; }}
             atBottomThreshold={50}
-            rangeChanged={handleRangeChanged}
             startReached={handleStartReached}
             increaseViewportBy={{ top: 400, bottom: 100 }}
             defaultItemHeight={80}
