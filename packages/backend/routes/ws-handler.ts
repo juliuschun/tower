@@ -21,6 +21,7 @@ import { addRoomClient, removeRoomClient, removeClientFromAllRooms, getRoomClien
 import type { RoomClient } from '../services/room-guards.js';
 import { isPgEnabled } from '../db/pg.js';
 import { canAccessRoom, canAccessSession, isPathAccessible } from '../services/project-access.js';
+import { initWsSync, publishWsSyncEvent, type WsSyncHandlers } from '../services/ws-sync.js';
 
 interface WsClient {
   id: string;
@@ -50,6 +51,240 @@ const clients = new Map<string, WsClient>();
 const sessionClients = new Map<string, Set<string>>(); // sessionId → Set<clientId> (1:many)
 const pendingQuestions = new Map<string, PendingQuestion>(); // questionId → PendingQuestion
 const roomClients = new Map<string, Set<string>>(); // roomId → Set<clientId>
+const remoteStreamingSessions = new Set<string>();
+const remotePendingQuestionsBySession = new Map<string, { questionId: string; questions: any[] }>();
+const pendingSnapshotRequests = new Map<string, {
+  resolve: (snapshot: { isStreaming: boolean; pendingQuestion: { questionId: string; questions: any[] } | null } | null) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+let wsSyncInitStarted = false;
+
+function getLocalPendingQuestion(sessionId: string): { questionId: string; questions: any[] } | null {
+  for (const pq of pendingQuestions.values()) {
+    if (pq.sessionId === sessionId) {
+      return { questionId: pq.questionId, questions: pq.questions };
+    }
+  }
+  return null;
+}
+
+function getCachedRemoteSnapshot(sessionId: string): { isStreaming: boolean; pendingQuestion: { questionId: string; questions: any[] } | null } | null {
+  const pendingQuestion = remotePendingQuestionsBySession.get(sessionId) || null;
+  if (!remoteStreamingSessions.has(sessionId) && !pendingQuestion) return null;
+  return {
+    isStreaming: remoteStreamingSessions.has(sessionId),
+    pendingQuestion,
+  };
+}
+
+async function requestRemoteSessionSnapshot(sessionId: string): Promise<{ isStreaming: boolean; pendingQuestion: { questionId: string; questions: any[] } | null } | null> {
+  if (!isPgEnabled()) return null;
+
+  const requestId = uuidv4();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingSnapshotRequests.delete(requestId);
+      resolve(getCachedRemoteSnapshot(sessionId));
+    }, 250);
+
+    pendingSnapshotRequests.set(requestId, {
+      resolve: (snapshot) => {
+        clearTimeout(timer);
+        pendingSnapshotRequests.delete(requestId);
+        resolve(snapshot);
+      },
+      timer,
+    });
+
+    publishWsSyncEvent(config.serverEpoch, {
+      scope: 'session',
+      sessionId,
+      data: { type: 'session_snapshot_request', requestId },
+    });
+  });
+}
+
+async function getSessionRecoverySnapshot(sessionId: string): Promise<{ isStreaming: boolean; pendingQuestion: { questionId: string; questions: any[] } | null } | null> {
+  const localPendingQuestion = getLocalPendingQuestion(sessionId);
+  const localIsStreaming = !!getSDKSession(sessionId)?.isRunning;
+  if (localIsStreaming || localPendingQuestion) {
+    return {
+      isStreaming: localIsStreaming,
+      pendingQuestion: localPendingQuestion,
+    };
+  }
+
+  const cachedRemote = getCachedRemoteSnapshot(sessionId);
+  if (cachedRemote) return cachedRemote;
+
+  return requestRemoteSessionSnapshot(sessionId);
+}
+
+function resolvePendingQuestionLocally(questionId: string | undefined, answer: string, sessionId?: string): boolean {
+  if (questionId) {
+    const exact = pendingQuestions.get(questionId);
+    if (exact) {
+      exact.resolve(answer);
+      return true;
+    }
+  }
+
+  if (sessionId) {
+    for (const [, entry] of pendingQuestions) {
+      if (entry.sessionId === sessionId) {
+        entry.resolve(answer);
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+async function abortSessionEverywhere(sessionId: string): Promise<void> {
+  let dbSession: Awaited<ReturnType<typeof getSession>> | undefined;
+  try { dbSession = await getSession(sessionId); } catch {}
+  const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
+  try {
+    const engine = await getEngine(engineName);
+    engine.abort(sessionId);
+  } catch {}
+}
+
+function localBroadcastToAll(data: any) {
+  const payload = JSON.stringify(data);
+  for (const client of clients.values()) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+function localBroadcastToSession(sessionId: string, data: any) {
+  const clientIds = sessionClients.get(sessionId);
+  if (!clientIds) return;
+  const payload = JSON.stringify(data);
+  for (const clientId of clientIds) {
+    const client = clients.get(clientId);
+    if (client?.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+function localBroadcastToRoom(roomId: string, data: any, excludeClientId?: string) {
+  const clientIds = getRoomClientIds(roomClients, roomId);
+  const payload = JSON.stringify(data);
+  for (const clientId of clientIds) {
+    if (clientId === excludeClientId) continue;
+    const client = clients.get(clientId);
+    if (client?.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+function localBroadcastToUser(userId: number, data: any) {
+  const payload = JSON.stringify(data);
+  for (const client of clients.values()) {
+    if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+function handleRemoteAllEvent(data: any) {
+  if (data?.type === 'session_status' && typeof data.sessionId === 'string') {
+    if (data.status === 'streaming') {
+      remoteStreamingSessions.add(data.sessionId);
+    } else if (data.status === 'idle') {
+      remoteStreamingSessions.delete(data.sessionId);
+      remotePendingQuestionsBySession.delete(data.sessionId);
+    }
+  }
+
+  localBroadcastToAll(data);
+}
+
+function handleRemoteSessionEvent(sessionId: string, data: any) {
+  if (!data || typeof data !== 'object') return;
+
+  switch (data.type) {
+    case 'session_snapshot_request': {
+      const localPendingQuestion = getLocalPendingQuestion(sessionId);
+      const localIsStreaming = !!getSDKSession(sessionId)?.isRunning;
+      if (!localIsStreaming && !localPendingQuestion) return;
+      publishWsSyncEvent(config.serverEpoch, {
+        scope: 'session',
+        sessionId,
+        data: {
+          type: 'session_snapshot_response',
+          requestId: data.requestId,
+          isStreaming: localIsStreaming,
+          pendingQuestion: localPendingQuestion,
+        },
+      });
+      return;
+    }
+    case 'session_snapshot_response': {
+      if (data.isStreaming) {
+        remoteStreamingSessions.add(sessionId);
+      }
+      if (data.pendingQuestion) {
+        remotePendingQuestionsBySession.set(sessionId, data.pendingQuestion);
+      }
+      const pending = pendingSnapshotRequests.get(data.requestId);
+      if (!pending) return;
+      pending.resolve({
+        isStreaming: !!data.isStreaming,
+        pendingQuestion: data.pendingQuestion || null,
+      });
+      return;
+    }
+    case 'answer_question_sync': {
+      remotePendingQuestionsBySession.delete(sessionId);
+      resolvePendingQuestionLocally(data.questionId, data.answer, sessionId);
+      return;
+    }
+    case 'abort_session_sync': {
+      remoteStreamingSessions.delete(sessionId);
+      remotePendingQuestionsBySession.delete(sessionId);
+      abortSessionEverywhere(sessionId).catch(() => {});
+      return;
+    }
+    case 'ask_user':
+      if (data.questionId && Array.isArray(data.questions)) {
+        remotePendingQuestionsBySession.set(sessionId, { questionId: data.questionId, questions: data.questions });
+      }
+      break;
+    case 'ask_user_timeout':
+    case 'sdk_done':
+      remotePendingQuestionsBySession.delete(sessionId);
+      break;
+    case 'error':
+      if (data.sessionId === sessionId) {
+        remotePendingQuestionsBySession.delete(sessionId);
+      }
+      break;
+  }
+
+  localBroadcastToSession(sessionId, data);
+}
+
+const wsSyncHandlers: WsSyncHandlers = {
+  all(data) {
+    handleRemoteAllEvent(data);
+  },
+  session(sessionId, data) {
+    handleRemoteSessionEvent(sessionId, data);
+  },
+  room(roomId, data) {
+    localBroadcastToRoom(roomId, data);
+  },
+  user(userId, data) {
+    localBroadcastToUser(userId, data);
+  },
+};
 
 /**
  * Claim a claudeSessionId for a Tower session.
@@ -187,12 +422,9 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
  * Used for session status updates that affect the sidebar.
  */
 export function broadcastToAll(data: any) {
-  const payload = JSON.stringify(data);
-  for (const client of clients.values()) {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(payload);
-    }
-  }
+  localBroadcastToAll(data);
+  if (!isPgEnabled()) return;
+  publishWsSyncEvent(config.serverEpoch, { scope: 'all', data });
 }
 
 /**
@@ -200,15 +432,9 @@ export function broadcastToAll(data: any) {
  * Used for streaming messages (sdk_message, sdk_done, ask_user, errors).
  */
 function broadcastToSession(sessionId: string, data: any) {
-  const clientIds = sessionClients.get(sessionId);
-  if (!clientIds) return;
-  const payload = JSON.stringify(data);
-  for (const clientId of clientIds) {
-    const client = clients.get(clientId);
-    if (client?.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(payload);
-    }
-  }
+  localBroadcastToSession(sessionId, data);
+  if (!isPgEnabled()) return;
+  publishWsSyncEvent(config.serverEpoch, { scope: 'session', sessionId, data });
 }
 
 /**
@@ -216,15 +442,9 @@ function broadcastToSession(sessionId: string, data: any) {
  * Used for chat room messages, typing indicators, and AI status updates.
  */
 function broadcastToRoom(roomId: string, data: any, excludeClientId?: string) {
-  const clientIds = getRoomClientIds(roomClients, roomId);
-  const payload = JSON.stringify(data);
-  for (const clientId of clientIds) {
-    if (clientId === excludeClientId) continue;
-    const client = clients.get(clientId);
-    if (client?.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(payload);
-    }
-  }
+  localBroadcastToRoom(roomId, data, excludeClientId);
+  if (!isPgEnabled()) return;
+  publishWsSyncEvent(config.serverEpoch, { scope: 'room', roomId, data });
 }
 
 /**
@@ -248,15 +468,20 @@ function sendToClient(client: WsClient, sessionId: string, data: any) {
 // createCanUseTool → moved to engines/claude-engine.ts
 
 export function broadcast(data: any) {
-  const payload = JSON.stringify(data);
-  for (const client of clients.values()) {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(payload);
-    }
-  }
+  localBroadcastToAll(data);
+  if (!isPgEnabled()) return;
+  publishWsSyncEvent(config.serverEpoch, { scope: 'all', data });
 }
 
 export function setupWebSocket(server: Server) {
+  if (!wsSyncInitStarted) {
+    wsSyncInitStarted = true;
+    initWsSync(config.serverEpoch, wsSyncHandlers).catch((err) => {
+      wsSyncInitStarted = false;
+      console.error('[ws] initWsSync failed:', err?.message || err);
+    });
+  }
+
   const wss = new WebSocketServer({
     server,
     path: '/ws',
@@ -296,7 +521,12 @@ export function setupWebSocket(server: Server) {
 
     clients.set(clientId, client);
 
-    send(ws, { type: 'connected', clientId, serverEpoch: config.serverEpoch, streamingSessions: getAllRunningSessionIds() });
+    send(ws, {
+      type: 'connected',
+      clientId,
+      serverEpoch: config.serverEpoch,
+      streamingSessions: [...new Set([...getAllRunningSessionIds(), ...remoteStreamingSessions])],
+    });
 
     // ── Protocol-level ping (binary frame) ──────────────────────────────
     // Cloudflare and mobile networks need WS protocol pings to keep alive.
@@ -450,48 +680,41 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
   // Add to session's viewer set (1:many — doesn't evict other tabs)
   addSessionClient(sessionClients, sessionId, client.id);
 
-  // Check if SDK is still running for this session
-  const sdkSession = getSDKSession(sessionId);
+  const snapshot = await getSessionRecoverySnapshot(sessionId);
+  const snapshotActive = !!snapshot?.isStreaming || !!snapshot?.pendingQuestion;
 
-  // Find pending question for this session
-  let pendingQ: { questionId: string; questions: any[] } | undefined;
-  for (const pq of pendingQuestions.values()) {
-    if (pq.sessionId === sessionId) {
-      pendingQ = { questionId: pq.questionId, questions: pq.questions };
-      break;
-    }
-  }
-
-  if (sdkSession?.isRunning) {
+  if (snapshotActive) {
     send(client.ws, {
       type: 'reconnect_result',
       status: 'streaming',
       sessionId,
-      pendingQuestion: pendingQ || null,
+      pendingQuestion: snapshot?.pendingQuestion || null,
     });
-  } else {
-    // Check if this session was interrupted by a server restart
-    const interruptedSet: Set<string> | undefined = (globalThis as any).__interruptedSessions;
-    const wasInterrupted = interruptedSet?.has(sessionId) ?? false;
-
-    if (wasInterrupted) {
-      // Consume the flag so it only fires once per reconnect
-      interruptedSet!.delete(sessionId);
-
-      // Look up claudeSessionId from DB for resume
-      const dbSession = await getSession(sessionId);
-      const claudeSessionId = data.claudeSessionId || dbSession?.claudeSessionId;
-
-      send(client.ws, {
-        type: 'reconnect_result',
-        status: 'interrupted',
-        sessionId,
-        claudeSessionId: claudeSessionId || null,
-      });
-    } else {
-      send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
-    }
+    return;
   }
+
+  // Check if this session was interrupted by a server restart
+  const interruptedSet: Set<string> | undefined = (globalThis as any).__interruptedSessions;
+  const wasInterrupted = interruptedSet?.has(sessionId) ?? false;
+
+  if (wasInterrupted) {
+    // Consume the flag so it only fires once per reconnect
+    interruptedSet!.delete(sessionId);
+
+    // Look up claudeSessionId from DB for resume
+    const dbSession = await getSession(sessionId);
+    const claudeSessionId = data.claudeSessionId || dbSession?.claudeSessionId;
+
+    send(client.ws, {
+      type: 'reconnect_result',
+      status: 'interrupted',
+      sessionId,
+      claudeSessionId: claudeSessionId || null,
+    });
+    return;
+  }
+
+  send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
 }
 
 async function handleSetActiveSession(client: WsClient, data: { sessionId: string; claudeSessionId?: string }) {
@@ -532,23 +755,13 @@ async function handleSetActiveSession(client: WsClient, data: { sessionId: strin
   // Always sync claudeSessionId to the new session (clear if not provided)
   client.claudeSessionId = data.claudeSessionId || undefined;
 
-  // Include streaming status + any pending questions in the ack
-  const targetSdkSession = getSDKSession(newSessionId);
-
-  // Find pending question for this session
-  let pendingQ: { questionId: string; questions: any[] } | undefined;
-  for (const pq of pendingQuestions.values()) {
-    if (pq.sessionId === newSessionId) {
-      pendingQ = { questionId: pq.questionId, questions: pq.questions };
-      break;
-    }
-  }
+  const snapshot = await getSessionRecoverySnapshot(newSessionId);
 
   send(client.ws, {
     type: 'set_active_session_ack',
     sessionId: newSessionId,
-    isStreaming: !!targetSdkSession?.isRunning,
-    pendingQuestion: pendingQ || null,
+    isStreaming: !!snapshot?.isStreaming || !!snapshot?.pendingQuestion,
+    pendingQuestion: snapshot?.pendingQuestion || null,
   });
 }
 
@@ -847,23 +1060,26 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
 }
 
 function handleAnswerQuestion(client: WsClient, data: { questionId: string; answer: string; sessionId?: string }) {
-  // Try exact match first
-  const pq = pendingQuestions.get(data.questionId);
-  if (pq) {
-    pq.resolve(data.answer);
+  const sessionId = data.sessionId || client.sessionId;
+  if (resolvePendingQuestionLocally(data.questionId, data.answer, sessionId)) {
+    if (sessionId) {
+      remotePendingQuestionsBySession.delete(sessionId);
+    }
     return;
   }
 
-  // Fallback: find any pending question for this session (orphaned question recovery)
-  const sessionId = data.sessionId || client.sessionId;
-  if (sessionId) {
-    for (const [, entry] of pendingQuestions) {
-      if (entry.sessionId === sessionId) {
-        entry.resolve(data.answer);
-        return;
-      }
-    }
-  }
+  if (!sessionId || !isPgEnabled()) return;
+
+  remotePendingQuestionsBySession.delete(sessionId);
+  publishWsSyncEvent(config.serverEpoch, {
+    scope: 'session',
+    sessionId,
+    data: {
+      type: 'answer_question_sync',
+      questionId: data.questionId,
+      answer: data.answer,
+    },
+  });
 }
 
 async function handleAbort(client: WsClient, data: { sessionId?: string }) {
@@ -871,13 +1087,16 @@ async function handleAbort(client: WsClient, data: { sessionId?: string }) {
   if (sessionId) {
     console.log(`[ws] handleAbort session=${sessionId} client=${client.id}`);
     // Resolve engine and abort
-    let dbSession: Awaited<ReturnType<typeof getSession>> | undefined;
-    try { dbSession = await getSession(sessionId); } catch {}
-    const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
-    try {
-      const engine = await getEngine(engineName);
-      engine.abort(sessionId);
-    } catch {}
+    await abortSessionEverywhere(sessionId);
+    if (isPgEnabled()) {
+      publishWsSyncEvent(config.serverEpoch, {
+        scope: 'session',
+        sessionId,
+        data: { type: 'abort_session_sync' },
+      });
+    }
+    remoteStreamingSessions.delete(sessionId);
+    remotePendingQuestionsBySession.delete(sessionId);
     // Pure: bump epoch + remove this client from session routing
     abortCleanup(client, sessionClients, sessionId);
     send(client.ws, { type: 'abort_result', aborted: true, sessionId });
@@ -1297,12 +1516,9 @@ async function handleRoomRead(client: WsClient, data: { roomId: string }) {
  * Used for member-added notifications so the invited user sees the room immediately.
  */
 export function broadcastToUser(userId: number, data: any) {
-  const payload = JSON.stringify(data);
-  for (const client of clients.values()) {
-    if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(payload);
-    }
-  }
+  localBroadcastToUser(userId, data);
+  if (!isPgEnabled()) return;
+  publishWsSyncEvent(config.serverEpoch, { scope: 'user', userId, data });
 }
 
 async function handleShareToChannel(client: WsClient, data: { roomId: string; sessionId: string; messageId: string; content: string }) {

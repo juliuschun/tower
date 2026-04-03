@@ -10,6 +10,11 @@ const mockCleanupSession = vi.fn();
 const mockGetClaudeSessionId = vi.fn();
 const mockGetActiveSessionCount = vi.fn(() => 0);
 const mockGetSDKSession = vi.fn((): { isRunning: boolean } | undefined => undefined);
+const mockPublishWsSyncEvent = vi.fn();
+const mockInitWsSync = vi.fn(async (_origin: string, handlers: any) => {
+  capturedWsSyncHandlers = handlers;
+});
+let capturedWsSyncHandlers: any = null;
 
 vi.mock('../services/claude-sdk.js', () => ({
   executeQuery: mockExecuteQuery,
@@ -85,6 +90,15 @@ vi.mock('../config.js', () => ({
     gitAutoCommit: false,
   },
   getPermissionMode: vi.fn(() => 'default'),
+}));
+
+vi.mock('../db/pg.js', () => ({
+  isPgEnabled: vi.fn(() => true),
+}));
+
+vi.mock('../services/ws-sync.js', () => ({
+  initWsSync: mockInitWsSync,
+  publishWsSyncEvent: mockPublishWsSyncEvent,
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -361,6 +375,36 @@ describe('ws-handler integration', () => {
 
       ws.close();
     });
+
+    it('set_active_session_ack includes remote pending question from snapshot', async () => {
+      const { ws, messages } = await createWsClient();
+      await waitForMessage(messages, 'connected');
+
+      mockPublishWsSyncEvent.mockImplementation((_origin: string, envelope: any) => {
+        if (envelope.scope === 'session' && envelope.sessionId === 'remote-active' && envelope.data?.type === 'session_snapshot_request') {
+          queueMicrotask(() => {
+            capturedWsSyncHandlers?.session('remote-active', {
+              type: 'session_snapshot_response',
+              requestId: envelope.data.requestId,
+              isStreaming: true,
+              pendingQuestion: {
+                questionId: 'remote-q1',
+                questions: [{ question: 'Continue?', options: [{ label: 'Yes' }] }],
+              },
+            });
+          });
+        }
+      });
+
+      sendJson(ws, { type: 'set_active_session', sessionId: 'remote-active' });
+      const ack = await waitForMessage(messages, 'set_active_session_ack');
+
+      expect(ack.sessionId).toBe('remote-active');
+      expect(ack.isStreaming).toBe(true);
+      expect(ack.pendingQuestion?.questionId).toBe('remote-q1');
+
+      ws.close();
+    });
   });
 
   describe('reconnect', () => {
@@ -397,6 +441,40 @@ describe('ws-handler integration', () => {
 
       clientB.ws.close();
     });
+
+    it('uses remote snapshot to restore streaming status on reconnect', async () => {
+      const client = await createWsClient();
+      await waitForMessage(client.messages, 'connected');
+
+      mockPublishWsSyncEvent.mockImplementation((_origin: string, envelope: any) => {
+        if (envelope.scope === 'session' && envelope.sessionId === 'remote-s1' && envelope.data?.type === 'session_snapshot_request') {
+          queueMicrotask(() => {
+            capturedWsSyncHandlers?.session('remote-s1', {
+              type: 'session_snapshot_response',
+              requestId: envelope.data.requestId,
+              isStreaming: true,
+              pendingQuestion: {
+                questionId: 'q-remote',
+                questions: [{ question: 'Pick one', options: [{ label: 'A' }] }],
+              },
+            });
+          });
+        }
+      });
+
+      sendJson(client.ws, { type: 'reconnect', sessionId: 'remote-s1' });
+      const reconnectResult = await waitForMessage(client.messages, 'reconnect_result');
+
+      expect(reconnectResult).toMatchObject({
+        type: 'reconnect_result',
+        sessionId: 'remote-s1',
+        status: 'streaming',
+      });
+      expect(reconnectResult.pendingQuestion?.questionId).toBe('q-remote');
+      expect(mockPublishWsSyncEvent).toHaveBeenCalled();
+
+      client.ws.close();
+    });
   });
 
   describe('abort', () => {
@@ -414,6 +492,56 @@ describe('ws-handler integration', () => {
       expect(result.aborted).toBe(true);
       expect(result.sessionId).toBe('s1');
       expect(mockAbortSession).toHaveBeenCalledWith('s1');
+
+      ws.close();
+    });
+
+    it('publishes abort sync so remote owner can stop the session', async () => {
+      const { ws, messages } = await createWsClient();
+      await waitForMessage(messages, 'connected');
+
+      sendJson(ws, { type: 'set_active_session', sessionId: 'remote-abort-s1' });
+      await waitForMessage(messages, 'set_active_session_ack');
+
+      sendJson(ws, { type: 'abort', sessionId: 'remote-abort-s1' });
+      await waitForMessage(messages, 'abort_result');
+
+      expect(mockPublishWsSyncEvent).toHaveBeenCalledWith('test-epoch', expect.objectContaining({
+        scope: 'session',
+        sessionId: 'remote-abort-s1',
+        data: expect.objectContaining({ type: 'abort_session_sync' }),
+      }));
+
+      ws.close();
+    });
+  });
+
+  describe('answer_question sync', () => {
+    it('publishes answer sync when pending question lives on another instance', async () => {
+      const { ws, messages } = await createWsClient();
+      await waitForMessage(messages, 'connected');
+
+      sendJson(ws, { type: 'set_active_session', sessionId: 'remote-question-s1' });
+      await waitForMessage(messages, 'set_active_session_ack');
+
+      sendJson(ws, {
+        type: 'answer_question',
+        sessionId: 'remote-question-s1',
+        questionId: 'remote-q1',
+        answer: 'Yes',
+      });
+
+      await delay(50);
+
+      expect(mockPublishWsSyncEvent).toHaveBeenCalledWith('test-epoch', expect.objectContaining({
+        scope: 'session',
+        sessionId: 'remote-question-s1',
+        data: expect.objectContaining({
+          type: 'answer_question_sync',
+          questionId: 'remote-q1',
+          answer: 'Yes',
+        }),
+      }));
 
       ws.close();
     });

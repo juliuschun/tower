@@ -17,6 +17,7 @@ import { startScheduler, stopScheduler } from './services/task-scheduler.js';
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/heartbeat.js';
 import { initNotificationHub } from './services/notification-hub.js';
 import { cleanupStaleSessions } from './services/session-manager.js';
+import { stopWsSync } from './services/ws-sync.js';
 import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs } from './services/skill-registry.js';
 import { backfillTaskProjects } from './services/task-manager.js';
 
@@ -164,7 +165,9 @@ process.on('SIGINT', () => {
   stopOrphanMonitor();
   stopAllMonitors();
   stopFileWatcher();
-  closePgPool().finally(() => server.close(() => process.exit(0)));
+  stopWsSync().catch(() => {}).finally(() => {
+    closePgPool().finally(() => server.close(() => process.exit(0)));
+  });
 });
 
 process.on('SIGTERM', () => {
@@ -174,7 +177,9 @@ process.on('SIGTERM', () => {
   stopOrphanMonitor();
   stopAllMonitors();
   stopFileWatcher();
-  closePgPool().finally(() => server.close(() => process.exit(0)));
+  stopWsSync().catch(() => {}).finally(() => {
+    closePgPool().finally(() => server.close(() => process.exit(0)));
+  });
 });
 
 // Prevent SDK "Operation aborted" errors from crashing the entire backend.
