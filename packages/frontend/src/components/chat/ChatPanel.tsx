@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useChatStore, type ChatMessage, type PendingQuestion } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
+import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 import { useAiPanelStore } from '../../stores/ai-panel-store';
 import { normalizeContentBlocks } from '../../utils/message-parser';
 import { MessageBubble, TurnMetricsBar } from './MessageBubble';
@@ -51,7 +52,7 @@ interface ChatPanelProps {
 
 export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLoadMore }: ChatPanelProps) {
   const messages = useChatStore((s) => s.messages);
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const compactingSessionId = useChatStore((s) => s.compactingSessionId);
   const pendingQuestion = useChatStore((s) => s.pendingQuestion);
   const hasMoreMessages = useChatStore((s) => s.hasMoreMessages);

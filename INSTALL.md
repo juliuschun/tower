@@ -191,10 +191,10 @@ npm run dev
 # → Frontend: http://localhost:32354 (Vite HMR)
 # → Backend:  http://localhost:32355 (tsx watch, auto-restart)
 
-# Production
+# Production (real prod instance = tower-prod on :32364)
 npm install -g pm2    # one-time
 npm run build
-./start.sh start
+./start.sh prod-start
 ```
 
 ---
@@ -375,24 +375,57 @@ Migrations run automatically on server start when `DATABASE_URL` is set.
 
 ## Azure VM Deployment
 
-If you're deploying to an Azure VM, there are extra steps:
+If you're deploying to an Azure VM, prefer the dedicated end-to-end guide:
+
+- `docs/azure-prod-deployment.md`
+- `scripts/azure/create-vm.sh`
+- `scripts/azure/bootstrap-prod.sh`
+- `scripts/azure/deploy-e2e.sh`
+
+### Important repo-specific notes
+
+- Real production runs as PM2 process **`tower-prod`** on **`:32364`**
+- The production start command is **`./start.sh prod-start`**
+- External exposure should usually be **nginx + domain + 80/443**, not direct public access to `32364`
+- `ecosystem.config.cjs` contains the `tower-prod` `PUBLIC_URL`, so it must match your new domain
 
 ### Open Port in Network Security Group
 
 ```bash
 # Replace <RG> and <VM> with your resource group and VM name
+# Recommended: open only 80/443 publicly (plus 22 for SSH)
 az vm open-port \
   --resource-group <RG> \
   --name <VM> \
-  --port 32354 \
+  --port 80 \
   --priority 1010
+
+az vm open-port \
+  --resource-group <RG> \
+  --name <VM> \
+  --port 443 \
+  --priority 1020
+```
+
+### End-to-end deployment example
+
+```bash
+bash scripts/azure/deploy-e2e.sh \
+  --resource-group tower-rg \
+  --location koreacentral \
+  --vm-name okusystem \
+  --admin-user azureuser \
+  --size Standard_B2s \
+  --repo-url git@github.com:your-org/tower.git \
+  --domain tower.example.com \
+  --ssl-mode cloudflare
 ```
 
 ### Optional: Custom Domain with Cloudflare
 
 1. Point your domain's DNS A record to the VM's public IP
 2. Enable Cloudflare Proxy (orange cloud) for SSL
-3. Set `PUBLIC_URL=https://your-domain.com` in `.env`
+3. Ensure `PUBLIC_URL=https://your-domain.com` is reflected in both `.env` and `ecosystem.config.cjs` for `tower-prod`
 
 ### Optional: Cloudflare Quick Tunnel (temporary URL)
 
@@ -402,8 +435,8 @@ curl -L --output /tmp/cloudflared.deb \
   https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i /tmp/cloudflared.deb
 
-# Start tunnel (gives you a temporary https URL)
-cloudflared tunnel --url http://localhost:32354
+# Temporary tunnel to the real prod port
+cloudflared tunnel --url http://localhost:32364
 ```
 
 ---
@@ -449,17 +482,31 @@ Copy `.env.example` to `.env` and edit:
 
 ---
 
-## Server Management (Production)
+## Server Management
+
+### Dev PM2 instance (`tower` on `:32354`)
 
 ```bash
-./start.sh start     # Build + start with PM2
-./start.sh stop      # Stop
-./start.sh restart   # Rebuild + restart
-./start.sh logs      # View logs (last 50 lines)
-./start.sh status    # Check status
+./start.sh start
+./start.sh stop
+./start.sh restart
+./start.sh logs
+./start.sh status
+./start.sh verify
 ```
 
-> **Warning**: Do NOT mix `npm run dev` and `./start.sh`. They use different ports and database paths. Pick one.
+### Production PM2 instance (`tower-prod` on `:32364`)
+
+```bash
+./start.sh prod-start
+./start.sh prod-stop
+./start.sh prod-restart
+./start.sh prod-logs
+./start.sh prod-status
+./start.sh prod-verify
+```
+
+> **Warning**: Do NOT mix `npm run dev` and `./start.sh`. They use different ports and process layouts. Pick one.
 
 ---
 
@@ -468,18 +515,21 @@ Copy `.env.example` to `.env` and edit:
 After starting, run these checks:
 
 ```bash
-# 1. Backend health
+# Development instance health
 curl -s http://localhost:32354/api/health
 
-# 2. WebSocket upgrade
+# Production instance health
+curl -s http://localhost:32364/api/health
+
+# Production WebSocket upgrade
 curl -s -i --http1.1 \
   -H "Upgrade: websocket" -H "Connection: Upgrade" \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
   -H "Sec-WebSocket-Version: 13" \
-  http://localhost:32354/ws 2>&1 | head -3
+  http://localhost:32364/ws 2>&1 | head -3
 # → Should return HTTP/1.1 101
 
-# 3. Claude CLI accessible
+# Claude CLI accessible
 claude --version
 ```
 

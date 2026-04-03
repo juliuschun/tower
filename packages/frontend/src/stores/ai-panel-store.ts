@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { SessionMeta } from '@tower/shared';
-import type { ChatMessage } from './chat-store';
+import type { ChatMessage, PendingQuestion } from './chat-store';
 import { normalizeContentBlocks } from '../utils/message-parser';
 
 export type AiPanelContextType = 'room' | 'session';
@@ -15,6 +15,7 @@ interface AiPanelState {
   activeThreadId: string | null;
   messages: ChatMessage[];
   isStreaming: boolean;
+  pendingQuestion: PendingQuestion | null;
   loading: boolean;
 
   setOpen: (open: boolean) => void;
@@ -29,6 +30,7 @@ interface AiPanelState {
   addMessage: (message: ChatMessage) => void;
   updateAssistantById: (id: string, content: ChatMessage['content']) => void;
   setStreaming: (v: boolean) => void;
+  setPendingQuestion: (pq: PendingQuestion | null) => void;
   setLoading: (v: boolean) => void;
   reset: () => void;
 }
@@ -42,6 +44,7 @@ export const useAiPanelStore = create<AiPanelState>((set) => ({
   activeThreadId: null,
   messages: [],
   isStreaming: false,
+  pendingQuestion: null,
   loading: false,
 
   setOpen: (open) => set({ open }),
@@ -74,6 +77,7 @@ export const useAiPanelStore = create<AiPanelState>((set) => ({
       return { messages: msgs };
     }),
   setStreaming: (v) => set({ isStreaming: v }),
+  setPendingQuestion: (pq) => set({ pendingQuestion: pq }),
   setLoading: (v) => set({ loading: v }),
   reset: () => set({
     open: false,
@@ -84,6 +88,7 @@ export const useAiPanelStore = create<AiPanelState>((set) => ({
     activeThreadId: null,
     messages: [],
     isStreaming: false,
+    pendingQuestion: null,
     loading: false,
   }),
 }));

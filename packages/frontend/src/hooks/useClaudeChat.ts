@@ -7,6 +7,7 @@ import { useModelStore, getModelIdForBackend } from '../stores/model-store';
 import { useGitStore } from '../stores/git-store';
 import { parseSDKMessage } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef, resolveAutoNameTarget, resolveSendSessionId, isServerRestarted } from '../utils/session-filters';
+import { normalizePendingQuestion } from '../utils/pending-question';
 import { generateUUID } from '../utils/uuid';
 import { toastSuccess, toastError, toastWarning, toastInfo } from '../utils/toast';
 import { notifyTaskComplete, requestNotificationPermission } from '../utils/notify';
@@ -294,13 +295,12 @@ export function useClaudeChat() {
             mergeMessagesFromDb(data.sessionId);
           }
           // Restore pending question if backend has one
-          if (data.pendingQuestion) {
-            useChatStore.getState().setPendingQuestion({
-              questionId: data.pendingQuestion.questionId,
-              sessionId: data.sessionId,
-              questions: data.pendingQuestion.questions,
-            });
-          }
+          const restoredPendingQuestion = normalizePendingQuestion({
+            questionId: data.pendingQuestion?.questionId,
+            sessionId: data.sessionId,
+            questions: data.pendingQuestion?.questions,
+          });
+          useChatStore.getState().setPendingQuestion(restoredPendingQuestion);
           // Stream silently re-attached — no toast distraction
         } else if (data.status === 'interrupted') {
           // Server restarted while this session was streaming — auto-resume
@@ -348,6 +348,7 @@ export function useClaudeChat() {
           const wasStreaming = useChatStore.getState().isStreaming || safetyTimerFired.current;
           useChatStore.getState().setStreaming(false);
           useChatStore.getState().setTurnStartTime(null);
+          useChatStore.getState().setPendingQuestion(null);
           safetyTimerFired.current = false;
           currentAssistantMsg.current = null;
           if (wasStreaming && data.sessionId) {
@@ -411,27 +412,45 @@ export function useClaudeChat() {
           }
         }
         // Restore pending question if backend has one
-        if (data.pendingQuestion) {
-          useChatStore.getState().setPendingQuestion({
-            questionId: data.pendingQuestion.questionId,
-            sessionId: data.sessionId,
-            questions: data.pendingQuestion.questions,
-          });
-        }
+        const restoredPendingQuestion = normalizePendingQuestion({
+          questionId: data.pendingQuestion?.questionId,
+          sessionId: data.sessionId,
+          questions: data.pendingQuestion?.questions,
+        });
+        useChatStore.getState().setPendingQuestion(restoredPendingQuestion);
         break;
       }
 
       case 'session_status': {
         // Update sidebar streaming indicators
         if (data.sessionId) {
-          useSessionStore.getState().setSessionStreaming(data.sessionId, data.status === 'streaming');
+          const isStreamingNow = data.status === 'streaming';
+          useSessionStore.getState().setSessionStreaming(data.sessionId, isStreamingNow);
           // Bump updatedAt so sidebar re-sorts (covers background sessions too)
           useSessionStore.getState().updateSessionMeta(data.sessionId, { updatedAt: new Date().toISOString() });
 
+          // Keep the active chat panel in sync with the authoritative per-session status.
+          // Without this, the sidebar can say "idle" while tool chips still think they're running
+          // because chat-store.isStreaming is a global flag that may lag after session switches.
+          const currentSid = useChatStore.getState().sessionId;
+          if (data.sessionId === currentSid) {
+            useChatStore.getState().setStreaming(isStreamingNow);
+            if (isStreamingNow) {
+              if (!useChatStore.getState().turnStartTime) {
+                useChatStore.getState().setTurnStartTime(Date.now());
+              }
+            } else {
+              useChatStore.getState().setTurnStartTime(null);
+              const pendingQuestion = useChatStore.getState().pendingQuestion;
+              if (pendingQuestion?.sessionId === data.sessionId) {
+                useChatStore.getState().setPendingQuestion(null);
+              }
+            }
+          }
+
           // Auto-send queued messages for BACKGROUND sessions that finish streaming.
           // Active session queue is handled by InputBox's useEffect.
-          const currentSid = useChatStore.getState().sessionId;
-          if (data.status !== 'streaming' && data.sessionId !== currentSid) {
+          if (!isStreamingNow && data.sessionId !== currentSid) {
             const queue = useChatStore.getState().messageQueue[data.sessionId];
             if (queue && queue.length > 0) {
               const msg = useChatStore.getState().dequeueMessage(data.sessionId);
@@ -879,11 +898,12 @@ export function useClaudeChat() {
       case 'ask_user': {
         const curSid = useChatStore.getState().sessionId;
         if (shouldDropSessionMessage(curSid, data.sessionId)) return;
-        useChatStore.getState().setPendingQuestion({
+        const normalizedPendingQuestion = normalizePendingQuestion({
           questionId: data.questionId,
           sessionId: data.sessionId,
           questions: data.questions,
         });
+        useChatStore.getState().setPendingQuestion(normalizedPendingQuestion);
         break;
       }
 
@@ -905,6 +925,16 @@ export function useClaudeChat() {
         if (data.errorCode === 'SESSION_BUSY') {
           console.warn('[chat] SESSION_BUSY — message will be auto-sent when current turn finishes');
           toastWarning('Message queued — waiting for current response');
+          if (data.sessionId) {
+            useSessionStore.getState().setSessionStreaming(data.sessionId, true);
+            const activeSessionId = useChatStore.getState().sessionId;
+            if (activeSessionId === data.sessionId) {
+              useChatStore.getState().setStreaming(true);
+              if (!useChatStore.getState().turnStartTime) {
+                useChatStore.getState().setTurnStartTime(Date.now());
+              }
+            }
+          }
           // Re-queue: broadcast a custom event so InputBox can re-queue the message
           window.dispatchEvent(new CustomEvent('session-busy-requeue'));
           break;
@@ -1221,6 +1251,9 @@ export function useClaudeChat() {
       setTurnStartTime(Date.now());
       useChatStore.getState().setLastTurnMetrics(null);
       currentAssistantMsg.current = null;
+      // Optimistically mark the active session as streaming so sidebar, tool chips,
+      // stop button, and queue behavior all agree immediately before session_status arrives.
+      useSessionStore.getState().setSessionStreaming(activeSid, true);
 
       // Bump updatedAt so the session moves to top of sidebar immediately
       useSessionStore.getState().updateSessionMeta(activeSid, { updatedAt: new Date().toISOString() });
@@ -1239,12 +1272,14 @@ export function useClaudeChat() {
   );
 
   const abort = useCallback(() => {
-    send({ type: 'abort', sessionId: useChatStore.getState().sessionId });
-    setStreaming(false);
-    setTurnStartTime(null);
+    const sessionId = useChatStore.getState().sessionId;
+    send({ type: 'abort', sessionId });
+    // Keep streaming=true until the backend confirms the Pi session is actually idle.
+    // Otherwise a fast follow-up message can race with Pi's internal abort and trigger
+    // "Agent is already processing" from the SDK.
     useChatStore.getState().setCompacting(null);
     useChatStore.getState().setPendingQuestion(null);
-  }, [send, setStreaming, setTurnStartTime]);
+  }, [send]);
 
   const setActiveSession = useCallback(
     (sessionId: string, claudeSessionId?: string | null) => {

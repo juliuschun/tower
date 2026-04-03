@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getToolLabel, getToolSummary } from '../../utils/message-parser';
-import { useChatStore } from '../../stores/chat-store';
+import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 
 interface ToolUseCardProps {
   name: string;
@@ -85,7 +85,7 @@ function getToolMeta(name: string) {
 }
 
 export function ToolChip({ name, input, result, isActive, isLast, onClick }: ToolChipProps & { isLast?: boolean }) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const isRunning = !result && isStreaming && isLast;
   const meta = getToolMeta(name);
   const summary = getToolSummary(name, input);
@@ -176,7 +176,7 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
 }
 
 export function ToolUseCard({ name, input, result, onFileClick, compact, defaultExpanded }: ToolUseCardProps) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const isRunning = !result && isStreaming;
 
   // Collapsed by default — click to expand (or defaultExpanded from chip)

@@ -4,8 +4,10 @@ import { useRoomStore } from '../../stores/room-store';
 import { useSessionStore } from '../../stores/session-store';
 import type { ChatMessage, ContentBlock } from '../../stores/chat-store';
 import { extractThinkingTitle, normalizeContentBlocks } from '../../utils/message-parser';
+import { normalizePendingQuestion } from '../../utils/pending-question';
 import { generateUUID } from '../../utils/uuid';
 import { RichContent } from '../shared/RichContent';
+import { FloatingQuestionCard } from '../chat/FloatingQuestionCard';
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -137,6 +139,7 @@ function ThreadView({ onBack, onShare }: {
 }) {
   const messages = useAiPanelStore((s) => s.messages);
   const isStreaming = useAiPanelStore((s) => s.isStreaming);
+  const pendingQuestion = useAiPanelStore((s) => s.pendingQuestion);
   const activeThreadId = useAiPanelStore((s) => s.activeThreadId);
   const threads = useAiPanelStore((s) => s.threads);
   const contextType = useAiPanelStore((s) => s.contextType);
@@ -148,7 +151,19 @@ function ThreadView({ onBack, onShare }: {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
-  }, [messages.length]);
+  }, [messages.length, pendingQuestion?.questionId]);
+
+  const handleAnswerQuestion = useCallback((questionId: string, answer: string) => {
+    const ws = (window as any).__claudeWs;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !activeThreadId) return;
+    ws.send(JSON.stringify({
+      type: 'answer_question',
+      sessionId: activeThreadId,
+      questionId,
+      answer,
+    }));
+    useAiPanelStore.getState().setPendingQuestion(null);
+  }, [activeThreadId]);
 
   const handleSend = useCallback(() => {
     if (!input.trim() || !activeThreadId || isStreaming) return;
@@ -236,6 +251,13 @@ function ThreadView({ onBack, onShare }: {
 
       {/* Input */}
       <div className="border-t border-surface-800 px-3 py-2 shrink-0">
+        {pendingQuestion && (
+          <FloatingQuestionCard
+            question={pendingQuestion}
+            onAnswer={handleAnswerQuestion}
+            onDismiss={() => useAiPanelStore.getState().setPendingQuestion(null)}
+          />
+        )}
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
@@ -278,6 +300,7 @@ export function AiPanel() {
       useAiPanelStore.getState().setContext('room', activeRoomId);
       useAiPanelStore.getState().setActiveThreadId(null);
       useAiPanelStore.getState().setMessages([]);
+      useAiPanelStore.getState().setPendingQuestion(null);
     }
   }, [activeRoomId, contextId, contextType]);
 
@@ -333,12 +356,32 @@ export function AiPanel() {
           }
         }
 
+        if (data.type === 'ask_user' && data.sessionId === store.activeThreadId) {
+          const normalizedPendingQuestion = normalizePendingQuestion({
+            questionId: data.questionId,
+            sessionId: data.sessionId,
+            questions: data.questions,
+          });
+          store.setPendingQuestion(normalizedPendingQuestion);
+        }
+
+        if (data.type === 'ask_user_timeout') {
+          const pq = store.pendingQuestion;
+          if (pq && pq.questionId === data.questionId) {
+            store.setPendingQuestion(null);
+          }
+        }
+
         if (data.type === 'sdk_done' && data.sessionId === store.activeThreadId) {
           store.setStreaming(false);
+          store.setPendingQuestion(null);
         }
 
         if (data.type === 'session_status' && data.sessionId === store.activeThreadId) {
           store.setStreaming(data.status === 'streaming');
+          if (data.status !== 'streaming') {
+            store.setPendingQuestion(null);
+          }
         }
       } catch {}
     };
@@ -357,6 +400,7 @@ export function AiPanel() {
       useAiPanelStore.getState().addThread(thread);
       useAiPanelStore.getState().setActiveThreadId(thread.id);
       useAiPanelStore.getState().setMessages([]);
+      useAiPanelStore.getState().setPendingQuestion(null);
     } catch (err) {
       console.error('[AiPanel] Failed to create thread:', err);
     }
@@ -370,6 +414,7 @@ export function AiPanel() {
     useAiPanelStore.getState().setActiveThreadId(null);
     useAiPanelStore.getState().setMessages([]);
     useAiPanelStore.getState().setStreaming(false);
+    useAiPanelStore.getState().setPendingQuestion(null);
   };
 
   // Share to channel (only available in room mode)

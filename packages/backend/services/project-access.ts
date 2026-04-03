@@ -223,9 +223,12 @@ export function buildProjectPathEnforcement(
   return (toolName: string, input: Record<string, unknown>): DamageCheckResult => {
     const paths: string[] = [];
 
-    // File tools: file_path, path, notebook_path
+    // File tools: file_path, path, notebook_path, files[]
     for (const key of ['file_path', 'path', 'notebook_path']) {
       if (typeof input[key] === 'string') paths.push(input[key] as string);
+    }
+    if (Array.isArray(input.files)) {
+      paths.push(...input.files.filter((p): p is string => typeof p === 'string'));
     }
 
     // Bash: extract absolute paths
@@ -318,15 +321,20 @@ export function buildToolGuard(opts: {
  * not just file/bash tools. Path extraction only runs for known file tools.
  */
 export function wrapPiTools(tools: any[], guard: ToolGuard): any[] {
-  // Tools whose first positional arg has a 'path' field
-  const FILE_TOOLS = new Set(['read', 'write', 'edit', 'grep', 'find', 'ls']);
+  const normalizeToolName = (name: string) => {
+    if (!name.includes('_')) return name.charAt(0).toUpperCase() + name.slice(1);
+    return name
+      .split('_')
+      .filter(Boolean)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('');
+  };
 
   return tools.map(tool => {
     const toolName: string = tool.name || '';
     if (!tool.execute) return tool; // safety: skip if no execute
 
     const origExecute = tool.execute;
-    const hasPathParam = FILE_TOOLS.has(toolName);
     const isBash = toolName === 'bash';
 
     return {
@@ -338,15 +346,13 @@ export function wrapPiTools(tools: any[], guard: ToolGuard): any[] {
 
         // Map Pi param names → guard expected format
         const input: Record<string, unknown> = {};
-        if (hasPathParam && args.path) {
-          input.file_path = args.path;
-        }
-        if (isBash && args.command) {
-          input.command = args.command;
-        }
+        if (args.path) input.file_path = args.path;
+        if (args.file_path) input.file_path = args.file_path;
+        if (args.notebook_path) input.notebook_path = args.notebook_path;
+        if (Array.isArray(args.files)) input.files = args.files;
+        if (isBash && args.command) input.command = args.command;
 
-        // Capitalize tool name for consistency with Claude tool names
-        const guardName = toolName.charAt(0).toUpperCase() + toolName.slice(1);
+        const guardName = normalizeToolName(toolName);
         const check = guard(guardName, input);
         if (!check.allowed) {
           return {

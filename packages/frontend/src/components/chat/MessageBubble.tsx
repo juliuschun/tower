@@ -6,6 +6,7 @@ import { splitDynamicBlocks } from '../shared/split-dynamic-blocks';
 // getToolLabel / getToolSummary used by ToolUseCard.tsx
 import { toastSuccess } from '../../utils/toast';
 import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
+import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -208,7 +209,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
 }
 
 function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void }) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const [expanded, setExpanded] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   // Filter out blocks without valid toolUse data
@@ -381,7 +382,7 @@ interface TodoInlineItem {
 }
 
 function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?: boolean }) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const todos: TodoInlineItem[] = input.todos || [];
   if (todos.length === 0) return null;
 
@@ -746,7 +747,7 @@ function useAgentToolStats(toolId: string) {
 }
 
 function AgentCard({ block }: { block: ContentBlock }) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const [expanded, setExpanded] = useState(false);
   const tool = block.toolUse!;
   const isRunning = !tool.result && isStreaming;
@@ -947,7 +948,7 @@ function fmtContextLabel(input: number): string | null {
 const CONTEXT_MAX_FALLBACK = 200_000;
 
 export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isLast?: boolean }) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const turnStartTime = useChatStore((s) => s.turnStartTime);
   const lastTurnMetrics = useChatStore((s) => s.lastTurnMetrics);
   const [elapsed, setElapsed] = useState(0);

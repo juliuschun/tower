@@ -55,17 +55,37 @@ describe('Pi engine — source contracts', () => {
     expect(src).toMatch(/engineSessionId.*piSessionFile|piSessionFile.*engineSessionId/s);
   });
 
-  it('abort breaks the yield loop', () => {
+  it('abort keeps session busy until prompt promise settles', () => {
     const src = readSource(PI_ENGINE_PATH);
-    // abort() should set isRunning = false
-    expect(src).toMatch(/entry\.isRunning\s*=\s*false/);
-    // yield loop should check isRunning
-    expect(src).toMatch(/!entry\.isRunning/);
+    expect(src).toMatch(/entry\.abortRequested\s*=\s*true/);
+    expect(src).toMatch(/keep isRunning=true until the prompt promise actually settles/i);
+    expect(src).toMatch(/await promptPromise/);
   });
 
   it('stores session files in {cwd}/.pi/sessions/', () => {
     const src = readSource(PI_ENGINE_PATH);
     expect(src).toMatch(/\.pi.*sessions/);
+  });
+
+  it('buffers turn usage until the whole prompt finishes', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/pendingTurnUsage/);
+    expect(src).toMatch(/entry\.session\.prompt\(prompt\)[\s\S]*?pendingTurnUsage[\s\S]*?type: 'turn_done'/);
+  });
+
+  it('does not emit turn_done directly from message_end', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    const messageEndBlock = src.match(/case 'message_end':[\s\S]*?break;\n        }/);
+    expect(messageEndBlock?.[0]).toBeTruthy();
+    expect(messageEndBlock?.[0]).not.toContain("type: 'turn_done'");
+  });
+
+  it('syncs final assistant content from message_end payload', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/agentMessageToTowerBlocks/);
+    expect(src).toMatch(/message_end[\s\S]*?accumulator\.replaceAll\(finalContent\)/);
+    expect(src).toMatch(/message_end[\s\S]*?updateMessageContent\(msgId, finalContent\)/);
+    expect(src).toMatch(/message_end[\s\S]*?type: 'assistant'[\s\S]*?content: finalContent/);
   });
 });
 
@@ -272,5 +292,14 @@ describe('Pi session persistence — source contracts', () => {
     );
     // engine_done handler should call claimClaudeSessionId
     expect(wsHandlerSrc).toMatch(/engine_done[\s\S]*?claimClaudeSessionId/);
+  });
+
+  it('ws-handler clears pending ask-user state on abort and sanitizes empty question payloads', () => {
+    const wsHandlerSrc = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../../routes/ws-handler.ts'), 'utf-8'
+    );
+    expect(wsHandlerSrc).toMatch(/cancelPendingQuestionsForSession\(sessionId, 'Session aborted'\)/);
+    expect(wsHandlerSrc).toMatch(/sanitizeAskUserQuestions/);
+    expect(wsHandlerSrc).toMatch(/ask_user dropped empty payload/);
   });
 });

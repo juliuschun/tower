@@ -39,6 +39,9 @@ type AgentSession = Awaited<ReturnType<typeof createAgentSession>>['session'];
 interface PiSessionEntry {
   session: AgentSession;
   isRunning: boolean;
+  abortRequested?: boolean;
+  activePrompt?: Promise<void> | null;
+  _abortResolve?: (() => void) | null;
 }
 
 export class PiEngine implements Engine {
@@ -89,6 +92,7 @@ export class PiEngine implements Engine {
         list.push({
           id: m.modelId,
           name: m.name || m.modelId,
+          api: m.api || m.provider,
           reasoning: false,
           input: ['text', 'image'] as ('text' | 'image')[],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -98,28 +102,18 @@ export class PiEngine implements Engine {
         byProvider.set(m.provider, list);
       }
 
-      // Register each provider with its models
+      // registerProvider replaces ALL models for that provider, so we must
+      // include every custom model (not filter out "existing" ones).
       for (const [provider, providerModels] of byProvider) {
-        // Only register models that aren't already in the registry
-        const newModels = providerModels.filter((m: any) => !registry.find(provider, m.id));
-        if (newModels.length > 0) {
-          // Get existing models for this provider to merge
-          const existing = registry.getAll().filter((m: any) => m.provider === provider);
-          const allModels = [
-            ...existing.map((m: any) => ({
-              id: m.id,
-              name: m.name,
-              reasoning: m.reasoning,
-              input: m.input,
-              cost: m.cost,
-              contextWindow: m.contextWindow,
-              maxTokens: m.maxTokens,
-            })),
-            ...newModels,
-          ];
-          registry.registerProvider(provider, { models: allModels });
-          console.log(`[Pi] Registered ${newModels.length} custom model(s) for provider "${provider}": ${newModels.map((m: any) => m.id).join(', ')}`);
+        const providerOpts: any = { models: providerModels };
+        if (provider === 'azure-openai-responses') {
+          providerOpts.baseUrl = process.env.AZURE_OPENAI_BASE_URL || '';
+          providerOpts.apiKey = process.env.AZURE_OPENAI_API_KEY || '';
+        } else if (provider === 'openrouter') {
+          providerOpts.apiKey = process.env.OPENROUTER_API_KEY || '';
         }
+        registry.registerProvider(provider, providerOpts);
+        console.log(`[Pi] Registered ${providerModels.length} custom model(s) for provider "${provider}": ${providerModels.map((m: any) => m.id).join(', ')}`);
       }
     } catch (err: any) {
       console.warn(`[Pi] Failed to load custom models: ${err.message}`);
@@ -153,6 +147,7 @@ export class PiEngine implements Engine {
     }
 
     entry.isRunning = true;
+    entry.abortRequested = false;
 
     // 2. ContentAccumulator + event queue
     const accumulator = new ContentAccumulator();
@@ -161,6 +156,15 @@ export class PiEngine implements Engine {
     let resolveWait: (() => void) | null = null;
     let done = false;
     let stopReason: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | undefined;
+    // Pi emits message_end for intermediate tool-use messages too.
+    // Hold the latest usage until the whole prompt is actually finished.
+    let pendingTurnUsage: {
+      inputTokens: number;
+      outputTokens: number;
+      costUsd?: number;
+      durationMs: number;
+      stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
+    } | null = null;
 
     // Save initial assistant message to DB
     let assistantSaved = false;
@@ -220,24 +224,27 @@ export class PiEngine implements Engine {
           const msg = event.message;
           const usage = msg?.usage;
           stopReason = msg?.stopReason || stopReason;
+
+          if (msg?.role === 'assistant' && Array.isArray(msg.content)) {
+            const finalContent = agentMessageToTowerBlocks(msg);
+            accumulator.replaceAll(finalContent);
+            if (!assistantSaved) {
+              callbacks.saveMessage({ id: msgId, role: 'assistant', content: finalContent });
+              assistantSaved = true;
+            } else {
+              callbacks.updateMessageContent(msgId, finalContent);
+            }
+            eventQueue.push({ type: 'assistant', sessionId, msgId, content: finalContent });
+          }
+
           if (usage) {
-            callbacks.updateMessageMetrics(msgId, {
+            pendingTurnUsage = {
               inputTokens: usage.input || 0,
               outputTokens: usage.output || 0,
-            });
-
-            eventQueue.push({
-              type: 'turn_done',
-              sessionId,
-              msgId,
-              usage: {
-                inputTokens: usage.input || 0,
-                outputTokens: usage.output || 0,
-                costUsd: usage.cost?.total,
-                durationMs: 0,
-                stopReason,
-              },
-            });
+              costUsd: usage.cost?.total,
+              durationMs: 0,
+              stopReason,
+            };
           }
           resolveWait?.();
           break;
@@ -250,26 +257,43 @@ export class PiEngine implements Engine {
     // 4. Execute prompt
     const promptPromise = entry.session.prompt(prompt)
       .then(() => {
-        done = true;
-        resolveWait?.();
+        if (pendingTurnUsage) {
+          callbacks.updateMessageMetrics(msgId, {
+            inputTokens: pendingTurnUsage.inputTokens,
+            outputTokens: pendingTurnUsage.outputTokens,
+          });
+          eventQueue.push({
+            type: 'turn_done',
+            sessionId,
+            msgId,
+            usage: pendingTurnUsage,
+          });
+          pendingTurnUsage = null;
+        }
       })
       .catch((err: any) => {
-        eventQueue.push({
-          type: 'engine_error',
-          sessionId,
-          message: err.message || 'Pi prompt failed',
-        });
+        const message = err?.message || 'Pi prompt failed';
+        const isAbortError = entry.abortRequested && /abort|cancel/i.test(message);
+        if (!isAbortError) {
+          eventQueue.push({
+            type: 'engine_error',
+            sessionId,
+            message,
+          });
+        }
+      })
+      .finally(() => {
         done = true;
         resolveWait?.();
       });
+    entry.activePrompt = promptPromise;
 
     // 5. Yield loop (with abort detection)
-    // Store abort resolver on entry so abort() can break the loop
+    // Store abort resolver on entry so abort() can break the loop,
+    // but keep isRunning=true until Pi's prompt promise actually settles.
     try {
       while (!done || eventQueue.length > 0) {
-        if (!entry.isRunning) {
-          // Aborted externally
-          done = true;
+        if (entry.abortRequested && eventQueue.length === 0) {
           break;
         }
         if (eventQueue.length > 0) {
@@ -277,14 +301,14 @@ export class PiEngine implements Engine {
         } else {
           await new Promise<void>(r => {
             resolveWait = r;
-            (entry as any)._abortResolve = r;
+            entry._abortResolve = r;
           });
           resolveWait = null;
+          entry._abortResolve = null;
         }
       }
-      if (entry.isRunning) {
-        await promptPromise;
-      }
+
+      await promptPromise;
 
       // 6. Engine done — include session file path for persistence
       const piSessionFile = entry.session.sessionFile;
@@ -300,6 +324,9 @@ export class PiEngine implements Engine {
       };
     } finally {
       unsub();
+      entry.activePrompt = null;
+      entry.abortRequested = false;
+      entry._abortResolve = null;
       entry.isRunning = false;
     }
   }
@@ -458,7 +485,7 @@ export class PiEngine implements Engine {
       console.log(`[Pi] Session file: ${sessionFile}`);
     }
 
-    const entry: PiSessionEntry = { session, isRunning: false };
+    const entry: PiSessionEntry = { session, isRunning: false, abortRequested: false, activePrompt: null, _abortResolve: null };
     this.sessions.set(sessionId, entry);
     console.log(`[Pi] Session created: ${sessionId.slice(0, 8)} model=${model?.provider}/${model?.id}`);
     return entry;
@@ -583,12 +610,11 @@ export class PiEngine implements Engine {
   abort(sessionId: string): void {
     const entry = this.sessions.get(sessionId);
     if (entry?.isRunning) {
+      entry.abortRequested = true;
       entry.session.abort();
-      // Force-resolve the yield loop in case SDK doesn't emit events after abort
-      entry.isRunning = false;
-      if ((entry as any)._abortResolve) {
-        (entry as any)._abortResolve();
-      }
+      // Force-resolve the yield loop in case SDK doesn't emit events after abort,
+      // but keep isRunning=true until the prompt promise actually settles.
+      entry._abortResolve?.();
     }
   }
 
@@ -678,9 +704,39 @@ class ContentAccumulator {
     });
   }
 
+  replaceAll(blocks: TowerContentBlock[]) {
+    this.blocks = blocks.map(b => ({ ...b }));
+    this.currentTextIdx = -1;
+    this.currentThinkingIdx = -1;
+    const last = this.blocks[this.blocks.length - 1];
+    if (last?.type === 'text') this.currentTextIdx = this.blocks.length - 1;
+    if (last?.type === 'thinking') this.currentThinkingIdx = this.blocks.length - 1;
+  }
+
   toTowerBlocks(): TowerContentBlock[] {
     // Return deep-ish copy to avoid mutation issues
     return this.blocks.map(b => ({ ...b }));
   }
+}
+
+function agentMessageToTowerBlocks(message: any): TowerContentBlock[] {
+  if (!Array.isArray(message?.content)) return [];
+  return message.content.flatMap((block: any) => {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      return [{ type: 'text', text: block.text } satisfies TowerContentBlock];
+    }
+    if (block?.type === 'thinking' && typeof block.thinking === 'string') {
+      return [{ type: 'thinking', text: block.thinking } satisfies TowerContentBlock];
+    }
+    if (block?.type === 'toolCall' && block.id && block.name) {
+      return [{
+        type: 'tool_use',
+        id: block.id,
+        name: block.name,
+        input: block.arguments || {},
+      } satisfies TowerContentBlock];
+    }
+    return [];
+  });
 }
 

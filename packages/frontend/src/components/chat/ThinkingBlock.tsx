@@ -1,6 +1,6 @@
 import React from 'react';
-import { useChatStore } from '../../stores/chat-store';
 import { extractThinkingTitle } from '../../utils/message-parser';
+import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 
 interface ThinkingChipProps {
   text: string;
@@ -10,7 +10,7 @@ interface ThinkingChipProps {
 }
 
 export function ThinkingChip({ text, title, isActive, onClick }: ThinkingChipProps) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useActiveSessionStreaming();
   const isPending = !text && isStreaming;
   const label = title || extractThinkingTitle(text) || 'thinking';
 

@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
 import { act } from 'react';
 import { InputBox } from './InputBox';
 import { useChatStore } from '../../stores/chat-store';
+import { useSessionStore } from '../../stores/session-store';
 
 beforeEach(() => {
-  // Reset store to defaults (including messageQueue to prevent cross-test leaks)
   useChatStore.setState({
     isStreaming: false,
     sessionId: null,
@@ -16,7 +17,21 @@ beforeEach(() => {
     attachments: [],
     messageQueue: {},
   });
-  // Clear per-session drafts from localStorage
+  useSessionStore.setState({
+    sessions: [],
+    activeSessionId: null,
+    streamingSessions: new Set(),
+    unreadSessions: new Set(),
+    sidebarOpen: true,
+    sidebarTab: 'sessions',
+    searchQuery: '',
+    isMobile: false,
+    mobileTab: 'chat',
+    mobileContextOpen: false,
+    mobileTabBeforeContext: 'chat',
+    activeView: 'chat',
+  });
+
   const toRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
@@ -30,21 +45,19 @@ describe('InputBox queue + session isolation', () => {
     const onSend = vi.fn();
     const onAbort = vi.fn();
 
-    // Start streaming on session s1
     useChatStore.setState({ isStreaming: true, sessionId: 's1' });
+    useSessionStore.setState({ activeSessionId: 's1', streamingSessions: new Set(['s1']) });
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
-    // Type and submit → should queue
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Type a message|send on the next turn/i);
     fireEvent.change(textarea, { target: { value: 'queued msg' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
-    // Session switches to s2 — the useEffect [currentSessionId] clears the queue
     act(() => {
       useChatStore.setState({ sessionId: 's2' });
+      useSessionStore.setState({ activeSessionId: 's2', streamingSessions: new Set() });
     });
 
-    // Streaming stops — onSend should NOT be called (queue was cleared)
     act(() => {
       useChatStore.setState({ isStreaming: false });
     });
@@ -52,22 +65,21 @@ describe('InputBox queue + session isolation', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('auto-sends queued message when streaming ends and session matches', () => {
+  it('auto-sends queued message when session streaming ends', () => {
     const onSend = vi.fn();
     const onAbort = vi.fn();
 
-    // Start streaming on session s1
     useChatStore.setState({ isStreaming: true, sessionId: 's1' });
+    useSessionStore.setState({ activeSessionId: 's1', streamingSessions: new Set(['s1']) });
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
-    // Type and submit → should queue
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Type a message|send on the next turn/i);
     fireEvent.change(textarea, { target: { value: 'my message' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
-    // Streaming stops on same session → onSend should fire
     act(() => {
       useChatStore.setState({ isStreaming: false });
+      useSessionStore.setState({ streamingSessions: new Set() });
     });
 
     expect(onSend).toHaveBeenCalledWith('my message');
@@ -77,21 +89,19 @@ describe('InputBox queue + session isolation', () => {
     const onSend = vi.fn();
     const onAbort = vi.fn();
 
-    // Start streaming on session s1
     useChatStore.setState({ isStreaming: true, sessionId: 's1' });
+    useSessionStore.setState({ activeSessionId: 's1', streamingSessions: new Set(['s1']) });
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
-    // Type and submit → should queue with sessionId s1
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Type a message|send on the next turn/i);
     fireEvent.change(textarea, { target: { value: 'stale msg' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
-    // Session changes AND streaming stops simultaneously
     act(() => {
       useChatStore.setState({ isStreaming: false, sessionId: 's2' });
+      useSessionStore.setState({ activeSessionId: 's2', streamingSessions: new Set() });
     });
 
-    // onSend should NOT be called — session mismatch
     expect(onSend).not.toHaveBeenCalled();
   });
 
@@ -100,20 +110,25 @@ describe('InputBox queue + session isolation', () => {
     const onAbort = vi.fn();
 
     useChatStore.setState({ isStreaming: true, sessionId: 's1' });
+    useSessionStore.setState({ activeSessionId: 's1', streamingSessions: new Set(['s1']) });
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
-    // Queue on s1
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Type a message|send on the next turn/i);
     fireEvent.change(textarea, { target: { value: 'rapid msg' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
-    // Rapid session switches
-    act(() => { useChatStore.setState({ sessionId: 's2' }); });
-    act(() => { useChatStore.setState({ sessionId: 's3' }); });
-    act(() => { useChatStore.setState({ sessionId: 's4' }); });
-
-    // Streaming ends on s4
-    act(() => { useChatStore.setState({ isStreaming: false }); });
+    act(() => {
+      useChatStore.setState({ sessionId: 's2' });
+      useSessionStore.setState({ activeSessionId: 's2' });
+    });
+    act(() => {
+      useChatStore.setState({ sessionId: 's3' });
+      useSessionStore.setState({ activeSessionId: 's3' });
+    });
+    act(() => {
+      useChatStore.setState({ sessionId: 's4', isStreaming: false });
+      useSessionStore.setState({ activeSessionId: 's4', streamingSessions: new Set() });
+    });
 
     expect(onSend).not.toHaveBeenCalled();
   });
@@ -123,18 +138,32 @@ describe('InputBox queue + session isolation', () => {
     const onAbort = vi.fn();
 
     useChatStore.setState({ isStreaming: true, sessionId: 's1' });
+    useSessionStore.setState({ activeSessionId: 's1', streamingSessions: new Set(['s1']) });
     render(<InputBox onSend={onSend} onAbort={onAbort} />);
 
-    const textarea = screen.getByPlaceholderText(/Type a message/);
+    const textarea = screen.getByPlaceholderText(/Type a message|send on the next turn/i);
     fireEvent.change(textarea, { target: { value: 'cancel me' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
 
-    // Escape cancels queue
     fireEvent.keyDown(textarea, { key: 'Escape' });
 
-    // Streaming stops — onSend should NOT fire (queue was cancelled)
-    act(() => { useChatStore.setState({ isStreaming: false }); });
+    act(() => {
+      useChatStore.setState({ isStreaming: false });
+      useSessionStore.setState({ streamingSessions: new Set() });
+    });
 
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('shows send UI when only the stale global flag is true', () => {
+    const onSend = vi.fn();
+    const onAbort = vi.fn();
+
+    useChatStore.setState({ isStreaming: true, sessionId: 's1' });
+    useSessionStore.setState({ activeSessionId: 's1', streamingSessions: new Set() });
+    render(<InputBox onSend={onSend} onAbort={onAbort} />);
+
+    expect(screen.queryByTitle('Stop')).not.toBeInTheDocument();
+    expect(screen.getByTitle('Send')).toBeInTheDocument();
   });
 });

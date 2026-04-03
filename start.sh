@@ -45,6 +45,10 @@ build() {
     && npx tsc -p tsconfig.backend.json --outDir dist-new/backend \
     || { echo "❌ Build failed"; rm -rf dist-new; exit 1; }
 
+  # Copy non-TS assets that tsc doesn't emit (JSON configs, etc.)
+  cp packages/backend/engines/pi-models.json dist-new/backend/packages/backend/engines/ 2>/dev/null
+  cp packages/backend/models.json dist-new/backend/packages/backend/ 2>/dev/null
+
   echo "✅ Build succeeded → dist-new/"
 }
 

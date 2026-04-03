@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, type SlashCommandInfo } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
+import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 import { AttachmentChip } from './AttachmentChip';
 
 const EMPTY_QUEUE: string[] = [];
@@ -46,17 +47,14 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounter = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isStreaming = useChatStore((s) => s.isStreaming);
   const currentSessionId = useChatStore((s) => s.sessionId);
+  const isStreaming = useActiveSessionStreaming();
   const currentQueue = useChatStore((s) => {
     const sid = s.sessionId;
     if (!sid) return EMPTY_QUEUE;
     return s.messageQueue[sid] ?? EMPTY_QUEUE;
   });
   const hasQueue = currentQueue.length > 0;
-  // Per-session streaming flag (authoritative, set by session_status events).
-  // Used to prevent premature queue drain during session switches.
-  const isSessionStreaming = useSessionStore((s) => currentSessionId ? s.streamingSessions.has(currentSessionId) : false);
   const slashCommands = useChatStore((s) => s.slashCommands);
   const attachments = useChatStore((s) => s.attachments);
 
@@ -129,17 +127,12 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const lastSentRef = useRef<string | null>(null);
 
   // Cascade guard: prevents queue.length change from re-triggering dequeue
-  // before the server confirms streaming (isStreaming=true).
+  // before the server confirms streaming for this session.
   const drainGuardRef = useRef(false);
   const guardSessionRef = useRef<string | null>(null);
 
-  // Auto-send first queued message when streaming stops for the current session.
-  // Guards:
-  //   1. isStreaming (global UI flag) must be false
-  //   2. isSessionStreaming (per-session flag from session_status) must be false
-  //   3. drainGuardRef (cascade guard) must be false
-  // All three must pass to confirm the session is genuinely idle AND we haven't
-  // already sent a message that's in-flight to the server.
+  // Auto-send first queued message when the current session becomes idle.
+  // Uses the same per-session streaming source as the sidebar/toolchips.
   useEffect(() => {
     // Reset guard on session switch
     if (currentSessionId !== guardSessionRef.current) {
@@ -147,8 +140,8 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       guardSessionRef.current = currentSessionId;
     }
 
-    if (!isStreaming && !isSessionStreaming && currentQueue.length > 0 && currentSessionId) {
-      if (drainGuardRef.current) return;  // Already sent one, wait for streaming cycle
+    if (!isStreaming && currentQueue.length > 0 && currentSessionId) {
+      if (drainGuardRef.current) return;  // Already sent one, wait for the next streaming cycle
       const msg = useChatStore.getState().dequeueMessage(currentSessionId);
       if (msg) {
         drainGuardRef.current = true;
@@ -156,10 +149,10 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
         onSend(msg);
       }
     } else {
-      // Reset guard when streaming confirmed (message accepted) or queue empty
+      // Reset guard when streaming is confirmed or queue becomes empty
       drainGuardRef.current = false;
     }
-  }, [isStreaming, isSessionStreaming, currentQueue.length, currentSessionId, onSend]);
+  }, [isStreaming, currentQueue.length, currentSessionId, onSend]);
 
   // Listen for SESSION_BUSY events — re-queue the last sent message
   useEffect(() => {
@@ -212,10 +205,15 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
     const message = buildMessage(trimmed);
 
-    // Read from store directly (synchronous) — the component-subscribed `isStreaming`
-    // can be stale between React renders, causing double-sends on fast Enter presses.
-    if (useChatStore.getState().isStreaming) {
-      const sid = useChatStore.getState().sessionId || '';
+    // Read from the authoritative per-session streaming store synchronously.
+    // This avoids double-sends on fast Enter presses and keeps queue behavior
+    // aligned with the sidebar/tool chips.
+    const sid = useChatStore.getState().sessionId || '';
+    const isCurrentSessionStreaming = sid
+      ? useSessionStore.getState().streamingSessions.has(sid)
+      : useChatStore.getState().isStreaming;
+
+    if (isCurrentSessionStreaming) {
       useChatStore.getState().enqueueMessage(sid, message);
     } else {
       lastSentRef.current = message;   // track for SESSION_BUSY re-queuing

@@ -40,9 +40,9 @@ const DENY_SYSPACKAGE: Array<{ pattern: RegExp; label: string }> = [
 // ─── Viewer whitelist ────────────────────────────────────────────────────────
 
 const VIEWER_ALLOWED_TOOLS = new Set([
-  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'AskUserQuestion',
+  'Read', 'Glob', 'Grep', 'Find', 'Ls', 'WebFetch', 'WebSearch', 'AskUserQuestion',
   // Read-only Pi custom tools (capitalized by wrapPiTools)
-  'ExcelRead', 'ExcelQuery', 'PdfRead',
+  'ExcelRead', 'ExcelQuery', 'ExcelDiff', 'PdfRead',
 ]);
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
@@ -104,9 +104,12 @@ export function buildPathEnforcement(allowedPath: string) {
   const root = path.resolve(allowedPath) + path.sep;
   return (toolName: string, input: Record<string, unknown>): DamageCheckResult => {
     const paths: string[] = [];
-    // File tools: file_path, path, notebook_path params
+    // File tools: file_path, path, notebook_path params, files[]
     for (const key of ['file_path', 'path', 'notebook_path']) {
       if (typeof input[key] === 'string') paths.push(input[key] as string);
+    }
+    if (Array.isArray(input.files)) {
+      paths.push(...input.files.filter((p): p is string => typeof p === 'string'));
     }
     // Bash: extract absolute paths from command (skip safe system paths)
     if (toolName === 'Bash' && typeof input.command === 'string') {

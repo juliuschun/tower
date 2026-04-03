@@ -41,6 +41,7 @@ interface PendingQuestion {
   sessionId: string;
   questions: any[];
   resolve: (answer: string) => void;
+  reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -66,6 +67,31 @@ function getLocalPendingQuestion(sessionId: string): { questionId: string; quest
     }
   }
   return null;
+}
+
+function sanitizeAskUserQuestions(questions: any[]): any[] {
+  if (!Array.isArray(questions)) return [];
+  return questions
+    .filter((q) => q && typeof q.question === 'string' && q.question.trim().length > 0)
+    .map((q) => ({
+      ...q,
+      question: q.question.trim(),
+      options: Array.isArray(q.options)
+        ? q.options.filter((opt: any) => opt && typeof opt.label === 'string' && opt.label.trim().length > 0)
+        : [],
+    }));
+}
+
+function cancelPendingQuestionsForSession(sessionId: string, reason: string): boolean {
+  let cancelled = false;
+  for (const [questionId, pq] of pendingQuestions.entries()) {
+    if (pq.sessionId !== sessionId) continue;
+    clearTimeout(pq.timer);
+    pendingQuestions.delete(questionId);
+    pq.reject(new Error(reason));
+    cancelled = true;
+  }
+  return cancelled;
 }
 
 function getCachedRemoteSnapshot(sessionId: string): { isStreaming: boolean; pendingQuestion: { questionId: string; questions: any[] } | null } | null {
@@ -249,6 +275,7 @@ function handleRemoteSessionEvent(sessionId: string, data: any) {
     case 'abort_session_sync': {
       remoteStreamingSessions.delete(sessionId);
       remotePendingQuestionsBySession.delete(sessionId);
+      cancelPendingQuestionsForSession(sessionId, 'Session aborted');
       abortSessionEverywhere(sessionId).catch(() => {});
       return;
     }
@@ -412,6 +439,7 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
         type: 'error',
         sessionId,
         message: msg.message,
+        errorCode: /already processing/i.test(msg.message) ? 'SESSION_BUSY' : undefined,
       };
     default:
       return null;
@@ -844,14 +872,20 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   // Engine callbacks — ws-handler owns WS routing and DB access
   const callbacks: EngineCallbacks = {
     askUser: (questionId: string, questions: any[]) => {
-      return new Promise<string>((resolve) => {
+      const sanitizedQuestions = sanitizeAskUserQuestions(questions);
+      if (sanitizedQuestions.length === 0) {
+        console.warn(`[ws] ask_user dropped empty payload for session=${sessionId.slice(0, 8)}`);
+        return Promise.resolve('No user question payload was provided. Continue without waiting for user input.');
+      }
+
+      return new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => {
           const pq = pendingQuestions.get(questionId);
           if (pq) {
             pendingQuestions.delete(questionId);
             broadcastToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
             // Auto-select first option
-            const defaultAnswers = questions.map((q: any) =>
+            const defaultAnswers = sanitizedQuestions.map((q: any) =>
               `${q.question}: ${q.options?.[0]?.label || 'No response'}`
             ).join('\n');
             resolve(defaultAnswers);
@@ -861,11 +895,16 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
         pendingQuestions.set(questionId, {
           questionId,
           sessionId,
-          questions,
+          questions: sanitizedQuestions,
           resolve: (answer: string) => {
             clearTimeout(timer);
             pendingQuestions.delete(questionId);
             resolve(answer);
+          },
+          reject: (error: Error) => {
+            clearTimeout(timer);
+            pendingQuestions.delete(questionId);
+            reject(error);
           },
           timer,
         });
@@ -875,7 +914,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
           type: 'ask_user',
           sessionId,
           questionId,
-          questions,
+          questions: sanitizedQuestions,
         });
       });
     },
@@ -1087,6 +1126,7 @@ async function handleAbort(client: WsClient, data: { sessionId?: string }) {
   const sessionId = data.sessionId || client.sessionId;
   if (sessionId) {
     console.log(`[ws] handleAbort session=${sessionId} client=${client.id}`);
+    cancelPendingQuestionsForSession(sessionId, 'Session aborted');
     // Resolve engine and abort
     await abortSessionEverywhere(sessionId);
     if (isPgEnabled()) {
