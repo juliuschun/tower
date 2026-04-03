@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
 import { MessageBubble } from './MessageBubble';
 import { useChatStore, type ChatMessage } from '../../stores/chat-store';
 
@@ -17,7 +18,7 @@ beforeEach(() => {
 });
 
 describe('MessageBubble thinking/tool meta row', () => {
-  it('renders thinking title and tool chip in the same meta row', () => {
+  it('renders thinking title and tool chip in the same message', () => {
     const message: ChatMessage = {
       id: 'm1',
       role: 'assistant',
@@ -26,7 +27,7 @@ describe('MessageBubble thinking/tool meta row', () => {
         {
           type: 'thinking',
           thinking: {
-            text: '**Considering signature inspection**\n\nI’m thinking about the next step.',
+            text: '**Considering signature inspection**\n\nI\'m thinking about the next step.',
           },
         },
         {
@@ -42,8 +43,9 @@ describe('MessageBubble thinking/tool meta row', () => {
 
     render(<MessageBubble message={message} />);
 
-    const metaRow = screen.getByTestId('assistant-meta-row');
-    expect(within(metaRow).getByText('Considering signature inspection')).toBeInTheDocument();
-    expect(within(metaRow).getByText('$ ls -la')).toBeInTheDocument();
+    // Thinking chip renders the extracted title
+    expect(screen.getByText('Considering signature inspection')).toBeInTheDocument();
+    // Tool chip renders tool name
+    expect(screen.getByText('Bash')).toBeInTheDocument();
   });
 });

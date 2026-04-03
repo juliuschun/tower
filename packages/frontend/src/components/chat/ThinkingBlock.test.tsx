@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
 import { ThinkingChip } from './ThinkingBlock';
 import { useChatStore } from '../../stores/chat-store';
 
@@ -20,7 +21,7 @@ describe('ThinkingChip', () => {
   it('shows extracted thinking title instead of the generic thinking label', () => {
     render(
       <ThinkingChip
-        text={'**Considering signature inspection**\n\nI’m thinking about the next step.'}
+        text={'**Considering signature inspection**\n\nI\'m thinking about the next step.'}
         isActive={false}
         onClick={() => {}}
       />
