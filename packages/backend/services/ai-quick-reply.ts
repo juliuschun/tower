@@ -6,6 +6,7 @@
 
 import { getEngine } from '../engines/index.js';
 import { getModelDefaults } from '../config.js';
+import { engineFromModel } from './utility-agent.js';
 
 interface QuickReplyOptions {
   roomId: string;
@@ -16,16 +17,6 @@ interface QuickReplyOptions {
   messageId: string;  // the triggering human message ID
   replyTo?: string;   // if replying to a specific message (thread)
   broadcastToRoom: (roomId: string, data: any) => void;
-}
-
-/**
- * Determine engine name from model ID.
- * Pi models contain '/' (e.g. "openrouter/anthropic/claude-sonnet-4.6").
- * Claude models start with "claude-" (e.g. "claude-haiku-4-5-20251001").
- */
-function engineFromModel(modelId: string): string {
-  if (modelId.includes('/')) return 'pi';
-  return 'claude';
 }
 
 /**

@@ -473,6 +473,13 @@ export function getPersonalSkillPaths(userId?: number): string[] {
   return fs.existsSync(dir) ? [dir] : [];
 }
 
+/** Get project-local .claude/skills path when present (for Pi parity with Claude project skills). */
+export function getProjectSkillPaths(cwd?: string): string[] {
+  if (!cwd) return [];
+  const dir = path.join(cwd, '.claude', 'skills');
+  return fs.existsSync(dir) ? [dir] : [];
+}
+
 /** Get company skills directory path (for Pi additionalSkillPaths) */
 export function getCompanySkillsDir(): string {
   return COMPANY_SKILLS_DIR;
