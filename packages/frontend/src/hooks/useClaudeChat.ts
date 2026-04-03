@@ -38,6 +38,7 @@ function mapStoredToChat(m: any, ownerUsername?: string): import('../stores/chat
     durationMs: m.duration_ms || undefined,
     inputTokens: m.input_tokens || undefined,
     outputTokens: m.output_tokens || undefined,
+    stopReason: m.stop_reason || undefined,
   };
 }
 
@@ -676,6 +677,7 @@ export function useClaudeChat() {
             inputTokens: ctxInput,
             outputTokens: ctxOutput,
             durationMs: sdkMsg.duration_ms || 0,
+            stopReason: sdkMsg.stop_reason,
           };
           useChatStore.getState().setLastTurnMetrics(turnMetrics);
           // Persist metrics onto the current assistant message for per-message display

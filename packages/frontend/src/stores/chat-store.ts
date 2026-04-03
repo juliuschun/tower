@@ -57,6 +57,7 @@ export interface ChatMessage {
   durationMs?: number;
   inputTokens?: number;
   outputTokens?: number;
+  stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
 }
 
 export interface CostInfo {
@@ -80,6 +81,7 @@ export interface TurnMetrics {
   inputTokens: number;
   outputTokens: number;
   durationMs: number;
+  stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
 }
 
 export interface RateLimitInfo {
@@ -161,7 +163,7 @@ interface ChatState {
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
   setPendingQuestion: (pq: PendingQuestion | null) => void;
-  updateMessageMetrics: (id: string, metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number }) => void;
+  updateMessageMetrics: (id: string, metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number; stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' }) => void;
   enqueueMessage: (sessionId: string, message: string) => void;
   dequeueMessage: (sessionId: string) => string | null;
   removeQueuedMessage: (sessionId: string, index: number) => void;

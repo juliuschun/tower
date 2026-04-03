@@ -923,6 +923,21 @@ function fmtTokens(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
+function getStopReasonLabel(reason?: string): string | null {
+  switch (reason) {
+    case 'length':
+      return '출력 상한에서 종료';
+    case 'toolUse':
+      return '도구 호출로 종료';
+    case 'error':
+      return '오류로 종료';
+    case 'aborted':
+      return '중단됨';
+    default:
+      return null;
+  }
+}
+
 /** Context usage label for avatar area — shows inputTokens as context size */
 function fmtContextLabel(input: number): string | null {
   if (input <= 0) return null;
@@ -961,7 +976,12 @@ export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isL
 
   // Per-message metrics (from DB or live result event)
   const msgMetrics = message?.durationMs != null
-    ? { durationMs: message.durationMs, inputTokens: message.inputTokens || 0, outputTokens: message.outputTokens || 0 }
+    ? {
+        durationMs: message.durationMs,
+        inputTokens: message.inputTokens || 0,
+        outputTokens: message.outputTokens || 0,
+        stopReason: message.stopReason,
+      }
     : null;
 
   // Fallback to lastTurnMetrics for the last assistant message
@@ -969,14 +989,23 @@ export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isL
 
   if (metrics) {
     const totalTokens = metrics.inputTokens + metrics.outputTokens;
+    const stopReasonLabel = getStopReasonLabel(metrics.stopReason);
     return (
-      <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500 tabular-nums font-medium">
+      <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[11px] text-gray-500 tabular-nums font-medium">
         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         {fmtDuration(metrics.durationMs)}
         <span className="text-gray-600">·</span>
         {fmtTokens(totalTokens)} tokens
+        {stopReasonLabel && (
+          <>
+            <span className="text-gray-600">·</span>
+            <span className={`px-1.5 py-0.5 rounded border ${metrics.stopReason === 'length' ? 'border-amber-500/30 text-amber-300 bg-amber-500/10' : metrics.stopReason === 'error' ? 'border-rose-500/30 text-rose-300 bg-rose-500/10' : 'border-gray-700 text-gray-400 bg-surface-900/60'}`}>
+              {stopReasonLabel}
+            </span>
+          </>
+        )}
       </div>
     );
   }
