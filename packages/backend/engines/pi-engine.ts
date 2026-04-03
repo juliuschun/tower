@@ -42,6 +42,8 @@ interface PiSessionEntry {
   abortRequested?: boolean;
   activePrompt?: Promise<void> | null;
   _abortResolve?: (() => void) | null;
+  /** Set by createSession when resume fails — run() yields engine_error(recoverable) */
+  resumeFailedMessage?: string | null;
 }
 
 export class PiEngine implements Engine {
@@ -146,6 +148,17 @@ export class PiEngine implements Engine {
       }
     }
 
+    // G3: Notify frontend if Pi resume failed (before starting the turn)
+    if (entry.resumeFailedMessage) {
+      yield {
+        type: 'engine_error',
+        sessionId,
+        message: entry.resumeFailedMessage,
+        recoverable: true,
+      };
+      entry.resumeFailedMessage = null;
+    }
+
     entry.isRunning = true;
     entry.abortRequested = false;
 
@@ -156,15 +169,19 @@ export class PiEngine implements Engine {
     let resolveWait: (() => void) | null = null;
     let done = false;
     let stopReason: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | undefined;
+    const turnStartTime = Date.now();
+
+    // G2: Track iteration count + cumulative tokens for context metrics.
     // Pi emits message_end for intermediate tool-use messages too.
     // Hold the latest usage until the whole prompt is actually finished.
-    let pendingTurnUsage: {
-      inputTokens: number;
-      outputTokens: number;
-      costUsd?: number;
-      durationMs: number;
-      stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
-    } | null = null;
+    let iterationCount = 0;
+    let cumulativeInput = 0;
+    let cumulativeOutput = 0;
+    let lastIterationInput = 0;
+    let lastIterationOutput = 0;
+    let lastCostUsd: number | undefined;
+    // Resolve model context window from the session's current model
+    const modelContextWindow = entry.session.model?.contextWindow || 200_000;
 
     // Save initial assistant message to DB
     let assistantSaved = false;
@@ -238,13 +255,14 @@ export class PiEngine implements Engine {
           }
 
           if (usage) {
-            pendingTurnUsage = {
-              inputTokens: usage.input || 0,
-              outputTokens: usage.output || 0,
-              costUsd: usage.cost?.total,
-              durationMs: 0,
-              stopReason,
-            };
+            iterationCount++;
+            const iterInput = usage.input || 0;
+            const iterOutput = usage.output || 0;
+            cumulativeInput += iterInput;
+            cumulativeOutput += iterOutput;
+            lastIterationInput = iterInput;
+            lastIterationOutput = iterOutput;
+            lastCostUsd = usage.cost?.total;
           }
           resolveWait?.();
           break;
@@ -257,18 +275,31 @@ export class PiEngine implements Engine {
     // 4. Execute prompt
     const promptPromise = entry.session.prompt(prompt)
       .then(() => {
-        if (pendingTurnUsage) {
+        if (iterationCount > 0) {
+          const durationMs = Date.now() - turnStartTime;
+          // Per-message metrics: use last iteration (= current context size)
           callbacks.updateMessageMetrics(msgId, {
-            inputTokens: pendingTurnUsage.inputTokens,
-            outputTokens: pendingTurnUsage.outputTokens,
+            durationMs,
+            inputTokens: lastIterationInput,
+            outputTokens: lastIterationOutput,
           });
           eventQueue.push({
             type: 'turn_done',
             sessionId,
             msgId,
-            usage: pendingTurnUsage,
+            usage: {
+              inputTokens: cumulativeInput,
+              outputTokens: cumulativeOutput,
+              costUsd: lastCostUsd,
+              durationMs,
+              stopReason,
+              // G2: Context window tracking — same contract as Claude engine
+              contextInputTokens: lastIterationInput,
+              contextOutputTokens: lastIterationOutput,
+              contextWindowSize: modelContextWindow,
+              numIterations: iterationCount,
+            },
           });
-          pendingTurnUsage = null;
         }
       })
       .catch((err: any) => {
@@ -417,6 +448,7 @@ export class PiEngine implements Engine {
     fs.mkdirSync(piSessionDir, { recursive: true });
 
     let sessionMgr: ReturnType<typeof SessionManager.create>;
+    let resumeFailedMsg: string | null = null;
     const resumeSessionFile = opts.engineSessionId
       ? preparePiResumeSession(opts.engineSessionId)
       : undefined;
@@ -428,6 +460,10 @@ export class PiEngine implements Engine {
       } catch (err: any) {
         console.warn(`[Pi] Resume failed (${err.message}), creating new session`);
         sessionMgr = SessionManager.create(opts.cwd, piSessionDir);
+        // G3: Clear stale session ID so Tower DB doesn't try again
+        if (callbacks) callbacks.claimSessionId('');
+        // Flag will be set on entry after creation → run() yields recoverable error
+        resumeFailedMsg = `Previous Pi conversation could not be restored: ${err.message}`;
       }
     } else {
       if (opts.engineSessionId) {
@@ -485,7 +521,7 @@ export class PiEngine implements Engine {
       console.log(`[Pi] Session file: ${sessionFile}`);
     }
 
-    const entry: PiSessionEntry = { session, isRunning: false, abortRequested: false, activePrompt: null, _abortResolve: null };
+    const entry: PiSessionEntry = { session, isRunning: false, abortRequested: false, activePrompt: null, _abortResolve: null, resumeFailedMessage: resumeFailedMsg };
     this.sessions.set(sessionId, entry);
     console.log(`[Pi] Session created: ${sessionId.slice(0, 8)} model=${model?.provider}/${model?.id}`);
     return entry;

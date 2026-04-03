@@ -86,19 +86,41 @@ export type TowerMessage =
 // Note: ask_user is handled via EngineCallbacks, not yielded as TowerMessage.
 // ws-handler owns pending question state for reconnection/session-switch.
 
+/**
+ * TowerUsage — turn-level metrics emitted by all engines.
+ *
+ * Engine Contract:
+ * ┌─────────────────────────┬──────────────┬──────────────┐
+ * │ Field                   │ Claude       │ Pi           │
+ * ├─────────────────────────┼──────────────┼──────────────┤
+ * │ inputTokens (REQUIRED)  │ cumulative   │ cumulative   │
+ * │ outputTokens (REQUIRED) │ cumulative   │ cumulative   │
+ * │ durationMs (REQUIRED)   │ from SDK     │ wall-clock   │
+ * │ costUsd                 │ undefined ¹  │ calculated   │
+ * │ contextInputTokens      │ last iter    │ last iter    │
+ * │ contextWindowSize       │ from SDK     │ from model   │
+ * │ numIterations           │ from SDK     │ counted      │
+ * │ cacheReadTokens         │ from SDK     │ n/a          │
+ * └─────────────────────────┴──────────────┴──────────────┘
+ * ¹ Claude Max is subscription-based, so costUsd is always undefined.
+ */
 export interface TowerUsage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens?: number;
-  cacheCreationTokens?: number;
-  costUsd?: number;       // Pi: auto-calculated, Claude Max: undefined (subscription)
-  durationMs: number;
+  // ── REQUIRED: all engines must provide ──
+  inputTokens: number;        // cumulative across all iterations in this turn
+  outputTokens: number;       // cumulative across all iterations in this turn
+  durationMs: number;         // total wall-clock time for this turn
+
+  // ── RECOMMENDED: all engines should provide when available ──
   stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
-  // Context window tracking (last iteration = real context size, not cumulative)
-  contextInputTokens?: number;
-  contextOutputTokens?: number;
-  contextWindowSize?: number;   // model's context window (e.g. 200000)
-  numIterations?: number;       // how many API calls in this turn
+  costUsd?: number;           // Pi: auto-calculated, Claude: undefined (subscription)
+  contextInputTokens?: number;   // last iteration input (= actual context size now)
+  contextOutputTokens?: number;  // last iteration output
+  contextWindowSize?: number;    // model's context window (e.g. 200000)
+  numIterations?: number;        // how many LLM API calls in this turn
+
+  // ── OPTIONAL: engine-specific ──
+  cacheReadTokens?: number;      // Claude only: prompt cache reads
+  cacheCreationTokens?: number;  // Claude only: prompt cache writes
 }
 
 // ═══════════════════════════════════════════════════════════════════

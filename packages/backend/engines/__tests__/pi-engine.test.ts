@@ -69,8 +69,11 @@ describe('Pi engine — source contracts', () => {
 
   it('buffers turn usage until the whole prompt finishes', () => {
     const src = readSource(PI_ENGINE_PATH);
-    expect(src).toMatch(/pendingTurnUsage/);
-    expect(src).toMatch(/entry\.session\.prompt\(prompt\)[\s\S]*?pendingTurnUsage[\s\S]*?type: 'turn_done'/);
+    // message_end tracks iterations but does NOT emit turn_done
+    expect(src).toMatch(/iterationCount\+\+/);
+    expect(src).toMatch(/cumulativeInput/);
+    // turn_done is emitted only in promptPromise.then()
+    expect(src).toMatch(/entry\.session\.prompt\(prompt\)[\s\S]*?type: 'turn_done'/);
   });
 
   it('does not emit turn_done directly from message_end', () => {
@@ -78,6 +81,36 @@ describe('Pi engine — source contracts', () => {
     const messageEndBlock = src.match(/case 'message_end':[\s\S]*?break;\n        }/);
     expect(messageEndBlock?.[0]).toBeTruthy();
     expect(messageEndBlock?.[0]).not.toContain("type: 'turn_done'");
+  });
+
+  it('G2: includes context metrics in turn_done (same contract as Claude)', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    // turn_done must include context window tracking fields
+    expect(src).toMatch(/contextInputTokens:\s*lastIterationInput/);
+    expect(src).toMatch(/contextOutputTokens:\s*lastIterationOutput/);
+    expect(src).toMatch(/contextWindowSize:\s*modelContextWindow/);
+    expect(src).toMatch(/numIterations:\s*iterationCount/);
+  });
+
+  it('G2: tracks durationMs as wall-clock time', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/turnStartTime\s*=\s*Date\.now\(\)/);
+    expect(src).toMatch(/Date\.now\(\)\s*-\s*turnStartTime/);
+  });
+
+  it('G3: yields recoverable engine_error when resume fails', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    // createSession sets resumeFailedMessage on entry
+    expect(src).toMatch(/resumeFailedMsg\s*=\s*`Previous Pi conversation/);
+    // run() checks and yields it
+    expect(src).toMatch(/entry\.resumeFailedMessage/);
+    expect(src).toMatch(/recoverable:\s*true/);
+  });
+
+  it('G3: clears stale session ID on resume failure', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    // Should call claimSessionId('') when resume fails
+    expect(src).toMatch(/Resume failed[\s\S]*?claimSessionId\(''\)/);
   });
 
   it('syncs final assistant content from message_end payload', () => {
