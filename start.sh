@@ -142,9 +142,20 @@ case "${1:-start}" in
       pm2 restart tower-prod >> '"$LOGFILE"' 2>&1
       date +%s > /tmp/tower-deploy.lock-tower-prod
       rm -rf dist-old
-      echo "[$(date)] ✅ tower-prod deployed" >> '"$LOGFILE"'
+      echo "[$(date)] Running post-deploy verification..." >> '"$LOGFILE"'
+      if node scripts/deploy-verify.mjs --target tower-prod --base-url http://127.0.0.1:32364 >> '"$LOGFILE"' 2>&1; then
+        echo "[$(date)] ✅ tower-prod deployed and verified" >> '"$LOGFILE"'
+      else
+        echo "[$(date)] ❌ tower-prod deployed but verification failed" >> '"$LOGFILE"'
+      fi
     ' "$0" </dev/null >/dev/null 2>&1 &
-    echo "✅ Build done. Deploy completes in ~2s (log: $LOGFILE)"
+    echo "✅ Build done. Deploy + verification run in background (log: $LOGFILE)"
+    ;;
+  verify)
+    node scripts/deploy-verify.mjs --target tower --base-url http://127.0.0.1:32354
+    ;;
+  prod-verify)
+    node scripts/deploy-verify.mjs --target tower-prod --base-url http://127.0.0.1:32364
     ;;
   prod-logs)
     pm2 logs tower-prod --lines "${2:-50}"
@@ -157,10 +168,10 @@ case "${1:-start}" in
     echo "Usage: ./start.sh [command] [--force]"
     echo ""
     echo "  Dev (desk-dev.moatai.app :32354):"
-    echo "    start | stop | restart | logs | status"
+    echo "    start | stop | restart | logs | status | verify"
     echo ""
     echo "  Prod (tower.moatai.app :32364):"
-    echo "    prod-start | prod-stop | prod-restart | prod-logs | prod-status"
+    echo "    prod-start | prod-stop | prod-restart | prod-logs | prod-status | prod-verify"
     echo ""
     echo "  --force    Skip 2-minute cooldown guard"
     ;;
