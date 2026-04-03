@@ -339,6 +339,7 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
         data: {
           type: 'result',
           duration_ms: msg.usage.durationMs,
+          stop_reason: msg.usage.stopReason,
           usage: {
             input_tokens: msg.usage.inputTokens,
             output_tokens: msg.usage.outputTokens,

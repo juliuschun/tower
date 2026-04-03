@@ -23,7 +23,10 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import { buildSystemPrompt } from '../services/system-prompt.js';
 import { buildToolGuard, wrapPiTools } from '../services/project-access.js';
+import { backupPiSessionFile, consumeInterruptedPiSessions, gracefulPiShutdown, preparePiResumeSession } from '../services/pi-session-runtime.js';
 import { createAgentTool } from './pi-agent-tool.js';
+import { createAskUserQuestionTool } from './pi-ask-user-tool.js';
+import { webFetchTool, webSearchTool } from './pi-web-tools.js';
 import { excelReadTool, excelQueryTool } from './pi-finance-tools.js';
 import { pdfReadTool, excelWriteTool, excelDiffTool } from './pi-finance-tools-extra.js';
 import { todoWriteTool } from './pi-todo-tool.js';
@@ -42,6 +45,7 @@ export class PiEngine implements Engine {
   private sessions = new Map<string, PiSessionEntry>();
   private authStorage: AuthStorage | null = null;
   private modelRegistry: ModelRegistry | null = null;
+  private interruptedSessionIds = new Set<string>();
 
   private getAuth(): AuthStorage {
     if (!this.authStorage) {
@@ -156,6 +160,7 @@ export class PiEngine implements Engine {
     const eventQueue: TowerMessage[] = [];
     let resolveWait: (() => void) | null = null;
     let done = false;
+    let stopReason: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | undefined;
 
     // Save initial assistant message to DB
     let assistantSaved = false;
@@ -171,6 +176,8 @@ export class PiEngine implements Engine {
             accumulator.appendThinking(evt.delta);
           } else if (evt?.type === 'toolcall_end' && evt.toolCall) {
             accumulator.addToolUse(evt.toolCall);
+          } else if (evt?.type === 'done' || evt?.type === 'error') {
+            stopReason = evt.reason || stopReason;
           }
 
           const content = accumulator.toTowerBlocks();
@@ -212,6 +219,7 @@ export class PiEngine implements Engine {
         case 'message_end': {
           const msg = event.message;
           const usage = msg?.usage;
+          stopReason = msg?.stopReason || stopReason;
           if (usage) {
             callbacks.updateMessageMetrics(msgId, {
               inputTokens: usage.input || 0,
@@ -227,6 +235,7 @@ export class PiEngine implements Engine {
                 outputTokens: usage.output || 0,
                 costUsd: usage.cost?.total,
                 durationMs: 0,
+                stopReason,
               },
             });
           }
@@ -279,6 +288,10 @@ export class PiEngine implements Engine {
 
       // 6. Engine done — include session file path for persistence
       const piSessionFile = entry.session.sessionFile;
+      if (piSessionFile) {
+        backupPiSessionFile(piSessionFile);
+        this.interruptedSessionIds.delete(sessionId);
+      }
       yield {
         type: 'engine_done',
         sessionId,
@@ -357,9 +370,10 @@ export class PiEngine implements Engine {
     // Build additional skill paths for 3-tier skill registry
     const additionalSkillPaths: string[] = [];
     try {
-      const { getCompanySkillsDir, getPersonalSkillPaths } = await import('../services/skill-registry.js');
+      const { getCompanySkillsDir, getPersonalSkillPaths, getProjectSkillPaths } = await import('../services/skill-registry.js');
       additionalSkillPaths.push(getCompanySkillsDir());
       additionalSkillPaths.push(...getPersonalSkillPaths(opts.userId));
+      additionalSkillPaths.push(...getProjectSkillPaths(opts.cwd));
     } catch {}
 
     const resourceLoader = new DefaultResourceLoader({
@@ -376,16 +390,22 @@ export class PiEngine implements Engine {
     fs.mkdirSync(piSessionDir, { recursive: true });
 
     let sessionMgr: ReturnType<typeof SessionManager.create>;
-    if (opts.engineSessionId) {
+    const resumeSessionFile = opts.engineSessionId
+      ? preparePiResumeSession(opts.engineSessionId)
+      : undefined;
+    if (resumeSessionFile) {
       // Resume existing session
       try {
-        sessionMgr = SessionManager.open(opts.engineSessionId, piSessionDir);
-        console.log(`[Pi] Resuming session: ${sessionId.slice(0, 8)} from ${opts.engineSessionId}`);
+        sessionMgr = SessionManager.open(resumeSessionFile, piSessionDir);
+        console.log(`[Pi] Resuming session: ${sessionId.slice(0, 8)} from ${resumeSessionFile}`);
       } catch (err: any) {
         console.warn(`[Pi] Resume failed (${err.message}), creating new session`);
         sessionMgr = SessionManager.create(opts.cwd, piSessionDir);
       }
     } else {
+      if (opts.engineSessionId) {
+        console.log(`[Pi] Resume skipped (missing file/backup): ${opts.engineSessionId}`);
+      }
       sessionMgr = SessionManager.create(opts.cwd, piSessionDir);
     }
 
@@ -400,11 +420,24 @@ export class PiEngine implements Engine {
     piTools = wrapPiTools(piTools, guard);
     console.log(`[Pi] ToolGuard active (role=${opts.userRole || 'member'}, accessiblePaths=${opts.accessiblePaths === null ? 'admin' : opts.accessiblePaths?.length ?? 'none'})`);
 
+    const customTools = [
+      createAgentTool(auth, registry, guard),
+      createAskUserQuestionTool(callbacks?.askUser || (async () => 'No user answer available.')),
+      webFetchTool,
+      webSearchTool,
+      excelReadTool,
+      excelQueryTool,
+      pdfReadTool,
+      excelWriteTool,
+      excelDiffTool,
+      todoWriteTool,
+    ];
+
     const { session } = await createAgentSession({
       cwd: opts.cwd,
       model,
       tools: piTools,
-      customTools: wrapPiTools([createAgentTool(auth, registry, guard), excelReadTool, excelQueryTool, pdfReadTool, excelWriteTool, excelDiffTool, todoWriteTool], guard),
+      customTools: wrapPiTools(customTools, guard),
       authStorage: auth,
       modelRegistry: registry,
       resourceLoader,
@@ -417,8 +450,11 @@ export class PiEngine implements Engine {
 
     // Claim the session file path so Tower DB can restore it later
     const sessionFile = sessionMgr.getSessionFile();
-    if (sessionFile && callbacks) {
-      callbacks.claimSessionId(sessionFile);
+    if (sessionFile) {
+      backupPiSessionFile(sessionFile);
+      if (callbacks) {
+        callbacks.claimSessionId(sessionFile);
+      }
       console.log(`[Pi] Session file: ${sessionFile}`);
     }
 
@@ -496,7 +532,7 @@ export class PiEngine implements Engine {
       headers: { 'Content-Type': 'application/json', ...extraHeaders },
       body: JSON.stringify({
         model: modelId,
-        max_tokens: 2048,
+        max_completion_tokens: 2048,
         stream: true,
         messages: [
           { role: 'system', content: opts.systemPrompt },
@@ -584,10 +620,17 @@ export class PiEngine implements Engine {
     return ids;
   }
 
-  // Pi has no orphan processes (in-process SDK)
-  init(): void {}
+  // Pi has no orphan processes (in-process SDK), but we still keep interrupted-session metadata.
+  init(): void {
+    this.interruptedSessionIds = new Set(consumeInterruptedPiSessions());
+  }
 
   shutdown(): void {
+    const runningSessionIds = [...this.sessions.entries()]
+      .filter(([, entry]) => entry.isRunning)
+      .map(([sessionId]) => sessionId);
+    this.interruptedSessionIds = new Set(runningSessionIds);
+    gracefulPiShutdown(runningSessionIds);
     for (const entry of this.sessions.values()) {
       try { entry.session.dispose(); } catch {}
     }

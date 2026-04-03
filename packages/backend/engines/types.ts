@@ -93,6 +93,7 @@ export interface TowerUsage {
   cacheCreationTokens?: number;
   costUsd?: number;       // Pi: auto-calculated, Claude Max: undefined (subscription)
   durationMs: number;
+  stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
   // Context window tracking (last iteration = real context size, not cumulative)
   contextInputTokens?: number;
   contextOutputTokens?: number;

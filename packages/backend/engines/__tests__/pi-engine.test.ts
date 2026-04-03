@@ -82,10 +82,23 @@ describe('Pi engine — tool registration', () => {
     expect(src).toMatch(/createAgentTool/);
   });
 
+  it('registers AskUserQuestion custom tool', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/createAskUserQuestionTool/);
+    expect(src).toMatch(/AskUserQuestion/);
+  });
+
   it('registers finance tools (excel_read, excel_query)', () => {
     const src = readSource(PI_ENGINE_PATH);
     expect(src).toMatch(/excelReadTool/);
     expect(src).toMatch(/excelQueryTool/);
+  });
+
+  it('registers web tools (WebFetch, WebSearch)', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/webFetchTool/);
+    expect(src).toMatch(/webSearchTool/);
+    expect(src).toMatch(/pi-web-tools/);
   });
 
   it('registers extra tools (pdf_read, excel_write, excel_diff)', () => {
@@ -101,6 +114,13 @@ describe('Pi engine — ResourceLoader context injection', () => {
     const src = readSource(PI_ENGINE_PATH);
     expect(src).toMatch(/DefaultResourceLoader/);
     expect(src).toMatch(/appendSystemPrompt.*towerPrompt/s);
+  });
+
+  it('loads company, personal, and project skill paths', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/getCompanySkillsDir/);
+    expect(src).toMatch(/getPersonalSkillPaths/);
+    expect(src).toMatch(/getProjectSkillPaths/);
   });
 
   it('calls buildSystemPrompt with user identity', () => {
@@ -223,15 +243,27 @@ describe('Pi session persistence — source contracts', () => {
     expect(src).toMatch(/SessionManager\.create\(.*piSessionDir\)/);
   });
 
+  it('uses pi-session-runtime helper for backup and recovery', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/backupPiSessionFile/);
+    expect(src).toMatch(/preparePiResumeSession/);
+    expect(src).toMatch(/consumeInterruptedPiSessions|gracefulPiShutdown/);
+  });
+
   it('resume path uses SessionManager.open with engineSessionId', () => {
     const src = readSource(PI_ENGINE_PATH);
-    expect(src).toMatch(/SessionManager\.open\(opts\.engineSessionId/);
+    expect(src).toMatch(/SessionManager\.open\(resumeSessionFile/);
   });
 
   it('claims session file path after creation', () => {
     const src = readSource(PI_ENGINE_PATH);
     expect(src).toMatch(/sessionMgr\.getSessionFile/);
     expect(src).toMatch(/callbacks\.claimSessionId\(sessionFile\)/);
+  });
+
+  it('backs up session file after creation or completion', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/backupPiSessionFile\(/);
   });
 
   it('ws-handler persists engineSessionId to DB on engine_done', () => {
