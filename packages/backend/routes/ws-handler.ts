@@ -863,6 +863,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       id: userMsgId,
       role: 'user',
       content: [{ type: 'text', text: data.message }],
+      username: client.username || null,
     });
   } catch (err) { console.error('[ws] saveMessage (user) failed:', err); }
 

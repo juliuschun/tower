@@ -185,6 +185,33 @@ describe('Pi engine — ResourceLoader context injection', () => {
   });
 });
 
+describe('Pi engine — tool input normalization', () => {
+  it('defines normalizeToolInput function', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/function normalizeToolInput\(/);
+  });
+
+  it('normalizes path → file_path for file tools (Read, Write, Edit)', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    // FILE_TOOLS set should include Read, Write, Edit
+    expect(src).toMatch(/FILE_TOOLS.*Read.*Write.*Edit|FILE_TOOLS.*read.*write.*edit/is);
+    // normalizeToolInput should map path → file_path
+    expect(src).toMatch(/input\.path && !input\.file_path/);
+    expect(src).toMatch(/file_path: input\.path/);
+  });
+
+  it('applies normalization in addToolUse', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    expect(src).toMatch(/normalizeToolInput\(toolCall\.name, toolCall\.arguments\)/);
+  });
+
+  it('applies normalization in piBlocksToTower / agentMessageToTowerBlocks', () => {
+    const src = readSource(PI_ENGINE_PATH);
+    // Should normalize in the static block conversion too
+    expect(src).toMatch(/normalizeToolInput\(block\.name/);
+  });
+});
+
 describe('Pi agent tool — sub-agent', () => {
   it('pi-agent-tool.ts exports createAgentTool', () => {
     const src = readSource(PI_AGENT_TOOL_PATH);

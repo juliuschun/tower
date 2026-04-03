@@ -195,13 +195,19 @@ export function getToolSummary(name: string, input: Record<string, any>): string
   const n = name.charAt(0).toUpperCase() + name.slice(1);
   switch (n) {
     case 'Bash':
-      return input.command ? `$ ${truncate(input.command, 60)}` : 'Run command';
-    case 'Read':
-      return input.file_path ? `📄 ${basename(input.file_path)}` : 'Read file';
-    case 'Write':
-      return input.file_path ? `✏️ ${basename(input.file_path)}` : 'Create file';
-    case 'Edit':
-      return input.file_path ? `📝 ${basename(input.file_path)}` : 'Edit file';
+      return input.command ? `$ ${truncate(input.command, 60)}` : 'Bash';
+    case 'Read': {
+      const filePath = input.file_path || input.path;
+      return filePath ? `📄 ${basename(filePath)}` : 'Read';
+    }
+    case 'Write': {
+      const filePath = input.file_path || input.path;
+      return filePath ? `✏️ ${basename(filePath)}` : 'Write';
+    }
+    case 'Edit': {
+      const filePath = input.file_path || input.path;
+      return filePath ? `📝 ${basename(filePath)}` : 'Edit';
+    }
     case 'Glob':
       return input.pattern ? `🔍 ${input.pattern}` : 'Search files';
     case 'Grep':

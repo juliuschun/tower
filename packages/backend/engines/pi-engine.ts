@@ -701,6 +701,19 @@ export class PiEngine implements Engine {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Tool input normalization: Pi uses `path`, Tower standard is `file_path`
+// ═══════════════════════════════════════════════════════════════
+
+const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'read', 'write', 'edit']);
+
+function normalizeToolInput(name: string, input: Record<string, any>): Record<string, any> {
+  if (FILE_TOOLS.has(name) && input.path && !input.file_path) {
+    return { ...input, file_path: input.path };
+  }
+  return input;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ContentAccumulator: Pi delta → cumulative TowerContentBlock[]
 // ═══════════════════════════════════════════════════════════════
 
@@ -736,7 +749,7 @@ class ContentAccumulator {
       type: 'tool_use',
       id: toolCall.id,
       name: toolCall.name,
-      input: toolCall.arguments,  // Pi: arguments → Tower: input
+      input: normalizeToolInput(toolCall.name, toolCall.arguments),  // Pi: arguments → Tower: input (normalized)
     });
   }
 
@@ -769,7 +782,7 @@ function agentMessageToTowerBlocks(message: any): TowerContentBlock[] {
         type: 'tool_use',
         id: block.id,
         name: block.name,
-        input: block.arguments || {},
+        input: normalizeToolInput(block.name, block.arguments || {}),
       } satisfies TowerContentBlock];
     }
     return [];

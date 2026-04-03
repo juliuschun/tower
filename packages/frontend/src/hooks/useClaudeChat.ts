@@ -29,12 +29,16 @@ const MESSAGE_PAGE_SIZE = 500;
 
 /** Map raw DB message to ChatMessage — no normalize here; ChatPanel normalizes lazily */
 function mapStoredToChat(m: any, ownerUsername?: string): import('../stores/chat-store').ChatMessage {
+  const storedUsername = typeof m.username === 'string' && m.username.trim()
+    ? m.username.trim()
+    : undefined;
+
   return {
     id: m.id,
     role: m.role,
     content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
     timestamp: new Date(m.created_at).getTime(),
-    username: m.role === 'user' ? ownerUsername : undefined,
+    username: m.role === 'user' ? (storedUsername || ownerUsername) : undefined,
     parentToolUseId: m.parent_tool_use_id,
     durationMs: m.duration_ms || undefined,
     inputTokens: m.input_tokens || undefined,
@@ -44,7 +48,7 @@ function mapStoredToChat(m: any, ownerUsername?: string): import('../stores/chat
 }
 
 /** Recover messages from DB for the active session (paginated — most recent N) */
-async function recoverMessagesFromDb(sessionId: string) {
+export async function __test_recoverMessagesFromDb(sessionId: string) {
   try {
     const tk = localStorage.getItem('token');
     const hdrs: Record<string, string> = {};
@@ -311,7 +315,7 @@ export function useClaudeChat() {
 
           if (data.sessionId) {
             // Recover partial messages from DB first
-            recoverMessagesFromDb(data.sessionId);
+            __test_recoverMessagesFromDb(data.sessionId);
 
             // Update claudeSessionId for resume
             if (data.claudeSessionId) {
@@ -353,7 +357,7 @@ export function useClaudeChat() {
           currentAssistantMsg.current = null;
           if (wasStreaming && data.sessionId) {
             // Was streaming but SDK finished while disconnected — recover from DB
-            recoverMessagesFromDb(data.sessionId);
+            __test_recoverMessagesFromDb(data.sessionId);
             console.log('Response recovered');
           }
 

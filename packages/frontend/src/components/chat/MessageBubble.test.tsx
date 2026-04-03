@@ -45,7 +45,7 @@ describe('MessageBubble thinking/tool meta row', () => {
 
     // Thinking chip renders the extracted title
     expect(screen.getByText('Considering signature inspection')).toBeInTheDocument();
-    // Tool chip renders tool name
+    // Collapsed tool group renders tool type summary
     expect(screen.getByText('Bash')).toBeInTheDocument();
   });
 });
