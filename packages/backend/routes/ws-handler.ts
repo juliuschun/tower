@@ -9,8 +9,10 @@ import { getSession as getSDKSession, cleanupSession } from '../services/claude-
 import { getFileTree, readFile, writeFile, setupFileWatcher, type FileChangeEvent } from '../services/file-system.js';
 import { verifyWsToken, getUserAllowedPath } from '../services/auth.js';
 import { isPathSafe } from '../services/file-system.js';
-import { saveMessage, updateMessageContent, attachToolResultInDb, updateMessageMetrics } from '../services/message-store.js';
+import { saveMessage, updateMessageContent, attachToolResultInDb, updateMessageMetrics, getMessages } from '../services/message-store.js';
 import { getSession, updateSession } from '../services/session-manager.js';
+import { generateSessionName } from '../services/auto-namer.js';
+import { extractTextFromContent } from '../utils/text.js';
 import { execute } from '../db/pg-repo.js';
 import { config } from '../config.js';
 import { findSessionClient, abortCleanup, addSessionClient, removeSessionClient } from './session-guards.js';
@@ -688,6 +690,17 @@ async function handleMessage(client: WsClient, data: any) {
     case 'share_to_channel':
       await handleShareToChannel(client, data);
       break;
+    case 'check_session_status': {
+      // Stale queue guard: frontend asks if a session is actually still streaming
+      const checkSid = data.sessionId;
+      if (typeof checkSid === 'string') {
+        const runningIds = new Set([...getAllRunningSessionIds(), ...remoteStreamingSessions]);
+        const actualStatus = runningIds.has(checkSid) ? 'streaming' : 'idle';
+        console.log(`[ws] check_session_status session=${checkSid.slice(0, 8)} status=${actualStatus}`);
+        send(client.ws, { type: 'session_status_check', sessionId: checkSid, status: actualStatus });
+      }
+      break;
+    }
     default:
       send(client.ws, { type: 'error', message: `Unknown message type: ${data.type}` });
   }
@@ -1069,7 +1082,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
           // Persist to DB so Pi sessions survive server restart
           try { await claimClaudeSessionId(sessionId, esid); } catch {}
         }
-        // Update turn_count, files_edited in DB
+        // Update turn_count, files_edited in DB + server-side auto-name
         try {
           const currentSession = await getSession(sessionId);
           if (currentSession) {
@@ -1082,6 +1095,27 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
               filesEdited: mergedFiles,
               modelUsed: towerMsg.model || data.model,
             });
+
+            // Server-side auto-name: runs regardless of frontend WS subscription.
+            // Only name sessions with default "Session ..." names (first turn only).
+            if (currentSession.name?.startsWith('Session ') && currentSession.autoNamed !== 0) {
+              try {
+                const msgs = await getMessages(sessionId);
+                const userMsg = msgs.find((m: any) => m.role === 'user');
+                const assistantMsg = msgs.find((m: any) => m.role === 'assistant');
+                if (userMsg && assistantMsg) {
+                  const userText = extractTextFromContent(userMsg.content);
+                  const assistantText = extractTextFromContent(assistantMsg.content);
+                  const name = await generateSessionName(userText, assistantText);
+                  await updateSession(sessionId, { name, autoNamed: 1 } as any);
+                  // Notify all clients so sidebar updates immediately
+                  broadcastToAll({ type: 'session_meta_update', sessionId, updates: { name } });
+                  console.log(`[auto-name] server-side named session=${sessionId.slice(0, 8)} → "${name}"`);
+                }
+              } catch (err: any) {
+                console.warn(`[auto-name] server-side failed for session=${sessionId.slice(0, 8)}:`, err.message);
+              }
+            }
           }
         } catch {}
       }
