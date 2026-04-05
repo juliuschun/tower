@@ -26,6 +26,7 @@ import { config, getPermissionMode } from '../config.js';
 import { buildSystemPrompt } from '../services/system-prompt.js';
 import { buildToolGuard, type ToolGuard } from '../services/project-access.js';
 import { autoCommit } from '../services/git-manager.js';
+import { getConfigDir } from '../services/credential-store.js';
 
 // CRITICAL: Remove CLAUDECODE env var to prevent SDK conflicts
 delete process.env.CLAUDECODE;
@@ -82,6 +83,9 @@ export class ClaudeEngine implements Engine {
       allowedPath: opts.allowedPath,
     });
 
+    // Resolve credential directory for this project (multi-account rotation)
+    const configDir = await getConfigDir(opts.projectId);
+
     let engineSessionId: string | undefined;
     let currentAssistantId: string | null = null;
     const editedFiles = new Set<string>();
@@ -96,12 +100,11 @@ export class ClaudeEngine implements Engine {
         canUseTool,
         systemPrompt,
         userRole: opts.userRole,
+        configDir,
       })) {
-        // Track Claude session ID
+        // Track Claude session ID (in-memory only — DB claim deferred to engine_done
+        // so that abort/crash leaves the previous verified ID in DB for safe resume)
         if ('session_id' in message && message.session_id) {
-          if (!engineSessionId) {
-            callbacks.claimSessionId(message.session_id);
-          }
           engineSessionId = message.session_id;
         }
 
@@ -284,7 +287,7 @@ export class ClaudeEngine implements Engine {
       const finalSessionId = getClaudeSessionId(sessionId) || engineSessionId;
       if (finalSessionId) {
         callbacks.claimSessionId(finalSessionId);
-        backupSessionFile(finalSessionId, opts.cwd);
+        backupSessionFile(finalSessionId, opts.cwd, configDir);
       }
 
       // Auto-commit edited files

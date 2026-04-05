@@ -25,6 +25,10 @@ const ORPHAN_CPU_IDLE_THRESHOLD = 1.0; // below 1% CPU = idle
 let orphanCheckTimer: ReturnType<typeof setInterval> | null = null;
 const idleOrphans = new Set<number>(); // PIDs that were idle on last check
 
+// Restart-loop guard: track when the server started so we can detect rapid restarts
+const SERVER_START_TIME = Date.now();
+const MIN_UPTIME_FOR_INTERRUPT_FILE_MS = 30_000; // 30s — if uptime < this, don't write interrupted file
+
 export function cleanupOrphanedSdkProcesses() {
   // Don't stack multiple intervals
   if (orphanCheckTimer) return;
@@ -103,6 +107,13 @@ export function gracefulShutdown(signal: string) {
     }
   }
   if (interruptedSessions.length > 0) {
+    const uptimeMs = Date.now() - SERVER_START_TIME;
+    if (uptimeMs < MIN_UPTIME_FOR_INTERRUPT_FILE_MS) {
+      // Restart-loop guard: server was up for less than 30s → likely a restart loop.
+      // Do NOT write the interrupted file — break the cycle.
+      console.warn(`[sdk] ${signal}: Skipping interrupted-sessions file (uptime ${Math.round(uptimeMs / 1000)}s < ${MIN_UPTIME_FOR_INTERRUPT_FILE_MS / 1000}s — restart loop guard)`);
+      return;
+    }
     console.log(`[sdk] ${signal}: ${interruptedSessions.length} CLI process(es) will be cleaned up on next startup`);
     // Write interrupted session IDs to a temp file for next startup to read.
     // Can't use async DB calls in shutdown handler (process exits too fast).
@@ -122,6 +133,8 @@ export function gracefulShutdown(signal: string) {
 export interface ClaudeSession {
   id: string;
   claudeSessionId?: string;
+  /** Last known good claudeSessionId whose .jsonl was confirmed to exist (for abort fallback) */
+  prevClaudeSessionId?: string;
   abortController: AbortController;
   query?: Query;
   isRunning: boolean;
@@ -133,9 +146,10 @@ const activeSessions = new Map<string, ClaudeSession>();
 const SESSION_BACKUP_DIR = path.join(process.cwd(), 'data', 'session-backups');
 
 /** Get the SDK .jsonl file path for a given claudeSessionId and cwd */
-function getJsonlPath(claudeSessionId: string, cwd: string): string {
+function getJsonlPath(claudeSessionId: string, cwd: string, configDir?: string): string {
   const encodedCwd = cwd.replace(/\//g, '-');
-  return path.join(os.homedir(), '.claude', 'projects', encodedCwd, `${claudeSessionId}.jsonl`);
+  const base = configDir || path.join(os.homedir(), '.claude');
+  return path.join(base, 'projects', encodedCwd, `${claudeSessionId}.jsonl`);
 }
 
 /** Get the backup path for a .jsonl file */
@@ -147,8 +161,8 @@ function getBackupPath(claudeSessionId: string): string {
  * Back up a .jsonl session file after a successful turn.
  * If the SDK or CLI later deletes the original, we can restore it.
  */
-export function backupSessionFile(claudeSessionId: string, cwd: string): boolean {
-  const jsonlPath = findJsonlFile(claudeSessionId, cwd) || getJsonlPath(claudeSessionId, cwd);
+export function backupSessionFile(claudeSessionId: string, cwd: string, configDir?: string): boolean {
+  const jsonlPath = findJsonlFile(claudeSessionId, cwd, configDir) || getJsonlPath(claudeSessionId, cwd, configDir);
   if (!fs.existsSync(jsonlPath)) return false;
 
   try {
@@ -167,8 +181,8 @@ export function backupSessionFile(claudeSessionId: string, cwd: string): boolean
  * Restore a .jsonl session file from backup if the original is missing.
  * Returns true if restored, false if no backup available.
  */
-function restoreSessionFile(claudeSessionId: string, cwd: string): boolean {
-  const jsonlPath = getJsonlPath(claudeSessionId, cwd);
+function restoreSessionFile(claudeSessionId: string, cwd: string, configDir?: string): boolean {
+  const jsonlPath = getJsonlPath(claudeSessionId, cwd, configDir);
   if (fs.existsSync(jsonlPath)) return true; // original exists, no need
 
   const backupPath = getBackupPath(claudeSessionId);
@@ -195,8 +209,8 @@ function restoreSessionFile(claudeSessionId: string, cwd: string): boolean {
  * The SDK refuses to resume from a corrupted file (exit code 1).
  * Fix: read backwards, remove lines that aren't valid JSON, keep the rest.
  */
-function repairSessionFile(claudeSessionId: string, cwd: string): boolean {
-  const jsonlPath = getJsonlPath(claudeSessionId, cwd);
+function repairSessionFile(claudeSessionId: string, cwd: string, configDir?: string): boolean {
+  const jsonlPath = getJsonlPath(claudeSessionId, cwd, configDir);
 
   if (!fs.existsSync(jsonlPath)) return false;
 
@@ -255,6 +269,7 @@ export async function* executeQuery(
     canUseTool?: CanUseTool;
     systemPrompt?: string;
     userRole?: string;
+    configDir?: string;  // Claude account credential directory (CLAUDE_CONFIG_DIR)
   } = {}
 ): AsyncGenerator<SDKMessage> {
   // Abort any existing query for this session
@@ -264,10 +279,14 @@ export async function* executeQuery(
     existing.abortController.abort();
   }
 
+  // Preserve previous claudeSessionId for abort fallback
+  const prevClaudeSessionId = existing?.prevClaudeSessionId || existing?.claudeSessionId;
+
   const abortController = new AbortController();
   const session: ClaudeSession = {
     id: sessionId,
     claudeSessionId: options.resumeSessionId,
+    prevClaudeSessionId,
     abortController,
     isRunning: true,
   };
@@ -297,6 +316,10 @@ export async function* executeQuery(
     cwd: effectiveCwd,
     permissionMode: options.permissionMode || config.permissionMode,
     settingSources: ['user', 'project'],  // all roles: load user-level skills + project CLAUDE.md
+    // Credential rotation: inject CLAUDE_CONFIG_DIR to isolate account tokens per child process
+    ...(options.configDir ? {
+      env: { ...process.env, CLAUDE_CONFIG_DIR: options.configDir },
+    } : {}),
     ...(options.model ? { model: options.model } : {}),
     ...(options.canUseTool ? { canUseTool: options.canUseTool } : {}),
     ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
@@ -304,22 +327,40 @@ export async function* executeQuery(
 
   if (options.resumeSessionId) {
     const resumeCwd = queryOptions.cwd || config.defaultCwd;
+    const cfgDir = options.configDir;
 
-    // Search for .jsonl beyond the expected cwd path — may be in a different project directory
-    let jsonlPath = findJsonlFile(options.resumeSessionId, resumeCwd);
+    // Try to find .jsonl for the requested claudeSessionId
+    let resolvedResumeId = options.resumeSessionId;
+    let jsonlPath = findJsonlFile(resolvedResumeId, resumeCwd, cfgDir);
 
     // If not found anywhere, try restoring from our backup to the expected path
     if (!jsonlPath) {
-      restoreSessionFile(options.resumeSessionId, resumeCwd);
-      const expectedPath = getJsonlPath(options.resumeSessionId, resumeCwd);
+      restoreSessionFile(resolvedResumeId, resumeCwd, cfgDir);
+      const expectedPath = getJsonlPath(resolvedResumeId, resumeCwd, cfgDir);
       if (fs.existsSync(expectedPath)) jsonlPath = expectedPath;
+    }
+
+    // Fallback: if current ID's .jsonl missing (e.g. abort killed process before flush),
+    // try the previous known-good claudeSessionId whose .jsonl should still exist
+    if (!jsonlPath && prevClaudeSessionId && prevClaudeSessionId !== resolvedResumeId) {
+      console.log(`[sdk] resume fallback: session=${sessionId.slice(0,8)} current=${resolvedResumeId.slice(0,12)} → prev=${prevClaudeSessionId.slice(0,12)}`);
+      jsonlPath = findJsonlFile(prevClaudeSessionId, resumeCwd, cfgDir);
+      if (!jsonlPath) {
+        restoreSessionFile(prevClaudeSessionId, resumeCwd, cfgDir);
+        const expectedPath = getJsonlPath(prevClaudeSessionId, resumeCwd, cfgDir);
+        if (fs.existsSync(expectedPath)) jsonlPath = expectedPath;
+      }
+      if (jsonlPath) {
+        resolvedResumeId = prevClaudeSessionId;
+        session.claudeSessionId = prevClaudeSessionId;
+      }
     }
 
     if (jsonlPath) {
       // Repair .jsonl before resume — removes corrupted trailing lines from killed processes
-      repairSessionFile(options.resumeSessionId, resumeCwd);
-      queryOptions.resume = options.resumeSessionId;
-      console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} jsonl=${path.basename(path.dirname(jsonlPath))}`);
+      repairSessionFile(resolvedResumeId, resumeCwd, cfgDir);
+      queryOptions.resume = resolvedResumeId;
+      console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${resolvedResumeId.slice(0,12)} jsonl=${path.basename(path.dirname(jsonlPath))}`);
     } else {
       console.log(`[sdk] resume skipped (no file, no backup): session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} cwd=${queryOptions.cwd}`);
       session.claudeSessionId = undefined;
@@ -333,6 +374,10 @@ export async function* executeQuery(
     let resumeConfirmed = false;
     for await (const message of response) {
       if (message.type === 'system' && message.subtype === 'init') {
+        // Promote current claudeSessionId to prev before overwriting
+        if (session.claudeSessionId && session.claudeSessionId !== message.session_id) {
+          session.prevClaudeSessionId = session.claudeSessionId;
+        }
         session.claudeSessionId = message.session_id;
         if (opts.resume && !resumeConfirmed) {
           console.log(`[sdk] resume succeeded: session=${sessionId.slice(0,8)} claudeSid=${message.session_id?.slice(0,12)}`);
@@ -340,6 +385,9 @@ export async function* executeQuery(
         }
       }
       if ('session_id' in message && message.session_id) {
+        if (session.claudeSessionId && session.claudeSessionId !== message.session_id) {
+          session.prevClaudeSessionId = session.claudeSessionId;
+        }
         session.claudeSessionId = message.session_id;
       }
       yield message;
