@@ -776,6 +776,7 @@ router.patch('/sessions/:id', async (req, res) => {
   const updates: any = { name, tags, favorite, totalCost, totalTokens, claudeSessionId };
   if (autoNamed !== undefined) updates.autoNamed = autoNamed;
   if (visibility !== undefined) updates.visibility = visibility;
+  if ('label' in req.body) updates.label = req.body.label;
   if (cwd !== undefined) {
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
       return res.status(400).json({ error: 'Invalid directory path' });

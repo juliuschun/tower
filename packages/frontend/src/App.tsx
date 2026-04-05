@@ -18,6 +18,8 @@ import { ResizeHandle, SidebarResizeHandle, DEFAULT_WIDTH, SIDEBAR_DEFAULT_WIDTH
 import { HorizontalResizeHandle } from './components/layout/HorizontalResizeHandle';
 import { MobileTabBar } from './components/layout/MobileTabBar';
 import { useClaudeChat } from './hooks/useClaudeChat';
+import { useOnboarding } from './hooks/useOnboarding';
+import { WhatsNewModal } from './components/onboarding/WhatsNewModal';
 import { useTheme } from './hooks/useTheme';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useChatStore } from './stores/chat-store';
@@ -29,6 +31,7 @@ import { useSettingsStore } from './stores/settings-store';
 import { useModelStore, getEngineFromModel } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
 import { useProjectStore } from './stores/project-store';
+import { useSpaceStore } from './stores/space-store'; // used via .getState()
 // normalizeContentBlocks moved to ChatPanel — lazy, only for visible ~20 messages
 import { generateUUID } from './utils/uuid';
 import { toastSuccess, toastError } from './utils/toast';
@@ -67,6 +70,7 @@ function App() {
     } catch { return null; }
   });
   const [authError, setAuthError] = useState('');
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [contextPanelWidth, setContextPanelWidth] = useState(() => {
     const saved = localStorage.getItem('contextPanelWidth');
     return saved ? parseInt(saved) : DEFAULT_WIDTH;
@@ -137,6 +141,10 @@ function App() {
 
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const setSidebarOpen = useSessionStore((s) => s.setSidebarOpen);
+  const sidebarTab = useSessionStore((s) => s.sidebarTab);
+  const lastSidebarTab = useSessionStore((s) => s.lastSidebarTab);
+  const setSidebarTab = useSessionStore((s) => s.setSidebarTab);
+  const setLastSidebarTab = useSessionStore((s) => s.setLastSidebarTab);
   const contextPanelOpen = useFileStore((s) => s.contextPanelOpen);
   const contextPanelExpanded = useFileStore((s) => s.contextPanelExpanded);
   const clearMessages = useChatStore((s) => s.clearMessages);
@@ -428,6 +436,7 @@ function App() {
       })
       .then((data) => {
         setSessions(data);
+        setSessionsLoaded(true);
         // Silently restore the last session the user was viewing
         const lastId = localStorage.getItem(lastViewedKey(getTokenUserId(token)));
         if (lastId) {
@@ -437,12 +446,18 @@ function App() {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => { setSessionsLoaded(true); });
 
     // Fetch projects
     fetch(`${API_BASE}/projects`, { headers })
       .then((r) => r.ok ? r.json() : [])
       .then((data) => { if (Array.isArray(data)) useProjectStore.getState().setProjects(data); })
+      .catch(() => {});
+
+    // Fetch spaces
+    fetch(`${API_BASE}/spaces`, { headers })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => { if (Array.isArray(data)) useSpaceStore.getState().setSpaces(data); })
       .catch(() => {});
   }, [token, authStatus, setSessions, handleSelectSession]);
 
@@ -459,11 +474,16 @@ function App() {
   }, [token, removeSession]);
 
   const handleFileClick = useCallback((path: string) => {
+    // Tab system: if file already open in a tab, just focus it
     const fs = useFileStore.getState();
-    if (fs.openFile && fs.openFile.modified && fs.openFile.path !== path) {
-      if (!window.confirm('You have unsaved changes. Open another file?')) return;
+    const existingTab = fs.tabs.find(t => t.path === path);
+    if (existingTab) {
+      fs.setActiveTab(existingTab.id);
+    } else {
+      requestFile(path);
     }
-    requestFile(path);
+    // Switch to files view
+    useSessionStore.getState().setActiveView('files');
   }, [requestFile]);
 
   const handleDirectoryClick = useCallback((dirPath: string) => {
@@ -531,6 +551,19 @@ function App() {
     );
     sendMessage(message, cwd || activeSess?.cwd);
   }, [sendMessage, createSessionInDb, setActiveSessionId]);
+
+  // Onboarding: Welcome Bot (신규 사용자) + What's New (버전 업데이트)
+  const sessions = useSessionStore((s) => s.sessions);
+  const userId = token ? localStorage.getItem('userId') : null;
+  const { showWhatsNew, dismissWhatsNew } = useOnboarding({
+    token,
+    userId,
+    sessions,
+    sessionsLoaded,
+    createSession: (name) => createSessionInDb(name),
+    sendMessage: handleSendMessage,
+    selectSession: handleSelectSession,
+  });
 
   const handleSaveFile = useCallback((path: string, content: string) => {
     // If path starts with prompt:, update prompt store
@@ -771,6 +804,15 @@ function App() {
   // Toggle panel handler — reopen last file
   const lastOpenedFilePath = useFileStore((s) => s.lastOpenedFilePath);
   const handleToggleContextPanel = useCallback(() => {
+    const fs = useFileStore.getState();
+    // If tabs exist, just reopen the panel
+    if (fs.tabs.length > 0) {
+      fs.setContextPanelOpen(true);
+      // Ensure activeTab syncs to openFile
+      if (fs.activeTabId) fs.setActiveTab(fs.activeTabId);
+      return;
+    }
+    // Otherwise fetch the last opened file
     if (lastOpenedFilePath) {
       requestFile(lastOpenedFilePath);
     }
@@ -846,9 +888,20 @@ function App() {
     <div className="flex flex-col overflow-hidden app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100 h-full" style={{ height: '100dvh' }}>
       <Toaster position="top-right" theme={theme === 'light' ? 'light' : 'dark'} richColors closeButton />
       <OfflineBanner />
+      {showWhatsNew && <WhatsNewModal onClose={dismissWhatsNew} />}
       <Header
         connected={connected}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onToggleSidebar={() => {
+          if (sidebarOpen) {
+            // 닫을 때: 현재 탭을 기억
+            setLastSidebarTab(sidebarTab);
+            setSidebarOpen(false);
+          } else {
+            // 햄버거로 열 때: 마지막으로 보던 탭 복원
+            setSidebarTab(lastSidebarTab);
+            setSidebarOpen(true);
+          }
+        }}
         onNewSession={handleNewSession}
         onAdminClick={isAdmin ? handleOpenAdmin : undefined}
         onPublishClick={() => setPublishOpen(true)}
@@ -932,8 +985,16 @@ function App() {
           </div>
         )}
 
-        {/* Desktop: expanded mode — vertical split (top: context, bottom: chat) */}
-        {!isMobile && contextPanelExpanded && contextPanelOpen ? (
+        {/* ═══ Files view: ContextPanel takes full center ═══ */}
+        {activeView === 'files' ? (
+          <main className="flex-1 min-w-0 min-h-0">
+            <ErrorBoundary fallbackLabel="File viewer error">
+              <ContextPanel onSave={handleSaveFile} onReload={requestFile} fullScreen />
+            </ErrorBoundary>
+          </main>
+
+        ) : !isMobile && contextPanelExpanded && contextPanelOpen ? (
+          /* Desktop: expanded mode — vertical split (top: context, bottom: chat) */
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
             {/* Top: ContextPanel — takes most space */}
             <div className="shrink-0 bg-surface-900/80 backdrop-blur-md overflow-hidden border-b border-surface-700/50" style={{ height: expandedPanelHeight }}>
@@ -1019,7 +1080,7 @@ function App() {
             ) : null}
           </>
         ) : (
-          /* Mobile: normal chat panel, kanban, or history */
+          /* Mobile: normal chat panel, kanban, history, or files */
           <main className="flex-1 min-w-0 flex justify-center">
             <div className={`relative overflow-hidden w-full flex flex-col h-full shadow-xl shadow-black/20 ${activeView === 'chat' ? 'bg-surface-950/50 backdrop-blur-3xl' : 'bg-surface-950'}`}>
               {(activeView === 'chat' || activeView === 'rooms') && (

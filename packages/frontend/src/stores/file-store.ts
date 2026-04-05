@@ -15,6 +15,17 @@ export interface OpenFile {
   encoding?: string;
 }
 
+export interface FileTab {
+  id: string;              // crypto.randomUUID()
+  path: string;
+  content: string;
+  language: string;
+  modified: boolean;
+  encoding?: string;
+  scrollPos?: number;      // 탭별 스크롤 위치 기억
+  pinned: boolean;         // true = 고정 탭, false = 임시 탭 (싱글 클릭)
+}
+
 export interface ExternalChange {
   path: string;
   detectedAt: number;
@@ -145,6 +156,10 @@ interface FileState {
   /** Whether to show hidden/dotfiles in the file tree */
   showHidden: boolean;
 
+  // ─── Tab state ───
+  tabs: FileTab[];
+  activeTabId: string | null;
+
   // ─── Multi-select state ───
   /** Set of selected file/folder paths */
   selectedPaths: Set<string>;
@@ -177,6 +192,18 @@ interface FileState {
   /** Toggle show hidden files */
   toggleShowHidden: () => void;
 
+  // ─── Tab actions ───
+  openTab: (path: string, content: string, language: string, encoding?: string) => void;
+  closeTab: (id: string) => void;
+  closeOtherTabs: (id: string) => void;
+  closeAllTabs: () => void;
+  setActiveTab: (id: string) => void;
+  updateTabContent: (id: string, content: string) => void;
+  markTabSaved: (id: string) => void;
+  pinTab: (id: string) => void;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
+  updateTabScroll: (id: string, scrollPos: number) => void;
+
   // ─── Multi-select actions ───
   /** Toggle select mode on/off */
   toggleSelectMode: () => void;
@@ -205,6 +232,10 @@ export const useFileStore = create<FileState>((set, get) => ({
   expandedProjects: loadExpandedProjects(),
   showHidden: loadShowHidden(),
 
+  // ─── Tab state ───
+  tabs: [],
+  activeTabId: null,
+
   // ─── Multi-select state ───
   selectedPaths: new Set(),
   selectMode: false,
@@ -220,41 +251,54 @@ export const useFileStore = create<FileState>((set, get) => ({
   setTreeRoot: (path) => set({ treeRoot: path }),
   setOpenFile: (file) => {
     if (file) {
-      const shouldExpand = ['html', 'pdf', 'image', 'video'].includes(file.language);
-      set({
-        openFile: file,
-        contextPanelOpen: true,
-        contextPanelExpanded: shouldExpand,
-        lastOpenedFilePath: file.path,
-        originalContent: file.content,
-        externalChange: null,
-      });
+      // Delegate to openTab for tab system integration
+      get().openTab(file.path, file.content, file.language, file.encoding);
     } else {
-      // Close panel but keep lastOpenedFilePath
-      set({ openFile: null, contextPanelOpen: false, contextPanelExpanded: false, originalContent: null, externalChange: null });
+      // Close active tab
+      const { activeTabId } = get();
+      if (activeTabId) {
+        get().closeTab(activeTabId);
+      } else {
+        set({ openFile: null, contextPanelOpen: false, contextPanelExpanded: false, originalContent: null, externalChange: null });
+      }
     }
   },
-  updateOpenFileContent: (content) =>
-    set((s) => {
-      if (!s.openFile) return {};
-      const modified = content !== s.originalContent;
-      return { openFile: { ...s.openFile, content, modified } };
-    }),
+  updateOpenFileContent: (content) => {
+    const { activeTabId } = get();
+    if (activeTabId) {
+      get().updateTabContent(activeTabId, content);
+    }
+  },
   setContextPanelOpen: (open) => set({ contextPanelOpen: open }),
   setContextPanelExpanded: (expanded) => set({ contextPanelExpanded: expanded }),
   setContextPanelTab: (tab) => set({ contextPanelTab: tab }),
 
-  markSaved: () =>
-    set((s) => s.openFile
-      ? { openFile: { ...s.openFile, modified: false }, originalContent: s.openFile.content }
-      : {}),
+  markSaved: () => {
+    const { activeTabId } = get();
+    if (activeTabId) {
+      get().markTabSaved(activeTabId);
+    } else {
+      set((s) => s.openFile
+        ? { openFile: { ...s.openFile, modified: false }, originalContent: s.openFile.content }
+        : {});
+    }
+  },
 
   setExternalChange: (change) => set({ externalChange: change }),
 
   reloadFromDisk: (content) =>
-    set((s) => s.openFile
-      ? { openFile: { ...s.openFile, content, modified: false }, originalContent: content, externalChange: null }
-      : {}),
+    set((s) => {
+      const update: any = s.openFile
+        ? { openFile: { ...s.openFile, content, modified: false }, originalContent: content, externalChange: null }
+        : {};
+      // Sync active tab
+      if (s.activeTabId) {
+        update.tabs = s.tabs.map(t =>
+          t.id === s.activeTabId ? { ...t, content, modified: false } : t
+        );
+      }
+      return update;
+    }),
 
   keepLocalEdits: () => set({ externalChange: null }),
 
@@ -323,6 +367,164 @@ export const useFileStore = create<FileState>((set, get) => ({
       saveShowHidden(next);
       return { showHidden: next, refreshTrigger: s.refreshTrigger + 1 };
     }),
+
+  // ─── Tab actions ───
+  // Single click → replaces the unpinned (temporary) tab
+  // Double click or edit → pins the tab so it won't be replaced
+  openTab: (path, content, language, encoding) => set((s) => {
+    // Already open → focus (and ensure panel is visible)
+    const existing = s.tabs.find(t => t.path === path);
+    if (existing) {
+      return {
+        activeTabId: existing.id,
+        openFile: { path: existing.path, content: existing.content, language: existing.language, modified: existing.modified, encoding: existing.encoding },
+        lastOpenedFilePath: existing.path,
+        originalContent: existing.content,
+        contextPanelOpen: true,
+      };
+    }
+
+    // Find existing unpinned (temporary) tab to replace
+    const tempIdx = s.tabs.findIndex(t => !t.pinned);
+    const newTab: FileTab = {
+      id: crypto.randomUUID(),
+      path,
+      content,
+      language,
+      modified: false,
+      encoding,
+      pinned: false,  // new tabs start as temporary
+    };
+
+    let newTabs: FileTab[];
+    if (tempIdx !== -1) {
+      // Replace the temporary tab in-place
+      newTabs = [...s.tabs];
+      newTabs[tempIdx] = newTab;
+    } else {
+      // All tabs are pinned — add new temporary tab
+      newTabs = [...s.tabs, newTab];
+    }
+
+    return {
+      tabs: newTabs,
+      activeTabId: newTab.id,
+      openFile: { path, content, language, modified: false, encoding },
+      contextPanelOpen: true,
+      lastOpenedFilePath: path,
+      originalContent: content,
+      externalChange: null,
+    };
+  }),
+
+  closeTab: (id) => set((s) => {
+    const tab = s.tabs.find(t => t.id === id);
+    if (!tab) return {};
+
+    const newTabs = s.tabs.filter(t => t.id !== id);
+
+    // If closing active tab, switch to adjacent
+    let newActiveId = s.activeTabId;
+    if (s.activeTabId === id) {
+      if (newTabs.length === 0) {
+        newActiveId = null;
+      } else {
+        const closedIdx = s.tabs.findIndex(t => t.id === id);
+        const nextIdx = Math.min(closedIdx, newTabs.length - 1);
+        newActiveId = newTabs[nextIdx].id;
+      }
+    }
+
+    const activeTab = newActiveId ? newTabs.find(t => t.id === newActiveId) : null;
+
+    return {
+      tabs: newTabs,
+      activeTabId: newActiveId,
+      openFile: activeTab
+        ? { path: activeTab.path, content: activeTab.content, language: activeTab.language, modified: activeTab.modified, encoding: activeTab.encoding }
+        : null,
+      contextPanelOpen: newTabs.length > 0,
+      contextPanelExpanded: newTabs.length === 0 ? false : s.contextPanelExpanded,
+      originalContent: activeTab?.content ?? null,
+    };
+  }),
+
+  closeOtherTabs: (id) => set((s) => {
+    const keep = s.tabs.filter(t => t.id === id);
+    const tab = keep[0];
+    return {
+      tabs: keep,
+      activeTabId: id,
+      openFile: tab ? { path: tab.path, content: tab.content, language: tab.language, modified: tab.modified, encoding: tab.encoding } : s.openFile,
+    };
+  }),
+
+  closeAllTabs: () => set({
+    tabs: [],
+    activeTabId: null,
+    openFile: null,
+    contextPanelOpen: false,
+    contextPanelExpanded: false,
+    originalContent: null,
+  }),
+
+  setActiveTab: (id) => set((s) => {
+    const tab = s.tabs.find(t => t.id === id);
+    if (!tab) return {};
+    return {
+      activeTabId: id,
+      openFile: { path: tab.path, content: tab.content, language: tab.language, modified: tab.modified, encoding: tab.encoding },
+      lastOpenedFilePath: tab.path,
+      originalContent: tab.content,
+      contextPanelExpanded: ['html', 'pdf', 'image', 'video'].includes(tab.language),
+    };
+  }),
+
+  updateTabContent: (id, content) => set((s) => {
+    const newTabs = s.tabs.map(t => {
+      if (t.id !== id) return t;
+      const modified = content !== s.originalContent;
+      // Editing auto-pins the tab
+      return { ...t, content, modified, pinned: true };
+    });
+    const activeTab = newTabs.find(t => t.id === s.activeTabId);
+    return {
+      tabs: newTabs,
+      openFile: s.activeTabId === id && activeTab
+        ? { path: activeTab.path, content: activeTab.content, language: activeTab.language, modified: activeTab.modified, encoding: activeTab.encoding }
+        : s.openFile,
+    };
+  }),
+
+  pinTab: (id) => set((s) => ({
+    tabs: s.tabs.map(t => t.id === id ? { ...t, pinned: true } : t),
+  })),
+
+  markTabSaved: (id) => set((s) => {
+    const tab = s.tabs.find(t => t.id === id);
+    if (!tab) return {};
+    const newTabs = s.tabs.map(t =>
+      t.id === id ? { ...t, modified: false } : t
+    );
+    return {
+      tabs: newTabs,
+      originalContent: tab.content,
+      openFile: s.activeTabId === id
+        ? { path: tab.path, content: tab.content, language: tab.language, modified: false, encoding: tab.encoding }
+        : s.openFile,
+    };
+  }),
+
+  reorderTabs: (fromIndex, toIndex) => set((s) => {
+    const newTabs = [...s.tabs];
+    const [moved] = newTabs.splice(fromIndex, 1);
+    newTabs.splice(toIndex, 0, moved);
+    return { tabs: newTabs };
+  }),
+
+  updateTabScroll: (id, scrollPos) => set((s) => ({
+    tabs: s.tabs.map(t => t.id === id ? { ...t, scrollPos } : t),
+  })),
 
   // ─── Multi-select actions ───
   toggleSelectMode: () =>

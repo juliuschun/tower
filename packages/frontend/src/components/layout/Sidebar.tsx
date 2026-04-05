@@ -4,6 +4,8 @@ import { useFileStore, type FileEntry } from '../../stores/file-store';
 import { type Pin } from '../../stores/pin-store';
 import { usePromptStore, type PromptItem } from '../../stores/prompt-store';
 import { useProjectStore, type Project } from '../../stores/project-store';
+import { useSpaceStore } from '../../stores/space-store';
+import { SpaceFilter } from './SpaceFilter';
 import { SessionItem } from '../sessions/SessionItem';
 import { FileTree } from '../files/FileTree';
 import { SelectionToolbar } from '../files/SelectionToolbar';
@@ -158,9 +160,16 @@ export function Sidebar({
 
   const [cwdPickerOpen, setCwdPickerOpen] = useState(false);
 
-  const projects = useProjectStore((s) => s.projects);
+  const allProjects = useProjectStore((s) => s.projects);
   const collapsedProjects = useProjectStore((s) => s.collapsedProjects);
   const toggleProjectCollapsed = useProjectStore((s) => s.toggleProjectCollapsed);
+  const activeSpaceId = useSpaceStore((s) => s.activeSpaceId);
+
+  // Filter projects by active space
+  const projects = useMemo(() => {
+    if (activeSpaceId === null) return allProjects;
+    return allProjects.filter(p => p.spaceId === activeSpaceId);
+  }, [allProjects, activeSpaceId]);
 
   // Filter and sort sessions: use FTS results when searching, otherwise favorites first + updatedAt
   const filteredSessions = useMemo(() => {
@@ -323,7 +332,7 @@ export function Sidebar({
             </button>
           )}
           <button onClick={() => { setSidebarTab('sessions'); useSessionStore.getState().setActiveView('chat'); }} className={tabClass('sessions')}>Sessions</button>
-          <button onClick={() => { setSidebarTab('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
+          <button onClick={() => { setSidebarTab('files'); useSessionStore.getState().setActiveView('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
         </div>
       )}
 
@@ -347,7 +356,10 @@ export function Sidebar({
         }}
       >
         {sidebarTab === 'sessions' ? (
-          <div className="px-3">
+          <div>
+            {/* Space filter tabs */}
+            <SpaceFilter projects={allProjects} />
+            <div className="px-3">
             {/* New Chat + New Project buttons */}
             <div className="pt-3 pb-2 flex items-center gap-1.5">
               <button
@@ -502,6 +514,7 @@ export function Sidebar({
                 </div>
               </div>
             )}
+          </div>
           </div>
         ) : sidebarTab === 'files' ? (
           <div className="px-2 min-h-full space-y-1 flex flex-col">
@@ -1568,25 +1581,91 @@ function ProjectGroup({
         </div>
       </div>
 
-      {/* Sessions inside group */}
+      {/* Sessions inside group — sub-grouped by label */}
       {!collapsed && (() => {
-        const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, PROJECT_PREVIEW_COUNT);
+        // Group sessions by label
+        const labelGroups = new Map<string, SessionMeta[]>();
+        const unlabeled: SessionMeta[] = [];
+        for (const s of groupSessions) {
+          if (s.label) {
+            const list = labelGroups.get(s.label) || [];
+            list.push(s);
+            labelGroups.set(s.label, list);
+          } else {
+            unlabeled.push(s);
+          }
+        }
+
+        // Sort label groups by most recent session activity
+        const sortedLabels = [...labelGroups.entries()].sort((a, b) => {
+          const latestA = Math.max(...a[1].map(s => new Date(s.updatedAt.includes('T') ? s.updatedAt : s.updatedAt.replace(' ', 'T') + 'Z').getTime()));
+          const latestB = Math.max(...b[1].map(s => new Date(s.updatedAt.includes('T') ? s.updatedAt : s.updatedAt.replace(' ', 'T') + 'Z').getTime()));
+          return latestB - latestA;
+        });
+
+        const hasLabels = sortedLabels.length > 0;
+        const collapsedLabels = useProjectStore.getState().collapsedLabels;
+        const toggleLabel = useProjectStore.getState().toggleLabelCollapsed;
+
+        // If no labels at all, render flat like before
+        if (!hasLabels) {
+          const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, PROJECT_PREVIEW_COUNT);
+          return (
+            <div className="pl-5 space-y-0.5">
+              {visibleSessions.map((session) => (
+                <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
+              ))}
+            </div>
+          );
+        }
+
+        // Render label sub-groups + unlabeled
         return (
-          <div className="pl-5 space-y-0.5">
-            {visibleSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                isActive={session.id === activeSessionId}
-                currentUsername={currentUsername}
-                onSelect={onSelectSession}
-                onDelete={onDeleteSession}
-                onRename={onRenameSession}
-                onToggleFavorite={onToggleFavorite}
-                onMoveToProject={onMoveSession}
-                projects={projects}
-              />
-            ))}
+          <div className="pl-3 space-y-0.5">
+            {sortedLabels.map(([label, sessions]) => {
+              const labelKey = `${project.id}::${label}`;
+              const isLabelCollapsed = collapsedLabels.has(labelKey);
+              return (
+                <div key={label} className="mb-0.5">
+                  <button
+                    onClick={() => toggleLabel(project.id, label)}
+                    className="w-full flex items-center gap-1.5 px-1 py-1 group/label hover:bg-surface-850 rounded-md transition-colors"
+                  >
+                    <svg className={`w-2.5 h-2.5 text-surface-600 transition-transform shrink-0 ${isLabelCollapsed ? '-rotate-90' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                    <svg className="w-3 h-3 text-primary-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+                    </svg>
+                    <span className="text-[11px] font-semibold text-gray-400 truncate">{label}</span>
+                    <span className="text-[10px] tabular-nums text-surface-600 shrink-0">{sessions.length}</span>
+                  </button>
+                  {!isLabelCollapsed && (
+                    <div className="pl-4 space-y-0.5">
+                      {sessions.map((session) => (
+                        <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {/* Unlabeled sessions */}
+            {unlabeled.length > 0 && (
+              <div className="mt-0.5">
+                {sortedLabels.length > 0 && (
+                  <div className="flex items-center gap-2 px-1 py-0.5">
+                    <div className="flex-1 h-px bg-surface-800" />
+                  </div>
+                )}
+                <div className="pl-2 space-y-0.5">
+                  {(expanded ? unlabeled : unlabeled.slice(0, PROJECT_PREVIEW_COUNT)).map((session) => (
+                    <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -1827,6 +1906,8 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
         </svg>
         Settings
       </button>
+      {/* Move to Space submenu */}
+      <SpaceMoveSubmenu projectId={project.id} currentSpaceId={project.spaceId ?? null} onClose={onClose} />
       <div className="border-t border-surface-700/50 my-1" />
       <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => {
         const msg = sessionCount > 0
@@ -2579,6 +2660,88 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
           {!loading && loaded.current && entries.length === 0 && (
             <p className="text-[12px] text-surface-600 py-2">Empty</p>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Space Move Submenu (inside ProjectContextMenu) ── */
+
+function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
+  projectId: string;
+  currentSpaceId: number | null;
+  onClose: () => void;
+}) {
+  const spaces = useSpaceStore((s) => s.spaces);
+  const [open, setOpen] = useState(false);
+
+  if (spaces.length === 0) return null;
+
+  const handleMove = async (spaceId: number | null) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH', headers, body: JSON.stringify({ spaceId }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        useProjectStore.getState().updateProject(projectId, updated);
+        toastSuccess(`Moved to ${spaceId === null ? '미분류' : spaces.find(s => s.id === spaceId)?.name || 'space'}`);
+      }
+    } catch {}
+    onClose();
+  };
+
+  const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
+
+  return (
+    <div className="relative">
+      <button className={itemClass} onClick={() => setOpen(!open)}>
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+        Space 이동
+        <svg className={`w-3 h-3 ml-auto text-surface-600 transition-transform ${open ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="py-1 border-t border-surface-700/30">
+          {spaces.map((space) => (
+            <button
+              key={space.id}
+              onClick={() => handleMove(space.id)}
+              className={`${itemClass} pl-6 ${currentSpaceId === space.id ? '!text-primary-400' : ''}`}
+              disabled={currentSpaceId === space.id}
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: space.color }} />
+              {space.name}
+              {currentSpaceId === space.id && (
+                <svg className="w-3 h-3 ml-auto text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+          ))}
+          <div className="border-t border-surface-700/30 my-0.5" />
+          <button
+            onClick={() => handleMove(null)}
+            className={`${itemClass} pl-6 ${currentSpaceId === null ? '!text-primary-400' : ''}`}
+            disabled={currentSpaceId === null}
+          >
+            <span className="w-2 h-2 rounded-full shrink-0 bg-gray-600" />
+            미분류
+            {currentSpaceId === null && (
+              <svg className="w-3 h-3 ml-auto text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </button>
         </div>
       )}
     </div>

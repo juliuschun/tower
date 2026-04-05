@@ -94,19 +94,19 @@ export function MobileTabBar() {
 
   return (
     <nav className="bg-surface-900 border-t border-surface-800 shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-      <div className="h-12 flex items-stretch">
+      <div className="h-16 flex items-stretch">
       {visibleTabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => handleTabClick(tab.id)}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+          className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${
             tab.id !== 'settings' && mobileTab === tab.id
               ? 'text-primary-400'
               : 'text-gray-500 active:text-gray-300'
           }`}
         >
           {tab.icon}
-          <span className="text-[10px] font-medium">{tab.label}</span>
+          <span className="text-[11px] font-medium">{tab.label}</span>
         </button>
       ))}
       </div>

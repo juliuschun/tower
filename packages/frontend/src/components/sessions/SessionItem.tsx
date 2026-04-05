@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import type { SessionMeta } from '../../stores/session-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useChatStore } from '../../stores/chat-store';
@@ -98,6 +98,8 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
           {session.visibility === 'project' ? 'Make private' : 'Share with project'}
         </button>
       )}
+      {/* Label */}
+      <SessionLabelMenu session={session} onClose={onClose} />
       {/* Move to Project */}
       {onMoveToProject && projects && projects.length > 0 && (
         <>
@@ -309,6 +311,120 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           onMoveToProject={onMoveToProject}
           projects={projects}
         />
+      )}
+    </>
+  );
+}
+
+/* ── Session Label Menu (inline in context menu) ── */
+
+function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const sessions = useSessionStore((s) => s.sessions);
+
+  // Collect existing labels from the same project
+  const existingLabels = useMemo(() => {
+    if (!session.projectId) return [];
+    const labelSet = new Set<string>();
+    for (const s of sessions) {
+      if (s.projectId === session.projectId && s.label) labelSet.add(s.label);
+    }
+    return [...labelSet].sort();
+  }, [sessions, session.projectId]);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 50);
+  }, [open]);
+
+  const applyLabel = async (label: string | null) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(`/api/sessions/${session.id}`, {
+        method: 'PATCH', headers, body: JSON.stringify({ label }),
+      });
+      if (res.ok) {
+        useSessionStore.getState().updateSessionMeta(session.id, { label });
+      }
+    } catch {}
+    onClose();
+  };
+
+  const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
+
+  return (
+    <>
+      <button className={itemClass} onClick={() => setOpen(!open)}>
+        <svg className="w-3.5 h-3.5 text-primary-500/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+        </svg>
+        {session.label ? `Label: ${session.label}` : 'Set label'}
+        <svg className={`w-3 h-3 ml-auto text-surface-600 transition-transform ${open ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="py-1 border-t border-surface-700/30">
+          {/* New label input */}
+          <div className="px-3 py-1 flex items-center gap-1.5">
+            <input
+              ref={inputRef}
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newLabel.trim()) {
+                  applyLabel(newLabel.trim());
+                }
+                if (e.key === 'Escape') setOpen(false);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="New label..."
+              className="flex-1 bg-surface-700 text-[11px] text-gray-200 px-2 py-1 rounded border border-surface-600 outline-none focus:border-primary-500/50 placeholder-surface-600"
+            />
+            {newLabel.trim() && (
+              <button
+                onClick={() => applyLabel(newLabel.trim())}
+                className="text-[10px] text-primary-400 hover:text-primary-300 font-medium px-1"
+              >
+                Add
+              </button>
+            )}
+          </div>
+          {/* Existing labels */}
+          {existingLabels.map((label) => (
+            <button
+              key={label}
+              onClick={() => applyLabel(label)}
+              className={`${itemClass} pl-6 ${session.label === label ? '!text-primary-400' : ''}`}
+            >
+              <svg className="w-3 h-3 text-primary-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+              </svg>
+              {label}
+              {session.label === label && (
+                <svg className="w-3 h-3 ml-auto text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+          ))}
+          {/* Remove label */}
+          {session.label && (
+            <>
+              <div className="border-t border-surface-700/30 my-0.5" />
+              <button className={`${itemClass} pl-6 !text-surface-500`} onClick={() => applyLabel(null)}>
+                <svg className="w-3 h-3 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Remove label
+              </button>
+            </>
+          )}
+        </div>
       )}
     </>
   );

@@ -692,6 +692,14 @@ code, pre, .font-mono {
   .prose pre, .prose table {
     touch-action: pan-x pan-y;
   }
+  /* 긴 URL · 인라인 코드 줄바꿈 강제 — 수평 넘침 방지 */
+  .prose {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  .prose code:not(pre code) {
+    word-break: break-all;
+  }
 }
 
 /* ─── Mobile prose size ─── */

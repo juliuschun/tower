@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import { useFileStore } from '../../stores/file-store';
 import { CodeEditor } from '../editor/CodeEditor';
 import { MermaidBlock } from '../chat/MermaidBlock';
+import { TabBar } from '../files/TabBar';
 
 // Lazy-loaded Office preview components
 const DocxPreview = React.lazy(() => import('../files/DocxPreview').then(m => ({ default: m.DocxPreview })));
@@ -74,8 +75,36 @@ function PdfPreview({ filePath }: { filePath: string }) {
 
 function ImagePreview({ filePath }: { filePath: string }) {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
-  const token = localStorage.getItem('token') || '';
-  const src = `/api/files/serve?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    const token = localStorage.getItem('token') || '';
+    fetch(`/api/files/serve?path=${encodeURIComponent(filePath)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+        setStatus('loaded');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[ImagePreview] load failed:', filePath, err.message);
+        setStatus('error');
+      });
+    return () => {
+      cancelled = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [filePath]);
+
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-surface-900 p-4 overflow-auto">
       {status === 'loading' && (
@@ -84,14 +113,13 @@ function ImagePreview({ filePath }: { filePath: string }) {
       {status === 'error' && (
         <span className="text-red-400 text-sm">Failed to load image</span>
       )}
-      <img
-        src={src}
-        alt={filePath.split('/').pop()}
-        className="max-w-full max-h-full object-contain"
-        style={{ display: status === 'error' ? 'none' : 'block' }}
-        onLoad={() => setStatus('loaded')}
-        onError={() => setStatus('error')}
-      />
+      {blobUrl && (
+        <img
+          src={blobUrl}
+          alt={filePath.split('/').pop()}
+          className="max-w-full max-h-full object-contain"
+        />
+      )}
     </div>
   );
 }
@@ -145,18 +173,20 @@ interface ContextPanelProps {
   onSave?: (path: string, content: string) => void;
   onReload?: (path: string) => void;
   onMobileClose?: () => void;
+  /** When true, hides expand/collapse button (already full-screen in files view) */
+  fullScreen?: boolean;
 }
 
-export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelProps) {
+export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen }: ContextPanelProps) {
   const openFile = useFileStore((s) => s.openFile);
   const contextPanelTab = useFileStore((s) => s.contextPanelTab);
   const setContextPanelTab = useFileStore((s) => s.setContextPanelTab);
-  const setOpenFile = useFileStore((s) => s.setOpenFile);
   const updateContent = useFileStore((s) => s.updateOpenFileContent);
   const externalChange = useFileStore((s) => s.externalChange);
   const keepLocalEdits = useFileStore((s) => s.keepLocalEdits);
   const contextPanelExpanded = useFileStore((s) => s.contextPanelExpanded);
   const setContextPanelExpanded = useFileStore((s) => s.setContextPanelExpanded);
+  const tabs = useFileStore((s) => s.tabs);
 
   useEffect(() => {
     if (openFile && ['html', 'markdown', 'pdf', 'image', 'video', 'docx', 'xlsx', 'pptx'].includes(openFile.language)) {
@@ -164,12 +194,56 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
     }
   }, [openFile?.path]);
 
+  // Keyboard shortcuts: Ctrl+W close tab, Ctrl+Tab/Ctrl+Shift+Tab switch tabs
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const state = useFileStore.getState();
+      if (state.tabs.length === 0) return;
+
+      // Ctrl+W: close current tab
+      if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
+        e.preventDefault();
+        if (state.activeTabId) {
+          const tab = state.tabs.find(t => t.id === state.activeTabId);
+          if (tab?.modified) {
+            if (!window.confirm('저장하지 않은 변경사항이 있습니다. 닫을까요?')) return;
+          }
+          state.closeTab(state.activeTabId);
+        }
+        return;
+      }
+
+      // Ctrl+Tab / Ctrl+Shift+Tab: next/prev tab
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
+        if (idx === -1) return;
+        const nextIdx = e.shiftKey
+          ? (idx - 1 + state.tabs.length) % state.tabs.length
+          : (idx + 1) % state.tabs.length;
+        state.setActiveTab(state.tabs[nextIdx].id);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const handleClose = useCallback(() => {
-    if (openFile?.modified) {
-      if (!window.confirm('You have unsaved changes. Close anyway?')) return;
+    if (fullScreen) {
+      // Files view: close the tab
+      const { activeTabId, closeTab, tabs: currentTabs } = useFileStore.getState();
+      if (activeTabId) {
+        const tab = currentTabs.find(t => t.id === activeTabId);
+        if (tab?.modified) {
+          if (!window.confirm('저장하지 않은 변경사항이 있습니다. 닫을까요?')) return;
+        }
+        closeTab(activeTabId);
+      }
+    } else {
+      // Side panel (chat view): just hide the panel, keep tabs alive
+      useFileStore.getState().setContextPanelOpen(false);
     }
-    setOpenFile(null);
-  }, [openFile, setOpenFile]);
+  }, [fullScreen]);
 
   const handleSave = useCallback(() => {
     if (openFile && onSave) {
@@ -182,6 +256,37 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
       onReload(openFile.path);
     }
   }, [openFile, onReload]);
+
+  // Resolve image src relative to the open file's directory
+  // Must be before early return to keep hooks order stable
+  const mdComponents = useMemo(() => {
+    if (!openFile) return {};
+    const fileDir = openFile.path.substring(0, openFile.path.lastIndexOf('/'));
+    const token = localStorage.getItem('token') || '';
+    return {
+      img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+        if (!src) return null;
+        if (/^https?:\/\//.test(src)) {
+          return <img src={src} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+        }
+        let resolvedPath: string;
+        if (src.startsWith('/')) {
+          resolvedPath = src;
+        } else {
+          resolvedPath = fileDir + '/' + src;
+        }
+        const parts = resolvedPath.split('/');
+        const normalized: string[] = [];
+        for (const p of parts) {
+          if (p === '..') normalized.pop();
+          else if (p !== '.') normalized.push(p);
+        }
+        resolvedPath = normalized.join('/');
+        const apiUrl = `/api/files/serve?path=${encodeURIComponent(resolvedPath)}&token=${encodeURIComponent(token)}`;
+        return <img src={apiUrl} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+      },
+    };
+  }, [openFile?.path]);
 
   if (!openFile) {
     return (
@@ -203,38 +308,6 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
     );
   }
 
-  // Resolve image src relative to the open file's directory
-  const mdComponents = useMemo(() => {
-    const fileDir = openFile.path.substring(0, openFile.path.lastIndexOf('/'));
-    const token = localStorage.getItem('token') || '';
-    return {
-      img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
-        if (!src) return null;
-        // If already absolute URL, use as-is
-        if (/^https?:\/\//.test(src)) {
-          return <img src={src} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
-        }
-        // Resolve relative path against the file's directory
-        let resolvedPath: string;
-        if (src.startsWith('/')) {
-          resolvedPath = src;
-        } else {
-          resolvedPath = fileDir + '/' + src;
-        }
-        // Normalize /../ and /./
-        const parts = resolvedPath.split('/');
-        const normalized: string[] = [];
-        for (const p of parts) {
-          if (p === '..') normalized.pop();
-          else if (p !== '.') normalized.push(p);
-        }
-        resolvedPath = normalized.join('/');
-        const apiUrl = `/api/files/serve?path=${encodeURIComponent(resolvedPath)}&token=${encodeURIComponent(token)}`;
-        return <img src={apiUrl} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
-      },
-    };
-  }, [openFile.path]);
-
   const PREVIEW_ONLY = new Set(['image', 'pdf', 'video', 'docx', 'xlsx', 'pptx']);
   const PREVIEWABLE = new Set(['image', 'pdf', 'video', 'html', 'markdown', 'docx', 'xlsx', 'pptx']);
   const hasPreview = PREVIEWABLE.has(openFile.language);
@@ -255,6 +328,9 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
 
   return (
     <div className="h-full flex flex-col bg-surface-900">
+      {/* Tab bar — always shown when tabs exist */}
+      {tabs.length > 0 && <TabBar />}
+
       {/* File header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-surface-700 text-sm">
         {onMobileClose && (
@@ -297,7 +373,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
           </button>
         )}
 
-        {!onMobileClose && (
+        {!onMobileClose && !fullScreen && (
           <button
             onClick={() => setContextPanelExpanded(!contextPanelExpanded)}
             className="p-0.5 hover:text-primary-400 transition-colors text-gray-400"
@@ -317,12 +393,24 @@ export function ContextPanel({ onSave, onReload, onMobileClose }: ContextPanelPr
 
         <button
           onClick={handleClose}
-          className="p-1 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors text-gray-400"
-          title="Close file"
+          className={`p-1 rounded-md transition-colors text-gray-400 ${
+            fullScreen
+              ? 'hover:text-red-400 hover:bg-red-400/10'
+              : 'hover:text-gray-200 hover:bg-surface-700'
+          }`}
+          title={fullScreen ? 'Close tab' : 'Collapse panel'}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          {fullScreen ? (
+            /* × for files view — actually closes the tab */
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            /* › arrow for side panel — collapse/fold */
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          )}
         </button>
       </div>
 

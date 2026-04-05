@@ -12,12 +12,13 @@ interface SessionState {
   unreadSessions: Set<string>;
   sidebarOpen: boolean;
   sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history';
+  lastSidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history';
   searchQuery: string;
   isMobile: boolean;
   mobileTab: MobileTab;
   mobileContextOpen: boolean;
   mobileTabBeforeContext: MobileTab;  // 파일 열기 전 탭 기억 (뒤로가기용)
-  activeView: 'chat' | 'kanban' | 'history' | 'rooms';
+  activeView: 'chat' | 'kanban' | 'history' | 'rooms' | 'files';
 
   setSessions: (sessions: SessionMeta[]) => void;
   setActiveSessionId: (id: string | null) => void;
@@ -28,13 +29,14 @@ interface SessionState {
   markSessionRead: (id: string) => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history') => void;
+  setLastSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history') => void;
   setSearchQuery: (query: string) => void;
   setIsMobile: (v: boolean) => void;
   setMobileTab: (tab: MobileTab) => void;
   setMobileContextOpen: (v: boolean) => void;
   openMobileContext: () => void;   // 현재 탭 기억하고 context panel 열기
   closeMobileContext: (fromPopState?: boolean) => void;  // 기억한 탭으로 복귀
-  setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms') => void;
+  setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms' | 'files') => void;
 }
 
 // Detect mobile at store creation to avoid first-render layout flash
@@ -46,13 +48,14 @@ export const useSessionStore = create<SessionState>((set) => ({
   streamingSessions: new Set(),
   unreadSessions: new Set(),
   sidebarOpen: true,
-  sidebarTab: 'rooms',
+  sidebarTab: 'sessions',
+  lastSidebarTab: 'sessions',
   searchQuery: '',
   isMobile: _initialIsMobile,
-  mobileTab: 'channel',
+  mobileTab: 'chat',
   mobileContextOpen: false,
-  mobileTabBeforeContext: 'channel',
-  activeView: 'rooms',
+  mobileTabBeforeContext: 'chat',
+  activeView: 'chat',
 
   setSessions: (sessions) => {
     set({ sessions: dedupeSessionsById(sessions) });
@@ -97,6 +100,7 @@ export const useSessionStore = create<SessionState>((set) => ({
     }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
+  setLastSidebarTab: (tab) => set({ lastSidebarTab: tab }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setIsMobile: (v) => set({ isMobile: v }),
   setMobileTab: (tab) => set({ mobileTab: tab }),

@@ -254,7 +254,7 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
       {activeSession && (
         <>
           <span className="text-surface-700 -mx-1 shrink-0">/</span>
-          <div className={`text-[13px] font-medium text-gray-400 px-2 py-1 rounded bg-surface-800/50 truncate min-w-0 ${isMobile ? 'max-w-[120px]' : ''}`}>
+          <div className="text-[13px] font-medium text-gray-400 px-2 py-1 rounded bg-surface-800/50 truncate min-w-0 max-w-[160px] md:max-w-none">
             {activeSession.name}
           </div>
         </>
@@ -262,34 +262,26 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
 
       <div className="flex-1" />
 
-      {isMobile && onNewSession && (
-        <button
-          onClick={onNewSession}
-          className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-primary-400 hover:text-primary-300"
-          title="New chat"
-          aria-label="New chat"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
-      )}
-
       <div className="flex items-center gap-2 md:gap-3 shrink-0">
-        {isMobile ? (
-          currentModel && <MobileModelSelector
-            currentModel={currentModel}
-            availableModels={availableModels}
-            selectedModel={selectedModel}
-            onSelect={setSelectedModel}
-          />
-        ) : (
-          <ModelSelector />
+        {!isMobile && <ModelSelector />}
+
+        {/* New chat — mobile only, right side */}
+        {isMobile && onNewSession && (
+          <button
+            onClick={onNewSession}
+            className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-primary-400 hover:text-primary-300"
+            title="New chat"
+            aria-label="New chat"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
         )}
 
-        <TaskBoardButton />
+        <NotificationBell />
 
-        {!isMobile && <NotificationBell />}
+        {!isMobile && <TaskBoardButton />}
 
         {!isMobile && <VersionHistoryButton onViewDiff={onViewDiff} />}
 
@@ -306,21 +298,23 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           </button>
         )}
 
-        {/* Help button */}
-        <button
-          onClick={() => useSettingsStore.getState().setHelpOpen(true)}
-          className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
-          title="Help"
-          aria-label="Help"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
-            <line x1="12" y1="17" x2="12.01" y2="17" strokeWidth={2} strokeLinecap="round" />
-          </svg>
-        </button>
+        {/* Help button — desktop only (mobile: Settings 탭에서 접근) */}
+        {!isMobile && (
+          <button
+            onClick={() => useSettingsStore.getState().setHelpOpen(true)}
+            className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
+            title="Help"
+            aria-label="Help"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" strokeWidth={2} strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
 
-        {/* User menu — replaces standalone admin button */}
+        {/* User menu — desktop only */}
         {!isMobile && (
           <UserMenu
             username={username}
@@ -330,9 +324,8 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
           />
         )}
 
-        {/* Theme toggle: desktop only — toggles dark/light mode */}
-        {!isMobile && (
-          <button
+        {/* Theme toggle: mobile + desktop */}
+        <button
             onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
             className="p-2 hover:bg-surface-800 rounded-lg transition-all text-gray-400 hover:text-gray-200"
             title={theme === 'light' ? 'Dark mode' : 'Light mode'}
@@ -348,7 +341,6 @@ export function Header({ connected, onToggleSidebar, onNewSession, onAdminClick,
               </svg>
             )}
           </button>
-        )}
 
         <div className={`w-2 h-2 rounded-full ring-2 ring-surface-900 ring-offset-1 ring-offset-transparent ${connected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse'}`}
           title={connected ? 'Connected' : 'Disconnected'}
