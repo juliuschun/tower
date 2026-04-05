@@ -52,7 +52,7 @@ export async function getSessionPanelSessions(parentSessionId: string, userId: n
   return rows.map(mapRow);
 }
 
-export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited' | 'visibility'>>) {
+export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited' | 'visibility' | 'label'>>) {
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const values: any[] = [];
   let paramIndex = 1;
@@ -71,6 +71,7 @@ export async function updateSession(id: string, updates: Partial<Pick<SessionMet
   if (updates.turnCount !== undefined) { sets.push(`turn_count = $${paramIndex++}`); values.push(updates.turnCount); }
   if (updates.filesEdited !== undefined) { sets.push(`files_edited = $${paramIndex++}`); values.push(JSON.stringify(updates.filesEdited)); }
   if (updates.visibility !== undefined) { sets.push(`visibility = $${paramIndex++}`); values.push(updates.visibility); }
+  if ('label' in updates) { sets.push(`label = $${paramIndex++}`); values.push(updates.label || null); }
 
   values.push(id);
   await execute(`UPDATE sessions SET ${sets.join(', ')} WHERE id = $${paramIndex}`, values);
@@ -124,6 +125,7 @@ function mapRow(row: any): SessionMeta {
     parentSessionId: row.parent_session_id || null,
     sourceMessageId: row.source_message_id || null,
     ownerUsername: row.owner_username || null,
+    label: row.label || null,
   };
 }
 

@@ -33,6 +33,7 @@ export interface SessionMeta {
   parentSessionId?: string | null;
   sourceMessageId?: string | null;
   ownerUsername?: string | null;
+  label?: string | null;
 }
 
 // ── Task ─────────────────────────────────────────────────────────

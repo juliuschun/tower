@@ -357,6 +357,21 @@ export async function* executeQuery(
     }
 
     if (jsonlPath) {
+      // If the .jsonl was found in a different configDir (e.g. session created before account rotation),
+      // copy it to the current configDir so the SDK child process can find it
+      if (cfgDir) {
+        const expectedPath = getJsonlPath(resolvedResumeId, resumeCwd, cfgDir);
+        if (jsonlPath !== expectedPath && !fs.existsSync(expectedPath)) {
+          try {
+            const dir = path.dirname(expectedPath);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.copyFileSync(jsonlPath, expectedPath);
+            console.log(`[sdk] copied .jsonl to current configDir for resume: ${resolvedResumeId.slice(0, 12)}`);
+          } catch (err: any) {
+            console.warn(`[sdk] failed to copy .jsonl for resume: ${err.message}`);
+          }
+        }
+      }
       // Repair .jsonl before resume — removes corrupted trailing lines from killed processes
       repairSessionFile(resolvedResumeId, resumeCwd, cfgDir);
       queryOptions.resume = resolvedResumeId;
