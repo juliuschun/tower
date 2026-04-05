@@ -143,6 +143,7 @@ export interface RunOpts {
    */
   accessiblePaths?: string[] | null;
   engineSessionId?: string;   // for resume (read from DB by ws-handler)
+  projectId?: string;         // for credential rotation (resolves to CLAUDE_CONFIG_DIR)
 }
 
 export interface EngineCallbacks {

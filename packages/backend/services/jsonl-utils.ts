@@ -3,9 +3,10 @@ import path from 'path';
 import os from 'os';
 
 /** Build .jsonl file path for a Claude session */
-export function buildJsonlPath(cwd: string, claudeSessionId: string): string {
+export function buildJsonlPath(cwd: string, claudeSessionId: string, configDir?: string): string {
   const cwdPath = cwd.replace(/\//g, '-');
-  return path.join(os.homedir(), '.claude', 'projects', cwdPath, `${claudeSessionId}.jsonl`);
+  const base = configDir || path.join(os.homedir(), '.claude');
+  return path.join(base, 'projects', cwdPath, `${claudeSessionId}.jsonl`);
 }
 
 /** Read a .jsonl file and check for task completion markers */
@@ -49,17 +50,18 @@ export function checkJsonlForCompletion(jsonlPath: string): {
  *
  * Returns the full path if found, null otherwise.
  */
-export function findJsonlFile(claudeSessionId: string, cwd?: string): string | null {
+export function findJsonlFile(claudeSessionId: string, cwd?: string, configDir?: string): string | null {
   const fileName = `${claudeSessionId}.jsonl`;
+  const base = configDir || path.join(os.homedir(), '.claude');
 
   // 1. Try expected path first
   if (cwd) {
-    const expected = buildJsonlPath(cwd, claudeSessionId);
+    const expected = buildJsonlPath(cwd, claudeSessionId, configDir);
     if (fs.existsSync(expected)) return expected;
   }
 
-  // 2. Scan all project directories
-  const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+  // 2. Scan all project directories (within the account's config dir)
+  const projectsDir = path.join(base, 'projects');
   try {
     const dirs = fs.readdirSync(projectsDir, { withFileTypes: true });
     for (const dir of dirs) {
@@ -68,6 +70,11 @@ export function findJsonlFile(claudeSessionId: string, cwd?: string): string | n
       if (fs.existsSync(candidate)) return candidate;
     }
   } catch { /* projects dir doesn't exist */ }
+
+  // 3. If using a custom configDir, also check default ~/.claude/ as fallback
+  if (configDir) {
+    return findJsonlFile(claudeSessionId, cwd);
+  }
 
   return null;
 }

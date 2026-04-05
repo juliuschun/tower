@@ -71,6 +71,21 @@ export interface TaskMeta {
   userId: number | null;
 }
 
+// ── Space ───────────────────────────────────────────────────────
+
+export interface Space {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  type: 'client' | 'research' | 'internal' | 'personal' | 'custom';
+  color: string;
+  icon: string;
+  sortOrder: number;
+  archived: number;
+  createdAt: string;
+}
+
 // ── Project ──────────────────────────────────────────────────────
 
 export interface Project {
@@ -83,6 +98,10 @@ export interface Project {
   collapsed: number;
   archived: number;
   createdAt: string;
+  spaceId: number | null;
+  spaceName?: string | null;
+  spaceSlug?: string | null;
+  claude_account_id?: string | null;
 }
 
 // ── Pin ──────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
-  const [tab, setTab] = useState<'users' | 'groups' | 'models' | 'prompts' | 'skills' | 'heartbeat' | 'system'>('users');
+  const [tab, setTab] = useState<'users' | 'groups' | 'models' | 'accounts' | 'prompts' | 'skills' | 'heartbeat' | 'system'>('users');
 
   if (!open) return null;
 
@@ -58,6 +58,7 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
           <button className={tabClass('users')} onClick={() => setTab('users')}>Users</button>
           <button className={tabClass('groups')} onClick={() => setTab('groups')}>Groups</button>
           <button className={tabClass('models')} onClick={() => setTab('models')}>Models</button>
+          <button className={tabClass('accounts')} onClick={() => setTab('accounts')}>Accounts</button>
           <button className={tabClass('prompts')} onClick={() => setTab('prompts')}>System Prompt</button>
           <button className={tabClass('skills')} onClick={() => setTab('skills')}>Skills</button>
           <button className={tabClass('heartbeat')} onClick={() => setTab('heartbeat')}>Heartbeat</button>
@@ -69,6 +70,7 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
           {tab === 'users' && <UserManagement token={token} />}
           {tab === 'groups' && <GroupManagement token={token} />}
           {tab === 'models' && <ModelManagement token={token} />}
+          {tab === 'accounts' && <ClaudeAccountManagement token={token} />}
           {tab === 'prompts' && <SystemPromptEditor token={token} />}
           {tab === 'skills' && <SkillsManagement token={token} />}
           {tab === 'heartbeat' && <HeartbeatManagement token={token} />}
@@ -1404,6 +1406,292 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
       <span className={`text-[13px] text-gray-200 ${mono ? 'font-mono' : ''} max-w-[400px] truncate`} title={value}>
         {value}
       </span>
+    </div>
+  );
+}
+
+// ───── Claude Accounts Tab ─────
+
+interface ClaudeAccount {
+  id: string;
+  label: string;
+  configDir: string;
+  tier: 'max' | 'pro' | 'api';
+  isDefault: boolean;
+  enabled: boolean;
+  createdAt?: string;
+}
+
+interface ProjectSummary {
+  id: string;
+  name: string;
+  claude_account_id: string | null;
+}
+
+function ClaudeAccountManagement({ token }: { token?: string | null }) {
+  const [accounts, setAccounts] = useState<ClaudeAccount[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [newAccount, setNewAccount] = useState({ id: '', label: '', configDir: '', tier: 'max' as string, isDefault: false });
+  const [error, setError] = useState('');
+  const [assigningProject, setAssigningProject] = useState<string | null>(null);
+
+  const headers = useCallback(() => ({
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }), [token]);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [accRes, projRes] = await Promise.all([
+        fetch(`${API_BASE}/admin/claude-accounts`, { headers: headers() }),
+        fetch(`${API_BASE}/projects`, { headers: headers() }),
+      ]);
+      if (accRes.ok) setAccounts(await accRes.json());
+      if (projRes.ok) setProjects(await projRes.json());
+    } catch {} finally { setLoading(false); }
+  }, [headers]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleCreate = async () => {
+    setError('');
+    if (!newAccount.id || !newAccount.label || !newAccount.configDir) {
+      setError('ID, Label, ConfigDir are required'); return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/claude-accounts`, {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify(newAccount),
+      });
+      if (res.ok) {
+        setShowForm(false);
+        setNewAccount({ id: '', label: '', configDir: '', tier: 'max', isDefault: false });
+        fetchData();
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Creation failed');
+      }
+    } catch { setError('Server error'); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm(`Delete account "${id}"? Projects using it will fall back to default.`)) return;
+    await fetch(`${API_BASE}/admin/claude-accounts/${id}`, { method: 'DELETE', headers: headers() });
+    fetchData();
+  };
+
+  const handleToggle = async (acc: ClaudeAccount, field: 'enabled' | 'isDefault') => {
+    await fetch(`${API_BASE}/admin/claude-accounts/${acc.id}`, {
+      method: 'PUT', headers: headers(),
+      body: JSON.stringify({ [field]: field === 'isDefault' ? true : !acc.enabled }),
+    });
+    fetchData();
+  };
+
+  const handleAssign = async (projectId: string, accountId: string | null) => {
+    await fetch(`${API_BASE}/admin/projects/${projectId}/claude-account`, {
+      method: 'PUT', headers: headers(),
+      body: JSON.stringify({ accountId }),
+    });
+    setAssigningProject(null);
+    fetchData();
+  };
+
+  const getAccountForProject = (p: ProjectSummary) =>
+    accounts.find(a => a.id === p.claude_account_id);
+
+  const defaultAccount = accounts.find(a => a.isDefault && a.enabled);
+
+  if (loading) return <div className="text-gray-500 text-sm p-4">Loading...</div>;
+
+  return (
+    <div className="space-y-5">
+      {/* ── Accounts Section ── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[13px] text-gray-400">
+            <span className="text-gray-200 font-medium">{accounts.length}</span> account(s) registered
+            {defaultAccount && (
+              <span className="ml-2 text-primary-400/70">Default: {defaultAccount.label}</span>
+            )}
+          </div>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="px-3 py-1.5 text-[12px] font-medium bg-primary-600 hover:bg-primary-500 text-white rounded-lg transition-colors"
+          >
+            {showForm ? 'Cancel' : '+ Add Account'}
+          </button>
+        </div>
+
+        {/* Add form */}
+        {showForm && (
+          <div className="bg-surface-800 border border-surface-700 rounded-lg p-4 mb-3 space-y-3">
+            {error && <div className="text-red-400 text-[12px]">{error}</div>}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-gray-500 block mb-1">ID (slug)</label>
+                <input
+                  value={newAccount.id} onChange={e => setNewAccount({ ...newAccount, id: e.target.value })}
+                  placeholder="e.g. gmail"
+                  className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-gray-500 block mb-1">Label</label>
+                <input
+                  value={newAccount.label} onChange={e => setNewAccount({ ...newAccount, label: e.target.value })}
+                  placeholder="e.g. Gmail Max Account"
+                  className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-gray-500 block mb-1">Config Dir</label>
+                <input
+                  value={newAccount.configDir} onChange={e => setNewAccount({ ...newAccount, configDir: e.target.value })}
+                  placeholder="e.g. /home/user/.claude-gmail"
+                  className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-gray-500 block mb-1">Tier</label>
+                <select
+                  value={newAccount.tier} onChange={e => setNewAccount({ ...newAccount, tier: e.target.value })}
+                  className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2"
+                >
+                  <option value="max">Max</option>
+                  <option value="pro">Pro</option>
+                  <option value="api">API</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-[12px] text-gray-400 cursor-pointer">
+                <input
+                  type="checkbox" checked={newAccount.isDefault}
+                  onChange={e => setNewAccount({ ...newAccount, isDefault: e.target.checked })}
+                  className="rounded border-surface-600"
+                />
+                Set as default
+              </label>
+              <button onClick={handleCreate}
+                className="ml-auto px-4 py-1.5 text-[12px] font-medium bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
+              >Create</button>
+            </div>
+          </div>
+        )}
+
+        {/* Account list */}
+        <div className="bg-surface-800 border border-surface-700 rounded-lg divide-y divide-surface-700">
+          {accounts.length === 0 ? (
+            <div className="px-4 py-8 text-center text-gray-500 text-[13px]">
+              No accounts registered. All sessions use default <code className="text-gray-400">~/.claude/</code>
+            </div>
+          ) : accounts.map(acc => {
+            const assignedProjects = projects.filter(p => p.claude_account_id === acc.id);
+            const tierColors: Record<string, string> = { max: 'text-purple-400', pro: 'text-blue-400', api: 'text-gray-400' };
+
+            return (
+              <div key={acc.id} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${acc.enabled ? 'bg-green-500' : 'bg-gray-600'}`} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] text-gray-200 font-medium">{acc.label}</span>
+                        <span className={`text-[11px] font-mono ${tierColors[acc.tier] || 'text-gray-400'}`}>{acc.tier.toUpperCase()}</span>
+                        {acc.isDefault && (
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary-600/20 text-primary-400 border border-primary-500/30">DEFAULT</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-gray-600 font-mono truncate">{acc.configDir}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 ml-3">
+                    {!acc.isDefault && (
+                      <button
+                        onClick={() => handleToggle(acc, 'isDefault')}
+                        className="px-2 py-1 text-[11px] text-gray-500 hover:text-primary-400 hover:bg-surface-700 rounded transition-colors"
+                        title="Set as default"
+                      >⭐</button>
+                    )}
+                    <button
+                      onClick={() => handleToggle(acc, 'enabled')}
+                      className={`px-2 py-1 text-[11px] rounded transition-colors ${
+                        acc.enabled ? 'text-green-400 hover:text-red-400 hover:bg-surface-700' : 'text-gray-600 hover:text-green-400 hover:bg-surface-700'
+                      }`}
+                    >{acc.enabled ? 'ON' : 'OFF'}</button>
+                    <button
+                      onClick={() => handleDelete(acc.id)}
+                      className="px-2 py-1 text-[11px] text-gray-600 hover:text-red-400 hover:bg-surface-700 rounded transition-colors"
+                      title="Delete"
+                    >✕</button>
+                  </div>
+                </div>
+                {assignedProjects.length > 0 && (
+                  <div className="mt-1.5 ml-5 flex flex-wrap gap-1">
+                    {assignedProjects.map(p => (
+                      <span key={p.id} className="text-[10px] px-1.5 py-0.5 rounded bg-surface-700 text-gray-400">{p.name}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Project Assignment Section ── */}
+      <div>
+        <h3 className="text-[13px] font-medium text-gray-300 mb-3">Project → Account Assignment</h3>
+        <div className="bg-surface-800 border border-surface-700 rounded-lg divide-y divide-surface-700 max-h-[300px] overflow-y-auto">
+          {projects.map(proj => {
+            const assigned = getAccountForProject(proj);
+            const isAssigning = assigningProject === proj.id;
+
+            return (
+              <div key={proj.id} className="px-4 py-2.5 flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="text-[13px] text-gray-300 truncate">{proj.name}</span>
+                </div>
+                <div className="shrink-0 ml-3">
+                  {isAssigning ? (
+                    <select
+                      autoFocus
+                      value={proj.claude_account_id || ''}
+                      onChange={e => handleAssign(proj.id, e.target.value || null)}
+                      onBlur={() => setAssigningProject(null)}
+                      className="bg-surface-900 border border-primary-500/50 text-gray-200 text-[12px] rounded px-2 py-1 w-44"
+                    >
+                      <option value="">— Use default —</option>
+                      {accounts.filter(a => a.enabled).map(a => (
+                        <option key={a.id} value={a.id}>{a.label}{a.isDefault ? ' ⭐' : ''}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <button
+                      onClick={() => setAssigningProject(proj.id)}
+                      className={`text-[12px] px-2 py-1 rounded transition-colors ${
+                        assigned
+                          ? 'text-primary-400 hover:bg-surface-700'
+                          : 'text-gray-600 hover:text-gray-400 hover:bg-surface-700'
+                      }`}
+                    >
+                      {assigned ? assigned.label : defaultAccount ? `(${defaultAccount.label})` : '— none —'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {defaultAccount && (
+          <div className="mt-2 text-[11px] text-gray-600">
+            Unassigned projects use the default account: <span className="text-gray-400">{defaultAccount.label}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -48,6 +48,9 @@ import {
   moveSessionToProject, reorderProjects,
 } from '../services/project-manager.js';
 import {
+  listSpaces, createSpace, updateSpace, deleteSpace,
+} from '../services/space-manager.js';
+import {
   listGroups, createGroup, updateGroup, deleteGroup,
   addUserToGroup, removeUserFromGroup,
   getUserGroups,
@@ -495,6 +498,77 @@ router.put('/admin/models', adminMiddleware, (req, res) => {
     // Broadcast updated model list to all connected clients
     broadcast({ type: 'config_update', models: reloaded.claude, piModels: reloaded.pi, defaults: reloaded.defaults });
     res.json({ ok: true, ...reloaded });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ───── Admin: Claude Accounts (credential rotation) ─────
+import {
+  listAccounts, addAccount, updateAccount, removeAccount,
+  assignAccountToProject, getProjectAccountId,
+} from '../services/credential-store.js';
+
+router.get('/admin/claude-accounts', adminMiddleware, async (_req, res) => {
+  try {
+    res.json(await listAccounts());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/admin/claude-accounts', adminMiddleware, async (req, res) => {
+  const { id, label, configDir, tier, isDefault } = req.body;
+  if (!id || !label || !configDir) {
+    return res.status(400).json({ error: 'id, label, and configDir are required' });
+  }
+  try {
+    const account = await addAccount({ id, label, configDir, tier, isDefault });
+    res.json(account);
+  } catch (err: any) {
+    if (err.message?.includes('UNIQUE') || err.message?.includes('unique') || err.message?.includes('duplicate')) {
+      return res.status(409).json({ error: 'Account ID or configDir already exists' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/admin/claude-accounts/:id', adminMiddleware, async (req, res) => {
+  const { label, configDir, tier, isDefault, enabled } = req.body;
+  try {
+    const updated = await updateAccount(req.params.id as string, { label, configDir, tier, isDefault, enabled });
+    if (!updated) return res.status(404).json({ error: 'Account not found' });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/admin/claude-accounts/:id', adminMiddleware, async (req, res) => {
+  try {
+    const ok = await removeAccount(req.params.id as string);
+    if (!ok) return res.status(404).json({ error: 'Account not found' });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Assign account to project
+router.put('/admin/projects/:projectId/claude-account', adminMiddleware, async (req, res) => {
+  const { accountId } = req.body; // null to unassign
+  try {
+    await assignAccountToProject(req.params.projectId as string, accountId);
+    res.json({ ok: true, projectId: req.params.projectId, accountId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/admin/projects/:projectId/claude-account', adminMiddleware, async (req, res) => {
+  try {
+    const accountId = await getProjectAccountId(req.params.projectId as string);
+    res.json({ projectId: req.params.projectId, accountId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1687,6 +1761,35 @@ router.get('/my/groups', async (req, res) => {
   res.json(await getUserGroups(userId));
 });
 
+// ───── Spaces ─────
+router.get('/spaces', async (_req, res) => {
+  try { res.json(await listSpaces()); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/spaces', adminMiddleware, async (req, res) => {
+  try {
+    const { name, slug, description, type, color, icon } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+    const space = await createSpace(name.trim(), { slug, description, type, color, icon });
+    res.json(space);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/spaces/:id', adminMiddleware, async (req, res) => {
+  try {
+    const space = await updateSpace(parseInt(req.params.id as string), req.body);
+    if (!space) return res.status(404).json({ error: 'space not found' });
+    res.json(space);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/spaces/:id', adminMiddleware, async (req, res) => {
+  try {
+    await deleteSpace(parseInt(req.params.id as string));
+    res.json({ ok: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ───── Projects ─────
 router.get('/projects', async (req, res) => {
   const userId = (req as any).user?.userId;
@@ -1696,10 +1799,10 @@ router.get('/projects', async (req, res) => {
 
 router.post('/projects', async (req, res) => {
   try {
-    const { name, description, rootPath, color, memberIds, groupId } = req.body;
+    const { name, description, rootPath, color, memberIds, groupId, spaceId } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
     const userId = (req as any).user?.userId;
-    const project = await createProject(name.trim(), userId, { description, rootPath, color });
+    const project = await createProject(name.trim(), userId, { description, rootPath, color, spaceId: spaceId ?? null });
 
     // Add individual members
     if (Array.isArray(memberIds)) {

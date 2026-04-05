@@ -1064,6 +1064,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
       allowedPath: client.allowedPath,
       accessiblePaths,
       engineSessionId,
+      projectId: (dbSession as any)?.projectId || undefined,
     }, callbacks)) {
       resetHangTimer();
 

@@ -29,37 +29,49 @@ function rowToProject(row: any): Project {
     archived: row.archived,
     userId: row.user_id,
     createdAt: row.created_at,
+    spaceId: row.space_id ?? null,
+    spaceName: row.space_name ?? null,
+    spaceSlug: row.space_slug ?? null,
+    claude_account_id: row.claude_account_id ?? null,
   };
 }
+
+const PROJECTS_BASE_QUERY = `
+  SELECT p.*, s.name as space_name, s.slug as space_slug
+  FROM projects p
+  LEFT JOIN spaces s ON p.space_id = s.id
+  WHERE (p.archived IS NULL OR p.archived = 0)
+  ORDER BY p.sort_order, p.created_at
+`;
 
 export async function getProjects(userId?: number, role?: string): Promise<Project[]> {
   if (userId && role) {
     const accessibleIds = await getAccessibleProjectIds(userId, role);
     if (accessibleIds !== null) {
       // Non-admin: show only projects user is a member of or created
-      const allRows = await query(
-        `SELECT * FROM projects WHERE (archived IS NULL OR archived = 0) ORDER BY sort_order, created_at`
-      );
+      const allRows = await query(PROJECTS_BASE_QUERY);
       return allRows.filter(r => accessibleIds.includes(r.id)).map(rowToProject);
     }
   }
 
   // admin or no auth: show all non-archived projects
-  const rows = await query(
-    `SELECT * FROM projects WHERE (archived IS NULL OR archived = 0) ORDER BY sort_order, created_at`
-  );
+  const rows = await query(PROJECTS_BASE_QUERY);
   return rows.map(rowToProject);
 }
 
 export async function getProject(id: string): Promise<Project | null> {
-  const row = await queryOne('SELECT * FROM projects WHERE id = $1', [id]);
+  const row = await queryOne(
+    `SELECT p.*, s.name as space_name, s.slug as space_slug
+     FROM projects p LEFT JOIN spaces s ON p.space_id = s.id
+     WHERE p.id = $1`, [id]
+  );
   return row ? rowToProject(row) : null;
 }
 
 export async function createProject(
   name: string,
   userId?: number,
-  opts?: { description?: string; rootPath?: string; color?: string }
+  opts?: { description?: string; rootPath?: string; color?: string; spaceId?: number | null }
 ): Promise<Project> {
   const id = uuidv4();
   const maxOrderRow = await queryOne(
@@ -100,8 +112,8 @@ export async function createProject(
   }
 
   await execute(
-    `INSERT INTO projects (id, name, description, root_path, color, sort_order, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, name, opts?.description ?? null, rootPath, opts?.color ?? '#f59e0b', maxOrder + 1, userId ?? null]
+    `INSERT INTO projects (id, name, description, root_path, color, sort_order, user_id, space_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [id, name, opts?.description ?? null, rootPath, opts?.color ?? '#f59e0b', maxOrder + 1, userId ?? null, opts?.spaceId ?? null]
   );
 
   // Auto-add creator as project owner
@@ -120,6 +132,7 @@ export async function updateProject(id: string, updates: Partial<{
   sortOrder: number;
   collapsed: number;
   archived: number;
+  spaceId: number | null;
 }>): Promise<Project | null> {
   // ── Safe Rename: when name changes, cascade folder + sessions + CLAUDE.md ──
   if (updates.name !== undefined) {
@@ -143,6 +156,7 @@ export async function updateProject(id: string, updates: Partial<{
   if (updates.sortOrder !== undefined) { sets.push(`sort_order = $${paramIdx++}`); vals.push(updates.sortOrder); }
   if (updates.collapsed !== undefined) { sets.push(`collapsed = $${paramIdx++}`); vals.push(updates.collapsed); }
   if (updates.archived !== undefined) { sets.push(`archived = $${paramIdx++}`); vals.push(updates.archived); }
+  if ('spaceId' in updates) { sets.push(`space_id = $${paramIdx++}`); vals.push(updates.spaceId); }
   if (sets.length === 0) return await getProject(id);
   vals.push(id);
   await execute(`UPDATE projects SET ${sets.join(', ')} WHERE id = $${paramIdx}`, vals);
