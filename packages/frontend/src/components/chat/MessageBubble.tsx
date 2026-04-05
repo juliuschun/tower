@@ -8,16 +8,49 @@ import { toastSuccess } from '../../utils/toast';
 import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 
-function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+/**
+ * Copy button that writes both text/plain (raw markdown) and text/html (rendered)
+ * to the clipboard. Rich editors (Google Docs, Notion, Slack) use the HTML;
+ * plain editors (VS Code, terminal) use the markdown.
+ */
+function CopyButton({ text, contentRef, className = '' }: {
+  text: string;
+  contentRef?: React.RefObject<HTMLDivElement | null>;
+  className?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    await navigator.clipboard.writeText(text);
+    try {
+      // Build HTML from rendered DOM content (if available), else from plain text
+      let html = '';
+      if (contentRef?.current) {
+        html = extractRichHtml(contentRef.current);
+      }
+      if (!html) {
+        // Fallback: simple markdown-to-HTML conversion for line breaks & paragraphs
+        html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+        html = `<p>${html}</p>`;
+      }
+
+      const blob = new Blob([html], { type: 'text/html' });
+      const textBlob = new Blob([text], { type: 'text/plain' });
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': blob,
+          'text/plain': textBlob,
+        }),
+      ]);
+    } catch {
+      // Fallback for browsers that don't support ClipboardItem
+      await navigator.clipboard.writeText(text);
+    }
     toastSuccess('Copied');
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [text]);
+  }, [text, contentRef]);
 
   return (
     <button
@@ -143,7 +176,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
         </div>
       )}
 
-      <div className={`min-w-0 ${isUser ? 'max-w-[88%] order-first' : 'flex-1'}`}>
+      <div className={`min-w-0 overflow-hidden ${isUser ? 'max-w-[88%] order-first' : 'flex-1'}`}>
         {isUser ? (
           <div>
             {/* Username + timestamp meta line */}
@@ -490,13 +523,19 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
     const range = sel.getRangeAt(0);
     if (!bodyRef.current?.contains(range.commonAncestorContainer)) return;
 
-    // Build clean text: walk selected nodes, skip tool chips that have data-tool-text
+    // Build clean text + rich HTML from the selection
     const fragment = range.cloneContents();
     const cleanText = extractCleanText(fragment);
     if (cleanText) {
       e.clipboardData?.setData('text/plain', cleanText);
-      // Also set HTML for rich paste
-      e.clipboardData?.setData('text/html', `<div>${cleanText.replace(/\n/g, '<br>')}</div>`);
+
+      // Build rich HTML from the actual rendered DOM selection
+      const tempDiv = document.createElement('div');
+      tempDiv.appendChild(fragment.cloneNode(true));
+      // Remove tool/agent UI elements from the HTML copy
+      tempDiv.querySelectorAll('[data-tool-text], [data-agent-text], button, svg').forEach(n => n.remove());
+      const richHtml = tempDiv.innerHTML;
+      e.clipboardData?.setData('text/html', richHtml || `<div>${cleanText.replace(/\n/g, '<br>')}</div>`);
       e.preventDefault();
     }
   }, []);
@@ -512,6 +551,7 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
     <div ref={bodyRef} className="relative space-y-2">
       <CopyButton
         text={getMessageText(message.content)}
+        contentRef={bodyRef}
         className="absolute -top-1 -right-1 opacity-40 hover:opacity-100 transition-opacity z-10"
       />
       {groups.flatMap((group, gi) => {
@@ -649,6 +689,31 @@ function isAgentTool(name?: string): boolean {
   if (!name) return false;
   const n = name.charAt(0).toUpperCase() + name.slice(1);
   return n === 'Task' || n === 'Agent';
+}
+
+/**
+ * Extract clean rich HTML from a rendered message body element.
+ * Strips tool chips, agent cards, SVGs, buttons, and copy buttons,
+ * keeping only the prose content (markdown-rendered HTML).
+ */
+function extractRichHtml(el: HTMLElement): string {
+  const clone = el.cloneNode(true) as HTMLElement;
+
+  // Remove tool/agent/UI elements
+  clone.querySelectorAll('[data-tool-text], [data-agent-text], button, svg').forEach(n => n.remove());
+  // Remove copy buttons specifically
+  clone.querySelectorAll('[title="Copy"]').forEach(n => n.remove());
+
+  // Find prose content divs (rendered markdown)
+  const proseEls = clone.querySelectorAll('.prose');
+  if (proseEls.length > 0) {
+    const parts: string[] = [];
+    proseEls.forEach(p => parts.push(p.innerHTML));
+    return parts.join('<br>');
+  }
+
+  // Fallback: full innerHTML
+  return clone.innerHTML;
 }
 
 /** Extract clean text from a DOM fragment, skipping tool chip decorations */

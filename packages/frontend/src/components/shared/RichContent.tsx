@@ -227,7 +227,7 @@ function CopyBtn({ text, className = '' }: { text: string; className?: string })
 
 function MarkdownSegment({ content, mdComponents }: { content: string; mdComponents: Record<string, any> }) {
   return (
-    <div className="prose prose-invert prose-sm max-w-none overflow-hidden">
+    <div className="prose prose-invert prose-sm max-w-none overflow-hidden break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, [remarkMath, remarkMathOptions]]}
         rehypePlugins={[rehypeHighlight, rehypeKatex]}

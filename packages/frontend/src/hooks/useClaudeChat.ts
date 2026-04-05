@@ -234,6 +234,7 @@ export function useClaudeChat() {
 
         // Restore streaming indicators for all running sessions
         const runningSessions: string[] = data.streamingSessions || [];
+        const runningSetForSync = new Set(runningSessions);
         if (runningSessions.length > 0) {
           for (const sid of runningSessions) {
             useSessionStore.getState().setSessionStreaming(sid, true);
@@ -244,6 +245,22 @@ export function useClaudeChat() {
             useChatStore.getState().setStreaming(true);
             if (!useChatStore.getState().turnStartTime) {
               useChatStore.getState().setTurnStartTime(Date.now());
+            }
+          }
+        }
+
+        // Sync: clear streaming for sessions the frontend thinks are active but the server says aren't.
+        // This prevents stuck queues when a turn finishes while the client was disconnected.
+        const frontendStreamingSessions = useSessionStore.getState().streamingSessions;
+        for (const sid of frontendStreamingSessions) {
+          if (!runningSetForSync.has(sid)) {
+            console.log(`[chat] reconnect sync: clearing stale streaming for session ${sid.slice(0, 8)}`);
+            useSessionStore.getState().setSessionStreaming(sid, false);
+            // If this is the active session, also clear chat-store streaming
+            const currentSid = useChatStore.getState().sessionId;
+            if (sid === currentSid) {
+              useChatStore.getState().setStreaming(false);
+              useChatStore.getState().setTurnStartTime(null);
             }
           }
         }
@@ -329,12 +346,13 @@ export function useClaudeChat() {
             toastWarning('Server restarted — resuming conversation...');
 
             // Auto-resume: send a continue message with resume context
+            // Loop prevention is handled server-side (uptime < 30s → no interrupted file written)
             const session = useSessionStore.getState().sessions.find(s => s.id === data.sessionId);
             setTimeout(() => {
               const messageId = generateUUID();
               sendRef.current({
                 type: 'chat',
-                message: 'Continue from where you left off.',
+                message: 'The server was just restarted. Your previous task was interrupted mid-stream. If you were running a server restart, deployment, or build command — it already completed successfully, do NOT re-run it. Review where you left off and continue with the next step.',
                 messageId,
                 sessionId: data.sessionId,
                 claudeSessionId: data.claudeSessionId || session?.claudeSessionId,
@@ -475,6 +493,21 @@ export function useClaudeChat() {
               }
             }
           }
+        }
+        break;
+      }
+
+      case 'session_status_check': {
+        // Response to stale queue guard check — server confirms actual session status
+        if (data.sessionId && data.status === 'idle') {
+          console.log(`[chat] stale queue guard: server confirmed session ${data.sessionId.slice(0, 8)} is idle, clearing streaming`);
+          useSessionStore.getState().setSessionStreaming(data.sessionId, false);
+          const currentSid = useChatStore.getState().sessionId;
+          if (data.sessionId === currentSid) {
+            useChatStore.getState().setStreaming(false);
+            useChatStore.getState().setTurnStartTime(null);
+          }
+          // Queue drain will be triggered by InputBox's useEffect reacting to isStreaming → false
         }
         break;
       }
@@ -1278,12 +1311,19 @@ export function useClaudeChat() {
   const abort = useCallback(() => {
     const sessionId = useChatStore.getState().sessionId;
     send({ type: 'abort', sessionId });
-    // Keep streaming=true until the backend confirms the Pi session is actually idle.
-    // Otherwise a fast follow-up message can race with Pi's internal abort and trigger
-    // "Agent is already processing" from the SDK.
+    // Immediately clear streaming state so the UI returns to idle mode.
+    // This lets the user send a new message right after Stop without waiting
+    // for the server to confirm idle via session_status.
+    // If the engine is still aborting (Pi race), the backend's SESSION_BUSY
+    // guard will re-queue the message automatically.
+    setStreaming(false);
+    setTurnStartTime(null);
+    if (sessionId) {
+      useSessionStore.getState().setSessionStreaming(sessionId, false);
+    }
     useChatStore.getState().setCompacting(null);
     useChatStore.getState().setPendingQuestion(null);
-  }, [send]);
+  }, [send, setStreaming, setTurnStartTime]);
 
   const setActiveSession = useCallback(
     (sessionId: string, claudeSessionId?: string | null) => {

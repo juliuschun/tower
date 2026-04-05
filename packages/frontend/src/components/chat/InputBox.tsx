@@ -167,6 +167,39 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     return () => window.removeEventListener('session-busy-requeue', handler);
   }, []);
 
+  // Stale queue guard: if queue has messages and isStreaming stays true for 2 minutes,
+  // ask the server to confirm the session is actually still streaming.
+  const staleGuardTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    if (staleGuardTimerRef.current) {
+      clearTimeout(staleGuardTimerRef.current);
+      staleGuardTimerRef.current = undefined;
+    }
+
+    if (hasQueue && isStreaming && currentSessionId) {
+      staleGuardTimerRef.current = setTimeout(() => {
+        // Re-check conditions (state may have changed during the 2 min wait)
+        const sid = useChatStore.getState().sessionId;
+        const queue = sid ? useChatStore.getState().messageQueue[sid] : [];
+        const stillStreaming = sid ? useSessionStore.getState().streamingSessions.has(sid) : false;
+        if (queue && queue.length > 0 && stillStreaming && sid) {
+          console.log(`[chat] stale queue guard: requesting server status check for session ${sid.slice(0, 8)}`);
+          const ws = (window as any).__claudeWs as WebSocket | undefined;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'check_session_status', sessionId: sid }));
+          }
+        }
+      }, 120_000); // 2 minutes
+    }
+
+    return () => {
+      if (staleGuardTimerRef.current) {
+        clearTimeout(staleGuardTimerRef.current);
+        staleGuardTimerRef.current = undefined;
+      }
+    };
+  }, [hasQueue, isStreaming, currentSessionId]);
+
   const buildMessage = (text: string): string => {
     if (attachments.length === 0) return text;
 
