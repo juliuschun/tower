@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
+import rehypeSlug from 'rehype-slug';
 import { useFileStore } from '../../stores/file-store';
 import { CodeEditor } from '../editor/CodeEditor';
 import { MermaidBlock } from '../chat/MermaidBlock';
@@ -160,7 +161,7 @@ function MarkdownWithMermaid({ content, components }: { content: string; compone
         seg.type === 'mermaid' ? (
           <MermaidBlock key={i} code={seg.text} />
         ) : (
-          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]} components={components}>
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug, rehypeRaw, rehypeHighlight]} components={components}>
             {seg.text}
           </ReactMarkdown>
         )
@@ -175,9 +176,11 @@ interface ContextPanelProps {
   onMobileClose?: () => void;
   /** When true, hides expand/collapse button (already full-screen in files view) */
   fullScreen?: boolean;
+  /** Navigate to a file (used by markdown link clicks) */
+  onFileNavigate?: (path: string) => void;
 }
 
-export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen }: ContextPanelProps) {
+export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen, onFileNavigate }: ContextPanelProps) {
   const openFile = useFileStore((s) => s.openFile);
   const contextPanelTab = useFileStore((s) => s.contextPanelTab);
   const setContextPanelTab = useFileStore((s) => s.setContextPanelTab);
@@ -187,6 +190,34 @@ export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen }: Co
   const contextPanelExpanded = useFileStore((s) => s.contextPanelExpanded);
   const setContextPanelExpanded = useFileStore((s) => s.setContextPanelExpanded);
   const tabs = useFileStore((s) => s.tabs);
+  const navHistory = useFileStore((s) => s.navHistory);
+  const navIndex = useFileStore((s) => s.navIndex);
+
+  const handleNavBack = useCallback(() => {
+    const path = useFileStore.getState().navBack();
+    if (path && onFileNavigate) {
+      const fs = useFileStore.getState();
+      const existingTab = fs.tabs.find(t => t.path === path);
+      if (existingTab) {
+        fs.setActiveTab(existingTab.id);
+      } else {
+        onFileNavigate(path);
+      }
+    }
+  }, [onFileNavigate]);
+
+  const handleNavForward = useCallback(() => {
+    const path = useFileStore.getState().navForward();
+    if (path && onFileNavigate) {
+      const fs = useFileStore.getState();
+      const existingTab = fs.tabs.find(t => t.path === path);
+      if (existingTab) {
+        fs.setActiveTab(existingTab.id);
+      } else {
+        onFileNavigate(path);
+      }
+    }
+  }, [onFileNavigate]);
 
   useEffect(() => {
     if (openFile && ['html', 'markdown', 'pdf', 'image', 'video', 'docx', 'xlsx', 'pptx'].includes(openFile.language)) {
@@ -222,11 +253,22 @@ export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen }: Co
           ? (idx - 1 + state.tabs.length) % state.tabs.length
           : (idx + 1) % state.tabs.length;
         state.setActiveTab(state.tabs[nextIdx].id);
+        return;
+      }
+
+      // Alt+← / Alt+→: back/forward navigation
+      if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        if (e.key === 'ArrowLeft') {
+          handleNavBack();
+        } else {
+          handleNavForward();
+        }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [handleNavBack, handleNavForward]);
 
   const handleClose = useCallback(() => {
     if (fullScreen) {
@@ -257,36 +299,181 @@ export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen }: Co
     }
   }, [openFile, onReload]);
 
-  // Resolve image src relative to the open file's directory
-  // Must be before early return to keep hooks order stable
+  // Resolve relative paths against the open file's directory
+  const resolveRelativePath = useCallback((href: string, baseDir: string): string => {
+    let resolvedPath: string;
+    if (href.startsWith('/')) {
+      resolvedPath = href;
+    } else {
+      resolvedPath = baseDir + '/' + href;
+    }
+    const parts = resolvedPath.split('/');
+    const normalized: string[] = [];
+    for (const p of parts) {
+      if (p === '..') normalized.pop();
+      else if (p !== '.') normalized.push(p);
+    }
+    return normalized.join('/');
+  }, []);
+
+  // Navigate to a file with fallback: try current dir first, then parent dirs up to project root
+  const navigateToFile = useCallback(async (href: string, fileDir: string) => {
+    if (!onFileNavigate) return;
+
+    // Build candidate paths: current dir, parent dir, grandparent...
+    const candidates: string[] = [];
+    const primaryPath = resolveRelativePath(href, fileDir);
+    candidates.push(primaryPath);
+
+    // If the href has no directory component (just a filename), try parent directories
+    if (!href.includes('/') || href.startsWith('./')) {
+      const cleanHref = href.replace(/^\.\//, '');
+      let dir = fileDir;
+      // Walk up to 3 levels (e.g., wiki/ → project root)
+      for (let i = 0; i < 3; i++) {
+        const parentDir = dir.substring(0, dir.lastIndexOf('/'));
+        if (!parentDir || parentDir === dir) break;
+        dir = parentDir;
+        const candidate = resolveRelativePath(cleanHref, dir);
+        if (!candidates.includes(candidate)) candidates.push(candidate);
+      }
+    }
+
+    // Also try with subdirectories mentioned in the href (e.g., "lessons/lessons-1977.md")
+    if (href.includes('/')) {
+      let dir = fileDir;
+      for (let i = 0; i < 3; i++) {
+        const parentDir = dir.substring(0, dir.lastIndexOf('/'));
+        if (!parentDir || parentDir === dir) break;
+        dir = parentDir;
+        const candidate = resolveRelativePath(href, dir);
+        if (!candidates.includes(candidate)) candidates.push(candidate);
+      }
+    }
+
+    // Try candidates: check file existence via lightweight endpoint
+    const token = localStorage.getItem('token') || '';
+    for (const path of candidates) {
+      try {
+        const res = await fetch(`/api/files/exists?path=${encodeURIComponent(path)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.exists) {
+          const fs = useFileStore.getState();
+          // Pin current tab so it won't be replaced when navigating via link
+          if (fs.activeTabId) fs.pinTab(fs.activeTabId);
+          // Push current file to history first (use live state, not closure)
+          const currentFile = fs.openFile;
+          if (currentFile) fs.navPush(currentFile.path);
+          // Push destination
+          fs.navPush(path);
+          // Navigate
+          const existingTab = fs.tabs.find(t => t.path === path);
+          if (existingTab) {
+            fs.setActiveTab(existingTab.id);
+          } else {
+            onFileNavigate(path);
+          }
+          return;
+        }
+      } catch {
+        // continue to next candidate
+      }
+    }
+
+    // Fallback: try the primary path anyway (will show error from backend)
+    onFileNavigate(primaryPath);
+  }, [onFileNavigate, resolveRelativePath]);
+
+  // Markdown custom components — must be before early return to keep hooks order stable
   const mdComponents = useMemo(() => {
     if (!openFile) return {};
     const fileDir = openFile.path.substring(0, openFile.path.lastIndexOf('/'));
     const token = localStorage.getItem('token') || '';
     return {
-      img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+      img({ src, alt, node, ...rest }: any) {
         if (!src) return null;
         if (/^https?:\/\//.test(src)) {
-          return <img src={src} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+          return <img src={src} alt={alt} style={{ maxWidth: '100%' }} />;
         }
-        let resolvedPath: string;
-        if (src.startsWith('/')) {
-          resolvedPath = src;
-        } else {
-          resolvedPath = fileDir + '/' + src;
-        }
-        const parts = resolvedPath.split('/');
-        const normalized: string[] = [];
-        for (const p of parts) {
-          if (p === '..') normalized.pop();
-          else if (p !== '.') normalized.push(p);
-        }
-        resolvedPath = normalized.join('/');
+        const resolvedPath = resolveRelativePath(src, fileDir);
         const apiUrl = `/api/files/serve?path=${encodeURIComponent(resolvedPath)}&token=${encodeURIComponent(token)}`;
-        return <img src={apiUrl} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+        return <img src={apiUrl} alt={alt} style={{ maxWidth: '100%' }} />;
+      },
+      code({ children, className, node, ...rest }: any) {
+        // Block code (with language class) → render normally
+        if (className) return <code className={className}>{children}</code>;
+
+        // Inline code: detect file-like patterns and make them clickable
+        const text = typeof children === 'string' ? children : String(children ?? '');
+        const FILE_EXT_RE = /\.(md|txt|py|sh|js|ts|tsx|jsx|json|yaml|yml|html|css|csv|sql|toml|cfg|conf|xml|ini|env|log)$/i;
+        const DIR_RE = /^[a-zA-Z0-9_\-./]+\/$/;  // ends with /
+        if (FILE_EXT_RE.test(text) || DIR_RE.test(text)) {
+          return (
+            <code
+              className="text-primary-400 hover:text-primary-300 cursor-pointer underline decoration-dotted underline-offset-2 bg-surface-800 px-1 py-0.5 rounded text-[0.85em]"
+              title={`Open: ${text}`}
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('[FileLink] clicked:', text, 'fileDir:', fileDir);
+                navigateToFile(text, fileDir).catch(err => console.error('[FileLink] nav error:', err));
+              }}
+            >
+              {children}
+            </code>
+          );
+        }
+        return <code className="bg-surface-800 px-1 py-0.5 rounded text-[0.85em]">{children}</code>;
+      },
+      a({ href, children, node, ...rest }: any) {
+        if (!href) return <a>{children}</a>;
+
+        // External links → new window
+        if (/^https?:\/\//.test(href)) {
+          return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+        }
+
+        // Anchor links → scroll within the markdown container
+        if (href.startsWith('#')) {
+          return (
+            <a
+              href={href}
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                const id = href.slice(1);
+                const container = (e.target as HTMLElement).closest('.overflow-y-auto');
+                const target = container?.querySelector(`[id="${CSS.escape(id)}"]`);
+                if (target) {
+                  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+
+        // Relative path → navigate to file in tab
+        const [filePart] = href.split('#');
+
+        return (
+          <a
+            href="#"
+            onClick={(e: React.MouseEvent) => {
+              e.preventDefault();
+              navigateToFile(filePart, fileDir).catch(err => console.error('[FileLink] nav error:', err));
+            }}
+            className="text-primary-400 hover:text-primary-300 underline cursor-pointer"
+            title={filePart}
+          >
+            {children}
+          </a>
+        );
       },
     };
-  }, [openFile?.path]);
+  }, [openFile?.path, onFileNavigate, resolveRelativePath, navigateToFile]);
 
   if (!openFile) {
     return (
@@ -340,6 +527,33 @@ export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen }: Co
             </svg>
           </button>
         )}
+
+        {/* Back / Forward navigation */}
+        {navHistory.length > 1 && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={handleNavBack}
+              disabled={navIndex <= 0}
+              className={`p-0.5 rounded transition-colors ${navIndex <= 0 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-surface-700'}`}
+              title="뒤로 (Alt+←)"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={handleNavForward}
+              disabled={navIndex >= navHistory.length - 1}
+              className={`p-0.5 rounded transition-colors ${navIndex >= navHistory.length - 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-surface-700'}`}
+              title="앞으로 (Alt+→)"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         <span className="text-gray-400 truncate flex-1" title={openFile.path}>
           {fileName}
         </span>
@@ -448,7 +662,7 @@ export function ContextPanel({ onSave, onReload, onMobileClose, fullScreen }: Co
           ) : openFile.language === 'html' ? (
             <HtmlPreview content={openFile.content} />
           ) : openFile.language === 'markdown' ? (
-            <div className="absolute inset-0 overflow-y-auto overflow-x-hidden">
+            <div className="absolute inset-0 overflow-y-auto overflow-x-hidden" id="md-scroll-container">
               <div className="prose prose-invert prose-sm max-w-none p-4">
                 <MarkdownWithMermaid content={openFile.content} components={mdComponents} />
               </div>

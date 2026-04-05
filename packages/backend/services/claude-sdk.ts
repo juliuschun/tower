@@ -361,12 +361,18 @@ export async function* executeQuery(
       // copy it to the current configDir so the SDK child process can find it
       if (cfgDir) {
         const expectedPath = getJsonlPath(resolvedResumeId, resumeCwd, cfgDir);
-        if (jsonlPath !== expectedPath && !fs.existsSync(expectedPath)) {
+        if (jsonlPath !== expectedPath) {
+          // Copy if target doesn't exist, or source is newer/larger (account was switched back)
           try {
-            const dir = path.dirname(expectedPath);
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-            fs.copyFileSync(jsonlPath, expectedPath);
-            console.log(`[sdk] copied .jsonl to current configDir for resume: ${resolvedResumeId.slice(0, 12)}`);
+            const sourceSize = fs.statSync(jsonlPath).size;
+            const targetExists = fs.existsSync(expectedPath);
+            const targetSize = targetExists ? fs.statSync(expectedPath).size : 0;
+            if (!targetExists || sourceSize > targetSize) {
+              const dir = path.dirname(expectedPath);
+              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+              fs.copyFileSync(jsonlPath, expectedPath);
+              console.log(`[sdk] copied .jsonl to current configDir for resume: ${resolvedResumeId.slice(0, 12)} (${sourceSize} > ${targetSize})`);
+            }
           } catch (err: any) {
             console.warn(`[sdk] failed to copy .jsonl for resume: ${err.message}`);
           }

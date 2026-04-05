@@ -158,6 +158,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
+  const isOwnUnread = isUnread && session.ownerUsername === currentUsername;
   const queueCount = useChatStore((s) => (s.messageQueue[session.id] ?? []).length);
   const isKanbanTask = session.name.startsWith('\u{1F7E2}'); // 🟢
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
@@ -216,7 +217,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           <span className="shrink-0 text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
             queued {queueCount}
           </span>
-        ) : isUnread ? (
+        ) : isOwnUnread ? (
           <span className="shrink-0 text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none">
             done
           </span>
@@ -247,7 +248,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             className="flex-1 min-w-0 h-[20px] bg-surface-700 text-gray-100 text-[13px] px-1.5 py-0 rounded border border-surface-600 outline-none focus:border-primary-500"
           />
         ) : (
-          <span className="flex-1 min-w-0 truncate font-medium leading-[20px]">
+          <span className={`flex-1 min-w-0 truncate leading-[20px] ${isOwnUnread ? 'font-bold text-gray-100' : 'font-medium'}`}>
             {/* Private lock icon (prefix) — only shown for private sessions in a project */}
             {session.projectId && session.visibility === 'private' && (
               <svg className="inline-block w-3 h-3 mr-1 text-surface-600 align-middle" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -338,19 +339,17 @@ function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose:
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
-  const applyLabel = async (label: string | null) => {
+  const applyLabel = (label: string | null) => {
+    // Optimistic: update UI immediately
+    useSessionStore.getState().updateSessionMeta(session.id, { label });
+    onClose();
+    // Then persist in background
     const token = localStorage.getItem('token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    try {
-      const res = await fetch(`/api/sessions/${session.id}`, {
-        method: 'PATCH', headers, body: JSON.stringify({ label }),
-      });
-      if (res.ok) {
-        useSessionStore.getState().updateSessionMeta(session.id, { label });
-      }
-    } catch {}
-    onClose();
+    fetch(`/api/sessions/${session.id}`, {
+      method: 'PATCH', headers, body: JSON.stringify({ label }),
+    }).catch(() => {});
   };
 
   const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";

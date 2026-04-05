@@ -1,15 +1,7 @@
 import React from 'react';
-import { useSettingsStore, type ThemeId } from '../../stores/settings-store';
+import { useSettingsStore } from '../../stores/settings-store';
 import { useSessionStore } from '../../stores/session-store';
 import { OAuthConnections } from './OAuthConnections';
-
-const THEMES: { id: ThemeId; label: string; colors: [string, string, string, string] }[] = [
-  { id: 'dark',   label: 'Dark',   colors: ['#0b0d12', '#242832', '#f59e0b', '#f59e0b'] },
-  { id: 'light',  label: 'Light',  colors: ['#ffffff', '#f3f4f6', '#f59e0b', '#f59e0b'] },
-  { id: 'ocean',  label: 'Ocean',  colors: ['#060a14', '#18223a', '#00d4ff', '#c4a0f0'] },
-  { id: 'forest', label: 'Forest', colors: ['#080c08', '#1c2c20', '#d4b840', '#d8a070'] },
-  { id: 'aurora', label: 'Aurora', colors: ['#08060e', '#221e34', '#30e890', '#f0a0d0'] },
-];
 
 // Simple error boundary to prevent OAuthConnections from crashing the whole Settings modal
 class OAuthErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: string }> {
@@ -32,16 +24,9 @@ class OAuthErrorBoundary extends React.Component<{ children: React.ReactNode }, 
   }
 }
 
-interface SettingsPanelProps {
-  onLogout: () => void;
-}
-
-export function SettingsPanel({ onLogout }: SettingsPanelProps) {
+export function SettingsPanel() {
   const isOpen = useSettingsStore((s) => s.isOpen);
   const setOpen = useSettingsStore((s) => s.setOpen);
-  const theme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
-  const setSkillsBrowserOpen = useSettingsStore((s) => s.setSkillsBrowserOpen);
   const isMobile = useSessionStore((s) => s.isMobile);
   const activeView = useSessionStore((s) => s.activeView);
   const setActiveView = useSessionStore((s) => s.setActiveView);
@@ -102,71 +87,10 @@ export function SettingsPanel({ onLogout }: SettingsPanelProps) {
             </section>
           )}
 
-          {/* Theme */}
-          <section>
-            <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Appearance</h3>
-            <div className="grid grid-cols-5 gap-1.5">
-              {THEMES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setTheme(t.id)}
-                  className={`flex flex-col items-center gap-1.5 py-2.5 rounded-lg border transition-all ${
-                    theme === t.id
-                      ? 'bg-surface-800 border-primary-500'
-                      : 'bg-surface-900 border-surface-700 hover:border-surface-600'
-                  }`}
-                >
-                  {/* Color preview dots */}
-                  <div className="flex gap-0.5">
-                    {t.colors.map((c, i) => (
-                      <span
-                        key={i}
-                        className="w-3 h-3 rounded-full border border-white/10"
-                        style={{ background: c }}
-                      />
-                    ))}
-                  </div>
-                  <span className={`text-[10px] font-medium ${
-                    theme === t.id ? 'text-primary-400' : 'text-surface-500'
-                  }`}>
-                    {t.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-
           {/* Connections — OAuth */}
           <OAuthErrorBoundary>
             <OAuthConnections />
           </OAuthErrorBoundary>
-
-          {/* Skills Market */}
-          <section>
-            <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">Skills</h3>
-            <button
-              onClick={() => { setOpen(false); setSkillsBrowserOpen(true); }}
-              className="w-full py-2.5 text-xs font-semibold text-violet-400 border border-violet-500/30 hover:bg-violet-500/10 rounded-lg transition-all flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              Skills Market
-            </button>
-          </section>
-
-          {/* Logout */}
-          <section>
-            <button
-              onClick={() => {
-                setOpen(false);
-                onLogout();
-              }}
-              className="w-full py-2.5 text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-500/10 rounded-lg transition-all"
-            >
-              Logout
-            </button>
-          </section>
         </div>
       </div>
     </div>

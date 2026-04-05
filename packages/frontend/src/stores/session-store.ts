@@ -83,9 +83,29 @@ export const useSessionStore = create<SessionState>((set) => ({
         return { streamingSessions: next };
       } else {
         next.delete(id);
-        if (s.activeSessionId !== id) {
+        // Only mark as unread if not currently viewed AND owned by current user
+        const currentUsername = localStorage.getItem('username') || '';
+        const session = s.sessions.find((ss) => ss.id === id);
+        const isOwnSession = session && session.ownerUsername === currentUsername;
+        if (s.activeSessionId !== id && isOwnSession) {
           const unread = new Set(s.unreadSessions);
           unread.add(id);
+          // Add session-done notification to room store (deferred to avoid circular import)
+          setTimeout(async () => {
+            const { useRoomStore } = await import('./room-store');
+            const notif = {
+              id: `session-done-${id}-${Date.now()}`,
+              userId: 0,
+              roomId: null,
+              type: 'session_done' as const,
+              title: `${session?.name || 'Session'} — done`,
+              body: null,
+              metadata: { sessionId: id } as Record<string, unknown>,
+              read: false,
+              createdAt: new Date().toISOString(),
+            };
+            useRoomStore.getState().addNotification(notif);
+          }, 0);
           return { streamingSessions: next, unreadSessions: unread };
         }
         return { streamingSessions: next };

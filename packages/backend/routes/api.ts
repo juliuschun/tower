@@ -1038,6 +1038,28 @@ router.get('/files/read', async (req, res) => {
   }
 });
 
+// Lightweight file existence check (no content read)
+router.get('/files/exists', async (req, res) => {
+  try {
+    const filePath = req.query.path as string;
+    if (!filePath) return res.status(400).json({ exists: false });
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(filePath, userRoot)) {
+      return res.json({ exists: false });
+    }
+    if (userId && !(await isPathAccessible(filePath, userId, role))) {
+      return res.json({ exists: false });
+    }
+    const fs = await import('fs');
+    const exists = fs.existsSync(filePath);
+    res.json({ exists, path: filePath });
+  } catch {
+    res.json({ exists: false });
+  }
+});
+
 router.post('/files/write', async (req, res) => {
   try {
     const { path: filePath, content } = req.body;

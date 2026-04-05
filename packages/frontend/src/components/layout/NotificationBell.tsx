@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useRoomStore } from '../../stores/room-store';
+import { useSessionStore } from '../../stores/session-store';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -24,6 +25,7 @@ const NOTIF_ICONS: Record<string, string> = {
   mention: '@',
   room_invite: '📨',
   system: '⚙️',
+  session_done: '✅',
 };
 
 export function NotificationBell() {
@@ -126,6 +128,19 @@ export function NotificationBell() {
                   key={n.id}
                   onClick={() => {
                     if (!n.read) handleMarkOne(n.id);
+                    // Navigate to session if session_done notification
+                    if (n.type === 'session_done' && n.metadata?.sessionId) {
+                      const sessionId = n.metadata.sessionId as string;
+                      const { sessions, setActiveSessionId, markSessionRead, setActiveView, setSidebarTab } = useSessionStore.getState();
+                      const session = sessions.find((s) => s.id === sessionId);
+                      if (session) {
+                        setActiveSessionId(sessionId);
+                        markSessionRead(sessionId);
+                        setActiveView('chat');
+                        setSidebarTab('sessions');
+                        setOpen(false);
+                      }
+                    }
                   }}
                   className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-surface-800/50 ${
                     n.read

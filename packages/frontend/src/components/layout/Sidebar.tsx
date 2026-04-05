@@ -16,6 +16,78 @@ import { useRoomStore } from '../../stores/room-store';
 import { RoomList } from '../rooms/RoomList';
 import { HistoryPanel } from '../history/HistoryPanel';
 
+/* ── Filter Chip ── */
+function FilterChip({ active, onClick, title, children }: {
+  active: boolean; onClick: () => void; title: string; children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+        active
+          ? 'bg-primary-600/20 text-primary-400 ring-1 ring-primary-500/30'
+          : 'text-surface-600 hover:text-gray-400 hover:bg-surface-800'
+      }`}
+      title={title}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ── Stats Bar — running / done / 7-day pace ── */
+function StatsBar({ sessions }: { sessions: SessionMeta[] }) {
+  const streamingSessions = useSessionStore((s) => s.streamingSessions);
+  const unreadSessions = useSessionStore((s) => s.unreadSessions);
+
+  const runningCount = streamingSessions.size;
+  // Done = recently completed (unread) but NOT currently running
+  const doneCount = React.useMemo(() => {
+    let count = 0;
+    unreadSessions.forEach(id => { if (!streamingSessions.has(id)) count++; });
+    return count;
+  }, [unreadSessions, streamingSessions]);
+
+  // 7-day session count
+  const weekCount = React.useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return sessions.filter(s => {
+      const t = new Date(s.updatedAt.includes('T') ? s.updatedAt : s.updatedAt.replace(' ', 'T') + 'Z').getTime();
+      return t > cutoff;
+    }).length;
+  }, [sessions]);
+
+  // Nothing to show? Hide entirely
+  if (runningCount === 0 && doneCount === 0 && weekCount === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2.5 pb-1.5 px-0.5">
+      {runningCount > 0 && (
+        <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          {runningCount} running
+        </span>
+      )}
+      {doneCount > 0 && (
+        <span className="flex items-center gap-1 text-[10px] font-medium text-amber-400">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          {doneCount} done
+        </span>
+      )}
+      {weekCount > 0 && (
+        <span className="flex items-center gap-1 text-[10px] text-surface-600">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+          </svg>
+          {weekCount} / 7d
+        </span>
+      )}
+    </div>
+  );
+}
+
 interface SidebarProps {
   onNewSession: (projectId?: string) => void;
   onSelectSession: (session: SessionMeta) => void;
@@ -35,6 +107,7 @@ interface SidebarProps {
   onPromptAdd?: () => void;
   onPromptInsert?: (prompt: PromptItem) => void;
   onNewSessionInFolder?: (path: string) => void;
+  onCollapseSidebar?: () => void;
 }
 
 export function Sidebar({
@@ -43,7 +116,7 @@ export function Sidebar({
   onFileClick, onDirectoryClick, onRequestFileTree,
   onPinFile, onUnpinFile, onPinClick, onSettingsClick,
   onPromptClick, onPromptEdit, onPromptDelete, onPromptAdd,
-  onNewSessionInFolder,
+  onNewSessionInFolder, onCollapseSidebar,
 }: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -51,7 +124,19 @@ export function Sidebar({
   const setSidebarTab = useSessionStore((s) => s.setSidebarTab);
   const searchQuery = useSessionStore((s) => s.searchQuery);
   const setSearchQuery = useSessionStore((s) => s.setSearchQuery);
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
+  // Filter chip states (persisted to localStorage)
+  const [filterLabels, setFilterLabels] = useState(() => localStorage.getItem('sidebar-filter-labels') === 'true');
+  const [filterMy, setFilterMy] = useState(() => localStorage.getItem('sidebar-filter-my') === 'true');
+  const [filterFav, setFilterFav] = useState(() => localStorage.getItem('sidebar-filter-fav') === 'true');
+  const [filterDone, setFilterDone] = useState(() => localStorage.getItem('sidebar-filter-done') === 'true');
+  const unreadSessions = useSessionStore((s) => s.unreadSessions);
+
+  const toggleFilter = (key: string, value: boolean, setter: (v: boolean) => void) => {
+    const next = !value;
+    setter(next);
+    localStorage.setItem(`sidebar-filter-${key}`, String(next));
+  };
+
   const [ungroupedCollapsed, setUngroupedCollapsed] = useState(false);
   const [ungroupedExpanded, setUngroupedExpanded] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -62,12 +147,7 @@ export function Sidebar({
 
   const prompts = usePromptStore((s) => s.prompts);
 
-  const pgEnabled = useRoomStore((s) => s.pgEnabled);
-  const unreadCounts = useRoomStore((s) => s.unreadCounts);
-  const totalRoomUnread = useMemo(
-    () => Object.values(unreadCounts).reduce((s, c) => s + c, 0),
-    [unreadCounts],
-  );
+  // pgEnabled / unreadCounts moved to Header NavTabs
 
   const currentUsername = useMemo(() => localStorage.getItem('username') || undefined, []);
 
@@ -155,10 +235,7 @@ export function Sidebar({
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const cwd = activeSession?.cwd || '';
-  const projectName = cwd ? cwd.split('/').filter(Boolean).pop() || '/' : '';
-  const displayPath = cwd.replace(/^\/home\/[^/]+/, '~');
-
-  const [cwdPickerOpen, setCwdPickerOpen] = useState(false);
+  // cwd-related display removed (CWD picker moved out of sidebar)
 
   const allProjects = useProjectStore((s) => s.projects);
   const collapsedProjects = useProjectStore((s) => s.collapsedProjects);
@@ -173,15 +250,29 @@ export function Sidebar({
 
   // Filter and sort sessions: use FTS results when searching, otherwise favorites first + updatedAt
   const filteredSessions = useMemo(() => {
+    let result: SessionMeta[];
     if (searchResults) {
       const matchedIds = new Set(searchResults.map(r => r.sessionId));
-      return sessions.filter(s => matchedIds.has(s.id));
+      result = sessions.filter(s => matchedIds.has(s.id));
+    } else {
+      result = [...sessions].sort((a, b) => {
+        if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
     }
-    return [...sessions].sort((a, b) => {
-      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-    });
-  }, [sessions, searchResults]);
+    // Apply filter chips
+    if (filterMy && currentUsername) {
+      result = result.filter(s => s.ownerUsername === currentUsername);
+    }
+    if (filterFav) {
+      result = result.filter(s => s.favorite);
+    }
+    if (filterDone) {
+      const streaming = useSessionStore.getState().streamingSessions;
+      result = result.filter(s => unreadSessions.has(s.id) && !streaming.has(s.id));
+    }
+    return result;
+  }, [sessions, searchResults, filterMy, filterFav, filterDone, currentUsername, unreadSessions]);
 
   // Group sessions by project (only when not searching)
   const isSearching = !!searchResults || (searchQuery.trim().length >= 2);
@@ -263,49 +354,13 @@ export function Sidebar({
     }
   };
 
-  const tabClass = (tab: string) =>
-    `flex-1 py-2 text-[11px] font-semibold tracking-wide transition-colors ${
-      sidebarTab === tab
-        ? 'text-primary-400 border-b-2 border-primary-500'
-        : 'text-gray-500 hover:text-gray-300'
-    }`;
+  // tabClass removed — tabs moved to Header
 
   return (
     <aside className="w-full bg-surface-900 border-r border-surface-800 flex flex-col h-full shrink-0">
-      {/* Project header */}
-      {cwd && (
-        <div className="px-4 pt-3 pb-2 border-b border-surface-800/50 relative">
-          <button
-            onClick={() => setCwdPickerOpen(!cwdPickerOpen)}
-            className="w-full text-left group"
-          >
-            <div className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-yellow-500/70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-              </svg>
-              <span className="text-[13px] font-bold text-gray-200 truncate group-hover:text-primary-300 transition-colors">
-                {projectName}
-              </span>
-              <svg className={`w-3 h-3 text-surface-600 ml-auto shrink-0 transition-transform ${cwdPickerOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-            <p className="text-[10px] text-surface-600 mt-0.5 truncate pl-6">{displayPath}</p>
-          </button>
-          {cwdPickerOpen && activeSessionId && (
-            <SidebarCwdPicker
-              currentCwd={cwd}
-              sessionId={activeSessionId}
-              onClose={() => setCwdPickerOpen(false)}
-              onRequestFileTree={onRequestFileTree}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Tab switcher — 3 tabs (Pins & History moved to footer) */}
+      {/* Sidebar header — collapse button + context label (tabs moved to Header) */}
       {(sidebarTab === 'pins' || sidebarTab === 'history') ? (
-        <div className="flex items-center border-b border-surface-800/50 px-3 py-2 gap-2">
+        <div className="flex items-center border-b border-surface-800/50 px-3 py-1.5 gap-2">
           <button
             onClick={() => setSidebarTab('sessions')}
             className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-300 transition-colors"
@@ -318,21 +373,27 @@ export function Sidebar({
           <span className="text-[12px] font-semibold text-gray-300">
             {sidebarTab === 'pins' ? 'Pins' : 'History'}
           </span>
-        </div>
-      ) : (
-        <div className="flex border-b border-surface-800/50">
-          {pgEnabled && (
-            <button onClick={() => { setSidebarTab('rooms'); useSessionStore.getState().setActiveView('rooms'); }} className={`${tabClass('rooms')} relative`}>
-              Channel
-              {totalRoomUnread > 0 && sidebarTab !== 'rooms' && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-[8px] font-bold text-white rounded-full leading-none">
-                  {totalRoomUnread > 99 ? '99+' : totalRoomUnread}
-                </span>
-              )}
+          <div className="flex-1" />
+          {onCollapseSidebar && (
+            <button onClick={onCollapseSidebar} className="p-1 text-surface-600 hover:text-gray-400 transition-colors" title="Hide sidebar">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
             </button>
           )}
-          <button onClick={() => { setSidebarTab('sessions'); useSessionStore.getState().setActiveView('chat'); }} className={tabClass('sessions')}>Sessions</button>
-          <button onClick={() => { setSidebarTab('files'); useSessionStore.getState().setActiveView('files'); if (tree.length === 0) onRequestFileTree(); }} className={tabClass('files')}>Files</button>
+        </div>
+      ) : (
+        <div className="flex items-center border-b border-surface-800/50 px-3 py-1.5">
+          <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider flex-1">
+            {sidebarTab === 'rooms' ? 'Channels' : sidebarTab === 'files' ? 'Files' : 'AI Sessions'}
+          </span>
+          {onCollapseSidebar && (
+            <button onClick={onCollapseSidebar} className="p-1 text-surface-600 hover:text-gray-400 transition-colors" title="Hide sidebar">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
 
@@ -357,41 +418,37 @@ export function Sidebar({
       >
         {sidebarTab === 'sessions' ? (
           <div>
-            {/* Space filter tabs */}
-            <SpaceFilter projects={allProjects} />
             <div className="px-3">
-            {/* New Chat + New Project buttons */}
-            <div className="pt-3 pb-2 flex items-center gap-1.5">
+            {/* Filter chips — first layer of narrowing */}
+            <div className="flex items-center gap-1 pt-2 pb-1">
+              <FilterChip active={filterMy} onClick={() => toggleFilter('my', filterMy, setFilterMy)} title="Show only my sessions">
+                👤 My
+              </FilterChip>
+              <FilterChip active={filterFav} onClick={() => toggleFilter('fav', filterFav, setFilterFav)} title="Show only favorites">
+                ⭐ Fav
+              </FilterChip>
+              <FilterChip active={filterDone} onClick={() => toggleFilter('done', filterDone, setFilterDone)} title="Show only completed tasks">
+                ✓ Done
+              </FilterChip>
+              <FilterChip active={filterLabels} onClick={() => toggleFilter('labels', filterLabels, setFilterLabels)} title="Show label subfolders">
+                📁 Labels
+              </FilterChip>
+            </div>
+            {/* Stats bar — only shows when there's something to report */}
+            <StatsBar sessions={sessions} />
+            {/* Action bar */}
+            <div className="pb-1.5 flex items-center gap-1">
               <button
                 onClick={() => onNewSession(activeSession?.projectId || undefined)}
-                className="flex-1 py-2 px-4 bg-surface-800 hover:bg-surface-700 border border-surface-700 rounded-lg text-[13px] font-medium text-gray-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                className="flex-1 py-1.5 px-3 bg-surface-800 hover:bg-surface-700 border border-surface-700 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-300 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
                 New Chat
               </button>
               <NewProjectButton />
             </div>
-            {/* Search (collapsible) */}
-            {(searchQuery.trim().length > 0 || isSearchExpanded) && (
-              <div className="mb-2">
-                <div className="relative">
-                  <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onBlur={() => { if (!searchQuery.trim()) setIsSearchExpanded(false); }}
-                    className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-3 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Grouped or flat session list */}
             {groupedSessions && !isSearching ? (
@@ -405,6 +462,7 @@ export function Sidebar({
                     collapsed={collapsedProjects.has(project.id)}
                     activeSessionId={activeSessionId}
                     currentUsername={currentUsername}
+                    showLabels={filterLabels}
                     onToggleCollapsed={() => toggleProjectCollapsed(project.id)}
                     onSelectSession={onSelectSession}
                     onDeleteSession={onDeleteSession}
@@ -415,25 +473,27 @@ export function Sidebar({
                     projects={projects}
                   />
                 ))}
-                {/* Ungrouped sessions — collapsible, shows latest 5 */}
-                {(groupedSessions.ungrouped.length > 0 || groupedSessions.groups.length > 0) && (
+                {/* temp — ungrouped sessions as a label-like subfolder */}
+                {groupedSessions.ungrouped.length > 0 && (
                   <UngroupedDropZone onMoveSession={handleMoveSession} hasGroups={groupedSessions.groups.length > 0} hasUngrouped={groupedSessions.ungrouped.length > 0}>
-                    {groupedSessions.groups.length > 0 && groupedSessions.ungrouped.length > 0 && (
-                      <button
-                        onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
-                        className="w-full flex items-center gap-2 px-1 py-1.5 mb-1 group"
-                      >
-                        <svg className={`w-3 h-3 text-surface-600 transition-transform ${ungroupedCollapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                        <span className="text-[10px] text-surface-600 uppercase tracking-wider font-medium shrink-0">
-                          Ungrouped ({groupedSessions.ungrouped.length})
-                        </span>
-                        <div className="flex-1 h-px bg-surface-800" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setUngroupedCollapsed(!ungroupedCollapsed)}
+                      className="w-full flex items-center gap-1.5 px-1 py-1 mb-0.5 group"
+                    >
+                      <svg className={`w-3 h-3 text-surface-600 transition-transform ${ungroupedCollapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      <svg className="w-3 h-3 text-surface-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                      </svg>
+                      <span className="text-[10px] text-surface-600 font-medium shrink-0">
+                        temp
+                      </span>
+                      <span className="text-[9px] text-surface-700">({groupedSessions.ungrouped.length})</span>
+                      <div className="flex-1" />
+                    </button>
                     {!ungroupedCollapsed && (
-                      <div className="space-y-0.5">
+                      <div className="space-y-0.5 pl-2">
                         {(ungroupedExpanded
                           ? groupedSessions.ungrouped
                           : groupedSessions.ungrouped.slice(0, PROJECT_PREVIEW_COUNT)
@@ -622,69 +682,28 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <div className="border-t border-surface-800/50">
-        {/* Search, Pins & History quick-access buttons */}
-        <div className="flex items-center gap-1 px-4 pt-3 pb-1">
-          <button
-            onClick={() => {
-              setSidebarTab('sessions');
-              useSessionStore.getState().setActiveView('chat');
-              setIsSearchExpanded(true);
-              setTimeout(() => searchInputRef.current?.focus(), 100);
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
-              isSearchExpanded
-                ? 'bg-primary-600/15 text-primary-400'
-                : 'text-surface-600 hover:text-gray-300 hover:bg-surface-800'
-            }`}
-            title="Search"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      {/* Search — pinned to bottom, always accessible */}
+      {sidebarTab === 'sessions' && (
+        <div className="border-t border-surface-800/50 px-3 py-2">
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            Search
-          </button>
-          <button
-            onClick={() => setSidebarTab(sidebarTab === 'pins' ? 'sessions' : 'pins')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
-              sidebarTab === 'pins'
-                ? 'bg-primary-600/15 text-primary-400'
-                : 'text-surface-600 hover:text-gray-300 hover:bg-surface-800'
-            }`}
-            title="Pins"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-            </svg>
-            Pins
-          </button>
-          <button
-            onClick={() => setSidebarTab(sidebarTab === 'history' ? 'sessions' : 'history')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
-              sidebarTab === 'history'
-                ? 'bg-primary-600/15 text-primary-400'
-                : 'text-surface-600 hover:text-gray-300 hover:bg-surface-800'
-            }`}
-            title="History"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            History
-          </button>
-        </div>
-        {/* Settings row */}
-        <div className="px-4 pt-1 pb-3 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={onSettingsClick}
-              className="flex items-center gap-2 text-surface-700 hover:text-surface-500 transition-colors cursor-pointer"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-              <span className="text-[11px] font-medium">Settings</span>
-              <CurrentUser />
-            </button>
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search sessions..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-3 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
+            />
           </div>
+        </div>
+      )}
+      {/* Footer — user + version */}
+      <div className="border-t border-surface-800/50">
+        <div className="px-4 py-2 flex items-center justify-between">
+          <CurrentUser />
           <span className="text-[10px] font-semibold text-surface-800">v0.1.0</span>
         </div>
       </div>
@@ -1424,6 +1443,7 @@ function ProjectGroup({
   project, sessions: groupSessions, collapsed, activeSessionId,
   onToggleCollapsed, onSelectSession, onDeleteSession, onRenameSession,
   onToggleFavorite, onNewSession, onMoveSession, projects, currentUsername,
+  showLabels = true,
 }: {
   project: Project;
   sessions: SessionMeta[];
@@ -1438,6 +1458,7 @@ function ProjectGroup({
   onMoveSession: (sessionId: string, projectId: string | null) => void;
   projects: Project[];
   currentUsername?: string;
+  showLabels?: boolean;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [editing, setEditing] = useState(false);
@@ -1446,12 +1467,17 @@ function ProjectGroup({
   const [expanded, setExpanded] = useState(false);
   const editRef = useRef<HTMLInputElement>(null);
 
+  // Label collapse state — subscribed via hook so toggle triggers re-render immediately
+  const collapsedLabels = useProjectStore((s) => s.collapsedLabels);
+  const toggleLabelCollapsed = useProjectStore((s) => s.toggleLabelCollapsed);
+
   // Check if any session in this project is actively streaming or unread
   const streamingSessions = useSessionStore((s) => s.streamingSessions);
   const unreadSessions = useSessionStore((s) => s.unreadSessions);
   const hasActivity = groupSessions.some((s) => streamingSessions.has(s.id));
-  const doneCount = groupSessions.filter((s) => unreadSessions.has(s.id)).length;
-  const hasUnread = doneCount > 0;
+  // Count only own unread sessions (ownerUsername matches current user)
+  const myUnreadCount = groupSessions.filter((s) => unreadSessions.has(s.id) && s.ownerUsername === currentUsername).length;
+  const hasUnread = myUnreadCount > 0;
 
   useEffect(() => {
     if (editing) editRef.current?.focus();
@@ -1557,12 +1583,13 @@ function ProjectGroup({
               <span className={`text-[13px] font-bold truncate ${hasUnread || hasActivity ? 'text-gray-100' : 'text-gray-300'}`}>
                 {project.name}
               </span>
-              <span className="text-[10px] tabular-nums shrink-0 text-surface-600">
-                {groupSessions.length}
-              </span>
-              {doneCount > 0 && (
+              {myUnreadCount > 0 ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none shrink-0">
-                  {doneCount} done
+                  {myUnreadCount}
+                </span>
+              ) : (
+                <span className="text-[10px] tabular-nums shrink-0 text-surface-600">
+                  {groupSessions.length}
                 </span>
               )}
               <button
@@ -1604,11 +1631,10 @@ function ProjectGroup({
         });
 
         const hasLabels = sortedLabels.length > 0;
-        const collapsedLabels = useProjectStore.getState().collapsedLabels;
-        const toggleLabel = useProjectStore.getState().toggleLabelCollapsed;
+        const toggleLabel = toggleLabelCollapsed;
 
-        // If no labels at all, render flat like before
-        if (!hasLabels) {
+        // If labels toggled off or no labels, render flat
+        if (!hasLabels || !showLabels) {
           const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, PROJECT_PREVIEW_COUNT);
           return (
             <div className="pl-5 space-y-0.5">
@@ -1619,6 +1645,17 @@ function ProjectGroup({
           );
         }
 
+        // Helper: apply label to a session via D&D (optimistic + background persist)
+        const applyLabelToSession = (sessionId: string, label: string | null) => {
+          useSessionStore.getState().updateSessionMeta(sessionId, { label });
+          const token = localStorage.getItem('token');
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          fetch(`/api/sessions/${sessionId}`, {
+            method: 'PATCH', headers, body: JSON.stringify({ label }),
+          }).catch(() => {});
+        };
+
         // Render label sub-groups + unlabeled
         return (
           <div className="pl-3 space-y-0.5">
@@ -1626,45 +1663,40 @@ function ProjectGroup({
               const labelKey = `${project.id}::${label}`;
               const isLabelCollapsed = collapsedLabels.has(labelKey);
               return (
-                <div key={label} className="mb-0.5">
-                  <button
-                    onClick={() => toggleLabel(project.id, label)}
-                    className="w-full flex items-center gap-1.5 px-1 py-1 group/label hover:bg-surface-850 rounded-md transition-colors"
-                  >
-                    <svg className={`w-2.5 h-2.5 text-surface-600 transition-transform shrink-0 ${isLabelCollapsed ? '-rotate-90' : ''}`}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                    <svg className="w-3 h-3 text-primary-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
-                    </svg>
-                    <span className="text-[11px] font-semibold text-gray-400 truncate">{label}</span>
-                    <span className="text-[10px] tabular-nums text-surface-600 shrink-0">{sessions.length}</span>
-                  </button>
-                  {!isLabelCollapsed && (
-                    <div className="pl-4 space-y-0.5">
-                      {sessions.map((session) => (
-                        <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <LabelGroup
+                  key={label}
+                  label={label}
+                  sessions={sessions}
+                  isCollapsed={isLabelCollapsed}
+                  onToggle={() => toggleLabel(project.id, label)}
+                  onDropSession={(sessionId) => applyLabelToSession(sessionId, label)}
+                  activeSessionId={activeSessionId}
+                  currentUsername={currentUsername}
+                  onSelectSession={onSelectSession}
+                  onDeleteSession={onDeleteSession}
+                  onRenameSession={onRenameSession}
+                  onToggleFavorite={onToggleFavorite}
+                  onMoveSession={onMoveSession}
+                  projects={projects}
+                />
               );
             })}
-            {/* Unlabeled sessions */}
+            {/* Unlabeled sessions — also a drop target to remove label */}
             {unlabeled.length > 0 && (
-              <div className="mt-0.5">
-                {sortedLabels.length > 0 && (
-                  <div className="flex items-center gap-2 px-1 py-0.5">
-                    <div className="flex-1 h-px bg-surface-800" />
-                  </div>
-                )}
-                <div className="pl-2 space-y-0.5">
-                  {(expanded ? unlabeled : unlabeled.slice(0, PROJECT_PREVIEW_COUNT)).map((session) => (
-                    <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
-                  ))}
-                </div>
-              </div>
+              <UnlabeledDropZone
+                sessions={unlabeled}
+                expanded={expanded}
+                hasLabels={sortedLabels.length > 0}
+                onDropSession={(sessionId) => applyLabelToSession(sessionId, null)}
+                activeSessionId={activeSessionId}
+                currentUsername={currentUsername}
+                onSelectSession={onSelectSession}
+                onDeleteSession={onDeleteSession}
+                onRenameSession={onRenameSession}
+                onToggleFavorite={onToggleFavorite}
+                onMoveSession={onMoveSession}
+                projects={projects}
+              />
             )}
           </div>
         );
@@ -2744,6 +2776,106 @@ function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Label Group (D&D drop target) ── */
+
+function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, activeSessionId, currentUsername, onSelectSession, onDeleteSession, onRenameSession, onToggleFavorite, onMoveSession, projects }: {
+  label: string;
+  sessions: SessionMeta[];
+  isCollapsed: boolean;
+  onToggle: () => void;
+  onDropSession: (sessionId: string) => void;
+  activeSessionId: string | null;
+  currentUsername?: string;
+  onSelectSession: (s: SessionMeta) => void;
+  onDeleteSession: (id: string) => void;
+  onRenameSession: (id: string, name: string) => void;
+  onToggleFavorite: (id: string, fav: boolean) => void;
+  onMoveSession: (sessionId: string, projectId: string | null) => void;
+  projects: Project[];
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <div className="mb-0.5">
+      <div
+        onClick={onToggle}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const sessionId = e.dataTransfer.getData('text/plain');
+          if (sessionId) onDropSession(sessionId);
+        }}
+        className={`w-full flex items-center gap-1.5 px-1 py-1 cursor-pointer rounded-md transition-colors ${
+          dragOver ? 'bg-primary-600/20 ring-1 ring-primary-500/40' : 'hover:bg-surface-850'
+        }`}
+      >
+        <svg className={`w-2.5 h-2.5 text-surface-600 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+        <svg className="w-3 h-3 text-primary-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+        </svg>
+        <span className="text-[11px] font-semibold text-gray-400 truncate">{label}</span>
+        <span className="text-[10px] tabular-nums text-surface-600 shrink-0">{sessions.length}</span>
+      </div>
+      {!isCollapsed && (
+        <div className="pl-4 space-y-0.5">
+          {sessions.map((session) => (
+            <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Unlabeled Sessions Drop Zone (drop here to remove label) ── */
+
+function UnlabeledDropZone({ sessions, expanded, hasLabels, onDropSession, activeSessionId, currentUsername, onSelectSession, onDeleteSession, onRenameSession, onToggleFavorite, onMoveSession, projects }: {
+  sessions: SessionMeta[];
+  expanded: boolean;
+  hasLabels: boolean;
+  onDropSession: (sessionId: string) => void;
+  activeSessionId: string | null;
+  currentUsername?: string;
+  onSelectSession: (s: SessionMeta) => void;
+  onDeleteSession: (id: string) => void;
+  onRenameSession: (id: string, name: string) => void;
+  onToggleFavorite: (id: string, fav: boolean) => void;
+  onMoveSession: (sessionId: string, projectId: string | null) => void;
+  projects: Project[];
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <div
+      className={`mt-0.5 rounded-md transition-colors ${dragOver ? 'bg-surface-800/80 ring-1 ring-surface-600/40' : ''}`}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const sessionId = e.dataTransfer.getData('text/plain');
+        if (sessionId) onDropSession(sessionId);
+      }}
+    >
+      {hasLabels && (
+        <div className="flex items-center gap-2 px-1 py-0.5">
+          <div className="flex-1 h-px bg-surface-800" />
+        </div>
+      )}
+      <div className="pl-2 space-y-0.5">
+        {(expanded ? sessions : sessions.slice(0, PROJECT_PREVIEW_COUNT)).map((session) => (
+          <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
+        ))}
+      </div>
     </div>
   );
 }

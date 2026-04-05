@@ -160,6 +160,10 @@ interface FileState {
   tabs: FileTab[];
   activeTabId: string | null;
 
+  // ─── Navigation history (back/forward within file viewer) ───
+  navHistory: string[];   // list of file paths visited
+  navIndex: number;       // current position in history (-1 = none)
+
   // ─── Multi-select state ───
   /** Set of selected file/folder paths */
   selectedPaths: Set<string>;
@@ -204,6 +208,17 @@ interface FileState {
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   updateTabScroll: (id: string, scrollPos: number) => void;
 
+  // ─── Navigation history actions ───
+  /** Push a path to nav history (called when navigating via link click) */
+  navPush: (path: string) => void;
+  /** Go back in navigation history */
+  navBack: () => string | null;
+  /** Go forward in navigation history */
+  navForward: () => string | null;
+  /** Check if can go back/forward */
+  canNavBack: () => boolean;
+  canNavForward: () => boolean;
+
   // ─── Multi-select actions ───
   /** Toggle select mode on/off */
   toggleSelectMode: () => void;
@@ -235,6 +250,10 @@ export const useFileStore = create<FileState>((set, get) => ({
   // ─── Tab state ───
   tabs: [],
   activeTabId: null,
+
+  // ─── Navigation history ───
+  navHistory: [],
+  navIndex: -1,
 
   // ─── Multi-select state ───
   selectedPaths: new Set(),
@@ -578,6 +597,45 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   setLastClickedPath: (path) =>
     set({ lastClickedPath: path }),
+
+  // ─── Navigation history ───
+  navPush: (path) => set((s) => {
+    // If same as current position, skip
+    if (s.navIndex >= 0 && s.navHistory[s.navIndex] === path) return {};
+    // Truncate forward history and push new path
+    const newHistory = [...s.navHistory.slice(0, s.navIndex + 1), path];
+    // Limit history size to 50
+    const trimmed = newHistory.length > 50 ? newHistory.slice(-50) : newHistory;
+    return { navHistory: trimmed, navIndex: trimmed.length - 1 };
+  }),
+
+  navBack: () => {
+    const s = get();
+    if (s.navIndex <= 0) return null;
+    const newIndex = s.navIndex - 1;
+    const path = s.navHistory[newIndex];
+    set({ navIndex: newIndex });
+    return path;
+  },
+
+  navForward: () => {
+    const s = get();
+    if (s.navIndex >= s.navHistory.length - 1) return null;
+    const newIndex = s.navIndex + 1;
+    const path = s.navHistory[newIndex];
+    set({ navIndex: newIndex });
+    return path;
+  },
+
+  canNavBack: () => {
+    const s = get();
+    return s.navIndex > 0;
+  },
+
+  canNavForward: () => {
+    const s = get();
+    return s.navIndex < s.navHistory.length - 1;
+  },
 }));
 
 function toggleDir(entries: FileEntry[], dirPath: string): FileEntry[] {

@@ -891,13 +891,12 @@ function App() {
       {showWhatsNew && <WhatsNewModal onClose={dismissWhatsNew} />}
       <Header
         connected={connected}
+        sidebarOpen={sidebarOpen}
         onToggleSidebar={() => {
           if (sidebarOpen) {
-            // 닫을 때: 현재 탭을 기억
             setLastSidebarTab(sidebarTab);
             setSidebarOpen(false);
           } else {
-            // 햄버거로 열 때: 마지막으로 보던 탭 복원
             setSidebarTab(lastSidebarTab);
             setSidebarOpen(true);
           }
@@ -907,6 +906,16 @@ function App() {
         onPublishClick={() => setPublishOpen(true)}
         onViewDiff={handleViewDiff}
         onLogout={handleLogout}
+        onSettingsClick={handleOpenSettings}
+        onPinsClick={() => {
+          if (!sidebarOpen) setSidebarOpen(true);
+          setSidebarTab(sidebarTab === 'pins' ? 'sessions' : 'pins');
+        }}
+        onHistoryClick={() => {
+          if (!sidebarOpen) setSidebarOpen(true);
+          setSidebarTab(sidebarTab === 'history' ? 'sessions' : 'history');
+        }}
+        onRequestFileTree={() => requestFileTree()}
         username={tokenPayload?.username}
         userRole={tokenPayload?.role}
       />
@@ -938,6 +947,7 @@ function App() {
                 onPromptDelete={handlePromptDelete}
                 onPromptAdd={handlePromptAdd}
                 onNewSessionInFolder={handleNewSessionInFolder}
+                onCollapseSidebar={() => { setLastSidebarTab(sidebarTab); setSidebarOpen(false); }}
               />
             </div>
           </div>
@@ -962,10 +972,23 @@ function App() {
                 onPromptEdit={handlePromptEdit}
                 onPromptDelete={handlePromptDelete}
                 onPromptAdd={handlePromptAdd}
+                onCollapseSidebar={() => { setLastSidebarTab(sidebarTab); setSidebarOpen(false); }}
               />
             </div>
             <SidebarResizeHandle onResize={handleSidebarResize} />
           </>
+        )}
+        {/* When sidebar is collapsed, show a small expand button */}
+        {!sidebarOpen && !isMobile && (
+          <button
+            onClick={() => { setSidebarTab(lastSidebarTab); setSidebarOpen(true); }}
+            className="shrink-0 px-1 h-full flex items-center justify-center text-surface-700 hover:text-gray-400 hover:bg-surface-800/50 transition-colors"
+            title="Show sidebar"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         )}
 
         {/* Mobile: fullscreen context panel modal with close button */}
@@ -976,6 +999,7 @@ function App() {
                 <ContextPanel
                   onSave={handleSaveFile}
                   onReload={requestFile}
+                  onFileNavigate={requestFile}
                   onMobileClose={() => {
                     useSessionStore.getState().closeMobileContext();
                   }}
@@ -989,7 +1013,7 @@ function App() {
         {activeView === 'files' ? (
           <main className="flex-1 min-w-0 min-h-0">
             <ErrorBoundary fallbackLabel="File viewer error">
-              <ContextPanel onSave={handleSaveFile} onReload={requestFile} fullScreen />
+              <ContextPanel onSave={handleSaveFile} onReload={requestFile} onFileNavigate={requestFile} fullScreen />
             </ErrorBoundary>
           </main>
 
@@ -999,7 +1023,7 @@ function App() {
             {/* Top: ContextPanel — takes most space */}
             <div className="shrink-0 bg-surface-900/80 backdrop-blur-md overflow-hidden border-b border-surface-700/50" style={{ height: expandedPanelHeight }}>
               <ErrorBoundary fallbackLabel="Context panel error">
-                <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
+                <ContextPanel onSave={handleSaveFile} onReload={requestFile} onFileNavigate={requestFile} />
               </ErrorBoundary>
             </div>
             {/* Horizontal resize handle */}
@@ -1058,26 +1082,29 @@ function App() {
               </div>
             </main>
 
-            {contextPanelOpen ? (
-              <>
-                <ResizeHandle onResize={handleContextPanelResize} />
-                <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
-                  <ErrorBoundary fallbackLabel="Context panel error">
-                    <ContextPanel onSave={handleSaveFile} onReload={requestFile} />
-                  </ErrorBoundary>
-                </div>
-              </>
-            ) : lastOpenedFilePath ? (
-              <button
-                onClick={handleToggleContextPanel}
-                className="shrink-0 w-6 flex items-center justify-center bg-surface-900/60 hover:bg-surface-800/80 border-l border-surface-700/50 transition-colors text-gray-500 hover:text-gray-300"
-                title="Open panel"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-            ) : null}
+            {/* Hide ContextPanel in kanban/history — full-width views */}
+            {activeView !== 'kanban' && activeView !== 'history' && (
+              contextPanelOpen ? (
+                <>
+                  <ResizeHandle onResize={handleContextPanelResize} />
+                  <div className="shrink-0 bg-surface-900/90 backdrop-blur-md" style={{ width: contextPanelWidth }}>
+                    <ErrorBoundary fallbackLabel="Context panel error">
+                      <ContextPanel onSave={handleSaveFile} onReload={requestFile} onFileNavigate={requestFile} />
+                    </ErrorBoundary>
+                  </div>
+                </>
+              ) : lastOpenedFilePath ? (
+                <button
+                  onClick={handleToggleContextPanel}
+                  className="shrink-0 w-6 flex items-center justify-center bg-surface-900/60 hover:bg-surface-800/80 border-l border-surface-700/50 transition-colors text-gray-500 hover:text-gray-300"
+                  title="Open panel"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+              ) : null
+            )}
           </>
         ) : (
           /* Mobile: normal chat panel, kanban, history, or files */
@@ -1111,7 +1138,7 @@ function App() {
       {isMobile ? <MobileTabBar /> : <BottomBar requestFileTree={requestFileTree} />}
 
       {/* Settings modal */}
-      <SettingsPanel onLogout={handleLogout} />
+      <SettingsPanel />
       <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
       <SkillsBrowser />
       <ErrorBoundary fallbackLabel="Help panel error"><HelpPanel /></ErrorBoundary>
