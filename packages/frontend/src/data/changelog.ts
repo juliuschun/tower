@@ -7,6 +7,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.2.0',
+    date: '2026-04',
+    title: '더 똑똑하고, 더 빠르게 ⚡',
+    items: [
+      { emoji: '🧠', text: 'Claude 계정 로테이션 — 프로젝트별 자격 격리로 안정적 AI 운영' },
+      { emoji: '💭', text: 'ThinkingBlock — AI 사고 과정을 실시간으로 확인' },
+      { emoji: '📨', text: 'Inbox 패널 & 채널 AI 세션 영속화 — 대화 맥락이 끊기지 않음' },
+      { emoji: '🎛️', text: 'Progressive Disclosure UI — 헤더 탭, 앱 메뉴, 사이드바 필터 개편' },
+      { emoji: '📄', text: 'Office 문서 미리보기 — DOCX, PDF 등 파일 뷰어에서 바로 확인' },
+      { emoji: '🚀', text: '성능 대폭 개선 — 가상화 스크롤, 페이지네이션, 세션 전환 속도 향상' },
+      { emoji: '🔔', text: 'Telegram & Kakao 알림 연동' },
+      { emoji: '🛡️', text: '보안 강화 — API 접근제어, WebSocket 인증, ToolGuard 적용' },
+      { emoji: '📖', text: 'Help 시스템 & 온보딩 — 앱 내 가이드 8종 + 신규 사용자 Welcome Bot' },
+    ],
+  },
+  {
     version: '0.1.0',
     date: '2026-04',
     title: 'Tower 첫 출시 🎉',

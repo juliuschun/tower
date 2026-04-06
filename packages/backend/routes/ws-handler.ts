@@ -1649,7 +1649,7 @@ async function handleShareToChannel(client: WsClient, data: { roomId: string; se
   }
 }
 
-export { broadcastToRoom };
+export { broadcastToRoom, broadcastToSession };
 
 function send(ws: WebSocket, data: any) {
   if (ws.readyState === WebSocket.OPEN) {

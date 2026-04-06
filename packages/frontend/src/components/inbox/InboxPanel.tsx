@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useSessionStore } from '../../stores/session-store';
 import { useProjectStore } from '../../stores/project-store';
+import { useChatStore } from '../../stores/chat-store';
 import { RichContent } from '../shared/RichContent';
 import type { SessionMeta } from '@tower/shared';
 
@@ -35,7 +36,11 @@ function sendToSession(sessionId: string, message: string) {
   return true;
 }
 
-export function InboxPanel() {
+interface InboxPanelProps {
+  onSelectSession?: (session: SessionMeta) => void;
+}
+
+export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
   const sessions = useSessionStore((s) => s.sessions);
   const unreadSessions = useSessionStore((s) => s.unreadSessions);
   const streamingSessions = useSessionStore((s) => s.streamingSessions);
@@ -48,6 +53,7 @@ export function InboxPanel() {
   const [lastMessages, setLastMessages] = useState<Record<string, LastMessage>>({});
   const [replies, setReplies] = useState<Record<string, string>>({});
   const [sentSessions, setSentSessions] = useState<Set<string>>(new Set());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set()); // mark-as-read → disappear
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const currentUsername = useMemo(() => localStorage.getItem('username') || '', []);
@@ -55,16 +61,16 @@ export function InboxPanel() {
   // ── Two sections ──
   const unreads = useMemo(() =>
     sessions
-      .filter((s) => unreadSessions.has(s.id) && !streamingSessions.has(s.id) && s.ownerUsername === currentUsername)
-      .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()), // oldest first → most recent at bottom
-    [sessions, unreadSessions, streamingSessions, currentUsername]
+      .filter((s) => unreadSessions.has(s.id) && !streamingSessions.has(s.id) && s.ownerUsername === currentUsername && !dismissedIds.has(s.id))
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()), // newest first (inbox style)
+    [sessions, unreadSessions, streamingSessions, currentUsername, dismissedIds]
   );
 
   const recentIdle = useMemo(() =>
     sessions
-      .filter((s) => !unreadSessions.has(s.id) && !streamingSessions.has(s.id) && s.ownerUsername === currentUsername)
-      .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()) // oldest first
-      .slice(-RECENT_IDLE_LIMIT), // take last N (most recent)
+      .filter((s) => !unreadSessions.has(s.id) && !streamingSessions.has(s.id) && s.ownerUsername === currentUsername && !dismissedIds.has(s.id))
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()) // newest first
+      .slice(0, RECENT_IDLE_LIMIT), // take first N (most recent)
     [sessions, unreadSessions, streamingSessions, currentUsername]
   );
 
@@ -75,7 +81,7 @@ export function InboxPanel() {
     return ids;
   }, [unreads, recentIdle]);
 
-  // Load last messages
+  // Load last AI turn — everything after the last user message
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     const headers: Record<string, string> = {};
@@ -84,22 +90,42 @@ export function InboxPanel() {
     allVisibleIds.forEach(async (sessionId) => {
       if (lastMessages[sessionId]) return;
       try {
-        const res = await fetch(`/api/sessions/${sessionId}/messages?limit=5`, { headers });
+        // Fetch enough messages to get the full last turn
+        // (last user msg + all subsequent assistant msgs, tool uses, tool results, etc.)
+        const res = await fetch(`/api/sessions/${sessionId}/messages?limit=50`, { headers });
         if (!res.ok) return;
         const data = await res.json();
         const msgs: any[] = data.messages ?? data;
-        // Find last assistant message
-        const lastAI = [...msgs].reverse().find((m: any) => m.role === 'assistant');
-        if (!lastAI) return;
-        let text = '';
-        if (typeof lastAI.content === 'string') {
-          text = lastAI.content;
-        } else if (Array.isArray(lastAI.content)) {
-          text = lastAI.content
-            .filter((b: any) => b.type === 'text')
-            .map((b: any) => b.text)
-            .join('\n');
+        if (msgs.length === 0) return;
+
+        // Find the index of the last user message
+        let lastUserIdx = -1;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === 'user') { lastUserIdx = i; break; }
         }
+
+        // Take everything after the last user message (= full last AI turn)
+        const lastTurnMsgs = lastUserIdx >= 0 ? msgs.slice(lastUserIdx + 1) : msgs;
+        if (lastTurnMsgs.length === 0) return;
+
+        // Concatenate all text blocks from the AI turn
+        const text = lastTurnMsgs
+          .filter((m: any) => m.role === 'assistant')
+          .map((m: any) => {
+            if (typeof m.content === 'string') return m.content;
+            if (Array.isArray(m.content)) {
+              return m.content
+                .filter((b: any) => b.type === 'text')
+                .map((b: any) => b.text)
+                .join('');
+            }
+            return '';
+          })
+          .filter(Boolean)
+          .join('\n\n');
+
+        if (!text) return;
+
         setLastMessages((prev) => ({
           ...prev,
           [sessionId]: { sessionId, content: text, role: 'assistant', loadedAt: Date.now() },
@@ -108,13 +134,7 @@ export function InboxPanel() {
     });
   }, [[...allVisibleIds].join(',')]);
 
-  // Auto-scroll to bottom on mount
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) {
-      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-    }
-  }, [unreads.length, recentIdle.length]);
+  // Newest first → no auto-scroll needed (already at top)
 
   const handleArchive = useCallback(async (sessionId: string) => {
     const token = localStorage.getItem('token') || '';
@@ -131,9 +151,21 @@ export function InboxPanel() {
 
   const openSession = useCallback((session: SessionMeta) => {
     markSessionRead(session.id);
-    setActiveSessionId(session.id);
+    // Use the App-level handleSelectSession which properly loads messages,
+    // handles cache, claudeSessionId, etc.
+    if (onSelectSession) {
+      onSelectSession(session);
+    } else {
+      // Fallback: manual navigation (shouldn't happen if prop is wired)
+      useChatStore.getState().setSessionId(session.id);
+      useChatStore.getState().setStreaming(false);
+      setActiveSessionId(session.id);
+    }
     setActiveView('chat');
-  }, [markSessionRead, setActiveSessionId, setActiveView]);
+    // Persist last-viewed session
+    const userId = localStorage.getItem('token') ? JSON.parse(atob(localStorage.getItem('token')!.split('.')[1])).userId : null;
+    if (userId) localStorage.setItem(`tower:lastViewed:${userId}`, session.id);
+  }, [markSessionRead, setActiveSessionId, setActiveView, onSelectSession]);
 
   const handleSendReply = useCallback((session: SessionMeta, text: string) => {
     const ok = sendToSession(session.id, text);
@@ -166,7 +198,7 @@ export function InboxPanel() {
   const allCards: Array<{ session: SessionMeta; isUnread: boolean }> = [
     ...recentIdle.map((s) => ({ session: s, isUnread: false })),
     ...unreads.map((s) => ({ session: s, isUnread: true })),
-  ].sort((a, b) => new Date(a.session.updatedAt).getTime() - new Date(b.session.updatedAt).getTime());
+  ].sort((a, b) => new Date(b.session.updatedAt).getTime() - new Date(a.session.updatedAt).getTime()); // newest first
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto relative z-10">
@@ -206,7 +238,7 @@ export function InboxPanel() {
               wasSent={wasSent}
               onReplyChange={(text) => setReplies((prev) => ({ ...prev, [session.id]: text }))}
               onOpenSession={() => openSession(session)}
-              onMarkRead={() => markSessionRead(session.id)}
+              onMarkRead={() => { markSessionRead(session.id); setDismissedIds((prev) => new Set(prev).add(session.id)); }}
               onArchive={() => handleArchive(session.id)}
               onSendReply={(text) => handleSendReply(session, text)}
             />

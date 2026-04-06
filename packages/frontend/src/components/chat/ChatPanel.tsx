@@ -146,6 +146,11 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     });
   }, [mergedMessages.length]);
 
+  // Always-fresh ref so setTimeout closures never call a stale scrollToBottom
+  // (mergedMessages.length may change between effect registration and timer fire)
+  const scrollToBottomRef = useRef(scrollToBottom);
+  useEffect(() => { scrollToBottomRef.current = scrollToBottom; }, [scrollToBottom]);
+
   // Settle period: suppress atBottomStateChange(false) caused by height drift.
   // Without this, Virtuoso fires atBottom=false as items re-measure,
   // then followOutput stops auto-scrolling → stuck in the middle.
@@ -155,12 +160,13 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   useEffect(() => {
     if (!activeSessionId || mergedMessages.length === 0) return;
     isAtBottom.current = true;
-    settleUntil.current = Date.now() + 1000; // suppress false-negatives for 1s
+    settleUntil.current = Date.now() + 2000; // suppress false-negatives for 2s (was 1s)
     scrollToBottom();
-    const t1 = setTimeout(scrollToBottom, 100);
-    const t2 = setTimeout(scrollToBottom, 300);
-    const t3 = setTimeout(scrollToBottom, 600);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    const t1 = setTimeout(() => scrollToBottomRef.current(), 100);
+    const t2 = setTimeout(() => scrollToBottomRef.current(), 350);
+    const t3 = setTimeout(() => scrollToBottomRef.current(), 700);
+    const t4 = setTimeout(() => scrollToBottomRef.current(), 1200); // extra retry for slow renders
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
   }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cache-miss: messages arrive after empty mount → scroll to bottom
@@ -172,12 +178,13 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     const has = mergedMessages.length > 0;
     if (has && !hadMessages.current) {
       isAtBottom.current = true;
-      settleUntil.current = Date.now() + 1000;
+      settleUntil.current = Date.now() + 2000;
       scrollToBottom();
-      const t1 = setTimeout(scrollToBottom, 100);
-      const t2 = setTimeout(scrollToBottom, 300);
+      const t1 = setTimeout(() => scrollToBottomRef.current(), 100);
+      const t2 = setTimeout(() => scrollToBottomRef.current(), 350);
+      const t3 = setTimeout(() => scrollToBottomRef.current(), 700);
       hadMessages.current = true;
-      return () => { clearTimeout(t1); clearTimeout(t2); };
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     }
     hadMessages.current = has;
   }, [mergedMessages.length, scrollToBottom]);
@@ -369,9 +376,14 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
             }}
             followOutput={followOutput}
             atBottomStateChange={(atBottom) => {
-              // During settle period, ignore false signals caused by height re-measurement.
-              // Only accept true (confirms we're at bottom) or false after settle.
-              if (!atBottom && Date.now() < settleUntil.current) return;
+              // During settle period, height re-measurement causes false atBottom=false signals.
+              // Instead of ignoring them, actively re-scroll — this is the key fix for
+              // "lands in the middle" after session switch. Height drift is detected here
+              // and immediately corrected.
+              if (!atBottom && Date.now() < settleUntil.current) {
+                scrollToBottom();
+                return;
+              }
               isAtBottom.current = atBottom;
             }}
             atBottomThreshold={150}

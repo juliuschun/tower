@@ -1033,6 +1033,20 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'channel_ai_message': {
+        // Channel AI: push messages to ChatPanel in real-time when viewing the channel AI session
+        const currentSid = useChatStore.getState().sessionId;
+        if (data.sessionId && currentSid === data.sessionId && data.message) {
+          addMessage({
+            id: data.message.id,
+            role: data.message.role,
+            content: data.message.content,
+            timestamp: data.message.timestamp || Date.now(),
+          });
+        }
+        break;
+      }
+
       case 'session_created': {
         if (data.session) {
           const store = useSessionStore.getState();

@@ -35,6 +35,28 @@ function FilterChip({ active, onClick, title, children }: {
   );
 }
 
+function FilterMenuItem({ active, onClick, children }: {
+  active: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-colors ${
+        active
+          ? 'text-primary-400 bg-primary-500/10'
+          : 'text-gray-400 hover:bg-surface-700 hover:text-gray-300'
+      }`}
+    >
+      <span className={`w-3 h-3 rounded border flex items-center justify-center text-[8px] ${
+        active ? 'border-primary-400 bg-primary-500/20 text-primary-300' : 'border-surface-600'
+      }`}>
+        {active ? '✓' : ''}
+      </span>
+      {children}
+    </button>
+  );
+}
+
 /* ── Stats Bar — running / done / 7-day pace ── */
 function StatsBar({ sessions }: { sessions: SessionMeta[] }) {
   const streamingSessions = useSessionStore((s) => s.streamingSessions);
@@ -129,6 +151,7 @@ export function Sidebar({
   const [filterMy, setFilterMy] = useState(() => localStorage.getItem('sidebar-filter-my') === 'true');
   const [filterFav, setFilterFav] = useState(() => localStorage.getItem('sidebar-filter-fav') === 'true');
   const [filterDone, setFilterDone] = useState(() => localStorage.getItem('sidebar-filter-done') === 'true');
+  const [filterOpen, setFilterOpen] = useState(false);
   const unreadSessions = useSessionStore((s) => s.unreadSessions);
   const streamingSessions = useSessionStore((s) => s.streamingSessions);
 
@@ -426,62 +449,73 @@ export function Sidebar({
         {sidebarTab === 'sessions' ? (
           <div>
             <div className="px-3">
-            {/* Filter chips — first layer of narrowing */}
-            <div className="flex items-center gap-1 pt-2 pb-1">
-              <FilterChip active={filterMy} onClick={() => toggleFilter('my', filterMy, setFilterMy)} title="Show only my sessions">
-                👤 My
-              </FilterChip>
-              <FilterChip active={filterFav} onClick={() => toggleFilter('fav', filterFav, setFilterFav)} title="Show only favorites">
-                ⭐ Fav
-              </FilterChip>
-              <FilterChip active={filterDone} onClick={() => toggleFilter('done', filterDone, setFilterDone)} title="Show only completed tasks">
-                ✓ Done
-              </FilterChip>
-              <FilterChip active={filterLabels} onClick={() => toggleFilter('labels', filterLabels, setFilterLabels)} title="Show decks">
-                📁 Decks
-              </FilterChip>
-            </div>
-            {/* Stats bar — only shows when there's something to report */}
-            <StatsBar sessions={sessions} />
-            {/* ── Action row: Unreads (left) + New Chat (right) — single line ── */}
-            <div className="pb-1.5 flex items-center gap-1.5">
-              {(() => {
-                const doneCount = [...unreadSessions].filter(
-                  (id) => !streamingSessions.has(id)
-                ).length;
-                return doneCount > 0 ? (
-                  <button
-                    onClick={() => useSessionStore.getState().setActiveView('inbox')}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-primary-600/15 text-primary-300 hover:bg-primary-600/25 transition-colors"
-                  >
-                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162" />
-                    </svg>
-                    <span className="font-semibold bg-primary-500/20 text-primary-300 rounded-full px-1.5 leading-none">
+            {/* ── Unreads — always visible, project-name level ── */}
+            {(() => {
+              const doneCount = [...unreadSessions].filter(
+                (id) => !streamingSessions.has(id)
+              ).length;
+              return (
+                <button
+                  onClick={() => useSessionStore.getState().setActiveView('inbox')}
+                  className="w-full flex items-center gap-1.5 px-1 py-1.5 mt-1 rounded-md hover:bg-surface-850 transition-colors group/unreads"
+                >
+                  <svg className={`w-4 h-4 shrink-0 transition-colors ${doneCount > 0 ? 'text-surface-500 group-hover/unreads:text-gray-400' : 'text-surface-700'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162" />
+                  </svg>
+                  <span className={`text-[13px] font-bold transition-colors ${doneCount > 0 ? 'text-gray-300 group-hover/unreads:text-gray-100' : 'text-surface-600 group-hover/unreads:text-surface-500'}`}>Inbox</span>
+                  {doneCount > 0 && (
+                    <span className="ml-auto text-[9px] font-semibold text-primary-400 bg-primary-500/15 rounded px-1 py-0.5 leading-none">
                       {doneCount}
                     </span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => useSessionStore.getState().setActiveView('inbox')}
-                    className="flex items-center px-2.5 py-1.5 rounded-md text-surface-600 hover:text-surface-500 hover:bg-surface-800 transition-colors"
-                    title="Inbox"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162" />
-                    </svg>
-                  </button>
-                );
-              })()}
+                  )}
+                </button>
+              );
+            })()}
+            {/* ── Action row: + New (left) + ⚙ Filter (right) ── */}
+            <div className="pt-2 pb-1.5 flex items-center gap-1.5">
               <button
                 onClick={() => onNewSession(activeSession?.projectId || undefined)}
-                className="flex-1 py-1.5 px-3 bg-surface-800 hover:bg-surface-700 border border-surface-700 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-300 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
+                className="py-1.5 px-3 bg-surface-800 hover:bg-surface-700 border border-surface-700 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-300 transition-all active:scale-[0.98] flex items-center gap-1.5"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                New Chat
+                New
               </button>
+              <div className="ml-auto relative">
+                <button
+                  onClick={() => setFilterOpen(!filterOpen)}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    (filterMy || filterFav || filterDone || filterLabels)
+                      ? 'text-primary-400 bg-primary-500/10'
+                      : 'text-surface-500 hover:text-gray-400 hover:bg-surface-800'
+                  }`}
+                  title="Filters"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+                  </svg>
+                </button>
+                {filterOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[140px]">
+                      <FilterMenuItem active={filterMy} onClick={() => { toggleFilter('my', filterMy, setFilterMy); }}>
+                        👤 My sessions
+                      </FilterMenuItem>
+                      <FilterMenuItem active={filterFav} onClick={() => { toggleFilter('fav', filterFav, setFilterFav); }}>
+                        ⭐ Favorites
+                      </FilterMenuItem>
+                      <FilterMenuItem active={filterDone} onClick={() => { toggleFilter('done', filterDone, setFilterDone); }}>
+                        ✓ Done
+                      </FilterMenuItem>
+                      <FilterMenuItem active={filterLabels} onClick={() => { toggleFilter('labels', filterLabels, setFilterLabels); }}>
+                        📁 Decks
+                      </FilterMenuItem>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Grouped or flat session list */}
@@ -749,7 +783,7 @@ export function Sidebar({
       <div className="border-t border-surface-800/50">
         <div className="px-4 py-2 flex items-center justify-between">
           <CurrentUser />
-          <span className="text-[10px] font-semibold text-surface-800">v0.1.0</span>
+          <span className="text-[10px] font-semibold text-surface-800">v0.2.0</span>
         </div>
       </div>
     </aside>

@@ -1041,7 +1041,7 @@ function App() {
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (
-                    <InboxPanel />
+                    <InboxPanel onSelectSession={handleSelectSession} />
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1071,7 +1071,7 @@ function App() {
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (
-                    <InboxPanel />
+                    <InboxPanel onSelectSession={handleSelectSession} />
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1124,7 +1124,7 @@ function App() {
                 ) : activeView === 'history' ? (
                   <HistoryPanel />
                 ) : activeView === 'inbox' ? (
-                  <InboxPanel />
+                  <InboxPanel onSelectSession={handleSelectSession} />
                 ) : activeView === 'rooms' ? (
                   <RoomPanel />
                 ) : (

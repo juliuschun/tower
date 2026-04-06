@@ -341,7 +341,7 @@ router.get('/shared/:token', async (req, res) => {
 router.use(authMiddleware);
 
 router.get('/health', (_req, res) => {
-  res.json({ status: 'ok', version: '0.1.0', publicUrl: config.publicUrl || null });
+  res.json({ status: 'ok', version: '0.2.0', publicUrl: config.publicUrl || null });
 });
 
 // ─── Browser proxy (PinchTab) ────────────────────────────────────────────────
@@ -1620,7 +1620,7 @@ router.post('/git/rollback', async (req, res) => {
 // ───── Config ─────
 router.get('/config', (_req, res) => {
   res.json({
-    version: '0.1.0',
+    version: '0.2.0',
     workspaceRoot: config.workspaceRoot,
     permissionMode: config.permissionMode,
     claudeExecutable: config.claudeExecutable,

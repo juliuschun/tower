@@ -196,12 +196,20 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
       const { v4: uuidv4 } = await import('uuid');
 
       // 5a. Save user message to session messages table (so it shows in ChatPanel)
+      const { broadcastToSession } = await import('../routes/ws-handler.js');
       const userMsgId = uuidv4();
+      const userContent = [{ type: 'text', text: prompt }];
       await saveSessionMsg(channelSession.sessionId, {
         id: userMsgId,
         role: 'user',
-        content: [{ type: 'text', text: prompt }],
+        content: userContent,
         username,
+      });
+      // Broadcast to ChatPanel in real-time
+      broadcastToSession(channelSession.sessionId, {
+        type: 'channel_ai_message',
+        sessionId: channelSession.sessionId,
+        message: { id: userMsgId, role: 'user', content: userContent, timestamp: Date.now() },
       });
 
       // 5b. Try persistent channelReply (with resume), fall back to quickReply
@@ -272,10 +280,17 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
 
       // 7a. Save AI response to session messages table (ChatPanel can show it)
       const assistantMsgId = uuidv4();
+      const assistantContent = [{ type: 'text', text: streamedContent }];
       await saveSessionMsg(channelSession.sessionId, {
         id: assistantMsgId,
         role: 'assistant',
-        content: [{ type: 'text', text: streamedContent }],
+        content: assistantContent,
+      });
+      // Broadcast to ChatPanel in real-time
+      broadcastToSession(channelSession.sessionId, {
+        type: 'channel_ai_message',
+        sessionId: channelSession.sessionId,
+        message: { id: assistantMsgId, role: 'assistant', content: assistantContent, timestamp: Date.now() },
       });
 
       // 7b. Save final message to room (channel display)
