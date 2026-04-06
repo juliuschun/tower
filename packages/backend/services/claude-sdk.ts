@@ -270,6 +270,7 @@ export async function* executeQuery(
     systemPrompt?: string;
     userRole?: string;
     configDir?: string;  // Claude account credential directory (CLAUDE_CONFIG_DIR)
+    maxTurns?: number;   // limit SDK turns (default: unlimited)
   } = {}
 ): AsyncGenerator<SDKMessage> {
   // Abort any existing query for this session
@@ -323,6 +324,7 @@ export async function* executeQuery(
     ...(options.model ? { model: options.model } : {}),
     ...(options.canUseTool ? { canUseTool: options.canUseTool } : {}),
     ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
+    ...(options.maxTurns ? { maxTurns: options.maxTurns } : {}),
   };
 
   if (options.resumeSessionId) {
