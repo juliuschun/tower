@@ -7,17 +7,21 @@ interface Site {
   created_at: string;
   status?: string;
   files?: number;
+  deploy_target?: string;
+  external_url?: string;
 }
 
 interface App {
   name: string;
-  port: number;
-  path: string;
+  port?: number;
+  path?: string;
   description: string;
   access: 'public' | 'private';
   status?: string;
   statusCode?: number;
   created_at: string;
+  deploy_target?: string;
+  external_url?: string;
 }
 
 interface TrafficEntry {
@@ -205,10 +209,12 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {sites.map(s => (
+                    {sites.map(s => {
+                      const siteUrl = s.external_url || `http://${PUBLIC_HOST}/sites/${s.name}/`;
+                      return (
                       <a
                         key={s.name}
-                        href={`http://${PUBLIC_HOST}/sites/${s.name}/`}
+                        href={siteUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="group flex items-start gap-3 p-3 bg-neutral-800/40 hover:bg-neutral-800/70 border border-neutral-800 hover:border-neutral-700 rounded-lg transition-all"
@@ -229,7 +235,8 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                         </svg>
                       </a>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -246,10 +253,13 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {apps.map(a => (
+                    {apps.map(a => {
+                      const appUrl = a.external_url || `http://${PUBLIC_HOST}${a.path || '/apps/' + a.name + '/'}`;
+                      const isExternal = !!a.external_url;
+                      return (
                       <a
                         key={a.name}
-                        href={`http://${PUBLIC_HOST}${a.path || '/apps/' + a.name + '/'}`}
+                        href={appUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="group flex items-start gap-3 p-3 bg-neutral-800/40 hover:bg-neutral-800/70 border border-neutral-800 hover:border-neutral-700 rounded-lg transition-all"
@@ -262,7 +272,11 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                           </div>
                           <p className="text-[11px] text-gray-500 truncate mt-0.5">{a.description || 'No description'}</p>
                           <div className="flex gap-3 mt-1.5 text-[10px] text-gray-600">
-                            <span>port {a.port}</span>
+                            {isExternal ? (
+                              <span className="text-sky-500">{a.deploy_target === 'azure-container-apps' ? '☁️ Azure' : '☁️ CF Pages'}</span>
+                            ) : (
+                              <span>port {a.port}</span>
+                            )}
                             <span className={a.status === 'up' ? 'text-emerald-500' : 'text-red-400'}>{a.status}</span>
                             {a.statusCode && <span>HTTP {a.statusCode}</span>}
                           </div>
@@ -271,7 +285,8 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                         </svg>
                       </a>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
