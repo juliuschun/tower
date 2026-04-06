@@ -711,9 +711,13 @@ router.get('/sessions', async (req, res) => {
     return res.json(await getSessionPanelSessions(parentSessionId, userId));
   }
 
-  // Default: return all accessible sessions (excluding panel sessions)
+  // Default: return all accessible sessions (excluding panel thread sessions, but INCLUDING channel_ai)
   const sessions = await getSessions(userId, role);
-  res.json(sessions.filter(s => !s.roomId && !s.parentSessionId));
+  res.json(sessions.filter(s => {
+    if (s.parentSessionId) return false;  // panel sub-sessions: always hide
+    if (s.roomId && s.label !== 'channel_ai') return false;  // room threads: hide, but keep channel AI
+    return true;
+  }));
 });
 
 router.post('/sessions', async (req, res) => {

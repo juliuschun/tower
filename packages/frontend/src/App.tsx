@@ -38,6 +38,7 @@ import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
 import { HistoryPanel } from './components/history/HistoryPanel';
 import { RoomPanel } from './components/rooms/RoomPanel';
+import { InboxPanel } from './components/inbox/InboxPanel';
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
 import { SharedViewer } from './components/shared/SharedViewer';
 import { FileViewerPage } from './components/files/FileViewerPage';
@@ -1039,6 +1040,8 @@ function App() {
                     <KanbanBoard />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
+                  ) : activeView === 'inbox' ? (
+                    <InboxPanel />
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1067,6 +1070,8 @@ function App() {
                     <KanbanBoard />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
+                  ) : activeView === 'inbox' ? (
+                    <InboxPanel />
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1118,6 +1123,8 @@ function App() {
                   <KanbanBoard />
                 ) : activeView === 'history' ? (
                   <HistoryPanel />
+                ) : activeView === 'inbox' ? (
+                  <InboxPanel />
                 ) : activeView === 'rooms' ? (
                   <RoomPanel />
                 ) : (

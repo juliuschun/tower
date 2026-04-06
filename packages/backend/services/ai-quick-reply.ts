@@ -192,8 +192,19 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
 
     try {
       const engine = await getEngine(engineName);
+      const { saveMessage: saveSessionMsg } = await import('./message-store.js');
+      const { v4: uuidv4 } = await import('uuid');
 
-      // 5. Try persistent channelReply (with resume), fall back to quickReply
+      // 5a. Save user message to session messages table (so it shows in ChatPanel)
+      const userMsgId = uuidv4();
+      await saveSessionMsg(channelSession.sessionId, {
+        id: userMsgId,
+        role: 'user',
+        content: [{ type: 'text', text: prompt }],
+        username,
+      });
+
+      // 5b. Try persistent channelReply (with resume), fall back to quickReply
       if (engine.channelReply) {
         const result = await engine.channelReply(fullPrompt, {
           model: modelId,
@@ -259,7 +270,15 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
         });
       }
 
-      // 7. Save final message to DB
+      // 7a. Save AI response to session messages table (ChatPanel can show it)
+      const assistantMsgId = uuidv4();
+      await saveSessionMsg(channelSession.sessionId, {
+        id: assistantMsgId,
+        role: 'assistant',
+        content: [{ type: 'text', text: streamedContent }],
+      });
+
+      // 7b. Save final message to room (channel display)
       const savedMsg = await sendMessage(roomId, null, streamedContent, 'ai_reply', {
         model: modelId,
         engine: engineName,

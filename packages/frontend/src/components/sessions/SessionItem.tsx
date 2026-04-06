@@ -161,6 +161,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const isOwnUnread = isUnread && session.ownerUsername === currentUsername;
   const queueCount = useChatStore((s) => (s.messageQueue[session.id] ?? []).length);
   const isKanbanTask = session.name.startsWith('\u{1F7E2}'); // 🟢
+  const isChannelAi = session.label === 'channel_ai'; // 🤖
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
 
   useEffect(() => {
@@ -259,7 +260,10 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             {(session as any).engine === 'pi' && (
               <span className="ml-1 text-[8px] font-bold text-violet-300 bg-violet-500/20 px-1 rounded align-middle">PI</span>
             )}
-            {session.roomId && (
+            {isChannelAi && (
+              <span className="ml-1 text-[8px] font-bold text-cyan-300 bg-cyan-500/15 px-1 rounded align-middle">AI</span>
+            )}
+            {session.roomId && !isChannelAi && (
               <span className="ml-1 text-[9px] text-surface-600 align-middle">#thread</span>
             )}
           </span>
@@ -360,7 +364,7 @@ function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose:
         <svg className="w-3.5 h-3.5 text-primary-500/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
         </svg>
-        {session.label ? `Label: ${session.label}` : 'Set label'}
+        {session.label ? `Deck: ${session.label}` : 'Set deck'}
         <svg className={`w-3 h-3 ml-auto text-surface-600 transition-transform ${open ? 'rotate-90' : ''}`}
           fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -381,7 +385,7 @@ function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose:
                 if (e.key === 'Escape') setOpen(false);
               }}
               onClick={(e) => e.stopPropagation()}
-              placeholder="New label..."
+              placeholder="New deck..."
               className="flex-1 bg-surface-700 text-[11px] text-gray-200 px-2 py-1 rounded border border-surface-600 outline-none focus:border-primary-500/50 placeholder-surface-600"
             />
             {newLabel.trim() && (
@@ -419,7 +423,7 @@ function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose:
                 <svg className="w-3 h-3 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Remove label
+                Remove deck
               </button>
             </>
           )}

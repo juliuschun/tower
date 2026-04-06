@@ -546,16 +546,18 @@ export async function getOrCreateChannelAiSession(
   }
 
   // 2. No session exists — create one
+  // Owner is null (system-owned) — channel AI is a shared team resource, not owned by any individual.
+  // Visibility is 'project' so all project members can see it.
   const { createSession, updateSession } = await import('./session-manager.js');
   const session = await createSession(
-    `Channel AI: ${roomName}`,
+    `🤖 ${roomName}`,
     '/home/enterpriseai',  // default cwd
-    userId,
+    undefined,             // system-owned (no individual owner)
     projectId,
     engine,
     roomId,
   );
-  await updateSession(session.id, { label: 'channel_ai' });
+  await updateSession(session.id, { label: 'channel_ai', visibility: 'project' });
 
   return {
     sessionId: session.id,

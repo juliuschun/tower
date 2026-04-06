@@ -62,6 +62,18 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   const isCompacting = compactingSessionId !== null && compactingSessionId === activeSessionId;
   const _sessions = useSessionStore((s) => s.sessions); // keep subscription for sidebar reactivity
 
+  // Consume pending reply from Inbox (sent before ChatPanel mounted)
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const pending = useSessionStore.getState().pendingReplies[activeSessionId];
+    if (pending) {
+      useSessionStore.getState().clearPendingReply(activeSessionId);
+      // Small delay to let Virtuoso mount and messages load
+      const timer = setTimeout(() => onSend(pending), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const isAtBottom = useRef(true);
 

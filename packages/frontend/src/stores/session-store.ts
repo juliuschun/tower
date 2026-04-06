@@ -18,7 +18,12 @@ interface SessionState {
   mobileTab: MobileTab;
   mobileContextOpen: boolean;
   mobileTabBeforeContext: MobileTab;  // 파일 열기 전 탭 기억 (뒤로가기용)
-  activeView: 'chat' | 'kanban' | 'history' | 'rooms' | 'files';
+  activeView: 'chat' | 'kanban' | 'history' | 'rooms' | 'files' | 'inbox';
+
+  // Inbox → ChatPanel pending reply queue (set in InboxPanel, consumed in ChatPanel)
+  pendingReplies: Record<string, string>;
+  setPendingReply: (sessionId: string, text: string) => void;
+  clearPendingReply: (sessionId: string) => void;
 
   setSessions: (sessions: SessionMeta[]) => void;
   setActiveSessionId: (id: string | null) => void;
@@ -36,7 +41,7 @@ interface SessionState {
   setMobileContextOpen: (v: boolean) => void;
   openMobileContext: () => void;   // 현재 탭 기억하고 context panel 열기
   closeMobileContext: (fromPopState?: boolean) => void;  // 기억한 탭으로 복귀
-  setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms' | 'files') => void;
+  setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms' | 'files' | 'inbox') => void;
 }
 
 // Detect mobile at store creation to avoid first-render layout flash
@@ -56,6 +61,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   mobileContextOpen: false,
   mobileTabBeforeContext: 'chat',
   activeView: 'chat',
+  pendingReplies: {},
 
   setSessions: (sessions) => {
     set({ sessions: dedupeSessionsById(sessions) });
@@ -155,4 +161,11 @@ export const useSessionStore = create<SessionState>((set) => ({
     });
   },
   setActiveView: (view) => set({ activeView: view }),
+  setPendingReply: (sessionId, text) =>
+    set((s) => ({ pendingReplies: { ...s.pendingReplies, [sessionId]: text } })),
+  clearPendingReply: (sessionId) =>
+    set((s) => {
+      const { [sessionId]: _, ...rest } = s.pendingReplies;
+      return { pendingReplies: rest };
+    }),
 }));

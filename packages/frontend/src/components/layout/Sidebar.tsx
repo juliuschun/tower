@@ -130,6 +130,7 @@ export function Sidebar({
   const [filterFav, setFilterFav] = useState(() => localStorage.getItem('sidebar-filter-fav') === 'true');
   const [filterDone, setFilterDone] = useState(() => localStorage.getItem('sidebar-filter-done') === 'true');
   const unreadSessions = useSessionStore((s) => s.unreadSessions);
+  const streamingSessions = useSessionStore((s) => s.streamingSessions);
 
   const toggleFilter = (key: string, value: boolean, setter: (v: boolean) => void) => {
     const next = !value;
@@ -156,6 +157,12 @@ export function Sidebar({
 
   const [sharedWithMe, setSharedWithMe] = useState<{ id: string; file_path: string; owner_username: string }[]>([]);
   const [searchResults, setSearchResults] = useState<{ type: string; sessionId: string; sessionName: string; snippet: string }[] | null>(null);
+
+  // Clear search helper — clears both query and results in one shot
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+    setSearchResults(null);
+  }, [setSearchQuery]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -430,14 +437,42 @@ export function Sidebar({
               <FilterChip active={filterDone} onClick={() => toggleFilter('done', filterDone, setFilterDone)} title="Show only completed tasks">
                 ✓ Done
               </FilterChip>
-              <FilterChip active={filterLabels} onClick={() => toggleFilter('labels', filterLabels, setFilterLabels)} title="Show label subfolders">
-                📁 Labels
+              <FilterChip active={filterLabels} onClick={() => toggleFilter('labels', filterLabels, setFilterLabels)} title="Show decks">
+                📁 Decks
               </FilterChip>
             </div>
             {/* Stats bar — only shows when there's something to report */}
             <StatsBar sessions={sessions} />
-            {/* Action bar */}
-            <div className="pb-1.5 flex items-center gap-1">
+            {/* ── Action row: Unreads (left) + New Chat (right) — single line ── */}
+            <div className="pb-1.5 flex items-center gap-1.5">
+              {(() => {
+                const doneCount = [...unreadSessions].filter(
+                  (id) => !streamingSessions.has(id)
+                ).length;
+                return doneCount > 0 ? (
+                  <button
+                    onClick={() => useSessionStore.getState().setActiveView('inbox')}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-primary-600/15 text-primary-300 hover:bg-primary-600/25 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162" />
+                    </svg>
+                    <span className="font-semibold bg-primary-500/20 text-primary-300 rounded-full px-1.5 leading-none">
+                      {doneCount}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => useSessionStore.getState().setActiveView('inbox')}
+                    className="flex items-center px-2.5 py-1.5 rounded-md text-surface-600 hover:text-surface-500 hover:bg-surface-800 transition-colors"
+                    title="Inbox"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162" />
+                    </svg>
+                  </button>
+                );
+              })()}
               <button
                 onClick={() => onNewSession(activeSession?.projectId || undefined)}
                 className="flex-1 py-1.5 px-3 bg-surface-800 hover:bg-surface-700 border border-surface-700 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-300 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
@@ -447,7 +482,6 @@ export function Sidebar({
                 </svg>
                 New Chat
               </button>
-              <NewProjectButton />
             </div>
 
             {/* Grouped or flat session list */}
@@ -541,7 +575,7 @@ export function Sidebar({
                       session={session}
                       isActive={session.id === activeSessionId}
                       currentUsername={currentUsername}
-                      onSelect={onSelectSession}
+                      onSelect={isSearching ? (s: any) => { onSelectSession(s); clearSearch(); } : onSelectSession}
                       onDelete={onDeleteSession}
                       onRename={onRenameSession}
                       onToggleFavorite={onToggleFavorite}
@@ -563,7 +597,7 @@ export function Sidebar({
                     return (
                       <button
                         key={i}
-                        onClick={() => onSelectSession(target)}
+                        onClick={() => { onSelectSession(target); clearSearch(); }}
                         className="w-full text-left px-2 py-1.5 rounded hover:bg-surface-800/60 transition-colors"
                       >
                         <span className="text-[11px] text-gray-400">{r.sessionName}</span>
@@ -695,8 +729,19 @@ export function Sidebar({
               placeholder="Search sessions..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-3 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
+              onKeyDown={(e) => { if (e.key === 'Escape') { clearSearch(); searchInputRef.current?.blur(); } }}
+              className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-8 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
             />
+            {searchQuery && (
+              <button
+                onClick={() => { clearSearch(); searchInputRef.current?.focus(); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-surface-600 hover:text-gray-300 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1556,14 +1601,16 @@ function ProjectGroup({
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
       >
-        <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${collapsed ? '-rotate-90' : ''}`}
+        {/* Chevron — hidden by default, shown on hover (Slack pattern) */}
+        <svg className={`w-3.5 h-3.5 text-surface-600 transition-all shrink-0 opacity-0 group-hover/proj:opacity-100 ${collapsed ? '-rotate-90' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
+        {/* When chevron is hidden, show activity dot or folder icon in its place */}
         {hasActivity ? (
-          <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+          <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse shrink-0 -ml-[18px] group-hover/proj:hidden" />
         ) : (
-          <svg className="w-4 h-4 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <svg className="w-4 h-4 text-surface-600 shrink-0 -ml-[18px] group-hover/proj:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
           </svg>
         )}
@@ -1592,9 +1639,10 @@ function ProjectGroup({
                   {groupSessions.length}
                 </span>
               )}
+              {/* 3-dot menu — hidden by default, shown on hover */}
               <button
                 onClick={(e) => { e.stopPropagation(); setCtxMenu({ x: e.currentTarget.getBoundingClientRect().right, y: e.currentTarget.getBoundingClientRect().bottom + 4 }); }}
-                className="p-0.5 rounded text-surface-600 hover:text-gray-300 hover:bg-surface-700/50 transition-all shrink-0 ml-auto"
+                className="p-0.5 rounded text-surface-600 hover:text-gray-300 hover:bg-surface-700/50 transition-all shrink-0 ml-auto opacity-0 group-hover/proj:opacity-100"
                 aria-label="Project actions"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -1637,7 +1685,7 @@ function ProjectGroup({
         if (!hasLabels || !showLabels) {
           const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, PROJECT_PREVIEW_COUNT);
           return (
-            <div className="pl-5 space-y-0.5">
+            <div className="ml-2.5 pl-3 border-l border-surface-800 space-y-0.5">
               {visibleSessions.map((session) => (
                 <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
               ))}
@@ -1658,7 +1706,7 @@ function ProjectGroup({
 
         // Render label sub-groups + unlabeled
         return (
-          <div className="pl-3 space-y-0.5">
+          <div className="ml-2.5 pl-3 border-l border-surface-800 space-y-0.5">
             {sortedLabels.map(([label, sessions]) => {
               const labelKey = `${project.id}::${label}`;
               const isLabelCollapsed = collapsedLabels.has(labelKey);
@@ -1686,7 +1734,6 @@ function ProjectGroup({
               <UnlabeledDropZone
                 sessions={unlabeled}
                 expanded={expanded}
-                hasLabels={sortedLabels.length > 0}
                 onDropSession={(sessionId) => applyLabelToSession(sessionId, null)}
                 activeSessionId={activeSessionId}
                 currentUsername={currentUsername}
@@ -2780,7 +2827,18 @@ function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
   );
 }
 
-/* ── Label Group (D&D drop target) ── */
+/* ── Label Group — Obsidian-style tree node (D&D drop target) ── */
+
+const LABEL_PREVIEW_COUNT = 5;
+
+/** Label display name + icon mapping */
+function labelDisplay(label: string): { icon: string; name: string } {
+  const map: Record<string, { icon: string; name: string }> = {
+    'channel_ai': { icon: '🤖', name: 'Channel AI' },
+    'temp': { icon: '○', name: 'Temp' },
+  };
+  return map[label] || { icon: '◇', name: label };
+}
 
 function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, activeSessionId, currentUsername, onSelectSession, onDeleteSession, onRenameSession, onToggleFavorite, onMoveSession, projects }: {
   label: string;
@@ -2798,9 +2856,14 @@ function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, act
   projects: Project[];
 }) {
   const [dragOver, setDragOver] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const hasMore = sessions.length > LABEL_PREVIEW_COUNT;
+  const visibleSessions = (!isCollapsed && hasMore && !showAll) ? sessions.slice(0, LABEL_PREVIEW_COUNT) : sessions;
+  const display = labelDisplay(label);
 
   return (
-    <div className="mb-0.5">
+    <div className="group/label">
+      {/* Label header — tree node style (chevron + icon + name) */}
       <div
         onClick={onToggle}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
@@ -2811,23 +2874,36 @@ function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, act
           const sessionId = e.dataTransfer.getData('text/plain');
           if (sessionId) onDropSession(sessionId);
         }}
-        className={`w-full flex items-center gap-1.5 px-1 py-1 cursor-pointer rounded-md transition-colors ${
-          dragOver ? 'bg-primary-600/20 ring-1 ring-primary-500/40' : 'hover:bg-surface-850'
+        className={`flex items-center gap-1 py-0.5 px-0.5 rounded cursor-pointer transition-colors select-none ${
+          dragOver ? 'bg-primary-600/15' : 'hover:bg-surface-850'
         }`}
       >
-        <svg className={`w-2.5 h-2.5 text-surface-600 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : ''}`}
+        {/* Chevron */}
+        <svg className={`w-3 h-3 text-surface-600 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
-        <svg className="w-3 h-3 text-primary-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
-        </svg>
-        <span className="text-[11px] font-semibold text-gray-400 truncate">{label}</span>
-        <span className="text-[10px] tabular-nums text-surface-600 shrink-0">{sessions.length}</span>
+        {/* Icon */}
+        <span className="text-[11px] shrink-0">{display.icon}</span>
+        {/* Label name */}
+        <span className="text-[11px] font-medium text-surface-400 truncate">{display.name}</span>
+        {/* Count */}
+        {hasMore ? (
+          <span
+            onClick={(e) => { e.stopPropagation(); setShowAll(!showAll); }}
+            className="text-[10px] tabular-nums shrink-0 cursor-pointer transition-colors text-surface-600 hover:text-primary-400 ml-auto"
+            title={showAll ? `${LABEL_PREVIEW_COUNT}개만 보기` : `전체 ${sessions.length}개 보기`}
+          >
+            {showAll ? sessions.length : `${LABEL_PREVIEW_COUNT}/${sessions.length}`}
+          </span>
+        ) : (
+          <span className="text-[10px] tabular-nums text-surface-600 shrink-0 ml-auto">{sessions.length}</span>
+        )}
       </div>
+      {/* Sessions — indented under label like tree children */}
       {!isCollapsed && (
-        <div className="pl-4 space-y-0.5">
-          {sessions.map((session) => (
+        <div className="ml-2 pl-2.5 border-l border-surface-800/60 space-y-0.5">
+          {visibleSessions.map((session) => (
             <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
           ))}
         </div>
@@ -2836,12 +2912,11 @@ function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, act
   );
 }
 
-/* ── Unlabeled Sessions Drop Zone (drop here to remove label) ── */
+/* ── Unlabeled Sessions (drop here to remove label) ── */
 
-function UnlabeledDropZone({ sessions, expanded, hasLabels, onDropSession, activeSessionId, currentUsername, onSelectSession, onDeleteSession, onRenameSession, onToggleFavorite, onMoveSession, projects }: {
+function UnlabeledDropZone({ sessions, expanded, onDropSession, activeSessionId, currentUsername, onSelectSession, onDeleteSession, onRenameSession, onToggleFavorite, onMoveSession, projects }: {
   sessions: SessionMeta[];
   expanded: boolean;
-  hasLabels: boolean;
   onDropSession: (sessionId: string) => void;
   activeSessionId: string | null;
   currentUsername?: string;
@@ -2856,7 +2931,7 @@ function UnlabeledDropZone({ sessions, expanded, hasLabels, onDropSession, activ
 
   return (
     <div
-      className={`mt-0.5 rounded-md transition-colors ${dragOver ? 'bg-surface-800/80 ring-1 ring-surface-600/40' : ''}`}
+      className={`rounded transition-colors ${dragOver ? 'bg-surface-800/60 ring-1 ring-surface-600/30' : ''}`}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
@@ -2866,12 +2941,7 @@ function UnlabeledDropZone({ sessions, expanded, hasLabels, onDropSession, activ
         if (sessionId) onDropSession(sessionId);
       }}
     >
-      {hasLabels && (
-        <div className="flex items-center gap-2 px-1 py-0.5">
-          <div className="flex-1 h-px bg-surface-800" />
-        </div>
-      )}
-      <div className="pl-2 space-y-0.5">
+      <div className="space-y-0.5">
         {(expanded ? sessions : sessions.slice(0, PROJECT_PREVIEW_COUNT)).map((session) => (
           <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
         ))}
