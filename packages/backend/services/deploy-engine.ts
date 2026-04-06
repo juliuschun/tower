@@ -421,6 +421,16 @@ async function updateManifestAfterDeploy(opts: DeployOptions, result: DeployResu
       existing.external_url = result.url;
       existing.last_deployed_at = now;
       if (opts.description) existing.description = opts.description;
+      // Clean up local-only fields when deploying to external platform
+      if (result.target !== 'local') {
+        delete existing.port;
+        delete existing.path;
+        delete existing.health_path;
+        delete existing.runtime;
+        delete existing.exec;
+        delete existing.working_dir;
+        delete (existing as any).managed;
+      }
     } else {
       manifest.apps.push({
         name: opts.name,
