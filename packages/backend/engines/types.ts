@@ -197,6 +197,25 @@ export interface QuickReplyOpts {
   onChunk: (chunk: string, fullContent: string) => void;
 }
 
+/**
+ * ChannelReply options — persistent session reply for channel AI.
+ * Uses resumeSessionId for context continuity across @ai calls.
+ */
+export interface ChannelReplyOpts {
+  model?: string;
+  systemPrompt: string;
+  resumeSessionId?: string;  // for persistent channel AI
+  onChunk: (chunk: string, fullContent: string) => void;
+  onToolUse?: (toolName: string) => void;  // status indicator for channel
+  onCompact?: (phase: 'boundary' | 'compacting' | 'done') => void;
+  maxTurns?: number;
+}
+
+export interface ChannelReplyResult {
+  content: string;
+  engineSessionId?: string;  // save for next resume
+}
+
 export interface Engine {
   /** Execute a prompt. Yields TowerMessages for ws-handler to broadcast. */
   run(
@@ -212,6 +231,13 @@ export interface Engine {
    * Returns the full response text.
    */
   quickReply(prompt: string, opts: QuickReplyOpts): Promise<string>;
+
+  /**
+   * Persistent channel reply — resumes from previous session for context continuity.
+   * Falls back to quickReply() if engine doesn't support persistent sessions.
+   * Used by @ai in chat rooms with persistent channel AI.
+   */
+  channelReply?(prompt: string, opts: ChannelReplyOpts): Promise<ChannelReplyResult>;
 
   /** Abort a running session */
   abort(sessionId: string): void;

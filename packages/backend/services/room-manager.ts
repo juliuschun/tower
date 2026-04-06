@@ -505,6 +505,125 @@ export async function getUnreadCounts(userId: number): Promise<Map<string, numbe
   return counts;
 }
 
+// ── AI Session (Persistent Channel AI) ──────────────────────────────
+// Channel AI sessions live in the sessions table with label = 'channel_ai'.
+// The chat_rooms table stores ai_engine_session_id as a cache for quick resume.
+
+export interface ChannelAiSession {
+  sessionId: string;          // Tower session ID (sessions table)
+  engineSessionId: string | null;  // SDK session ID (for resume)
+  messageCount: number;
+}
+
+/**
+ * Get or create the persistent channel AI session for a room.
+ * Looks up sessions table first; falls back to chat_rooms cache.
+ */
+export async function getOrCreateChannelAiSession(
+  roomId: string,
+  roomName: string,
+  userId: number,
+  projectId: string | null,
+  engine: string,
+): Promise<ChannelAiSession> {
+  const pool = getPgPool();
+
+  // 1. Look up existing channel_ai session in sessions table
+  const { rows } = await pool.query(
+    `SELECT id, claude_session_id, turn_count
+     FROM sessions
+     WHERE room_id = $1 AND label = 'channel_ai' AND (archived IS NULL OR archived = 0)
+     ORDER BY updated_at DESC LIMIT 1`,
+    [roomId],
+  );
+
+  if (rows.length > 0) {
+    return {
+      sessionId: rows[0].id,
+      engineSessionId: rows[0].claude_session_id ?? null,
+      messageCount: rows[0].turn_count ?? 0,
+    };
+  }
+
+  // 2. No session exists — create one
+  const { createSession, updateSession } = await import('./session-manager.js');
+  const session = await createSession(
+    `Channel AI: ${roomName}`,
+    '/home/enterpriseai',  // default cwd
+    userId,
+    projectId,
+    engine,
+    roomId,
+  );
+  await updateSession(session.id, { label: 'channel_ai' });
+
+  return {
+    sessionId: session.id,
+    engineSessionId: null,
+    messageCount: 0,
+  };
+}
+
+/**
+ * Update channel AI session after a successful reply.
+ * Syncs both sessions table and chat_rooms cache.
+ */
+export async function updateChannelAiSession(
+  roomId: string,
+  sessionId: string,
+  engineSessionId: string,
+): Promise<void> {
+  const pool = getPgPool();
+
+  // Update sessions table
+  const { updateSession } = await import('./session-manager.js');
+  await updateSession(sessionId, {
+    claudeSessionId: engineSessionId,
+    turnCount: undefined,  // will be incremented below
+  });
+
+  // Increment turn count
+  await pool.query(
+    `UPDATE sessions SET turn_count = COALESCE(turn_count, 0) + 1, updated_at = NOW() WHERE id = $1`,
+    [sessionId],
+  );
+
+  // Sync chat_rooms cache
+  await pool.query(
+    `UPDATE chat_rooms
+     SET ai_engine_session_id = $2,
+         ai_session_created_at = COALESCE(ai_session_created_at, NOW()),
+         ai_session_message_count = COALESCE(ai_session_message_count, 0) + 1
+     WHERE id = $1`,
+    [roomId, engineSessionId],
+  );
+}
+
+/**
+ * Clear channel AI session (on @ai /reset).
+ * Archives the session and clears the room cache.
+ */
+export async function clearChannelAiSession(roomId: string): Promise<void> {
+  const pool = getPgPool();
+
+  // Archive existing channel_ai session(s)
+  await pool.query(
+    `UPDATE sessions SET archived = 1, updated_at = NOW()
+     WHERE room_id = $1 AND label = 'channel_ai' AND (archived IS NULL OR archived = 0)`,
+    [roomId],
+  );
+
+  // Clear room cache
+  await pool.query(
+    `UPDATE chat_rooms
+     SET ai_engine_session_id = NULL,
+         ai_session_created_at = NULL,
+         ai_session_message_count = 0
+     WHERE id = $1`,
+    [roomId],
+  );
+}
+
 // ── AI Context ───────────────────────────────────────────────────────
 
 export async function saveAiContext(

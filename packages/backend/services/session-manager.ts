@@ -12,9 +12,10 @@ export async function createSession(name: string, cwd: string, userId?: number, 
   const id = uuidv4();
   // Sessions within a project default to 'project' visibility (shared with members)
   const visibility = projectId ? 'project' : 'private';
+  const defaultLabel = 'temp';
   await execute(`
-    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id, source_message_id, parent_session_id, visibility) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-  `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null, sourceMessageId || null, parentSessionId || null, visibility]);
+    INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id, source_message_id, parent_session_id, visibility, label) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+  `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null, sourceMessageId || null, parentSessionId || null, visibility, defaultLabel]);
 
   return {
     id,
@@ -31,6 +32,7 @@ export async function createSession(name: string, cwd: string, userId?: number, 
     roomId: roomId || null,
     parentSessionId: parentSessionId || null,
     sourceMessageId: sourceMessageId || null,
+    label: defaultLabel,
   };
 }
 

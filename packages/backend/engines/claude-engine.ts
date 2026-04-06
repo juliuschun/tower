@@ -8,7 +8,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import type { Engine, RunOpts, EngineCallbacks, TowerMessage, TowerContentBlock, QuickReplyOpts } from './types.js';
+import type { Engine, RunOpts, EngineCallbacks, TowerMessage, TowerContentBlock, QuickReplyOpts, ChannelReplyOpts, ChannelReplyResult } from './types.js';
 import {
   executeQuery,
   abortSession,
@@ -375,6 +375,88 @@ export class ClaudeEngine implements Engine {
     }
 
     return fullContent;
+  }
+
+  /**
+   * Persistent channel reply — wraps executeQuery with resume support.
+   * Streams only text content; tool_use triggers onToolUse callback.
+   * Returns content + engineSessionId for next resume.
+   */
+  async channelReply(prompt: string, opts: ChannelReplyOpts): Promise<ChannelReplyResult> {
+    // Use a stable internal session ID for the channel AI query
+    const internalSessionId = `channel-ai-${Date.now()}`;
+    let fullContent = '';
+    let engineSessionId: string | undefined;
+
+    try {
+      for await (const message of executeQuery(internalSessionId, prompt, {
+        cwd: config.defaultCwd,
+        resumeSessionId: opts.resumeSessionId,
+        permissionMode: 'bypassPermissions',
+        model: opts.model,
+        systemPrompt: opts.systemPrompt,
+        maxTurns: opts.maxTurns ?? 10,
+      })) {
+        // Track session ID for resume
+        if ('session_id' in message && (message as any).session_id) {
+          engineSessionId = (message as any).session_id;
+        }
+
+        // Handle autocompact lifecycle
+        if ((message as any).type === 'system') {
+          const subtype = (message as any).subtype;
+          const status = (message as any).status;
+          if (subtype === 'compact_boundary') {
+            opts.onCompact?.('boundary');
+            continue;
+          }
+          if (subtype === 'status') {
+            opts.onCompact?.(status === 'compacting' ? 'compacting' : 'done');
+            continue;
+          }
+        }
+
+        // Extract text from assistant messages
+        if ((message as any).type === 'assistant' && (message as any).message?.content) {
+          const content = (message as any).message.content as any[];
+
+          // Notify tool use for status indicators
+          for (const block of content) {
+            if (block.type === 'tool_use' && block.name) {
+              opts.onToolUse?.(block.name);
+            }
+          }
+
+          // Extract text and compute delta
+          const currentText = content
+            .filter((b: any) => b.type === 'text' && b.text)
+            .map((b: any) => b.text)
+            .join('');
+
+          if (currentText && currentText.length > fullContent.length) {
+            const chunk = currentText.slice(fullContent.length);
+            fullContent = currentText;
+            opts.onChunk(chunk, fullContent);
+          }
+        }
+      }
+    } finally {
+      // Clean up the internal session tracking (but don't kill the SDK process — it's done)
+      cleanupSession(internalSessionId);
+    }
+
+    // Get the final session ID from SDK tracking
+    const finalSessionId = getClaudeSessionId(internalSessionId) || engineSessionId;
+
+    // Backup session file for resilience
+    if (finalSessionId) {
+      backupSessionFile(finalSessionId, config.defaultCwd);
+    }
+
+    return {
+      content: fullContent,
+      engineSessionId: finalSessionId,
+    };
   }
 
   abort(sessionId: string): void {

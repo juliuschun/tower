@@ -1467,7 +1467,16 @@ async function handleRoomMessage(client: WsClient, data: { roomId: string; conte
         recordAiCall(client.userId, data.roomId);
 
         if (mention.mentionType === 'ai') {
-          // ─── @ai: Quick reply (no task creation) ───
+          // ─── @ai /reset: Clear persistent AI session ───
+          if (mention.prompt.trim().toLowerCase() === '/reset') {
+            const { handleAiReset } = await import('../services/ai-quick-reply.js');
+            handleAiReset(data.roomId, broadcastToRoom).catch(err => {
+              console.error('[ws] AI reset failed:', err.message);
+            });
+            return;
+          }
+
+          // ─── @ai: Persistent channel reply ───
           const { getRoom: fetchRoom } = await import('../services/room-manager.js');
           const room = await fetchRoom(data.roomId);
           const { handleAiQuickReply } = await import('../services/ai-quick-reply.js');
