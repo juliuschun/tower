@@ -118,13 +118,12 @@ describe('Engine Contract — resume failure handling', () => {
     expect(src).toMatch(/recoverable:\s*true/);
   });
 
-  it('both engines clear stale session ID on resume failure', () => {
+  it('neither engine clears session ID on error (preserves recovery path)', () => {
     const claudeSrc = readSource(CLAUDE_ENGINE);
     const piSrc = readSource(PI_ENGINE);
-    // Claude clears on certain errors
-    expect(claudeSrc).toMatch(/claimSessionId\(''\)/);
-    // Pi clears on resume catch
-    expect(piSrc).toMatch(/claimSessionId\(''\)/);
+    // Session ID should NEVER be cleared — clearing causes permanent context loss
+    expect(claudeSrc).not.toMatch(/claimSessionId\(''\)/);
+    expect(piSrc).not.toMatch(/claimSessionId\(''\)/);
   });
 });
 

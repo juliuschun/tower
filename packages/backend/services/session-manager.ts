@@ -87,6 +87,11 @@ export async function getSessions(userId?: number, role?: string): Promise<Sessi
     if (accessibleIds !== null) {
       // Non-admin: filter by project membership + ownership + visibility
       return rows.filter(r => {
+        // System-owned sessions (e.g. channel AI): visible if project-scoped and accessible
+        if (r.user_id === null) {
+          if (!r.project_id) return r.label === 'channel_ai'; // channel AI without project: show to all
+          return accessibleIds.includes(r.project_id);
+        }
         // Sessions without a project: visible only to creator
         if (!r.project_id) return r.user_id === userId;
         // Sessions in a project the user isn't a member of: hidden
@@ -178,34 +183,28 @@ export async function permanentlyDeleteSession(id: string): Promise<boolean> {
 
 
 /**
- * Startup cleanup: clear stale claudeSessionId values where the .jsonl file no longer exists.
- * Without this, the first message in a chat session after restart tries to resume from a gone
- * .jsonl file. Kanban tasks already handle this via recoverZombieTasks(), but regular chat
- * sessions had no equivalent — causing resume failures only for chat.
+ * Startup audit: log sessions whose .jsonl files are missing.
+ * We intentionally do NOT clear claude_session_id — clearing it causes permanent context loss
+ * (every subsequent turn silently starts a fresh SDK session with no memory).
+ * Instead, sdk.ts will throw an explicit error on resume, telling the user to start a new session.
  */
-export async function cleanupStaleSessions(): Promise<number> {
+export async function auditStaleSessions(): Promise<number> {
   const rows = await query(
     `SELECT id, claude_session_id, cwd FROM sessions
      WHERE claude_session_id IS NOT NULL AND claude_session_id != ''
        AND (archived IS NULL OR archived = 0)`
   ) as { id: string; claude_session_id: string; cwd: string }[];
 
-  let cleared = 0;
+  let stale = 0;
   for (const row of rows) {
-    // Search beyond the DB cwd — .jsonl may be in a different project directory
-    // (e.g. session created via project feature with project-specific cwd)
     const found = findJsonlFile(row.claude_session_id, row.cwd);
-
-    if (!found) {
-      await execute('UPDATE sessions SET claude_session_id = NULL WHERE id = $1', [row.id]);
-      cleared++;
-    }
+    if (!found) stale++;
   }
 
-  if (cleared > 0) {
-    console.log(`[session-manager] Cleared ${cleared} stale claudeSessionId(s) (missing .jsonl files)`);
+  if (stale > 0) {
+    console.log(`[session-manager] ${stale} session(s) have missing .jsonl files (will fail on resume with explicit error)`);
   }
-  return cleared;
+  return stale;
 }
 
 /** Scan Claude native session files from ~/.claude/projects/ */

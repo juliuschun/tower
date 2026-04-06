@@ -16,7 +16,7 @@ import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown, consu
 import { startScheduler, stopScheduler } from './services/task-scheduler.js';
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/heartbeat.js';
 import { initNotificationHub } from './services/notification-hub.js';
-import { cleanupStaleSessions } from './services/session-manager.js';
+import { auditStaleSessions } from './services/session-manager.js';
 import { stopWsSync } from './services/ws-sync.js';
 import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs } from './services/skill-registry.js';
 import { backfillTaskProjects } from './services/task-manager.js';
@@ -126,10 +126,9 @@ server.listen(config.port, config.host, async () => {
     (globalThis as any).__interruptedSessions = new Set(interruptedSessionIds);
   }
 
-  // Clean up stale chat session claudeSessionIds where .jsonl is gone.
-  // Must run BEFORE orphan monitoring — ensures chat sessions don't attempt
-  // resume from missing files (kanban tasks already handle this via recoverZombieTasks).
-  cleanupStaleSessions();
+  // Audit stale sessions (missing .jsonl) — log only, never clear claude_session_id.
+  // Clearing causes permanent context loss. Instead, sdk.ts throws explicit error on resume.
+  auditStaleSessions();
 
   // Recover tasks that survived the restart, then start orphan monitor.
   // The monitor only kills idle orphans (CPU < 1% for 2 checks), so it's safe

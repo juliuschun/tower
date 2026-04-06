@@ -107,10 +107,10 @@ describe('Pi engine — source contracts', () => {
     expect(src).toMatch(/recoverable:\s*true/);
   });
 
-  it('G3: clears stale session ID on resume failure', () => {
+  it('G3: does NOT clear session ID on resume failure (preserves recovery)', () => {
     const src = readSource(PI_ENGINE_PATH);
-    // Should call claimSessionId('') when resume fails
-    expect(src).toMatch(/Resume failed[\s\S]*?claimSessionId\(''\)/);
+    // Session ID should NEVER be cleared — clearing causes permanent context loss
+    expect(src).not.toMatch(/claimSessionId\(''\)/);
   });
 
   it('syncs final assistant content from message_end payload', () => {

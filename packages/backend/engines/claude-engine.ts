@@ -316,13 +316,11 @@ export class ClaudeEngine implements Engine {
 
     } catch (error: any) {
       const isAbort = /aborted by user|abort/i.test(error.message || '') || error.name === 'AbortError';
-      const isSpawnError = /ENOENT|spawn.*failed/i.test(error.message || '');
 
-      // Clear stale engineSessionId on resume failure (not on abort or spawn error)
-      if (!isAbort && !isSpawnError && opts.engineSessionId &&
-          /exited with code|session.*not found/i.test(error.message || '')) {
-        callbacks.claimSessionId('');
-      }
+      // NEVER clear claude_session_id on error. Clearing it causes permanent context loss —
+      // every subsequent turn starts a fresh SDK session, and the user sees AI responses
+      // with no memory of prior conversation. It's better to keep the stale ID and let
+      // the next resume attempt fail explicitly, so the user knows to start a new session.
 
       if (!isAbort) {
         yield {

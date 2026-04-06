@@ -460,8 +460,8 @@ export class PiEngine implements Engine {
       } catch (err: any) {
         console.warn(`[Pi] Resume failed (${err.message}), creating new session`);
         sessionMgr = SessionManager.create(opts.cwd, piSessionDir);
-        // G3: Clear stale session ID so Tower DB doesn't try again
-        if (callbacks) callbacks.claimSessionId('');
+        // Do NOT clear session ID — clearing causes permanent context loss.
+        // The explicit error message below tells the user what happened.
         // Flag will be set on entry after creation → run() yields recoverable error
         resumeFailedMsg = `Previous Pi conversation could not be restored: ${err.message}`;
       }

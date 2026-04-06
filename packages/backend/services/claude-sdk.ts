@@ -385,8 +385,12 @@ export async function* executeQuery(
       queryOptions.resume = resolvedResumeId;
       console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${resolvedResumeId.slice(0,12)} jsonl=${path.basename(path.dirname(jsonlPath))}`);
     } else {
-      console.log(`[sdk] resume skipped (no file, no backup): session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} cwd=${queryOptions.cwd}`);
-      session.claudeSessionId = undefined;
+      // Don't silently start a new session — that's worse than failing.
+      // The user thinks they're continuing a conversation, but the AI has no context.
+      console.error(`[sdk] resume FAILED (no file, no backup): session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} cwd=${queryOptions.cwd}`);
+      throw new Error(
+        `이전 대화를 이어갈 수 없습니다 (세션 파일을 찾을 수 없음). 새 세션에서 시작해주세요.`
+      );
     }
   }
 
