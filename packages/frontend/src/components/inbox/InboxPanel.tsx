@@ -187,7 +187,7 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-surface-500">
         <svg className="w-10 h-10 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
         </svg>
         <p className="text-[14px]">All caught up</p>
       </div>
@@ -202,18 +202,27 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto relative z-10">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-surface-900/80 backdrop-blur-sm px-4 py-3 border-b border-surface-800/50">
-        <div className="flex items-center gap-2">
-          <h2 className="text-[15px] font-semibold text-gray-200">Inbox</h2>
+      {/* Hero header — 존재감 있는 상단 영역 */}
+      <div className="px-5 pt-8 pb-5">
+        <div className="flex items-center gap-3 mb-1.5">
+          <div className="w-9 h-9 rounded-xl bg-primary-600/20 border border-primary-500/30 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-[18px] font-bold text-gray-100 leading-tight">Inbox</h2>
+            <p className="text-[12px] text-surface-500 leading-tight">
+              {unreads.length > 0
+                ? `${unreads.length} unread · ${allCards.length} sessions`
+                : `${allCards.length} sessions`}
+            </p>
+          </div>
           {unreads.length > 0 && (
-            <span className="text-[11px] font-semibold bg-primary-500/20 text-primary-300 rounded-full px-2 py-0.5 leading-none">
-              {unreads.length} unread
+            <span className="ml-auto text-[11px] font-semibold bg-primary-500/20 text-primary-300 rounded-full px-2.5 py-1 leading-none">
+              {unreads.length} new
             </span>
           )}
-          <span className="text-[11px] text-surface-500">
-            {allCards.length} sessions
-          </span>
         </div>
       </div>
 

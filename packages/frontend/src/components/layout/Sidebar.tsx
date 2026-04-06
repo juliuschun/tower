@@ -460,7 +460,7 @@ export function Sidebar({
                   className="w-full flex items-center gap-1.5 px-1 py-1.5 mt-1 rounded-md hover:bg-surface-850 transition-colors group/unreads"
                 >
                   <svg className={`w-4 h-4 shrink-0 transition-colors ${doneCount > 0 ? 'text-surface-500 group-hover/unreads:text-gray-400' : 'text-surface-700'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
                   </svg>
                   <span className={`text-[13px] font-bold transition-colors ${doneCount > 0 ? 'text-gray-300 group-hover/unreads:text-gray-100' : 'text-surface-600 group-hover/unreads:text-surface-500'}`}>Inbox</span>
                   {doneCount > 0 && (
