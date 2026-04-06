@@ -457,14 +457,14 @@ export function Sidebar({
               return (
                 <button
                   onClick={() => useSessionStore.getState().setActiveView('inbox')}
-                  className="w-full flex items-center gap-1.5 px-1 py-1.5 mt-1 rounded-md hover:bg-surface-850 transition-colors group/unreads"
+                  className="w-full flex items-center gap-2 px-2 py-2.5 mt-1 rounded-lg hover:bg-surface-850 active:bg-surface-800 transition-colors group/unreads"
                 >
                   <svg className={`w-4 h-4 shrink-0 transition-colors ${doneCount > 0 ? 'text-surface-500 group-hover/unreads:text-gray-400' : 'text-surface-700'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
                   </svg>
-                  <span className={`text-[13px] font-bold transition-colors ${doneCount > 0 ? 'text-gray-300 group-hover/unreads:text-gray-100' : 'text-surface-600 group-hover/unreads:text-surface-500'}`}>Inbox</span>
+                  <span className={`text-[14px] font-bold transition-colors ${doneCount > 0 ? 'text-gray-300 group-hover/unreads:text-gray-100' : 'text-surface-600 group-hover/unreads:text-surface-500'}`}>Inbox</span>
                   {doneCount > 0 && (
-                    <span className="ml-auto text-[9px] font-semibold text-primary-400 bg-primary-500/15 rounded px-1 py-0.5 leading-none">
+                    <span className="ml-auto text-[11px] font-semibold text-primary-400 bg-primary-500/15 rounded-full px-2 py-0.5 leading-none">
                       {doneCount}
                     </span>
                   )}
