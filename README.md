@@ -107,7 +107,7 @@ A one-off task becomes a reusable skill. That skill creates another skill. Your 
   <img src="capture-publish.png" alt="Tower — Publishing Hub" width="720" />
 </p>
 
-**Publishing Hub** — Turn any AI-generated artifact into a live site or app. One click. Your server. No vendor lock-in.
+**Publishing Hub + Deploy Engine** — Turn any AI-generated artifact into a live site or app. Static sites deploy to **Cloudflare Pages** (global CDN, instant). Dynamic apps deploy to **Azure Container Apps** (scale-to-zero containers). Code type is auto-detected — just point at a directory and deploy. One API call. Zero config.
 
 **Mobile** — Responsive browser UI. Works from your phone with full server compute behind it.
 
@@ -157,6 +157,14 @@ Configure available models in `backend/engines/pi-models.json` — no code chang
 ---
 
 ## Changelog
+
+### 4/6 — Deploy Engine: Cloudflare Pages + Azure Container Apps
+- **Deploy Engine** — auto-detect code type (static vs dynamic) and deploy to the right platform
+- Static sites → Cloudflare Pages (global CDN, ~2s deploy)
+- Dynamic apps → Azure Container Apps (scale-to-zero, ACR build, auto Dockerfile generation)
+- REST API: `POST /api/deploy`, `GET /api/deploy/list`, `DELETE /api/deploy/:type/:name`
+- Manifest schema extended with `deploy_target`, `external_url`, `last_deployed_at`
+- 4 existing static sites migrated to Cloudflare Pages
 
 ### 3/17 — AI Panel & Unified Visibility
 - AI Side Panel for channels — private AI threads alongside team chat

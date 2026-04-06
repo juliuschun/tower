@@ -42,7 +42,7 @@ import {
   hasInternalShareForUser,
 } from '../services/share-manager.js';
 import fsPromises from 'fs/promises';
-import { query } from '../db/pg-repo.js';
+import { query, queryOne } from '../db/pg-repo.js';
 import {
   getProjects, getProject, createProject, updateProject, deleteProject,
   moveSessionToProject, reorderProjects,
@@ -60,6 +60,11 @@ import {
 import {
   canAccessSession, canDeleteSession, canAccessRoom, canAccessTask, canCreateInProject, isPathAccessible,
 } from '../services/project-access.js';
+import {
+  createInternalSessionShare, createExternalSessionShare,
+  getSharesBySession, getSessionSharesWithMe,
+  getSessionShareByToken, revokeSessionShare, isSessionShareValid,
+} from '../services/session-share-manager.js';
 
 const UPLOAD_MAX_SIZE = parseInt(process.env.UPLOAD_MAX_SIZE || '') || 50 * 1024 * 1024; // 50MB
 const DANGEROUS_EXTENSIONS = new Set([
@@ -337,6 +342,28 @@ router.get('/shared/:token', async (req, res) => {
   }
 });
 
+// ───── Shared Session (public, no auth) ─────
+router.get('/shared-session/:token', async (req, res) => {
+  const share = await getSessionShareByToken(req.params.token as string);
+  if (!share || !isSessionShareValid(share)) {
+    return res.status(410).json({ error: 'This link has expired or been revoked.' });
+  }
+  try {
+    // Return frozen snapshot (no live data for external shares)
+    const snapshot = share.snapshot_json ? JSON.parse(share.snapshot_json) : [];
+    // Get session name
+    const session = await queryOne('SELECT name FROM sessions WHERE id = $1', [share.session_id]);
+    res.json({
+      sessionName: (session as any)?.name ?? 'Shared Session',
+      messages: snapshot,
+      sharedAt: share.created_at,
+      expiresAt: share.expires_at,
+    });
+  } catch {
+    return res.status(500).json({ error: 'Failed to load shared session.' });
+  }
+});
+
 // ───── Protected routes ─────
 router.use(authMiddleware);
 
@@ -479,6 +506,50 @@ router.delete('/shares/:id', async (req, res) => {
   const ownerId = (req as any).user?.userId;
   if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
   const ok = await revokeShare(req.params.id as string, ownerId);
+  if (!ok) return res.status(404).json({ error: 'Share not found or no permission to revoke.' });
+  res.json({ ok: true });
+});
+
+// ───── Session Shares ─────
+router.post('/session-shares', async (req, res) => {
+  const { shareType, sessionId, targetUserId, expiresIn } = req.body;
+  const ownerId = (req as any).user?.userId;
+  if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
+  if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
+  try {
+    if (shareType === 'internal') {
+      if (!targetUserId) return res.status(400).json({ error: 'targetUserId required' });
+      const share = await createInternalSessionShare(sessionId, ownerId, targetUserId);
+      return res.json(share);
+    } else if (shareType === 'external') {
+      const share = await createExternalSessionShare(sessionId, ownerId, expiresIn || '24h');
+      const url = `/api/shared-session/${share.token}`;
+      return res.json({ ...share, url });
+    } else {
+      return res.status(400).json({ error: 'shareType must be internal or external' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/session-shares/with-me', async (req, res) => {
+  const userId = (req as any).user?.userId;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  res.json(await getSessionSharesWithMe(userId));
+});
+
+router.get('/session-shares', async (req, res) => {
+  const ownerId = (req as any).user?.userId;
+  const sessionId = req.query.sessionId as string;
+  if (!ownerId || !sessionId) return res.status(400).json({ error: 'sessionId required' });
+  res.json(await getSharesBySession(sessionId, ownerId));
+});
+
+router.delete('/session-shares/:id', async (req, res) => {
+  const ownerId = (req as any).user?.userId;
+  if (!ownerId) return res.status(401).json({ error: 'Unauthorized' });
+  const ok = await revokeSessionShare(req.params.id as string, ownerId);
   if (!ok) return res.status(404).json({ error: 'Share not found or no permission to revoke.' });
   res.json({ ok: true });
 });
@@ -2526,6 +2597,53 @@ router.get('/help/:slug', async (req, res) => {
     // Strip YAML frontmatter
     const content = raw.replace(/^---\n[\s\S]*?\n---\n*/, '');
     res.type('text/plain').send(content);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ───── Deploy Engine ─────
+import { deploy, listDeployments, deleteDeployment, detectCodeType } from '../services/deploy-engine.js';
+
+// Detect code type for a directory
+router.post('/deploy/detect', authMiddleware, async (req, res) => {
+  try {
+    const { sourceDir } = req.body;
+    if (!sourceDir) return res.status(400).json({ error: 'sourceDir required' });
+    const type = await detectCodeType(sourceDir);
+    res.json({ type, recommendedTarget: type === 'static' ? 'cloudflare-pages' : 'azure-container-apps' });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Deploy a site or app
+router.post('/deploy', authMiddleware, async (req, res) => {
+  try {
+    const { name, sourceDir, target, port, env, description } = req.body;
+    if (!name || !sourceDir) return res.status(400).json({ error: 'name and sourceDir required' });
+
+    // Validate name format
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+      return res.status(400).json({ error: 'name must be lowercase alphanumeric with hyphens' });
+    }
+
+    const result = await deploy({ name, sourceDir, target, port, env, description });
+    res.json(result);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// List all deployments
+router.get('/deploy/list', authMiddleware, async (_req, res) => {
+  try {
+    const deployments = await listDeployments();
+    res.json(deployments);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Delete a deployment
+router.delete('/deploy/:type/:name', authMiddleware, async (req, res) => {
+  try {
+    const { type, name } = req.params;
+    if (type !== 'site' && type !== 'app') return res.status(400).json({ error: 'type must be site or app' });
+    const result = await deleteDeployment(name, type);
+    res.json(result);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
