@@ -414,7 +414,6 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
               onDismiss={() => useChatStore.getState().setPendingQuestion(null)}
             />
           )}
-          <CumulativeTokenBar />
           <InputBox onSend={onSend} onAbort={onAbort} />
         </div>
 

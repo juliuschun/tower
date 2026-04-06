@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { TaskMeta } from '../../stores/kanban-store';
+import { useProjectStore } from '../../stores/project-store';
 
 interface KanbanCardProps {
   task: TaskMeta;
@@ -171,6 +172,10 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
   const isScheduled = task.scheduleEnabled && !!task.scheduledAt;
   const isRecurring = !!task.scheduleCron;
   const cronLabel = formatCronLabel(task.scheduleCron);
+  const projectName = useProjectStore((s) => {
+    if (!task.projectId) return null;
+    return s.projects.find(p => p.id === task.projectId)?.name ?? null;
+  });
 
   return (
     <div
@@ -237,8 +242,8 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
       {/* Footer: CWD + model + time + actions */}
       <div className="mt-2 flex items-center justify-between text-[10px] text-gray-600">
         <div className="flex items-center gap-1.5 truncate max-w-[60%]">
-          <span className="truncate" title={task.cwd}>
-            {task.cwd.split('/').pop()}
+          <span className="truncate" title={projectName ? `${projectName} · ${task.cwd}` : task.cwd}>
+            {projectName || task.cwd.split('/').pop()}
           </span>
           {task.model && (
             <span className={`shrink-0 px-1 py-0.5 rounded text-[9px] ${task.model.includes('opus') ? 'bg-purple-900/40 text-purple-400' : 'bg-sky-900/40 text-sky-400'}`}>

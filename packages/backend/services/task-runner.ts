@@ -337,7 +337,7 @@ export async function spawnTask(
     const { findProjectByPath } = await import('./project-access.js');
     taskProjectId = await findProjectByPath(task.cwd);
   } catch {}
-  const session = await createSession(`🟢 ${task.title}`, task.cwd, userId, taskProjectId);
+  const session = await createSession(`[task] ${task.title}`, task.cwd, userId, taskProjectId, undefined, undefined, undefined, undefined, 'task');
   const sessionId = session.id;
 
   await updateTask(taskId, {
@@ -364,6 +364,7 @@ export async function spawnTask(
       totalTokens: 0,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
+      label: session.label,
     },
   });
 

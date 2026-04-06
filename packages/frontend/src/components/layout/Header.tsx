@@ -3,6 +3,7 @@ import { useSessionStore } from '../../stores/session-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useRoomStore } from '../../stores/room-store';
 import { ModelSelector } from './ModelSelector';
+import { useModelStore } from '../../stores/model-store';
 import { GitPanel } from '../git/GitPanel';
 import { NotificationBell } from './NotificationBell';
 
@@ -23,7 +24,7 @@ interface HeaderProps {
   sidebarOpen?: boolean;
 }
 
-/* ─── Nav Tabs (app-level navigation) ─── */
+/* ─── Nav Switch (segmented toggle) ─── */
 function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
   const sidebarTab = useSessionStore((s) => s.sidebarTab);
   const setSidebarTab = useSessionStore((s) => s.setSidebarTab);
@@ -35,67 +36,216 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
     () => Object.values(unreadCounts).reduce((s, c) => s + c, 0),
     [unreadCounts],
   );
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = React.useState({ left: 0, width: 0 });
 
-  // When kanban is active, only Task should highlight — suppress other tabs
-  const isKanban = activeView === 'kanban';
-  const tabClass = (tab: string, view: string) => {
-    const active = isKanban ? false : (sidebarTab === tab || activeView === view);
-    return `relative px-2.5 py-1.5 text-[11px] font-semibold tracking-wide rounded-md transition-colors ${
-      active
-        ? 'text-primary-400 bg-primary-600/10'
-        : 'text-gray-500 hover:text-gray-300 hover:bg-surface-800/50'
-    }`;
+  // Build tab definitions
+  const tabs = React.useMemo(() => {
+    const list: { key: string; label: string; badge?: number }[] = [
+      { key: 'ai', label: 'AI' },
+    ];
+    if (pgEnabled) list.push({ key: 'channel', label: 'Channel', badge: totalRoomUnread });
+    list.push({ key: 'files', label: 'Files' });
+    list.push({ key: 'task', label: 'Task' });
+    return list;
+  }, [pgEnabled, totalRoomUnread]);
+
+  // Determine active key
+  const activeKey = activeView === 'kanban' ? 'task'
+    : activeView === 'rooms' ? 'channel'
+    : activeView === 'files' ? 'files'
+    : 'ai';
+
+  // Update sliding indicator position
+  React.useEffect(() => {
+    if (!containerRef.current) return;
+    const idx = tabs.findIndex(t => t.key === activeKey);
+    const buttons = containerRef.current.querySelectorAll<HTMLButtonElement>('[data-nav-tab]');
+    const btn = buttons[idx];
+    if (btn) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+      setIndicator({ left: btnRect.left - containerRect.left, width: btnRect.width });
+    }
+  }, [activeKey, tabs]);
+
+  const handleClick = (key: string) => {
+    const store = useSessionStore.getState();
+    switch (key) {
+      case 'ai':
+        setSidebarTab('sessions'); setActiveView('chat'); store.setSidebarOpen(true);
+        break;
+      case 'channel':
+        setSidebarTab('rooms'); setActiveView('rooms'); store.setSidebarOpen(true);
+        break;
+      case 'files':
+        setSidebarTab('files'); setActiveView('files'); store.setSidebarOpen(true); onRequestFileTree?.();
+        break;
+      case 'task':
+        if (activeView === 'kanban') {
+          setActiveView('chat'); store.setSidebarOpen(true);
+        } else {
+          setActiveView('kanban'); store.setSidebarOpen(false);
+        }
+        break;
+    }
   };
 
   return (
-    <div className="flex items-center gap-0.5">
-      {/* AI (Sessions) */}
-      <button
-        onClick={() => { setSidebarTab('sessions'); setActiveView('chat'); useSessionStore.getState().setSidebarOpen(true); }}
-        className={tabClass('sessions', 'chat')}
-      >
-        AI
-      </button>
-      {/* Channel — conditional */}
-      {pgEnabled && (
+    <div
+      ref={containerRef}
+      className="relative flex items-center bg-surface-850 rounded-lg p-0.5"
+    >
+      {/* Sliding indicator */}
+      <div
+        className="absolute top-0.5 bottom-0.5 rounded-md bg-surface-700/80 transition-all duration-200 ease-out pointer-events-none"
+        style={{ left: indicator.left, width: indicator.width }}
+      />
+      {tabs.map(({ key, label, badge }) => (
         <button
-          onClick={() => { setSidebarTab('rooms'); setActiveView('rooms'); useSessionStore.getState().setSidebarOpen(true); }}
-          className={tabClass('rooms', 'rooms')}
+          key={key}
+          data-nav-tab
+          onClick={() => handleClick(key)}
+          className={`relative z-10 px-3 py-1 text-[11px] font-semibold tracking-wide rounded-md transition-colors ${
+            activeKey === key
+              ? 'text-primary-400'
+              : 'text-surface-500 hover:text-gray-300'
+          }`}
         >
-          Channel
-          {totalRoomUnread > 0 && sidebarTab !== 'rooms' && (
-            <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-[8px] font-bold text-white rounded-full leading-none">
-              {totalRoomUnread > 99 ? '99+' : totalRoomUnread}
+          {label}
+          {badge != null && badge > 0 && activeKey !== key && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-[8px] font-bold text-white rounded-full leading-none">
+              {badge > 99 ? '99+' : badge}
             </span>
           )}
         </button>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Light / Dark Toggle ─── */
+function ThemeToggle() {
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const isLight = theme === 'light';
+
+  return (
+    <button
+      onClick={() => setTheme(isLight ? 'dark' : 'light')}
+      className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-gray-400 hover:text-gray-200"
+      title={isLight ? 'Dark mode' : 'Light mode'}
+      aria-label={isLight ? 'Switch to dark mode' : 'Switch to light mode'}
+    >
+      {isLight ? (
+        /* Moon icon */
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+        </svg>
+      ) : (
+        /* Sun icon */
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
       )}
-      {/* Files */}
+    </button>
+  );
+}
+
+/* ─── Inline Model Selector (for hamburger menu) ─── */
+function ModelSelectorInline({ onClose }: { onClose: () => void }) {
+  const { availableModels, piModels, selectedModel, setSelectedModel } = useModelStore();
+  const [expanded, setExpanded] = React.useState(false);
+  const allModels = [...availableModels, ...piModels];
+  const current = allModels.find((m) => m.id === selectedModel)
+    || availableModels[0]
+    || { id: selectedModel, name: selectedModel.replace(/^pi:.*\//, '').replace(/-/g, ' '), badge: '' };
+
+  if (!current) return null;
+
+  return (
+    <div>
       <button
-        onClick={() => { setSidebarTab('files'); setActiveView('files'); useSessionStore.getState().setSidebarOpen(true); onRequestFileTree?.(); }}
-        className={tabClass('files', 'files')}
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 text-[12px] font-medium text-gray-300 bg-surface-800/80 border border-surface-700/50 px-2.5 py-1.5 rounded-lg hover:bg-surface-800 transition-all"
       >
-        Files
+        <div className="w-1.5 h-1.5 rounded-full bg-primary-400 shrink-0" />
+        <span className="flex-1 text-left truncate">{current.name}</span>
+        {current.badge && (
+          <span className={`text-[9px] font-bold px-1 py-px rounded ${
+            current.badge === 'OR'
+              ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
+              : current.badge === 'AZ'
+              ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+              : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
+          }`}>
+            {current.badge}
+          </span>
+        )}
+        <svg className={`w-3 h-3 text-surface-500 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
-      {/* Task (Kanban) */}
-      <button
-        onClick={() => {
-          if (activeView === 'kanban') {
-            setActiveView('chat');
-            useSessionStore.getState().setSidebarOpen(true);
-          } else {
-            setActiveView('kanban');
-            useSessionStore.getState().setSidebarOpen(false);
-          }
-        }}
-        className={`px-2.5 py-1.5 text-[11px] font-semibold tracking-wide rounded-md transition-colors ${
-          activeView === 'kanban'
-            ? 'text-primary-400 bg-primary-600/10'
-            : 'text-gray-500 hover:text-gray-300 hover:bg-surface-800/50'
-        }`}
-      >
-        Task
-      </button>
+      {expanded && (
+        <div className="mt-1.5 rounded-lg border border-surface-700/50 bg-surface-850 overflow-hidden">
+          {availableModels.map((model) => (
+            <button
+              key={model.id}
+              onClick={() => { setSelectedModel(model.id); setExpanded(false); }}
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] transition-colors ${
+                model.id === selectedModel
+                  ? 'bg-primary-600/15 text-primary-300'
+                  : 'text-gray-400 hover:bg-surface-800 hover:text-gray-200'
+              }`}
+            >
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === selectedModel ? 'bg-primary-400' : 'bg-surface-700'}`} />
+              <span className="flex-1 text-left truncate">{model.name}</span>
+              {model.badge && (
+                <span className={`text-[9px] font-bold px-1 py-px rounded shrink-0 ${
+                  model.badge === 'OR'
+                    ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
+                    : model.badge === 'AZ'
+                    ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+                    : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
+                }`}>
+                  {model.badge}
+                </span>
+              )}
+            </button>
+          ))}
+          {piModels.length > 0 && (
+            <>
+              <div className="border-t border-surface-700/50 mx-2 my-0.5" />
+              <div className="px-2.5 pt-1 pb-0.5 text-[9px] font-semibold text-violet-400/70 uppercase tracking-wider">Pi Agent</div>
+              {piModels.map((model) => (
+                <button
+                  key={model.id}
+                  onClick={() => { setSelectedModel(model.id); setExpanded(false); }}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] transition-colors ${
+                    model.id === selectedModel
+                      ? 'bg-primary-600/15 text-primary-300'
+                      : 'text-gray-400 hover:bg-surface-800 hover:text-gray-200'
+                  }`}
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === selectedModel ? 'bg-primary-400' : 'bg-surface-700'}`} />
+                  <span className="flex-1 text-left truncate">{model.name}</span>
+                  {model.badge && (
+                    <span className={`text-[9px] font-bold px-1 py-px rounded shrink-0 ${
+                      model.badge === 'OR'
+                        ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
+                        : model.badge === 'AZ'
+                        ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+                        : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
+                    }`}>
+                      {model.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -103,7 +253,7 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
 /* ─── App Menu (☰) ─── */
 function AppMenu({
   username, userRole, onAdminClick, onPublishClick, onViewDiff,
-  onLogout, onSettingsClick, onPinsClick, onHistoryClick,
+  onLogout, onSettingsClick, onPinsClick, onHistoryClick, isMobile,
 }: {
   username?: string;
   userRole?: string;
@@ -114,6 +264,7 @@ function AppMenu({
   onSettingsClick?: () => void;
   onPinsClick?: () => void;
   onHistoryClick?: () => void;
+  isMobile?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const [gitOpen, setGitOpen] = React.useState(false);
@@ -149,11 +300,11 @@ function AppMenu({
 
   const initial = (username || '?')[0].toUpperCase();
 
-  const MenuItem = ({ icon, label, onClick, danger, shortcut }: {
-    icon: React.ReactNode; label: string; onClick?: () => void; danger?: boolean; shortcut?: string;
+  const MenuItem = ({ icon, label, onClick, danger, shortcut, keepOpen }: {
+    icon: React.ReactNode; label: string; onClick?: () => void; danger?: boolean; shortcut?: string; keepOpen?: boolean;
   }) => (
     <button
-      onClick={() => { onClick?.(); setOpen(false); }}
+      onClick={() => { onClick?.(); if (!keepOpen) setOpen(false); }}
       className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] transition-colors ${
         danger
           ? 'text-red-400 hover:bg-red-950/30 hover:text-red-300'
@@ -194,6 +345,12 @@ function AppMenu({
               <div className="text-[13px] font-medium text-gray-200 truncate">{username || 'User'}</div>
               {userRole && <div className="text-[10px] text-gray-500 capitalize">{userRole}</div>}
             </div>
+          </div>
+
+          {/* ── Model Selector (inline) ── */}
+          <div className="px-3 py-2 border-b border-surface-800">
+            <div className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-1.5">Model</div>
+            <ModelSelectorInline onClose={() => setOpen(false)} />
           </div>
 
           <div className="py-1">
@@ -237,6 +394,7 @@ function AppMenu({
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>}
               label="Appearance"
               onClick={() => { setThemeOpen(true); }}
+              keepOpen
             />
 
             <Divider />
@@ -246,6 +404,7 @@ function AppMenu({
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
               label="Version History"
               onClick={() => { setGitOpen(true); }}
+              keepOpen
             />
             {onPublishClick && (
               <MenuItem
@@ -394,18 +553,8 @@ export function Header({
         onSettingsClick={onSettingsClick}
         onPinsClick={onPinsClick}
         onHistoryClick={onHistoryClick}
+        isMobile={isMobile}
       />
-
-      {/* Logo — compact */}
-      <div className="flex items-center gap-1.5">
-        <div className="w-5 h-5 rounded bg-primary-600/20 border border-primary-500/30 flex items-center justify-center">
-          <span className="text-primary-400 font-bold text-[10px] uppercase tracking-wider">T</span>
-        </div>
-        {!isMobile && <span className="text-gray-100 font-bold text-[14px] tracking-tight">Tower</span>}
-      </div>
-
-      {/* Divider */}
-      <div className="w-px h-5 bg-surface-800 shrink-0" />
 
       {/* Nav tabs — app-level navigation */}
       {!isMobile && <NavTabs onRequestFileTree={onRequestFileTree} />}
@@ -425,7 +574,19 @@ export function Header({
       <div className="flex-1" />
 
       <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
-        {!isMobile && <ModelSelector />}
+        {/* Logo — right side */}
+        <div className="flex items-center gap-1.5 mr-1">
+          <div className="w-5 h-5 rounded bg-primary-600/20 border border-primary-500/30 flex items-center justify-center">
+            <span className="text-primary-400 font-bold text-[10px] uppercase tracking-wider">T</span>
+          </div>
+          {!isMobile && <span className="text-gray-100 font-bold text-[14px] tracking-tight">Tower</span>}
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-5 bg-surface-800 shrink-0" />
+
+        {/* Light/Dark toggle */}
+        <ThemeToggle />
 
         {/* New chat — mobile only */}
         {isMobile && onNewSession && (

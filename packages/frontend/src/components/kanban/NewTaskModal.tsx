@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSessionStore } from '../../stores/session-store';
+import { useProjectStore } from '../../stores/project-store';
 import type { TaskMeta } from '../../stores/kanban-store';
 
 const AVAILABLE_MODELS = [
@@ -23,119 +24,8 @@ interface NewTaskModalProps {
   editTask?: TaskMeta;
   /** Project ID to associate the task with (for project-level visibility) */
   projectId?: string | null;
-}
-
-/* ── Combobox: dropdown + free-text ── */
-function ComboBox({
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [typing, setTyping] = useState(false);
-  const [search, setSearch] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setTyping(false);
-        setSearch('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  // When typing, filter by search term; otherwise show all
-  const filtered = typing && search
-    ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase()))
-    : options;
-
-  // Shorten path for display: keep home-relative format for readability
-  const shortPath = (p: string) => {
-    // ~/workspace/projects/hantoo → ~/w/projects/hantoo
-    const home = '/home/enterpriseai';
-    if (p.startsWith(home)) {
-      const rel = p.slice(home.length);
-      return '~' + rel;
-    }
-    const parts = p.split('/');
-    if (parts.length <= 4) return p;
-    return '.../' + parts.slice(-3).join('/');
-  };
-
-  return (
-    <div ref={ref} className="relative">
-      <div className="relative">
-        <input
-          value={value}
-          onChange={(e) => {
-            onChange(e.target.value);
-            setSearch(e.target.value);
-            setTyping(true);
-            setOpen(true);
-          }}
-          onFocus={() => {
-            if (options.length > 0) setOpen(true);
-          }}
-          placeholder={placeholder}
-          className="w-full px-3 py-2 pr-8 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-        <button
-          type="button"
-          onClick={() => {
-            setTyping(false);
-            setSearch('');
-            setOpen(!open);
-          }}
-          className={`absolute right-2 top-1/2 -translate-y-1/2 transition-colors ${
-            options.length > 0 ? 'text-gray-500 hover:text-gray-300 cursor-pointer' : 'text-gray-700 cursor-default'
-          }`}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="none"
-            className={`transition-transform ${open ? 'rotate-180' : ''}`}
-          >
-            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      </div>
-      {open && filtered.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-surface-800 border border-surface-700 rounded-lg shadow-xl max-h-64 overflow-y-auto min-w-[320px]">
-          {filtered.map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => {
-                onChange(opt);
-                setTyping(false);
-                setSearch('');
-                setOpen(false);
-              }}
-              className={`w-full text-left px-3 py-2 text-xs hover:bg-surface-700 transition-colors ${
-                opt === value ? 'text-blue-400' : 'text-gray-300'
-              }`}
-              title={opt}
-            >
-              <span className="font-mono">{shortPath(opt)}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  /** Current board filter project ID — used to pre-select project in create mode */
+  filterProjectId?: string | null;
 }
 
 /* ── Dropdown: styled select ── */
@@ -207,40 +97,49 @@ function Dropdown({
   );
 }
 
-export function NewTaskModal({ onClose, onCreated, editTask, projectId }: NewTaskModalProps) {
+export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterProjectId }: NewTaskModalProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const allProjects = useProjectStore((s) => s.projects);
   const isEditing = !!editTask;
+
+  const resolveInitialProject = () => {
+    if (editTask?.projectId) return editTask.projectId;
+    if (filterProjectId) return filterProjectId;
+    if (projectId) return projectId;
+    return '';
+  };
 
   const [title, setTitle] = useState(editTask?.title || '');
   const [description, setDescription] = useState(editTask?.description || '');
-  const [cwd, setCwd] = useState(editTask?.cwd || activeSession?.cwd || '');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(resolveInitialProject());
+  const [cwd, setCwd] = useState(editTask?.cwd || '');
   const [model, setModel] = useState<string>(editTask?.model || 'claude-opus-4-6');
   const [workflow, setWorkflow] = useState<string>(editTask?.workflow || 'auto');
   const [submitting, setSubmitting] = useState(false);
-  const [pastCwds, setPastCwds] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; path: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch past CWDs on mount
+  const activeProjects = useMemo(() => allProjects.filter(p => !p.archived), [allProjects]);
+
+  // Auto-set cwd from selected project's rootPath
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    fetch('/api/tasks/meta', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.cwds) {
-          // Also include session cwds for richer suggestions
-          const sessionCwds = sessions.map((s) => s.cwd).filter(Boolean);
-          const all = [...new Set([...data.cwds, ...sessionCwds])].sort();
-          setPastCwds(all);
-        }
-      })
-      .catch(() => {});
-  }, [sessions]);
+    if (selectedProjectId && !isEditing) {
+      const proj = allProjects.find(p => p.id === selectedProjectId);
+      if (proj?.rootPath) {
+        setCwd(proj.rootPath);
+      }
+    }
+  }, [selectedProjectId, allProjects, isEditing]);
+
+  // If no cwd yet (no project selected), fall back to active session
+  useEffect(() => {
+    if (!cwd && activeSession?.cwd && !selectedProjectId) {
+      setCwd(activeSession.cwd);
+    }
+  }, [activeSession, cwd, selectedProjectId]);
 
   const handleFileUpload = async (fileList: FileList) => {
     if (fileList.length === 0) return;
@@ -267,8 +166,21 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId }: NewTas
     }
   };
 
+  // Determine effective cwd: from project rootPath or manual input
+  const effectiveCwd = useMemo(() => {
+    if (cwd.trim()) return cwd.trim();
+    if (selectedProjectId) {
+      const proj = allProjects.find(p => p.id === selectedProjectId);
+      if (proj?.rootPath) return proj.rootPath;
+    }
+    return activeSession?.cwd || '';
+  }, [cwd, selectedProjectId, allProjects, activeSession]);
+
+  // Check if creating in a different project than filter
+  const isDifferentFromFilter = !isEditing && filterProjectId && selectedProjectId && filterProjectId !== selectedProjectId;
+
   const handleSubmit = async () => {
-    if (!title.trim() || !cwd.trim()) return;
+    if (!title.trim() || !effectiveCwd) return;
     setSubmitting(true);
     try {
       // Append file references to description
@@ -289,7 +201,14 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId }: NewTas
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow }),
+          body: JSON.stringify({
+            title: title.trim(),
+            description: fullDescription,
+            cwd: effectiveCwd,
+            model,
+            workflow,
+            projectId: selectedProjectId || undefined,
+          }),
         });
         if (res.ok) {
           const updated = await res.json();
@@ -303,7 +222,14 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId }: NewTas
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ title: title.trim(), description: fullDescription, cwd: cwd.trim(), model, workflow, projectId: projectId || undefined }),
+          body: JSON.stringify({
+            title: title.trim(),
+            description: fullDescription,
+            cwd: effectiveCwd,
+            model,
+            workflow,
+            projectId: selectedProjectId || projectId || undefined,
+          }),
         });
         if (res.ok) {
           const task = await res.json();
@@ -398,13 +324,48 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId }: NewTas
             </div>
           </div>
 
+          {/* Project Selection */}
           <div>
-            <label htmlFor="task-cwd" className="text-xs text-gray-400 mb-1 block">Working Directory</label>
-            <ComboBox
+            <label className="text-xs text-gray-400 mb-1 block">Project</label>
+            <select
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+            >
+              <option value="">Select project</option>
+              {activeProjects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Warning: creating in different project than filter */}
+          {isDifferentFromFilter && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-amber-900/20 border border-amber-700/30 rounded-lg text-xs text-amber-400">
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <span>
+                Board is filtered to <strong>{allProjects.find(p => p.id === filterProjectId)?.name}</strong>, but this task will be created in <strong>{allProjects.find(p => p.id === selectedProjectId)?.name}</strong>.
+                It won't appear in the current view.
+              </span>
+            </div>
+          )}
+
+          {/* Working Directory (auto-filled from project, editable) */}
+          <div>
+            <label htmlFor="task-cwd" className="text-xs text-gray-400 mb-1 flex items-center gap-1">
+              Working Directory
+              {selectedProjectId && (
+                <span className="text-gray-600">(from project)</span>
+              )}
+            </label>
+            <input
+              id="task-cwd"
               value={cwd}
-              onChange={setCwd}
-              options={pastCwds}
-              placeholder="/home/user/project"
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder={effectiveCwd || '/home/user/project'}
+              className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 font-mono placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
 
@@ -437,7 +398,7 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId }: NewTas
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!title.trim() || !cwd.trim() || submitting}
+            disabled={!title.trim() || !effectiveCwd || submitting}
             className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
           >
             {submitting ? (isEditing ? 'Saving...' : 'Creating...') : (isEditing ? 'Save Changes' : 'Create Task')}

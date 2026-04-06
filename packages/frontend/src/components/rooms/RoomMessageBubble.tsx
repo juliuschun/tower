@@ -141,13 +141,13 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
     return (
       <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
         {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
-        <div className="w-7 h-7 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0 mt-0.5">
-          <span className="text-[11px] font-bold text-blue-400">AI</span>
+        <div className="shrink-0 mt-1 px-1.5 py-0.5 bg-blue-600/20 border border-blue-500/30 rounded text-[10px] font-bold text-blue-400 leading-tight self-start">
+          agent
         </div>
         <div className="flex-1 min-w-0">
           {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-[12px] font-semibold text-blue-400">AI</span>
+            <span className="text-[12px] font-semibold text-blue-400">[agent]</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
           <div className="text-[13px] text-gray-300 leading-relaxed bg-blue-950/20 border border-blue-900/30 rounded-lg px-3 py-2">

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -13,6 +13,7 @@ import {
 } from '@dnd-kit/core';
 import { useKanbanStore, type TaskMeta } from '../../stores/kanban-store';
 import { useSessionStore } from '../../stores/session-store';
+import { useProjectStore } from '../../stores/project-store';
 import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { NewTaskModal } from './NewTaskModal';
@@ -29,15 +30,19 @@ export function KanbanBoard() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeProjectId = sessions.find((s) => s.id === activeSessionId)?.projectId ?? null;
+  const projects = useProjectStore((s) => s.projects);
   const [activeTask, setActiveTask] = useState<TaskMeta | null>(null);
   const [showNewTask, setShowNewTask] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskMeta | null>(null);
   const [scheduleTaskId, setScheduleTaskId] = useState<string | null>(null);
+  const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   );
+
+  const activeProjects = useMemo(() => projects.filter(p => !p.archived), [projects]);
 
   // Load tasks on mount
   useEffect(() => {
@@ -62,10 +67,26 @@ export function KanbanBoard() {
     }
   };
 
-  const getTasksByStatus = (status: TaskMeta['status']) =>
-    tasks
-      .filter((t) => (status === 'done' ? t.status === 'done' || t.status === 'failed' : t.status === status))
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+  // Apply project filter
+  const filteredTasks = useMemo(() => {
+    if (!filterProjectId) return tasks;
+    return tasks.filter(t => t.projectId === filterProjectId);
+  }, [tasks, filterProjectId]);
+
+  const getTasksByStatus = (status: TaskMeta['status']) => {
+    const statusTasks = filteredTasks.filter((t) =>
+      status === 'done' ? t.status === 'done' || t.status === 'failed' : t.status === status
+    );
+    if (status === 'done') {
+      // Done column: most recent first (by completedAt, then updatedAt)
+      return statusTasks.sort((a, b) => {
+        const aTime = a.completedAt || a.updatedAt;
+        const bTime = b.completedAt || b.updatedAt;
+        return bTime.localeCompare(aTime);
+      });
+    }
+    return statusTasks.sort((a, b) => a.sortOrder - b.sortOrder);
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const task = tasks.find((t) => t.id === event.active.id);
@@ -212,7 +233,34 @@ export function KanbanBoard() {
     <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
       {/* Board header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-200">Task</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold text-gray-200">Task</h2>
+          {/* Project filter */}
+          <div className="flex items-center gap-1.5">
+            <select
+              value={filterProjectId ?? ''}
+              onChange={(e) => setFilterProjectId(e.target.value || null)}
+              className="text-xs bg-surface-800 border border-surface-700 rounded-md px-2 py-1.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer max-w-[180px]"
+            >
+              <option value="">All Projects</option>
+              {activeProjects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            {/* Clear filter button */}
+            {filterProjectId && (
+              <button
+                onClick={() => setFilterProjectId(null)}
+                className="text-gray-500 hover:text-gray-300 transition-colors p-1"
+                title="Clear filter"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
         <button
           onClick={() => setShowNewTask(true)}
           className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
@@ -275,7 +323,8 @@ export function KanbanBoard() {
             useKanbanStore.getState().addTask(task);
             setShowNewTask(false);
           }}
-          projectId={activeProjectId}
+          projectId={filterProjectId || activeProjectId}
+          filterProjectId={filterProjectId}
         />
       )}
 

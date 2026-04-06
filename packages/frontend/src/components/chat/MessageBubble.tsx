@@ -160,19 +160,6 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
           {message.timestamp && (
             <span className="text-[10px] text-gray-600 select-none whitespace-nowrap">{formatMessageTime(message.timestamp)}</span>
           )}
-          {(() => {
-            const inputT = message.inputTokens || 0;
-            const label = fmtContextLabel(inputT);
-            if (!label) return null;
-            const ctxMax = useChatStore.getState().cost.contextWindowSize || CONTEXT_MAX_FALLBACK;
-            const pct = Math.round((inputT / ctxMax) * 100);
-            const color = pct > 90 ? 'text-red-400' : pct > 70 ? 'text-amber-400' : 'text-gray-700';
-            return (
-              <span className={`text-[9px] ${color} select-none whitespace-nowrap tabular-nums`} title={`Context: ${fmtTokens(inputT)} / ${fmtTokens(ctxMax)} (${pct}%) · Output: ${fmtTokens(message.outputTokens || 0)}`}>
-                {label}
-              </span>
-            );
-          })()}
         </div>
       )}
 
@@ -1062,8 +1049,6 @@ export function TurnMetricsBar({ message, isLast }: { message?: ChatMessage; isL
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         {fmtDuration(metrics.durationMs)}
-        <span className="text-gray-600">·</span>
-        {fmtTokens(totalTokens)} tokens
         {stopReasonLabel && (
           <>
             <span className="text-gray-600">·</span>

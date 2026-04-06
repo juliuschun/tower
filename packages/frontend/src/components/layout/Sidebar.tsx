@@ -270,13 +270,18 @@ export function Sidebar({
   const allProjects = useProjectStore((s) => s.projects);
   const collapsedProjects = useProjectStore((s) => s.collapsedProjects);
   const toggleProjectCollapsed = useProjectStore((s) => s.toggleProjectCollapsed);
+  const collapsedLabels = useProjectStore((s) => s.collapsedLabels);
+  const toggleLabelCollapsed = useProjectStore((s) => s.toggleLabelCollapsed);
   const activeSpaceId = useSpaceStore((s) => s.activeSpaceId);
 
-  // Filter projects by active space
+  // Filter projects by active space (for sidebar grouping)
   const projects = useMemo(() => {
     if (activeSpaceId === null) return allProjects;
     return allProjects.filter(p => p.spaceId === activeSpaceId);
   }, [allProjects, activeSpaceId]);
+
+  // All projects — for "Move to project" context menu (no space filter)
+  const allProjectsForMove = allProjects;
 
   // Filter and sort sessions: use FTS results when searching, otherwise favorites first + updatedAt
   const filteredSessions = useMemo(() => {
@@ -412,10 +417,88 @@ export function Sidebar({
             </button>
           )}
         </div>
+      ) : sidebarTab === 'sessions' ? (
+        /* ── Unified sessions toolbar: Inbox · + New · Filter · Collapse ── */
+        <div className="flex items-center border-b border-surface-800/50 px-2 py-1 gap-0.5">
+          {(() => {
+            const doneCount = [...unreadSessions].filter(
+              (id) => !streamingSessions.has(id)
+            ).length;
+            return (
+              <button
+                onClick={() => useSessionStore.getState().setActiveView('inbox')}
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-surface-850 active:bg-surface-800 transition-colors group/inbox"
+                title="Inbox"
+              >
+                <svg className={`w-3.5 h-3.5 shrink-0 transition-colors ${doneCount > 0 ? 'text-primary-400' : 'text-surface-600 group-hover/inbox:text-surface-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                </svg>
+                <span className={`text-[14px] font-semibold transition-colors ${doneCount > 0 ? 'text-gray-300' : 'text-surface-500 group-hover/inbox:text-surface-400'}`}>Inbox</span>
+                {doneCount > 0 && (
+                  <span className="text-[14px] font-bold text-primary-400 bg-primary-500/15 rounded-full px-1.5 py-px leading-tight">
+                    {doneCount}
+                  </span>
+                )}
+              </button>
+            );
+          })()}
+          <button
+            onClick={() => onNewSession(activeSession?.projectId || undefined)}
+            className="flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-surface-850 active:bg-surface-800 transition-colors group/new"
+            title="New chat"
+          >
+            <svg className="w-3.5 h-3.5 text-surface-600 group-hover/new:text-surface-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            <span className="text-[14px] font-semibold text-surface-500 group-hover/new:text-surface-400 transition-colors">New</span>
+          </button>
+          <div className="flex-1" />
+          <div className="relative">
+            <button
+              onClick={() => setFilterOpen(!filterOpen)}
+              className={`p-1.5 rounded-md transition-colors ${
+                (filterMy || filterFav || filterDone || filterLabels)
+                  ? 'text-primary-400 bg-primary-500/10'
+                  : 'text-surface-600 hover:text-surface-400 hover:bg-surface-850'
+              }`}
+              title="Filters"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+              </svg>
+            </button>
+            {filterOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[140px]">
+                  <FilterMenuItem active={filterMy} onClick={() => { toggleFilter('my', filterMy, setFilterMy); }}>
+                    👤 My sessions
+                  </FilterMenuItem>
+                  <FilterMenuItem active={filterFav} onClick={() => { toggleFilter('fav', filterFav, setFilterFav); }}>
+                    ⭐ Favorites
+                  </FilterMenuItem>
+                  <FilterMenuItem active={filterDone} onClick={() => { toggleFilter('done', filterDone, setFilterDone); }}>
+                    ✓ Done
+                  </FilterMenuItem>
+                  <FilterMenuItem active={filterLabels} onClick={() => { toggleFilter('labels', filterLabels, setFilterLabels); }}>
+                    📁 Decks
+                  </FilterMenuItem>
+                </div>
+              </>
+            )}
+          </div>
+          {onCollapseSidebar && (
+            <button onClick={onCollapseSidebar} className="p-1.5 text-surface-600 hover:text-surface-400 hover:bg-surface-850 rounded-md transition-colors" title="Hide sidebar">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+        </div>
       ) : (
         <div className="flex items-center border-b border-surface-800/50 px-3 py-1.5">
           <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider flex-1">
-            {sidebarTab === 'rooms' ? 'Channels' : sidebarTab === 'files' ? 'Files' : 'AI Sessions'}
+            {sidebarTab === 'rooms' ? 'Channels' : 'Files'}
           </span>
           {onCollapseSidebar && (
             <button onClick={onCollapseSidebar} className="p-1 text-surface-600 hover:text-gray-400 transition-colors" title="Hide sidebar">
@@ -449,75 +532,6 @@ export function Sidebar({
         {sidebarTab === 'sessions' ? (
           <div>
             <div className="px-3">
-            {/* ── Unreads — always visible, project-name level ── */}
-            {(() => {
-              const doneCount = [...unreadSessions].filter(
-                (id) => !streamingSessions.has(id)
-              ).length;
-              return (
-                <button
-                  onClick={() => useSessionStore.getState().setActiveView('inbox')}
-                  className="w-full flex items-center gap-2 px-2 py-2.5 mt-1 rounded-lg hover:bg-surface-850 active:bg-surface-800 transition-colors group/unreads"
-                >
-                  <svg className={`w-4 h-4 shrink-0 transition-colors ${doneCount > 0 ? 'text-surface-500 group-hover/unreads:text-gray-400' : 'text-surface-700'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-                  </svg>
-                  <span className={`text-[14px] font-bold transition-colors ${doneCount > 0 ? 'text-gray-300 group-hover/unreads:text-gray-100' : 'text-surface-600 group-hover/unreads:text-surface-500'}`}>Inbox</span>
-                  {doneCount > 0 && (
-                    <span className="ml-auto text-[11px] font-semibold text-primary-400 bg-primary-500/15 rounded-full px-2 py-0.5 leading-none">
-                      {doneCount}
-                    </span>
-                  )}
-                </button>
-              );
-            })()}
-            {/* ── Action row: + New (left) + ⚙ Filter (right) ── */}
-            <div className="pt-2 pb-1.5 flex items-center gap-1.5">
-              <button
-                onClick={() => onNewSession(activeSession?.projectId || undefined)}
-                className="py-1.5 px-3 bg-surface-800 hover:bg-surface-700 border border-surface-700 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-300 transition-all active:scale-[0.98] flex items-center gap-1.5"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New
-              </button>
-              <div className="ml-auto relative">
-                <button
-                  onClick={() => setFilterOpen(!filterOpen)}
-                  className={`p-1.5 rounded-md transition-colors ${
-                    (filterMy || filterFav || filterDone || filterLabels)
-                      ? 'text-primary-400 bg-primary-500/10'
-                      : 'text-surface-500 hover:text-gray-400 hover:bg-surface-800'
-                  }`}
-                  title="Filters"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-                  </svg>
-                </button>
-                {filterOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
-                    <div className="absolute right-0 top-full mt-1 z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[140px]">
-                      <FilterMenuItem active={filterMy} onClick={() => { toggleFilter('my', filterMy, setFilterMy); }}>
-                        👤 My sessions
-                      </FilterMenuItem>
-                      <FilterMenuItem active={filterFav} onClick={() => { toggleFilter('fav', filterFav, setFilterFav); }}>
-                        ⭐ Favorites
-                      </FilterMenuItem>
-                      <FilterMenuItem active={filterDone} onClick={() => { toggleFilter('done', filterDone, setFilterDone); }}>
-                        ✓ Done
-                      </FilterMenuItem>
-                      <FilterMenuItem active={filterLabels} onClick={() => { toggleFilter('labels', filterLabels, setFilterLabels); }}>
-                        📁 Decks
-                      </FilterMenuItem>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
             {/* Grouped or flat session list */}
             {groupedSessions && !isSearching ? (
               <>
@@ -538,7 +552,7 @@ export function Sidebar({
                     onToggleFavorite={onToggleFavorite}
                     onNewSession={() => onNewSession(project.id)}
                     onMoveSession={handleMoveSession}
-                    projects={projects}
+                    projects={allProjectsForMove}
                   />
                 ))}
                 {/* temp — ungrouped sessions as a label-like subfolder */}
@@ -576,7 +590,7 @@ export function Sidebar({
                             onRename={onRenameSession}
                             onToggleFavorite={onToggleFavorite}
                             onMoveToProject={handleMoveSession}
-                            projects={projects}
+                            projects={allProjectsForMove}
                           />
                         ))}
                         {groupedSessions.ungrouped.length > PROJECT_PREVIEW_COUNT && (
@@ -602,22 +616,99 @@ export function Sidebar({
                     {searchQuery ? 'No results found' : 'No sessions yet'}
                   </p>
                 )}
-                <div className="space-y-0.5">
-                  {filteredSessions.map((session) => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      isActive={session.id === activeSessionId}
-                      currentUsername={currentUsername}
-                      onSelect={isSearching ? (s: any) => { onSelectSession(s); clearSearch(); } : onSelectSession}
-                      onDelete={onDeleteSession}
-                      onRename={onRenameSession}
-                      onToggleFavorite={onToggleFavorite}
-                      onMoveToProject={handleMoveSession}
-                      projects={projects}
-                    />
-                  ))}
-                </div>
+                {/* Flat list — group by deck when filterLabels on and not searching */}
+                {(() => {
+                  const applyLabel = (sessionId: string, label: string | null) => {
+                    useSessionStore.getState().updateSessionMeta(sessionId, { label });
+                    const token = localStorage.getItem('token');
+                    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                    if (token) headers['Authorization'] = `Bearer ${token}`;
+                    fetch(`/api/sessions/${sessionId}`, { method: 'PATCH', headers, body: JSON.stringify({ label }) }).catch(() => {});
+                  };
+
+                  if (!isSearching && filterLabels) {
+                    // Group by label
+                    const labelGroups = new Map<string, SessionMeta[]>();
+                    const unlabeled: SessionMeta[] = [];
+                    for (const s of filteredSessions) {
+                      if (s.label) {
+                        const list = labelGroups.get(s.label) || [];
+                        list.push(s);
+                        labelGroups.set(s.label, list);
+                      } else {
+                        unlabeled.push(s);
+                      }
+                    }
+                    const sortedLabels = [...labelGroups.entries()].sort((a, b) => {
+                      const tA = Math.max(...a[1].map(s => new Date(s.updatedAt.includes('T') ? s.updatedAt : s.updatedAt.replace(' ', 'T') + 'Z').getTime()));
+                      const tB = Math.max(...b[1].map(s => new Date(s.updatedAt.includes('T') ? s.updatedAt : s.updatedAt.replace(' ', 'T') + 'Z').getTime()));
+                      return tB - tA;
+                    });
+
+                    if (sortedLabels.length === 0 && unlabeled.length === 0) return null;
+
+                    return (
+                      <div className="space-y-0.5">
+                        {sortedLabels.map(([label, labelSessions]) => {
+                          const labelKey = `flat::${label}`;
+                          const isCollapsed = collapsedLabels.has(labelKey);
+                          return (
+                            <LabelGroup
+                              key={label}
+                              label={label}
+                              sessions={labelSessions}
+                              isCollapsed={isCollapsed}
+                              onToggle={() => toggleLabelCollapsed('flat', label)}
+                              onDropSession={(sessionId) => applyLabel(sessionId, label)}
+                              activeSessionId={activeSessionId}
+                              currentUsername={currentUsername}
+                              onSelectSession={onSelectSession}
+                              onDeleteSession={onDeleteSession}
+                              onRenameSession={onRenameSession}
+                              onToggleFavorite={onToggleFavorite}
+                              onMoveSession={handleMoveSession}
+                              projects={allProjectsForMove}
+                            />
+                          );
+                        })}
+                        {unlabeled.map((session) => (
+                          <SessionItem
+                            key={session.id}
+                            session={session}
+                            isActive={session.id === activeSessionId}
+                            currentUsername={currentUsername}
+                            onSelect={onSelectSession}
+                            onDelete={onDeleteSession}
+                            onRename={onRenameSession}
+                            onToggleFavorite={onToggleFavorite}
+                            onMoveToProject={handleMoveSession}
+                            projects={allProjectsForMove}
+                          />
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  // Default flat list (searching or filterLabels off)
+                  return (
+                    <div className="space-y-0.5">
+                      {filteredSessions.map((session) => (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          isActive={session.id === activeSessionId}
+                          currentUsername={currentUsername}
+                          onSelect={isSearching ? (s: any) => { onSelectSession(s); clearSearch(); } : onSelectSession}
+                          onDelete={onDeleteSession}
+                          onRename={onRenameSession}
+                          onToggleFavorite={onToggleFavorite}
+                          onMoveToProject={handleMoveSession}
+                          projects={allProjectsForMove}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
               </>
             )}
             {/* Message search snippets */}
@@ -1715,6 +1806,17 @@ function ProjectGroup({
         const hasLabels = sortedLabels.length > 0;
         const toggleLabel = toggleLabelCollapsed;
 
+        // Helper: apply label to a session via D&D (optimistic + background persist)
+        const applyLabelToSession = (sessionId: string, label: string | null) => {
+          useSessionStore.getState().updateSessionMeta(sessionId, { label });
+          const token = localStorage.getItem('token');
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          fetch(`/api/sessions/${sessionId}`, {
+            method: 'PATCH', headers, body: JSON.stringify({ label }),
+          }).catch(() => {});
+        };
+
         // If labels toggled off or no labels, render flat
         if (!hasLabels || !showLabels) {
           const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, PROJECT_PREVIEW_COUNT);
@@ -1726,17 +1828,6 @@ function ProjectGroup({
             </div>
           );
         }
-
-        // Helper: apply label to a session via D&D (optimistic + background persist)
-        const applyLabelToSession = (sessionId: string, label: string | null) => {
-          useSessionStore.getState().updateSessionMeta(sessionId, { label });
-          const token = localStorage.getItem('token');
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-          if (token) headers['Authorization'] = `Bearer ${token}`;
-          fetch(`/api/sessions/${sessionId}`, {
-            method: 'PATCH', headers, body: JSON.stringify({ label }),
-          }).catch(() => {});
-        };
 
         // Render label sub-groups + unlabeled
         return (
@@ -2019,8 +2110,8 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
         </svg>
         Settings
       </button>
-      {/* Move to Space submenu */}
-      <SpaceMoveSubmenu projectId={project.id} currentSpaceId={project.spaceId ?? null} onClose={onClose} />
+      {/* Create Deck */}
+      <CreateDeckInline projectId={project.id} onClose={onClose} />
       <div className="border-t border-surface-700/50 my-1" />
       <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => {
         const msg = sessionCount > 0
@@ -2779,6 +2870,81 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
   );
 }
 
+/* ── Create Deck (inline input inside ProjectContextMenu) ── */
+
+function CreateDeckInline({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 50);
+  }, [open]);
+
+  const handleCreate = async () => {
+    const label = name.trim();
+    if (!label) return;
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      // 1. Create session in this project
+      const res = await fetch('/api/sessions', {
+        method: 'POST', headers,
+        body: JSON.stringify({ projectId, name: label }),
+      });
+      if (!res.ok) { toastError('Failed to create deck'); onClose(); return; }
+      const session = await res.json();
+      // 2. Set the label (deck) on the new session
+      await fetch(`/api/sessions/${session.id}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ label }),
+      });
+      session.label = label;
+      useSessionStore.getState().addSession(session);
+      toastSuccess(`Deck "${label}" created`);
+    } catch {
+      toastError('Failed to create deck');
+    }
+    onClose();
+  };
+
+  const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
+
+  if (!open) {
+    return (
+      <button className={itemClass} onClick={() => setOpen(true)}>
+        <svg className="w-3.5 h-3.5 text-primary-500/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+        </svg>
+        Create Deck
+      </button>
+    );
+  }
+
+  return (
+    <div className="px-2 py-1.5 flex items-center gap-1.5">
+      <input
+        ref={inputRef}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleCreate();
+          if (e.key === 'Escape') setOpen(false);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        placeholder="Deck name..."
+        className="flex-1 bg-surface-700 text-[11px] text-gray-200 px-2 py-1 rounded border border-surface-600 outline-none focus:border-primary-500/50 placeholder-surface-600"
+      />
+      {name.trim() && (
+        <button onClick={handleCreate} className="text-[10px] text-primary-400 hover:text-primary-300 font-medium px-1 shrink-0">
+          Create
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ── Space Move Submenu (inside ProjectContextMenu) ── */
 
 function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
@@ -2865,13 +3031,148 @@ function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
 
 const LABEL_PREVIEW_COUNT = 5;
 
-/** Label display name + icon mapping */
-function labelDisplay(label: string): { icon: string; name: string } {
-  const map: Record<string, { icon: string; name: string }> = {
-    'channel_ai': { icon: '🤖', name: 'Channel AI' },
-    'temp': { icon: '○', name: 'Temp' },
+/** Label display name mapping */
+function labelDisplay(label: string): { name: string } {
+  const map: Record<string, string> = {
+    'channel_ai': 'Channel AI',
+    'temp': 'Temp',
+    'task': '⚡ Tasks',
   };
-  return map[label] || { icon: '◇', name: label };
+  return { name: map[label] || label };
+}
+
+/* ── Deck Context Menu ── */
+
+function DeckContextMenu({ x, y, label, sessions, onClose }: {
+  x: number; y: number; label: string; sessions: SessionMeta[]; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState({ left: x, top: y });
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const pad = 8;
+    const newTop = rect.bottom > window.innerHeight - pad
+      ? Math.max(pad, window.innerHeight - rect.height - pad) : y;
+    const newLeft = rect.right > window.innerWidth - pad
+      ? Math.max(pad, window.innerWidth - rect.width - pad) : x;
+    setAdjustedPos({ left: newLeft, top: newTop });
+  }, [x, y]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
+
+  const patchSessions = (patch: Record<string, any>) => {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    for (const s of sessions) {
+      useSessionStore.getState().updateSessionMeta(s.id, patch);
+      fetch(`/api/sessions/${s.id}`, {
+        method: 'PATCH', headers, body: JSON.stringify(patch),
+      }).catch(() => {});
+    }
+  };
+
+  const allProject = sessions.every(s => s.visibility === 'project');
+  const hasProjectId = sessions.some(s => s.projectId);
+
+  return (
+    <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+      style={adjustedPos}>
+      {/* Visibility toggle — only if sessions are in a project */}
+      {hasProjectId && (
+        <button className={itemClass} onClick={() => {
+          const newVis = allProject ? 'private' : 'project';
+          patchSessions({ visibility: newVis });
+          onClose();
+        }}>
+          {allProject ? (
+            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          )}
+          {allProject ? 'Make all private' : 'Share all with project'}
+        </button>
+      )}
+      {/* Archive all sessions in this deck */}
+      <button className={itemClass} onClick={() => {
+        const token = localStorage.getItem('token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        for (const s of sessions) {
+          useSessionStore.getState().updateSessionMeta(s.id, { label: null });
+          fetch(`/api/sessions/${s.id}`, {
+            method: 'PATCH', headers, body: JSON.stringify({ label: null }),
+          }).catch(() => {});
+        }
+        onClose();
+      }}>
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6" />
+        </svg>
+        Ungroup all ({sessions.length})
+      </button>
+      <div className="border-t border-surface-700/50 my-1" />
+      {/* Delete deck — with confirmation */}
+      {!confirmDelete ? (
+        <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => setConfirmDelete(true)}>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+          </svg>
+          Delete deck ({sessions.length} sessions)
+        </button>
+      ) : (
+        <div className="px-2 py-1.5">
+          <p className="text-[11px] text-red-400 mb-2 px-1">
+            {sessions.length}개 세션이 모두 아카이브됩니다. 계속할까요?
+          </p>
+          <div className="flex gap-1.5">
+            <button
+              className="flex-1 px-2 py-1 text-[11px] bg-red-600/20 text-red-400 rounded hover:bg-red-600/30 transition-colors border border-red-600/30"
+              onClick={() => {
+                const token = localStorage.getItem('token');
+                const headers: Record<string, string> = {};
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                for (const s of sessions) {
+                  fetch(`/api/sessions/${s.id}`, { method: 'DELETE', headers }).catch(() => {});
+                }
+                // Remove from UI
+                const store = useSessionStore.getState();
+                for (const s of sessions) {
+                  store.removeSession(s.id);
+                }
+                onClose();
+              }}
+            >
+              Delete all
+            </button>
+            <button
+              className="flex-1 px-2 py-1 text-[11px] bg-surface-700 text-gray-400 rounded hover:bg-surface-600 transition-colors"
+              onClick={() => setConfirmDelete(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, activeSessionId, currentUsername, onSelectSession, onDeleteSession, onRenameSession, onToggleFavorite, onMoveSession, projects }: {
@@ -2891,15 +3192,17 @@ function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, act
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const hasMore = sessions.length > LABEL_PREVIEW_COUNT;
   const visibleSessions = (!isCollapsed && hasMore && !showAll) ? sessions.slice(0, LABEL_PREVIEW_COUNT) : sessions;
   const display = labelDisplay(label);
 
   return (
     <div className="group/label">
-      {/* Label header — tree node style (chevron + icon + name) */}
+      {/* Label header — clean section style */}
       <div
         onClick={onToggle}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
@@ -2908,7 +3211,7 @@ function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, act
           const sessionId = e.dataTransfer.getData('text/plain');
           if (sessionId) onDropSession(sessionId);
         }}
-        className={`flex items-center gap-1 py-0.5 px-0.5 rounded cursor-pointer transition-colors select-none ${
+        className={`flex items-center gap-1.5 py-1 px-0.5 -ml-0.5 rounded-md cursor-pointer transition-colors select-none ${
           dragOver ? 'bg-primary-600/15' : 'hover:bg-surface-850'
         }`}
       >
@@ -2917,10 +3220,8 @@ function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, act
           fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
-        {/* Icon */}
-        <span className="text-[11px] shrink-0">{display.icon}</span>
         {/* Label name */}
-        <span className="text-[11px] font-medium text-surface-400 truncate">{display.name}</span>
+        <span className="text-[13px] font-semibold text-surface-400 truncate">{display.name}</span>
         {/* Count */}
         {hasMore ? (
           <span
@@ -2941,6 +3242,10 @@ function LabelGroup({ label, sessions, isCollapsed, onToggle, onDropSession, act
             <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
           ))}
         </div>
+      )}
+      {/* Deck context menu */}
+      {ctxMenu && (
+        <DeckContextMenu x={ctxMenu.x} y={ctxMenu.y} label={label} sessions={sessions} onClose={() => setCtxMenu(null)} />
       )}
     </div>
   );

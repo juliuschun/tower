@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useSessionStore } from '../../stores/session-store';
 import { useProjectStore } from '../../stores/project-store';
+import { useKanbanStore } from '../../stores/kanban-store';
 import { useChatStore } from '../../stores/chat-store';
 import { RichContent } from '../shared/RichContent';
 import type { SessionMeta } from '@tower/shared';
@@ -49,6 +50,8 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const setActiveView = useSessionStore((s) => s.setActiveView);
   const projects = useProjectStore((s) => s.projects);
+  const tasks = useKanbanStore((s) => s.tasks);
+  const taskSessionIds = useMemo(() => new Set(tasks.filter(t => t.sessionId).map(t => t.sessionId!)), [tasks]);
 
   const [lastMessages, setLastMessages] = useState<Record<string, LastMessage>>({});
   const [replies, setReplies] = useState<Record<string, string>>({});
@@ -90,25 +93,41 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
     allVisibleIds.forEach(async (sessionId) => {
       if (lastMessages[sessionId]) return;
       try {
-        // Fetch enough messages to get the full last turn
-        // (last user msg + all subsequent assistant msgs, tool uses, tool results, etc.)
-        const res = await fetch(`/api/sessions/${sessionId}/messages?limit=50`, { headers });
+        // Task sessions can have hundreds of messages (tool cycles);
+        // fetch more to capture the full AI output after the initial user prompt.
+        const isTask = taskSessionIds.has(sessionId);
+        const limit = isTask ? 500 : 50;
+        const res = await fetch(`/api/sessions/${sessionId}/messages?limit=${limit}`, { headers });
         if (!res.ok) return;
         const data = await res.json();
         const msgs: any[] = data.messages ?? data;
         if (msgs.length === 0) return;
 
-        // Find the index of the last user message
+        // Distinguish real user messages from tool_result messages (both have role: 'user').
+        // tool_result messages have content like [{type: "tool_result", ...}] or a parent_tool_use_id.
+        const isRealUserMsg = (m: any) => {
+          if (m.role !== 'user') return false;
+          if (m.parent_tool_use_id) return false; // DB-stored tool_result
+          if (Array.isArray(m.content)) {
+            // If every block is tool_result → not a real user message
+            const hasToolResult = m.content.some((b: any) => b.type === 'tool_result');
+            const hasText = m.content.some((b: any) => b.type === 'text' && b.text?.trim());
+            if (hasToolResult && !hasText) return false;
+          }
+          return true;
+        };
+
+        // Find the last REAL user message (not tool_result)
         let lastUserIdx = -1;
         for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i].role === 'user') { lastUserIdx = i; break; }
+          if (isRealUserMsg(msgs[i])) { lastUserIdx = i; break; }
         }
 
-        // Take everything after the last user message (= full last AI turn)
+        // Take everything after the last real user message (= full AI turn including tool cycles)
         const lastTurnMsgs = lastUserIdx >= 0 ? msgs.slice(lastUserIdx + 1) : msgs;
         if (lastTurnMsgs.length === 0) return;
 
-        // Concatenate all text blocks from the AI turn
+        // Concatenate all text blocks from assistant messages in the turn
         const text = lastTurnMsgs
           .filter((m: any) => m.role === 'assistant')
           .map((m: any) => {

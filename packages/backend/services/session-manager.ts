@@ -8,11 +8,11 @@ import { findJsonlFile } from './jsonl-utils.js';
 export type { SessionMeta } from '@tower/shared';
 import type { SessionMeta } from '@tower/shared';
 
-export async function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string, roomId?: string | null, sourceMessageId?: string | null, parentSessionId?: string | null): Promise<SessionMeta> {
+export async function createSession(name: string, cwd: string, userId?: number, projectId?: string | null, engine?: string, roomId?: string | null, sourceMessageId?: string | null, parentSessionId?: string | null, label?: string): Promise<SessionMeta> {
   const id = uuidv4();
   // Sessions within a project default to 'project' visibility (shared with members)
   const visibility = projectId ? 'project' : 'private';
-  const defaultLabel = 'temp';
+  const defaultLabel = label || 'temp';
   await execute(`
     INSERT INTO sessions (id, name, cwd, user_id, project_id, engine, room_id, source_message_id, parent_session_id, visibility, label) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
   `, [id, name, cwd, userId || null, projectId || null, engine || 'claude', roomId || null, sourceMessageId || null, parentSessionId || null, visibility, defaultLabel]);

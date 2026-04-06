@@ -3,26 +3,28 @@ import type { SessionMeta } from '../../stores/session-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useChatStore } from '../../stores/chat-store';
 import type { Project } from '../../stores/project-store';
+import { SessionShareModal } from './SessionShareModal';
 
 function relativeTime(dateStr: string): string {
   // SQLite CURRENT_TIMESTAMP returns UTC without 'Z' suffix — normalize to avoid local-time misparse
   const normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T') + 'Z';
   const diff = Date.now() - new Date(normalized).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return '~now';
-  if (mins < 60) return `~${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `~${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `~${days}d`;
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = diff / 3600000;
+  if (hours < 24) return `${Math.round(hours * 10) / 10}h`;
+  const days = hours / 24;
+  if (days < 30) return `${Math.round(days * 10) / 10}d`;
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 /* ── Context Menu (fixed positioning, outside-click close) ── */
 
-function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose, onMoveToProject, projects }: {
+function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose, onShare, onMoveToProject, projects }: {
   x: number; y: number; session: SessionMeta;
   onRename: () => void; onToggleFavorite: () => void; onDelete: () => void; onClose: () => void;
+  onShare: () => void;
   onMoveToProject?: (sessionId: string, projectId: string | null) => void;
   projects?: Project[];
 }) {
@@ -98,40 +100,25 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
           {session.visibility === 'project' ? 'Make private' : 'Share with project'}
         </button>
       )}
-      {/* Label */}
-      <SessionLabelMenu session={session} onClose={onClose} />
-      {/* Move to Project */}
-      {onMoveToProject && projects && projects.length > 0 && (
-        <>
-          <div className="border-t border-surface-700/50 my-1" />
-          <div className="px-3 py-1 text-[10px] text-surface-600 uppercase tracking-wider">Move to</div>
-          {projects.filter(p => p.id !== session.projectId).map((p) => (
-            <button key={p.id} className={itemClass} onClick={() => { onMoveToProject(session.id, p.id); onClose(); }}>
-              <svg className="w-3.5 h-3.5 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-              </svg>
-              <span className="truncate">{p.name}</span>
-            </button>
-          ))}
-          {session.projectId && (
-            <button className={itemClass} onClick={() => { onMoveToProject(session.id, null); onClose(); }}>
-              <svg className="w-3.5 h-3.5 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <span className="text-surface-500">Remove from project</span>
-            </button>
-          )}
-        </>
-      )}
+      {/* Deck — flat list (frequently used) */}
+      <SessionDeckFlat session={session} onClose={onClose} />
+      {/* Move to Project — expandable submenu */}
+      <SessionProjectSubmenu session={session} onClose={onClose} onMoveToProject={onMoveToProject} projects={projects} />
       {/* Divider */}
       <div className="border-t border-surface-700/50 my-1" />
-      {/* Delete */}
-      <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => { onDelete(); onClose(); }}>
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      {/* Share session */}
+      <button className={itemClass} onClick={() => { onShare(); onClose(); }}>
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
         </svg>
-        Delete
+        Share
+      </button>
+      {/* Archive (soft-delete) */}
+      <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => { onDelete(); onClose(); }}>
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+        </svg>
+        Archive
       </button>
     </div>
   );
@@ -155,12 +142,13 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
   const isOwnUnread = isUnread && session.ownerUsername === currentUsername;
   const queueCount = useChatStore((s) => (s.messageQueue[session.id] ?? []).length);
-  const isKanbanTask = session.name.startsWith('\u{1F7E2}'); // 🟢
+  const isKanbanTask = session.name.startsWith('[task]') || session.name.startsWith('\u{1F7E2}'); // [task] or legacy 🟢
   const isChannelAi = session.label === 'channel_ai'; // 🤖
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
 
@@ -197,8 +185,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
       <div
         className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-[13px] transition-all duration-200 ${
           isActive
-            ? 'bg-surface-800 text-gray-100 shadow-sm ring-1 ring-surface-700/50'
-            : 'text-gray-400 hover:bg-surface-850 hover:text-gray-200'
+            ? 'bg-surface-800 text-gray-200 shadow-sm ring-1 ring-surface-700/50'
+            : 'text-gray-500 hover:bg-surface-850 hover:text-gray-300'
         }`}
         draggable
         onDragStart={(e) => {
@@ -256,12 +244,15 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             )}
-            {session.name}
+            {isKanbanTask && (
+              <span className="mr-1 text-[8px] font-bold text-amber-300 bg-amber-500/15 px-1 rounded align-middle">task</span>
+            )}
+            {isKanbanTask ? session.name.replace(/^\[task\]\s*/, '').replace(/^🟢\s*/, '') : session.name}
             {(session as any).engine === 'pi' && (
               <span className="ml-1 text-[8px] font-bold text-violet-300 bg-violet-500/20 px-1 rounded align-middle">PI</span>
             )}
             {isChannelAi && (
-              <span className="ml-1 text-[8px] font-bold text-cyan-300 bg-cyan-500/15 px-1 rounded align-middle">AI</span>
+              <span className="ml-1 text-[8px] font-bold text-cyan-300 bg-cyan-500/15 px-1 rounded align-middle">agent</span>
             )}
             {session.roomId && !isChannelAi && (
               <span className="ml-1 text-[9px] text-surface-600 align-middle">#thread</span>
@@ -275,7 +266,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden">
               {session.projectId && session.ownerUsername && currentUsername && session.ownerUsername !== currentUsername
                 ? <>{session.ownerUsername} · {relativeTime(session.updatedAt)}</>
-                : <>{relativeTime(session.updatedAt)}{session.turnCount ? ` · ${session.turnCount}t` : ''}</>
+                : <>{relativeTime(session.updatedAt)}</>
               }
             </span>
             <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
@@ -313,23 +304,31 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           onToggleFavorite={() => onToggleFavorite(session.id, !session.favorite)}
           onDelete={() => onDelete(session.id)}
           onClose={() => setCtxMenu(null)}
+          onShare={() => setShareModalOpen(true)}
           onMoveToProject={onMoveToProject}
           projects={projects}
+        />
+      )}
+      {/* Share modal */}
+      {shareModalOpen && (
+        <SessionShareModal
+          sessionId={session.id}
+          sessionName={session.name}
+          onClose={() => setShareModalOpen(false)}
         />
       )}
     </>
   );
 }
 
-/* ── Session Label Menu (inline in context menu) ── */
+/* ── Deck — flat list (no expand, directly selectable) ── */
 
-function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose: () => void }) {
-  const [open, setOpen] = useState(false);
+function SessionDeckFlat({ session, onClose }: { session: SessionMeta; onClose: () => void }) {
+  const [showNewInput, setShowNewInput] = useState(false);
   const [newLabel, setNewLabel] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const sessions = useSessionStore((s) => s.sessions);
 
-  // Collect existing labels from the same project
   const existingLabels = useMemo(() => {
     if (!session.projectId) return [];
     const labelSet = new Set<string>();
@@ -340,14 +339,12 @@ function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose:
   }, [sessions, session.projectId]);
 
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50);
-  }, [open]);
+    if (showNewInput) setTimeout(() => inputRef.current?.focus(), 50);
+  }, [showNewInput]);
 
   const applyLabel = (label: string | null) => {
-    // Optimistic: update UI immediately
     useSessionStore.getState().updateSessionMeta(session.id, { label });
     onClose();
-    // Then persist in background
     const token = localStorage.getItem('token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -358,13 +355,96 @@ function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose:
 
   const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
 
+  // Nothing to show if no project
+  if (!session.projectId && existingLabels.length === 0 && !session.label) return null;
+
+  return (
+    <>
+      <div className="border-t border-surface-700/50 my-1" />
+      <div className="px-3 py-1 text-[10px] text-surface-600 uppercase tracking-wider">Deck</div>
+      {/* Existing deck labels — directly listed */}
+      {existingLabels.map((label) => (
+        <button
+          key={label}
+          onClick={() => applyLabel(label)}
+          className={`${itemClass} ${session.label === label ? '!text-primary-400' : ''}`}
+        >
+          <svg className="w-3.5 h-3.5 text-primary-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+          </svg>
+          <span className="truncate">{label}</span>
+          {session.label === label && (
+            <svg className="w-3 h-3 ml-auto text-primary-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+      ))}
+      {/* New deck input (inline) */}
+      {showNewInput ? (
+        <div className="px-3 py-1 flex items-center gap-1.5">
+          <input
+            ref={inputRef}
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newLabel.trim()) applyLabel(newLabel.trim());
+              if (e.key === 'Escape') setShowNewInput(false);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            placeholder="New deck..."
+            className="flex-1 bg-surface-700 text-[11px] text-gray-200 px-2 py-1 rounded border border-surface-600 outline-none focus:border-primary-500/50 placeholder-surface-600"
+          />
+          {newLabel.trim() && (
+            <button onClick={() => applyLabel(newLabel.trim())} className="text-[10px] text-primary-400 hover:text-primary-300 font-medium px-1">
+              Add
+            </button>
+          )}
+        </div>
+      ) : (
+        <button className={`${itemClass} !text-surface-500`} onClick={(e) => { e.stopPropagation(); setShowNewInput(true); }}>
+          <svg className="w-3.5 h-3.5 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          New deck...
+        </button>
+      )}
+      {/* Remove deck */}
+      {session.label && (
+        <button className={`${itemClass} !text-surface-500`} onClick={() => applyLabel(null)}>
+          <svg className="w-3.5 h-3.5 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          Remove deck
+        </button>
+      )}
+    </>
+  );
+}
+
+/* ── Project — expandable submenu (click to expand) ── */
+
+function SessionProjectSubmenu({ session, onClose, onMoveToProject, projects }: {
+  session: SessionMeta; onClose: () => void;
+  onMoveToProject?: (sessionId: string, projectId: string | null) => void;
+  projects?: Project[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (!onMoveToProject || !projects || projects.length === 0) return null;
+
+  const filteredProjects = projects.filter(p => p.id !== session.projectId);
+  if (filteredProjects.length === 0 && !session.projectId) return null;
+
+  const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
+
   return (
     <>
       <button className={itemClass} onClick={() => setOpen(!open)}>
-        <svg className="w-3.5 h-3.5 text-primary-500/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+        <svg className="w-3.5 h-3.5 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
         </svg>
-        {session.label ? `Deck: ${session.label}` : 'Set deck'}
+        {session.projectId ? 'Move to project' : 'Add to project'}
         <svg className={`w-3 h-3 ml-auto text-surface-600 transition-transform ${open ? 'rotate-90' : ''}`}
           fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -372,58 +452,22 @@ function SessionLabelMenu({ session, onClose }: { session: SessionMeta; onClose:
       </button>
       {open && (
         <div className="py-1 border-t border-surface-700/30">
-          {/* New label input */}
-          <div className="px-3 py-1 flex items-center gap-1.5">
-            <input
-              ref={inputRef}
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newLabel.trim()) {
-                  applyLabel(newLabel.trim());
-                }
-                if (e.key === 'Escape') setOpen(false);
-              }}
-              onClick={(e) => e.stopPropagation()}
-              placeholder="New deck..."
-              className="flex-1 bg-surface-700 text-[11px] text-gray-200 px-2 py-1 rounded border border-surface-600 outline-none focus:border-primary-500/50 placeholder-surface-600"
-            />
-            {newLabel.trim() && (
-              <button
-                onClick={() => applyLabel(newLabel.trim())}
-                className="text-[10px] text-primary-400 hover:text-primary-300 font-medium px-1"
-              >
-                Add
-              </button>
-            )}
-          </div>
-          {/* Existing labels */}
-          {existingLabels.map((label) => (
-            <button
-              key={label}
-              onClick={() => applyLabel(label)}
-              className={`${itemClass} pl-6 ${session.label === label ? '!text-primary-400' : ''}`}
-            >
-              <svg className="w-3 h-3 text-primary-500/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+          {filteredProjects.map((p) => (
+            <button key={p.id} className={`${itemClass} pl-6`} onClick={() => { onMoveToProject(session.id, p.id); onClose(); }}>
+              <svg className="w-3 h-3 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
               </svg>
-              {label}
-              {session.label === label && (
-                <svg className="w-3 h-3 ml-auto text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              )}
+              <span className="truncate">{p.name}</span>
             </button>
           ))}
-          {/* Remove label */}
-          {session.label && (
+          {session.projectId && (
             <>
               <div className="border-t border-surface-700/30 my-0.5" />
-              <button className={`${itemClass} pl-6 !text-surface-500`} onClick={() => applyLabel(null)}>
-                <svg className="w-3 h-3 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <button className={`${itemClass} pl-6 !text-surface-500`} onClick={() => { onMoveToProject(session.id, null); onClose(); }}>
+                <svg className="w-3 h-3 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Remove deck
+                Remove from project
               </button>
             </>
           )}
