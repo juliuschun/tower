@@ -6,9 +6,11 @@ import type { Project } from '../../stores/project-store';
 import { SessionShareModal } from './SessionShareModal';
 
 function relativeTime(dateStr: string): string {
-  // SQLite CURRENT_TIMESTAMP returns UTC without 'Z' suffix — normalize to avoid local-time misparse
-  const normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T') + 'Z';
+  // Ensure UTC parse: handle "YYYY-MM-DD HH:mm:ss", "...T..." without Z, and full ISO strings
+  let normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T');
+  if (!normalized.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(normalized)) normalized += 'Z';
   const diff = Date.now() - new Date(normalized).getTime();
+  if (isNaN(diff)) return '';
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'now';
   if (mins < 60) return `${mins}m`;
@@ -16,7 +18,7 @@ function relativeTime(dateStr: string): string {
   if (hours < 24) return `${Math.round(hours * 10) / 10}h`;
   const days = hours / 24;
   if (days < 30) return `${Math.round(days * 10) / 10}d`;
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(normalized).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 /* ── Context Menu (fixed positioning, outside-click close) ── */
@@ -197,20 +199,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       >
-        {/* Status badge: only when streaming or queued */}
-        {isStreaming ? (
-          <span className="shrink-0 text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
-            running{queueCount > 0 ? ` +${queueCount}` : ''}
-          </span>
-        ) : queueCount > 0 ? (
-          <span className="shrink-0 text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
-            queued {queueCount}
-          </span>
-        ) : isOwnUnread ? (
-          <span className="shrink-0 text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none">
-            done
-          </span>
-        ) : session.favorite ? (
+        {/* Favorite star (prefix) — only when not streaming/queued/unread */}
+        {!isStreaming && queueCount === 0 && !isOwnUnread && session.favorite && (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleFavorite(session.id, false); }}
             className="shrink-0 text-yellow-400"
@@ -220,7 +210,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
               <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
             </svg>
           </button>
-        ) : null}
+        )}
 
         {/* Name */}
         {editing ? (
@@ -263,7 +253,20 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
         {/* Time (default) → action buttons (on hover) */}
         {!editing && (
           <>
-            <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden">
+            <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden flex items-center gap-1">
+              {isStreaming ? (
+                <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
+                  run{queueCount > 0 ? ` +${queueCount}` : ''}
+                </span>
+              ) : queueCount > 0 ? (
+                <span className="text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
+                  Q{queueCount}
+                </span>
+              ) : isOwnUnread ? (
+                <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none">
+                  done
+                </span>
+              ) : null}
               {session.projectId && session.ownerUsername && currentUsername && session.ownerUsername !== currentUsername
                 ? <>{session.ownerUsername} · {relativeTime(session.updatedAt)}</>
                 : <>{relativeTime(session.updatedAt)}</>
