@@ -927,7 +927,7 @@ function App() {
           <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)}>
             <div className="absolute inset-0 bg-black/50" />
             <div
-              className="absolute left-0 top-0 bottom-0 w-[280px] animate-slide-in-left"
+              className="absolute left-0 top-12 bottom-0 w-[280px] animate-slide-in-left"
               onClick={(e) => e.stopPropagation()}
             >
               <Sidebar
