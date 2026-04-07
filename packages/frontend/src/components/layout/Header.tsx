@@ -6,6 +6,7 @@ import { ModelSelector } from './ModelSelector';
 import { useModelStore } from '../../stores/model-store';
 import { GitPanel } from '../git/GitPanel';
 import { NotificationBell } from './NotificationBell';
+import { useProjectStore } from '../../stores/project-store';
 
 interface HeaderProps {
   connected: boolean;
@@ -269,6 +270,9 @@ function AppMenu({
   const [open, setOpen] = React.useState(false);
   const [gitOpen, setGitOpen] = React.useState(false);
   const [themeOpen, setThemeOpen] = React.useState(false);
+  const [newProjectOpen, setNewProjectOpen] = React.useState(false);
+  const [npName, setNpName] = React.useState('');
+  const npInputRef = React.useRef<HTMLInputElement>(null);
   const ref = React.useRef<HTMLDivElement>(null);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
@@ -279,8 +283,15 @@ function AppMenu({
     if (!open) {
       setGitOpen(false);
       setThemeOpen(false);
+      setNewProjectOpen(false);
+      setNpName('');
     }
   }, [open]);
+
+  // Auto-focus project name input
+  React.useEffect(() => {
+    if (newProjectOpen) npInputRef.current?.focus();
+  }, [newProjectOpen]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -299,6 +310,26 @@ function AppMenu({
   }, [open]);
 
   const initial = (username || '?')[0].toUpperCase();
+
+  const handleCreateProject = async () => {
+    const trimmed = npName.trim();
+    if (!trimmed) { setNewProjectOpen(false); return; }
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST', headers, body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.ok) {
+        const project = await res.json();
+        useProjectStore.getState().addProject(project);
+      }
+    } catch {}
+    setNpName('');
+    setNewProjectOpen(false);
+    setOpen(false);
+  };
 
   const MenuItem = ({ icon, label, onClick, danger, shortcut, keepOpen }: {
     icon: React.ReactNode; label: string; onClick?: () => void; danger?: boolean; shortcut?: string; keepOpen?: boolean;
@@ -334,7 +365,7 @@ function AppMenu({
         </svg>
       </button>
 
-      {open && !gitOpen && !themeOpen && (
+      {open && !gitOpen && !themeOpen && !newProjectOpen && (
         <div className="absolute left-0 top-full mt-2 w-56 bg-surface-900 border border-surface-700 rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-[100]">
           {/* User info header */}
           <div className="px-3 py-2.5 border-b border-surface-800 flex items-center gap-2.5">
@@ -364,6 +395,12 @@ function AppMenu({
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
               label="History"
               onClick={onHistoryClick}
+            />
+            <MenuItem
+              icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>}
+              label="New Project"
+              onClick={() => { setNewProjectOpen(true); }}
+              keepOpen
             />
 
             <Divider />
@@ -434,6 +471,51 @@ function AppMenu({
                 danger
               />
             )}
+          </div>
+        </div>
+      )}
+
+      {/* New Project sub-panel */}
+      {open && newProjectOpen && (
+        <div className="absolute left-0 top-full mt-2 w-64 bg-surface-900 border border-surface-700 rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-[100]">
+          <div className="px-3 py-2.5 border-b border-surface-800 flex items-center gap-2">
+            <button
+              onClick={() => setNewProjectOpen(false)}
+              className="p-1.5 hover:bg-surface-800 rounded-lg transition-colors text-gray-400 hover:text-gray-200 active:scale-95"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <span className="text-[13px] font-semibold text-gray-200">New Project</span>
+          </div>
+          <div className="p-3">
+            <input
+              ref={npInputRef}
+              value={npName}
+              onChange={(e) => setNpName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateProject();
+                if (e.key === 'Escape') { setNewProjectOpen(false); setNpName(''); }
+              }}
+              placeholder="Project name..."
+              className="w-full bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 px-3 py-2 placeholder-surface-600 outline-none focus:border-primary-500/50 transition-colors"
+            />
+            <div className="flex gap-2 mt-2.5">
+              <button
+                onClick={() => { setNewProjectOpen(false); setNpName(''); }}
+                className="flex-1 text-[12px] text-gray-400 hover:text-gray-200 py-1.5 rounded-md hover:bg-surface-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateProject}
+                disabled={!npName.trim()}
+                className="flex-1 text-[12px] font-medium text-primary-400 py-1.5 rounded-md bg-primary-600/15 hover:bg-primary-600/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Create
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -587,20 +669,6 @@ export function Header({
 
         {/* Light/Dark toggle */}
         <ThemeToggle />
-
-        {/* New chat — mobile only */}
-        {isMobile && onNewSession && (
-          <button
-            onClick={onNewSession}
-            className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-primary-400 hover:text-primary-300"
-            title="New chat"
-            aria-label="New chat"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        )}
 
         <NotificationBell />
 
