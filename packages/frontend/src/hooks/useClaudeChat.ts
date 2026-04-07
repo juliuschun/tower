@@ -432,6 +432,13 @@ export function useClaudeChat() {
           if (!useChatStore.getState().isStreaming) {
             useChatStore.getState().setTurnStartTime(null);
           }
+          // Fix stuck "running" indicator: if the server confirms this session is idle,
+          // clear it from streamingSessions so the sidebar and InputBox agree.
+          // This handles cases where session_status:idle was missed (WS hiccup).
+          // Guard: only clear if we haven't started a new streaming turn since the request.
+          if (data.sessionId && !useChatStore.getState().isStreaming) {
+            useSessionStore.getState().setSessionStreaming(data.sessionId, false);
+          }
         }
         // Restore pending question if backend has one
         const restoredPendingQuestion = normalizePendingQuestion({
@@ -948,7 +955,7 @@ export function useClaudeChat() {
         const pq = useChatStore.getState().pendingQuestion;
         if (pq && pq.questionId === data.questionId) {
           useChatStore.getState().setPendingQuestion(null);
-          toastWarning('Response timed out — default option was auto-selected');
+          toastWarning('응답 대기 시간이 초과되어 AI가 채팅으로 다시 질문합니다.');
         }
         break;
       }
@@ -980,7 +987,10 @@ export function useClaudeChat() {
         setStreaming(false);
         useChatStore.getState().setCompacting(null);
         currentAssistantMsg.current = null;
-        if (data.errorCode === 'SESSION_LIMIT') {
+        if (data.errorCode === 'RATE_LIMIT') {
+          toastWarning(data.message || '요청이 너무 빠릅니다. 잠시 후 다시 시도해주세요.');
+          // Toast only — no system message in chat to avoid confusion
+        } else if (data.errorCode === 'SESSION_LIMIT') {
           toastError('Concurrent session limit exceeded');
           addMessage({
             id: generateUUID(),
