@@ -349,7 +349,7 @@ function InboxCard({
           {relativeTime(session.updatedAt)}
         </span>
         {/* Hover actions */}
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
           {isUnread && (
             <button onClick={onMarkRead} className="p-1 text-surface-500 hover:text-gray-300 rounded hover:bg-surface-700/50 transition-colors" title="Mark read">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -443,7 +443,10 @@ function InboxCard({
 /* ── Relative time helper ── */
 
 function relativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T') + 'Z').getTime();
+  let normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T');
+  if (!normalized.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(normalized)) normalized += 'Z';
+  const diff = Date.now() - new Date(normalized).getTime();
+  if (isNaN(diff)) return '';
   const mins = Math.floor(diff / 60_000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;

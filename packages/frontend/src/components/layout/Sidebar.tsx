@@ -426,7 +426,12 @@ export function Sidebar({
             ).length;
             return (
               <button
-                onClick={() => useSessionStore.getState().setActiveView('inbox')}
+                onClick={() => {
+                  useSessionStore.getState().setActiveView('inbox');
+                  if (useSessionStore.getState().isMobile) {
+                    useSessionStore.getState().setSidebarOpen(false);
+                  }
+                }}
                 className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-surface-850 active:bg-surface-800 transition-colors group/inbox"
                 title="Inbox"
               >
@@ -578,7 +583,7 @@ export function Sidebar({
                       <div className="space-y-0.5 pl-2">
                         {(ungroupedExpanded
                           ? groupedSessions.ungrouped
-                          : groupedSessions.ungrouped.slice(0, PROJECT_PREVIEW_COUNT)
+                          : groupedSessions.ungrouped.slice(0, getPreviewCount(groupedSessions.ungrouped))
                         ).map((session) => (
                           <SessionItem
                             key={session.id}
@@ -593,7 +598,7 @@ export function Sidebar({
                             projects={allProjectsForMove}
                           />
                         ))}
-                        {groupedSessions.ungrouped.length > PROJECT_PREVIEW_COUNT && (
+                        {groupedSessions.ungrouped.length > getPreviewCount(groupedSessions.ungrouped) && (
                           <button
                             onClick={() => setUngroupedExpanded(!ungroupedExpanded)}
                             className="w-full text-center py-1 text-[11px] text-surface-600 hover:text-gray-400 transition-colors"
@@ -1607,7 +1612,31 @@ function UngroupedDropZone({ children, onMoveSession, hasGroups, hasUngrouped }:
 
 /* ── Project Group ── */
 
-const PROJECT_PREVIEW_COUNT = 5;
+const PROJECT_PREVIEW_MIN = 3;
+const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Parse date string to UTC ms (cached per string to avoid repeated parsing) */
+const _tsCache = new Map<string, number>();
+function parseTs(dateStr: string): number {
+  let v = _tsCache.get(dateStr);
+  if (v !== undefined) return v;
+  let d = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T');
+  if (!d.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(d)) d += 'Z';
+  v = new Date(d).getTime();
+  _tsCache.set(dateStr, v);
+  if (_tsCache.size > 2000) _tsCache.clear(); // prevent unbounded growth
+  return v;
+}
+
+/** Preview count: at least 3, plus any sessions updated within the last 24h */
+function getPreviewCount(sessions: SessionMeta[]): number {
+  const cutoff = Date.now() - RECENT_WINDOW_MS;
+  let count = 0;
+  for (const s of sessions) {
+    if (parseTs(s.updatedAt) >= cutoff) count++;
+  }
+  return Math.max(PROJECT_PREVIEW_MIN, count);
+}
 
 function ProjectGroup({
   project, sessions: groupSessions, collapsed, activeSessionId,
@@ -1715,7 +1744,10 @@ function ProjectGroup({
           if (collapsed && groupSessions.length > 0) {
             // Expanding: auto-select most recent session
             onToggleCollapsed();
-            onSelectSession(groupSessions[0]);
+            // On mobile, don't auto-select session (it closes sidebar)
+            if (!useSessionStore.getState().isMobile) {
+              onSelectSession(groupSessions[0]);
+            }
           } else {
             onToggleCollapsed();
           }
@@ -1819,7 +1851,7 @@ function ProjectGroup({
 
         // If labels toggled off or no labels, render flat
         if (!hasLabels || !showLabels) {
-          const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, PROJECT_PREVIEW_COUNT);
+          const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, getPreviewCount(groupSessions));
           return (
             <div className="ml-2.5 pl-3 border-l border-surface-800 space-y-0.5">
               {visibleSessions.map((session) => (
@@ -1884,6 +1916,7 @@ function ProjectGroup({
           onClose={() => setCtxMenu(null)}
           onNewChat={onNewSession}
           sessionCount={groupSessions.length}
+          previewCount={getPreviewCount(groupSessions)}
           expanded={expanded}
           onToggleExpanded={() => setExpanded(!expanded)}
         />
@@ -1894,12 +1927,13 @@ function ProjectGroup({
 
 /* ── Project Context Menu ── */
 
-function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewChat, sessionCount, expanded, onToggleExpanded }: {
+function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewChat, sessionCount, previewCount, expanded, onToggleExpanded }: {
   x: number; y: number; project: Project;
   onRename: () => void; onDelete: () => void;
   onClose: () => void;
   onNewChat: () => void;
   sessionCount: number;
+  previewCount: number;
   expanded: boolean;
   onToggleExpanded: () => void;
 }) {
@@ -2077,7 +2111,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
         New Chat
       </button>
       {/* Show all / Show less */}
-      {sessionCount > PROJECT_PREVIEW_COUNT && (
+      {sessionCount > previewCount && (
         <button className={itemClass} onClick={() => { onToggleExpanded(); onClose(); }}>
           <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -3281,7 +3315,7 @@ function UnlabeledDropZone({ sessions, expanded, onDropSession, activeSessionId,
       }}
     >
       <div className="space-y-0.5">
-        {(expanded ? sessions : sessions.slice(0, PROJECT_PREVIEW_COUNT)).map((session) => (
+        {(expanded ? sessions : sessions.slice(0, getPreviewCount(sessions))).map((session) => (
           <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
         ))}
       </div>
