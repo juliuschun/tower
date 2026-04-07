@@ -17,8 +17,11 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 function relativeTime(dateStr: string): string {
+  let normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T');
+  if (!normalized.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(normalized)) normalized += 'Z';
   const now = Date.now();
-  const then = new Date(dateStr).getTime();
+  const then = new Date(normalized).getTime();
+  if (isNaN(then)) return '';
   const diff = now - then;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';

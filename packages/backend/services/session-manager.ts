@@ -54,8 +54,14 @@ export async function getSessionPanelSessions(parentSessionId: string, userId: n
   return rows.map(mapRow);
 }
 
+/** Fields that represent real activity (chat turns, cost) — these bump updated_at.
+ *  Metadata-only changes (label, favorite, tags, visibility) do NOT bump updated_at
+ *  so that sidebar "last used" times remain accurate. */
+const ACTIVITY_FIELDS = new Set(['cwd', 'claudeSessionId', 'totalCost', 'totalTokens', 'modelUsed', 'summary', 'summaryAtTurn', 'turnCount', 'filesEdited']);
+
 export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited' | 'visibility' | 'label'>>) {
-  const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+  const hasActivity = Object.keys(updates).some(k => ACTIVITY_FIELDS.has(k));
+  const sets: string[] = hasActivity ? ['updated_at = CURRENT_TIMESTAMP'] : [];
   const values: any[] = [];
   let paramIndex = 1;
 
@@ -117,8 +123,8 @@ function mapRow(row: any): SessionMeta {
     favorite: !!row.favorite,
     totalCost: row.total_cost,
     totalTokens: row.total_tokens,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
     modelUsed: row.model_used || undefined,
     autoNamed: row.auto_named ?? 1,
     summary: row.summary || undefined,
