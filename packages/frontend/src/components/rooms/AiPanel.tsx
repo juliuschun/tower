@@ -4,6 +4,7 @@ import { useRoomStore } from '../../stores/room-store';
 import { useSessionStore } from '../../stores/session-store';
 import type { ChatMessage, ContentBlock } from '../../stores/chat-store';
 import { extractThinkingTitle, normalizeContentBlocks } from '../../utils/message-parser';
+import { safeStr } from '../shared/parse-loose-json';
 import { normalizePendingQuestion } from '../../utils/pending-question';
 import { generateUUID } from '../../utils/uuid';
 import { RichContent } from '../shared/RichContent';
@@ -99,7 +100,7 @@ function PanelMessage({ message, onShare }: { message: ChatMessage; onShare?: (c
             if (block.type === 'tool_use' && block.toolUse) {
               return (
                 <div key={i} className="my-1 px-2 py-1 bg-surface-800 rounded text-[11px] text-gray-500 font-mono">
-                  {block.toolUse.name}
+                  {safeStr(block.toolUse.name)}
                 </div>
               );
             }

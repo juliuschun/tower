@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getToolLabel, getToolSummary } from '../../utils/message-parser';
+import { safeStr } from '../shared/parse-loose-json';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 
 interface ToolUseCardProps {
@@ -166,7 +167,7 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
             <span className={`text-[12px] leading-relaxed ${
               todo.status === 'completed' ? 'text-gray-500 line-through' : 'text-gray-400'
             }`}>
-              {typeof todo.content === 'string' ? todo.content : (todo.title || JSON.stringify(todo.content))}
+              {safeStr(todo.content || todo.title)}
             </span>
           </div>
         ))}
@@ -377,7 +378,7 @@ function AskUserQuestionBadge({ questions, result }: { questions: any[]; result?
   return (
     <div className="space-y-2">
       {questions.map((q: any, qi: number) => (
-        <div key={qi} className="text-[12px] text-gray-300">{typeof q.question === 'string' ? q.question : (q.prompt || q.title || JSON.stringify(q.question))}</div>
+        <div key={qi} className="text-[12px] text-gray-300">{safeStr(q.question || q.prompt || q.title)}</div>
       ))}
       {result ? (
         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--th-q-done-accent)' }}>

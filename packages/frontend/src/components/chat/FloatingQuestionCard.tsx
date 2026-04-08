@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { safeStr } from '../shared/parse-loose-json';
 import type { PendingQuestion } from '../../stores/chat-store';
 
 interface FloatingQuestionCardProps {
@@ -112,7 +113,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered, onDismiss }
           return (
           <div key={qi} className="space-y-2">
             <div className="flex items-center gap-2">
-              <div className="text-[14px] text-gray-200 leading-relaxed">{typeof q.question === 'string' ? q.question : (q.prompt || q.title || JSON.stringify(q.question))}</div>
+              <div className="text-[14px] text-gray-200 leading-relaxed">{safeStr(q.question || q.prompt || q.title)}</div>
               {/* 이 질문만 답했고 전체 미완성일 때 — 체크 표시 */}
               {qDone && !isAnswered && (
                 <svg className="w-3.5 h-3.5 shrink-0 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,7 +146,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered, onDismiss }
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                           </svg>
                         )}
-                        {opt.label}
+                        {safeStr(opt.label)}
                       </span>
                     );
                   }
@@ -160,9 +161,9 @@ export function FloatingQuestionCard({ question, onAnswer, answered, onDismiss }
                         color: 'var(--th-q-pending-btn-text)',
                       }}
                     >
-                      {opt.label}
+                      {safeStr(opt.label)}
                       {opt.description && (
-                        <span className="text-[10px]" style={{ color: 'var(--th-q-pending-desc)' }}>({opt.description})</span>
+                        <span className="text-[10px]" style={{ color: 'var(--th-q-pending-desc)' }}>({safeStr(opt.description)})</span>
                       )}
                     </button>
                   );

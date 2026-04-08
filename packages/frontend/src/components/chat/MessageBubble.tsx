@@ -6,6 +6,7 @@ import { splitDynamicBlocks } from '../shared/split-dynamic-blocks';
 // getToolLabel / getToolSummary used by ToolUseCard.tsx
 import { toastSuccess } from '../../utils/toast';
 import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
+import { safeStr } from '../shared/parse-loose-json';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 
 /**
@@ -122,7 +123,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
       <div className="flex justify-center py-3">
         <div className="bg-surface-900/60 border border-surface-700/40 text-gray-500 text-[13px] px-4 py-1.5 rounded-full max-w-lg">
           {message.content.map((b, i) => (
-            <span key={i}>{b.text}</span>
+            <span key={i}>{safeStr(b.text)}</span>
           ))}
         </div>
       </div>
@@ -181,7 +182,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
                 : 'border-surface-700/40'
             }`}>
               {message.content.map((block, i) => (
-                <span key={i}>{block.text}</span>
+                <span key={i}>{safeStr(block.text)}</span>
               ))}
               <CopyButton
                 text={getMessageText(message.content)}
@@ -480,8 +481,8 @@ function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?
                     : 'text-gray-500'
             }`}>
               {todo.status === 'in_progress' && showLive && todo.activeForm
-                ? todo.activeForm
-                : (typeof todo.content === 'string' ? todo.content : (todo.title || JSON.stringify(todo.content)))}
+                ? safeStr(todo.activeForm)
+                : safeStr(todo.content || todo.title)}
             </span>
           </div>
         ))}
