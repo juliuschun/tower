@@ -457,6 +457,105 @@ router.get('/browser/screenshot', async (_req, res) => {
 });
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── OAuth callback (Google) ────────────────────────────────────────────────
+const GWS_CRED_DIR = path.join(os.homedir(), '.config', 'gws');
+
+router.get('/oauth/google/callback', async (req, res) => {
+  const code = req.query.code as string | undefined;
+  const error = req.query.error as string | undefined;
+
+  if (error) {
+    return res.status(400).send(oauthResultPage(false, `Login denied: ${error}`));
+  }
+  if (!code) {
+    return res.status(400).send(oauthResultPage(false, 'Missing authorization code'));
+  }
+
+  try {
+    // Read client config
+    const secretPath = path.join(GWS_CRED_DIR, 'client_secret.json');
+    const secret = JSON.parse(fs.readFileSync(secretPath, 'utf-8'));
+    const info = secret.installed || secret.web || {};
+    const clientId = info.client_id;
+    const clientSecret = info.client_secret;
+
+    // Determine redirect_uri (must match what was used in the auth request)
+    const publicUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
+    const redirectUri = `${publicUrl}/api/oauth/google/callback`;
+
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokens = await tokenRes.json() as Record<string, any>;
+    if (tokens.error) {
+      return res.status(400).send(oauthResultPage(false, `Token error: ${tokens.error_description || tokens.error}`));
+    }
+
+    // Save credentials in gws format
+    const creds = {
+      type: 'authorized_user',
+      token: tokens.access_token,
+      refresh_token: tokens.refresh_token || '',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      client_id: clientId,
+      client_secret: clientSecret,
+      scopes: (req.query.scope as string || '').split(' ').filter(Boolean),
+    };
+    fs.writeFileSync(path.join(GWS_CRED_DIR, 'credentials.json'), JSON.stringify(creds, null, 2));
+
+    // Update token cache
+    const tokenCache = {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token || '',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      client_id: clientId,
+      client_secret: clientSecret,
+      scopes: creds.scopes,
+      expiry: '',
+    };
+    fs.writeFileSync(path.join(GWS_CRED_DIR, 'token_cache.json'), JSON.stringify(tokenCache, null, 2));
+
+    res.send(oauthResultPage(true, 'Google login successful!'));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).send(oauthResultPage(false, `Server error: ${message}`));
+  }
+});
+
+function oauthResultPage(success: boolean, message: string): string {
+  const color = success ? '#10b981' : '#ef4444';
+  const icon = success ? '&#10003;' : '&#10007;';
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>OAuth ${success ? 'Success' : 'Error'}</title>
+<style>
+  body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #111; color: #eee; }
+  .card { text-align: center; padding: 3rem; border-radius: 1rem; border: 1px solid ${color}33; background: ${color}11; max-width: 420px; }
+  .icon { font-size: 3rem; color: ${color}; margin-bottom: 1rem; }
+  h2 { margin: 0 0 0.5rem; }
+  p { color: #999; font-size: 0.9rem; }
+  .close-btn { margin-top: 1.5rem; padding: 0.5rem 2rem; border-radius: 0.5rem; border: 1px solid #333; background: #222; color: #eee; cursor: pointer; font-size: 0.9rem; }
+  .close-btn:hover { background: #333; }
+</style></head>
+<body><div class="card">
+  <div class="icon">${icon}</div>
+  <h2>${success ? 'Login Complete' : 'Login Failed'}</h2>
+  <p>${message}</p>
+  <button class="close-btn" onclick="window.close()">Close Window</button>
+  ${success ? '<script>setTimeout(()=>window.close(),3000)</script>' : ''}
+</div></body></html>`;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ───── Users list (for share modal dropdown) ─────
 router.get('/users', async (req, res) => {
   const currentUserId = (req as any).user?.userId;
@@ -2642,7 +2741,7 @@ router.delete('/deploy/:type/:name', authMiddleware, async (req, res) => {
   try {
     const { type, name } = req.params;
     if (type !== 'site' && type !== 'app') return res.status(400).json({ error: 'type must be site or app' });
-    const result = await deleteDeployment(name, type);
+    const result = await deleteDeployment(name as string, type);
     res.json(result);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

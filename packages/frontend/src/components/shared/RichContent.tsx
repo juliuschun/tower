@@ -28,6 +28,8 @@ const ApprovalBlock = React.lazy(() => import('../chat/ApprovalBlock'));
 const TreemapBlock = React.lazy(() => import('../chat/TreemapBlock'));
 const GalleryBlock = React.lazy(() => import('../chat/GalleryBlock'));
 const AudioBlock = React.lazy(() => import('../chat/AudioBlock'));
+const BrowserPopupBlock = React.lazy(() => import('../chat/BrowserPopupBlock'));
+const NekoBlock = React.lazy(() => import('../chat/NekoBlock'));
 
 /* ── Skeleton / Fallback ── */
 
@@ -377,6 +379,20 @@ function RichSegment({ seg, mdComponents }: { seg: DynamicBlock; mdComponents: R
     return (
       <Suspense fallback={<BlockSkeleton type="audio" />}>
         <AudioBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'browser-popup') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="browser-popup" />}>
+        <BrowserPopupBlock raw={seg.content} fallbackCode={seg.raw} />
+      </Suspense>
+    );
+  }
+  if (seg.type === 'neko') {
+    return (
+      <Suspense fallback={<BlockSkeleton type="neko" />}>
+        <NekoBlock raw={seg.content} fallbackCode={seg.raw} />
       </Suspense>
     );
   }
