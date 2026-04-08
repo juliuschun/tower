@@ -85,7 +85,7 @@ export default function StepsBlock({ raw, fallbackCode }: Props) {
                     ? (isDark ? 'text-gray-300' : 'text-gray-700')
                     : (isDark ? 'text-gray-500' : 'text-gray-400')
                 }`}>
-                  <div className="text-xs leading-tight">{step.title}</div>
+                  <div className="text-xs leading-tight">{typeof step.title === 'string' ? step.title : JSON.stringify(step.title)}</div>
                   {isExpanded && desc && (
                     <div className={`text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                       {desc}

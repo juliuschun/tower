@@ -165,7 +165,10 @@ export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
         : item.title;
       return normalizeThinkingBlock(thinkingText, thinkingTitle);
     }
-    return item;
+    // Unknown block type — convert to empty text block to prevent React error #31
+    // ("Objects are not valid as a React child") if this object gets rendered directly.
+    console.warn('[normalizeContentBlocks] unknown content block, converting to text:', item.type, item);
+    return { type: 'text' as const, text: typeof item.text === 'string' ? item.text : '' };
   });
 }
 

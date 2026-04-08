@@ -585,6 +585,82 @@ describe('ws-handler integration', () => {
   // Past bug: frontend sent sessionId A, but messages were stored under B
   // due to session creation race conditions.
 
+  describe('cross-device user message sync', () => {
+    it('broadcasts user_message to other clients viewing the same session (excludes sender)', async () => {
+      // Client A on session s1
+      const clientA = await createWsClient();
+      await waitForMessage(clientA.messages, 'connected');
+      sendJson(clientA.ws, { type: 'set_active_session', sessionId: 'sync-s1' });
+      await waitForMessage(clientA.messages, 'set_active_session_ack');
+
+      // Client B also on session s1 (another device/tab)
+      const clientB = await createWsClient();
+      await waitForMessage(clientB.messages, 'connected');
+      sendJson(clientB.ws, { type: 'set_active_session', sessionId: 'sync-s1' });
+      await waitForMessage(clientB.messages, 'set_active_session_ack');
+
+      // Client C on different session s2 (should NOT receive)
+      const clientC = await createWsClient();
+      await waitForMessage(clientC.messages, 'connected');
+      sendJson(clientC.ws, { type: 'set_active_session', sessionId: 'sync-s2' });
+      await waitForMessage(clientC.messages, 'set_active_session_ack');
+
+      // Client A sends a chat message
+      mockExecuteQuery.mockImplementationOnce(async function* () {
+        yield { type: 'assistant', uuid: 'u1', message: { content: [{ type: 'text', text: 'reply' }] } };
+      });
+      sendJson(clientA.ws, { type: 'chat', message: 'hello from mobile', sessionId: 'sync-s1' });
+
+      // Client B should receive user_message (cross-device sync)
+      const userMsg = await waitForMessage(clientB.messages, 'user_message');
+      expect(userMsg.sessionId).toBe('sync-s1');
+      expect(userMsg.message.role).toBe('user');
+      expect(userMsg.message.content[0].text).toBe('hello from mobile');
+
+      // Client A (sender) should NOT receive user_message
+      await delay(200);
+      const senderUserMsgs = clientA.messages.filter((m) => m.type === 'user_message');
+      expect(senderUserMsgs.length).toBe(0);
+
+      // Client C (different session) should NOT receive user_message
+      const otherUserMsgs = clientC.messages.filter((m) => m.type === 'user_message');
+      expect(otherUserMsgs.length).toBe(0);
+
+      clientA.ws.close();
+      clientB.ws.close();
+      clientC.ws.close();
+    });
+
+    it('user_message includes all necessary fields for frontend rendering', async () => {
+      const clientA = await createWsClient();
+      await waitForMessage(clientA.messages, 'connected');
+      sendJson(clientA.ws, { type: 'set_active_session', sessionId: 'fields-s1' });
+      await waitForMessage(clientA.messages, 'set_active_session_ack');
+
+      const clientB = await createWsClient();
+      await waitForMessage(clientB.messages, 'connected');
+      sendJson(clientB.ws, { type: 'set_active_session', sessionId: 'fields-s1' });
+      await waitForMessage(clientB.messages, 'set_active_session_ack');
+
+      mockExecuteQuery.mockImplementationOnce(async function* () {
+        yield { type: 'assistant', uuid: 'f1', message: { content: [{ type: 'text', text: 'ok' }] } };
+      });
+
+      sendJson(clientA.ws, { type: 'chat', message: 'test fields', sessionId: 'fields-s1', messageId: 'custom-msg-id' });
+
+      const userMsg = await waitForMessage(clientB.messages, 'user_message');
+      expect(userMsg.message).toMatchObject({
+        id: 'custom-msg-id',
+        role: 'user',
+        content: [{ type: 'text', text: 'test fields' }],
+      });
+      expect(userMsg.message.createdAt).toBeTruthy();
+
+      clientA.ws.close();
+      clientB.ws.close();
+    });
+  });
+
   describe('message routing — sessionId consistency', () => {
     it('saves user message under the sessionId from chat request', async () => {
       const { ws, messages } = await createWsClient();

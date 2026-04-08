@@ -48,7 +48,7 @@ interface PendingQuestion {
 }
 
 const SDK_HANG_TIMEOUT = 60 * 60 * 1000; // 60 minutes
-const ASK_USER_TIMEOUT = 60 * 60 * 1000; // 60 minutes
+const ASK_USER_TIMEOUT = 3 * 60 * 1000; // 3 minutes
 
 const clients = new Map<string, WsClient>();
 const sessionClients = new Map<string, Set<string>>(); // sessionId → Set<clientId> (1:many)
@@ -188,11 +188,12 @@ function localBroadcastToAll(data: any) {
   }
 }
 
-function localBroadcastToSession(sessionId: string, data: any) {
+function localBroadcastToSession(sessionId: string, data: any, excludeClientId?: string) {
   const clientIds = sessionClients.get(sessionId);
   if (!clientIds) return;
   const payload = JSON.stringify(data);
   for (const clientId of clientIds) {
+    if (clientId === excludeClientId) continue;
     const client = clients.get(clientId);
     if (client?.ws.readyState === WebSocket.OPEN) {
       client.ws.send(payload);
@@ -462,8 +463,8 @@ export function broadcastToAll(data: any) {
  * Broadcast a message to ALL clients viewing a session.
  * Used for streaming messages (sdk_message, sdk_done, ask_user, errors).
  */
-function broadcastToSession(sessionId: string, data: any) {
-  localBroadcastToSession(sessionId, data);
+function broadcastToSession(sessionId: string, data: any, excludeClientId?: string) {
+  localBroadcastToSession(sessionId, data, excludeClientId);
   if (!isPgEnabled()) return;
   publishWsSyncEvent(config.serverEpoch, { scope: 'session', sessionId, data });
 }
@@ -880,6 +881,19 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     });
   } catch (err) { console.error('[ws] saveMessage (user) failed:', err); }
 
+  // Broadcast user message to other clients viewing this session (cross-device sync)
+  broadcastToSession(sessionId, {
+    type: 'user_message',
+    sessionId,
+    message: {
+      id: userMsgId,
+      role: 'user',
+      content: [{ type: 'text', text: data.message }],
+      username: client.username || null,
+      createdAt: new Date().toISOString(),
+    },
+  }, client.id);
+
   // Resume session ID (engine-specific, stored in DB)
   const engineSessionId = data.claudeSessionId || dbSession?.claudeSessionId || undefined;
 
@@ -898,11 +912,14 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
           if (pq) {
             pendingQuestions.delete(questionId);
             broadcastToSession(sessionId, { type: 'ask_user_timeout', sessionId, questionId });
-            // Auto-select first option
-            const defaultAnswers = sanitizedQuestions.map((q: any) =>
-              `${q.question}: ${q.options?.[0]?.label || 'No response'}`
-            ).join('\n');
-            resolve(defaultAnswers);
+            // Tell AI the user didn't respond — ask again via regular chat message instead
+            const questionSummary = sanitizedQuestions.map((q: any) => q.question).join(', ');
+            resolve(
+              `[System] The user did not respond to the interactive prompt within 3 minutes. They may have switched to another session or missed it. ` +
+              `Your question was: "${questionSummary}". ` +
+              `Do NOT proceed silently. Instead, ask the same question again as a regular chat message so the user can see it when they return. ` +
+              `Keep your message concise and clear.`
+            );
           }
         }, ASK_USER_TIMEOUT);
 
@@ -1460,7 +1477,8 @@ async function handleRoomMessage(client: WsClient, data: { roomId: string; conte
         // Rate limit check (shared between @ai and @task)
         const rateResult = checkRateLimit(client.userId, data.roomId);
         if (!rateResult.allowed) {
-          send(client.ws, { type: 'error', message: `Rate limit exceeded (${rateResult.reason}). Retry after ${Math.ceil((rateResult.retryAfterMs || 0) / 1000)}s` });
+          const waitSec = Math.ceil((rateResult.retryAfterMs || 0) / 1000);
+          send(client.ws, { type: 'error', errorCode: 'RATE_LIMIT', message: `요청이 너무 빠릅니다. ${waitSec}초 후에 다시 시도해주세요.` });
           return;
         }
 

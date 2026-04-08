@@ -481,7 +481,7 @@ function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?
             }`}>
               {todo.status === 'in_progress' && showLive && todo.activeForm
                 ? todo.activeForm
-                : todo.content}
+                : (typeof todo.content === 'string' ? todo.content : (todo.title || JSON.stringify(todo.content)))}
             </span>
           </div>
         ))}

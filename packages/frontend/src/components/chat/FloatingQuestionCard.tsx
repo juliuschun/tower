@@ -112,7 +112,7 @@ export function FloatingQuestionCard({ question, onAnswer, answered, onDismiss }
           return (
           <div key={qi} className="space-y-2">
             <div className="flex items-center gap-2">
-              <div className="text-[14px] text-gray-200 leading-relaxed">{q.question}</div>
+              <div className="text-[14px] text-gray-200 leading-relaxed">{typeof q.question === 'string' ? q.question : (q.prompt || q.title || JSON.stringify(q.question))}</div>
               {/* 이 질문만 답했고 전체 미완성일 때 — 체크 표시 */}
               {qDone && !isAnswered && (
                 <svg className="w-3.5 h-3.5 shrink-0 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

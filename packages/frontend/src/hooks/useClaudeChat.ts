@@ -450,6 +450,25 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'user_message': {
+        // Cross-device sync: another client sent a user message to this session
+        const curSid = useChatStore.getState().sessionId;
+        if (data.sessionId === curSid && data.message) {
+          addMessage({
+            id: data.message.id,
+            role: 'user',
+            content: data.message.content,
+            username: data.message.username,
+            createdAt: data.message.createdAt,
+          });
+        }
+        // Bump sidebar updatedAt so session re-sorts
+        if (data.sessionId) {
+          useSessionStore.getState().updateSessionMeta(data.sessionId, { updatedAt: new Date().toISOString() });
+        }
+        break;
+      }
+
       case 'session_status': {
         // Update sidebar streaming indicators
         if (data.sessionId) {
