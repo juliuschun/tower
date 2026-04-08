@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface GalleryImage {
@@ -68,7 +68,7 @@ export default function GalleryBlock({ raw, fallbackCode }: Props) {
               />
               {img.caption && (
                 <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[10px] text-gray-200 px-2 py-1 rounded-b-md truncate">
-                  {img.caption}
+                  {safeStr(img.caption)}
                 </div>
               )}
             </div>
@@ -90,7 +90,7 @@ export default function GalleryBlock({ raw, fallbackCode }: Props) {
             />
             {spec.images[lightbox].caption && (
               <div className="text-center text-sm text-gray-300 mt-2">
-                {spec.images[lightbox].caption}
+                {safeStr(spec.images[lightbox].caption)}
               </div>
             )}
             {/* Navigation */}

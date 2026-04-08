@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface KanbanCard {
@@ -63,7 +63,7 @@ export default function KanbanBlock({ raw, fallbackCode }: Props) {
   return (
     <div className="my-3 rounded-lg border border-surface-700/40 bg-surface-900/40 p-3 overflow-hidden">
       {spec.title && (
-        <div className="text-sm font-medium text-gray-300 mb-2">{spec.title}</div>
+        <div className="text-sm font-medium text-gray-300 mb-2">{safeStr(spec.title)}</div>
       )}
       <div className="flex gap-2 overflow-x-auto pb-1" style={{ minHeight: 120 }}>
         {spec.columns.map((col, ci) => {
@@ -99,7 +99,7 @@ export default function KanbanBlock({ raw, fallbackCode }: Props) {
                           : 'bg-white hover:bg-gray-50 border border-gray-200'
                       }`}
                     >
-                      <div className="text-xs font-medium text-gray-200">{card.title}</div>
+                      <div className="text-xs font-medium text-gray-200">{safeStr(card.title)}</div>
                       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {card.tag && (
                           <span className="text-[9px] px-1 py-0.5 rounded bg-primary-900/30 text-primary-400">

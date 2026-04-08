@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface TimelineItem {
@@ -47,7 +47,7 @@ export default function TimelineBlock({ raw, fallbackCode }: Props) {
   return (
     <div className="my-3 rounded-lg border border-surface-700/40 bg-surface-900/40 p-4">
       {spec.title && (
-        <div className="text-sm font-medium text-gray-300 mb-3">{spec.title}</div>
+        <div className="text-sm font-medium text-gray-300 mb-3">{safeStr(spec.title)}</div>
       )}
       <div className="relative">
         {spec.items.map((item, i) => {
@@ -67,7 +67,7 @@ export default function TimelineBlock({ raw, fallbackCode }: Props) {
               <div className="flex-1 min-w-0 -mt-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                    {item.title}
+                    {safeStr(item.title)}
                   </span>
                   {item.tag && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-700/50 text-gray-400">
@@ -80,7 +80,7 @@ export default function TimelineBlock({ raw, fallbackCode }: Props) {
                 </div>
                 {desc && (
                   <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {desc}
+                    {safeStr(desc)}
                   </p>
                 )}
               </div>

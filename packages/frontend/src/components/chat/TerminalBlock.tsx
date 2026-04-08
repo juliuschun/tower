@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface TerminalCommand {
@@ -79,7 +79,7 @@ export default function TerminalBlock({ raw, fallbackCode }: Props) {
                   onClick={() => copyCmd(entry.cmd, i)}
                   title="Click to copy"
                 >
-                  {entry.cmd}
+                  {safeStr(entry.cmd)}
                 </span>
                 {entry.status && (
                   <span className={`ml-2 text-[10px] ${statusColor(entry.status)}`}>
@@ -103,7 +103,7 @@ export default function TerminalBlock({ raw, fallbackCode }: Props) {
                     <pre className={`whitespace-pre-wrap pl-4 ${
                       entry.status === 'error' ? 'text-red-300/80' : 'text-gray-500'
                     }`}>
-                      {entry.output}
+                      {safeStr(entry.output)}
                     </pre>
                   )}
                 </div>

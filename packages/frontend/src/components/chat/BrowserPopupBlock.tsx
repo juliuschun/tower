@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface BrowserPopupSpec {
@@ -92,7 +92,7 @@ export default function BrowserPopupBlock({ raw, fallbackCode }: Props) {
         <div className="flex-1 min-w-0">
           {spec.description && (
             <div className={`text-sm ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-              {spec.description}
+              {safeStr(spec.description)}
             </div>
           )}
           <div className={`text-[11px] mt-0.5 font-mono truncate ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>

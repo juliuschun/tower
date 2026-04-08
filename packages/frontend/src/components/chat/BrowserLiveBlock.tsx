@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface NekoSpec {
@@ -55,7 +55,7 @@ export default function NekoBlock({ raw, fallbackCode }: Props) {
           </span>
           {spec.description && (
             <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              — {spec.description}
+              — {safeStr(spec.description)}
             </span>
           )}
           {!loaded && (

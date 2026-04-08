@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface ComparisonItem {
@@ -56,7 +56,7 @@ export default function ComparisonBlock({ raw, fallbackCode }: Props) {
             {/* Header */}
             <div className="flex items-center justify-between mb-2">
               <span className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-                {item.name}
+                {safeStr(item.name)}
               </span>
               {item.badge && (
                 <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary-500/20 text-primary-400 font-medium">
@@ -88,7 +88,7 @@ export default function ComparisonBlock({ raw, fallbackCode }: Props) {
                 {item.pros.map((p, pi) => (
                   <div key={pi} className="flex items-start gap-1 text-[11px] text-emerald-400 mb-0.5">
                     <span className="flex-shrink-0 mt-0.5">+</span>
-                    <span className={isDark ? 'text-gray-300' : 'text-gray-700'}>{p}</span>
+                    <span className={isDark ? 'text-gray-300' : 'text-gray-700'}>{safeStr(p)}</span>
                   </div>
                 ))}
               </div>
@@ -100,7 +100,7 @@ export default function ComparisonBlock({ raw, fallbackCode }: Props) {
                 {item.cons.map((c, ci) => (
                   <div key={ci} className="flex items-start gap-1 text-[11px] text-red-400 mb-0.5">
                     <span className="flex-shrink-0 mt-0.5">-</span>
-                    <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>{c}</span>
+                    <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>{safeStr(c)}</span>
                   </div>
                 ))}
               </div>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface DiffSpec {
@@ -130,7 +130,7 @@ export default function DiffBlock({ raw, fallbackCode }: Props) {
                   <td className={`px-2 py-0 whitespace-pre ${
                     line.type === 'add' ? addText : line.type === 'remove' ? removeText : (isDark ? 'text-gray-300' : 'text-gray-700')
                   }`}>
-                    {line.content}
+                    {safeStr(line.content)}
                   </td>
                 </tr>
               ))}
@@ -150,7 +150,7 @@ export default function DiffBlock({ raw, fallbackCode }: Props) {
                       <td className={`px-2 py-0 whitespace-pre ${
                         line.type === 'remove' ? removeText : (isDark ? 'text-gray-300' : 'text-gray-700')
                       }`}>
-                        {line.content}
+                        {safeStr(line.content)}
                       </td>
                     </tr>
                   ))}
@@ -168,7 +168,7 @@ export default function DiffBlock({ raw, fallbackCode }: Props) {
                       <td className={`px-2 py-0 whitespace-pre ${
                         line.type === 'add' ? addText : (isDark ? 'text-gray-300' : 'text-gray-700')
                       }`}>
-                        {line.content}
+                        {safeStr(line.content)}
                       </td>
                     </tr>
                   ))}

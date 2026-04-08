@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
-import { parseLooseJson } from '../shared/parse-loose-json';
+import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
 
 interface ApprovalSpec {
@@ -60,7 +60,7 @@ export default function ApprovalBlock({ raw, fallbackCode, onDecision }: Props) 
 
         <div className="flex-1 min-w-0">
           <div className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-            {spec.description}
+            {safeStr(spec.description)}
           </div>
           {spec.details && (
             <div className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
