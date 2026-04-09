@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRoomStore } from '../../stores/room-store';
 import { useProjectStore } from '../../stores/project-store';
 import { CreateRoomModal } from './CreateRoomModal';
+import { toastSuccess, toastError } from '../../utils/toast';
 import type { Room } from '../../stores/room-store';
 import type { Project } from '@tower/shared';
 
@@ -539,15 +540,22 @@ function ProjectGroupContextMenu({ x, y, project, onClose, onNewChannel }: {
     } catch {}
   };
 
-  const handleRemove = async (userId: number) => {
+  const handleRemove = async (userId: number, username: string) => {
+    if (!window.confirm(`Remove "${username}" from this project?`)) return;
     try {
       const res = await fetch(`/api/projects/${project.id}/members/${userId}`, {
         method: 'DELETE', headers: authHeaders(),
       });
       if (res.ok) {
         setCurrentMembers(prev => prev.filter(m => m.userId !== userId));
+        toastSuccess(`${username} removed`);
+      } else {
+        const data = await res.json().catch(() => ({ error: 'Failed to remove member' }));
+        toastError(data.error || 'Failed to remove member');
       }
-    } catch {}
+    } catch {
+      toastError('Network error');
+    }
   };
 
   const memberIds = currentMembers.map(m => m.userId);
@@ -602,21 +610,22 @@ function ProjectGroupContextMenu({ x, y, project, onClose, onNewChannel }: {
             <div className="px-3 py-1 border-t border-surface-700/50">
               <span className="text-[10px] text-surface-500 uppercase tracking-wider">Members ({currentMembers.length})</span>
             </div>
-            <div className="max-h-[120px] overflow-y-auto py-1">
+            <div className="max-h-[150px] overflow-y-auto py-1">
               {currentMembers.map(m => (
-                <div key={m.userId} className="flex items-center gap-2 px-3 py-1 text-[12px] text-gray-400 group/member">
+                <div key={m.userId} className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-400">
                   <span className="w-5 h-5 rounded-full bg-surface-700 flex items-center justify-center text-[9px] text-gray-400 shrink-0">
                     {m.username?.[0]?.toUpperCase() || '?'}
                   </span>
                   <span className="flex-1 truncate">{m.username || `User ${m.userId}`}</span>
-                  <span className="text-[9px] text-surface-600">{m.role}</span>
-                  {m.role !== 'owner' && (
+                  {m.role === 'owner' ? (
+                    <span className="text-[9px] text-amber-500/70 font-medium">owner</span>
+                  ) : (
                     <button
-                      onClick={() => handleRemove(m.userId)}
-                      className="opacity-0 group-hover/member:opacity-100 text-red-400 hover:text-red-300 p-0.5 transition-opacity"
-                      title="Remove"
+                      onClick={() => handleRemove(m.userId, m.username || `User ${m.userId}`)}
+                      className="text-surface-600 hover:text-red-400 p-0.5 transition-colors"
+                      title="Remove member"
                     >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
@@ -644,20 +653,12 @@ function ProjectGroupContextMenu({ x, y, project, onClose, onNewChannel }: {
 
       <div className="border-t border-surface-700/50 my-1" />
 
-      {/* Invite to Project */}
+      {/* Manage Members */}
       <button className={itemClass} onClick={() => setShowInvite(true)}>
-        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-        </svg>
-        Invite to Project
-      </button>
-
-      {/* Members */}
-      <button className={itemClass} onClick={() => setShowInvite(true)}>
-        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
-        Members ({currentMembers.length || '...'})
+        Manage Members
       </button>
     </div>
   );
