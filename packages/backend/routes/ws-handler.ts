@@ -736,23 +736,22 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
     return;
   }
 
-  // Check if this session was interrupted by a server restart
+  // Interrupted sessions are now resumed server-side (serverSideResumeInterrupted).
+  // If the server-side resume is already running, the snapshot above will have caught it
+  // as 'streaming'. If it hasn't started yet, the server will resume it shortly.
+  // Either way, the client just needs to know the current state — no client-side resume needed.
   const interruptedSet: Set<string> | undefined = (globalThis as any).__interruptedSessions;
   const wasInterrupted = interruptedSet?.has(sessionId) ?? false;
 
   if (wasInterrupted) {
-    // Consume the flag so it only fires once per reconnect
-    interruptedSet!.delete(sessionId);
-
-    // Look up claudeSessionId from DB for resume
-    const dbSession = await getSession(sessionId);
-    const claudeSessionId = data.claudeSessionId || dbSession?.claudeSessionId;
-
+    // Don't consume the flag — let serverSideResumeInterrupted handle the actual resume.
+    // Just tell the client the server is about to resume this session.
+    const dbSession2 = await getSession(sessionId);
     send(client.ws, {
       type: 'reconnect_result',
       status: 'interrupted',
       sessionId,
-      claudeSessionId: claudeSessionId || null,
+      claudeSessionId: data.claudeSessionId || dbSession2?.claudeSessionId || null,
     });
     return;
   }
@@ -1668,6 +1667,192 @@ async function handleShareToChannel(client: WsClient, data: { roomId: string; se
 }
 
 export { broadcastToRoom, broadcastToSession };
+
+/**
+ * Server-side auto-resume for interrupted sessions.
+ * Called once at startup — resumes sessions that were streaming when the server shut down,
+ * WITHOUT waiting for a client WebSocket reconnect.
+ *
+ * This fixes the gap where background-only sessions (or sessions with no active browser tab)
+ * would be permanently lost because no client ever sent a `reconnect` message for them.
+ */
+export async function serverSideResumeInterrupted() {
+  const details: Array<{ id: string; claudeSessionId?: string }> | undefined =
+    (globalThis as any).__interruptedSessionDetails;
+  if (!details || details.length === 0) return;
+
+  // Clear so this only runs once
+  delete (globalThis as any).__interruptedSessionDetails;
+
+  const RESUME_PROMPT =
+    'The server was just restarted. Your previous task was interrupted mid-stream. ' +
+    'If you were running a server restart, deployment, or build command — it already completed successfully, do NOT re-run it. ' +
+    'Review where you left off and continue with the next step.';
+
+  for (const { id: sessionId, claudeSessionId: savedClaudeSessionId } of details) {
+    // Don't block startup — fire and forget each resume
+    (async () => {
+      try {
+        const dbSession = await getSession(sessionId);
+        if (!dbSession) {
+          console.log(`[auto-resume] session=${sessionId.slice(0, 8)} not found in DB — skipping`);
+          return;
+        }
+
+        // Consume from the client-side set so handleReconnect stops returning 'interrupted'
+        const interruptedSet: Set<string> | undefined = (globalThis as any).__interruptedSessions;
+        interruptedSet?.delete(sessionId);
+
+        const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
+        const engine = await getEngine(engineName);
+
+        // Skip if engine is already running for this session (shouldn't happen, but guard)
+        if (engine.isRunning(sessionId)) {
+          console.log(`[auto-resume] session=${sessionId.slice(0, 8)} already running — skipping`);
+          return;
+        }
+
+        // Check concurrent limit
+        if (getTotalActiveCount() >= config.maxConcurrentSessions) {
+          console.warn(`[auto-resume] session=${sessionId.slice(0, 8)} skipped — concurrent limit reached`);
+          return;
+        }
+
+        const engineSessionId = savedClaudeSessionId || dbSession.claudeSessionId || undefined;
+        if (!engineSessionId) {
+          console.log(`[auto-resume] session=${sessionId.slice(0, 8)} has no claudeSessionId — skipping`);
+          return;
+        }
+
+        console.log(`[auto-resume] resuming session=${sessionId.slice(0, 8)} engine=${engineName} claudeSid=${engineSessionId?.slice(0, 11)}`);
+
+        // Save user message to DB
+        const userMsgId = uuidv4();
+        try {
+          await saveMessage(sessionId, {
+            id: userMsgId,
+            role: 'user',
+            content: [{ type: 'text', text: RESUME_PROMPT }],
+            username: '[server]',
+          });
+        } catch (err) { console.error('[auto-resume] saveMessage (user) failed:', err); }
+
+        // Broadcast streaming status
+        broadcastToAll({ type: 'session_status', sessionId, status: 'streaming' });
+
+        // Engine callbacks — same as handleChat but without a specific client
+        const callbacks: EngineCallbacks = {
+          askUser: (_questionId: string, questions: any[]) => {
+            // No client to ask — auto-respond
+            const questionSummary = questions.map((q: any) => q.question || q).join(', ');
+            return Promise.resolve(
+              `[System] The server auto-resumed this session after a restart. There is no active user to answer interactive prompts. ` +
+              `Your question was: "${questionSummary}". ` +
+              `Please proceed with a reasonable default, or ask the question as a regular chat message for when the user returns.`
+            );
+          },
+          claimSessionId: async (esid: string) => {
+            try { await claimClaudeSessionId(sessionId, esid); } catch {}
+          },
+          saveMessage: async (msg) => {
+            try { await saveMessage(sessionId, msg); } catch {}
+          },
+          updateMessageContent: async (msgId, content) => {
+            try { await updateMessageContent(msgId, content); } catch {}
+          },
+          attachToolResult: async (toolUseId, result) => {
+            try { await attachToolResultInDb(sessionId, toolUseId, result); } catch {}
+            broadcastToSession(sessionId, {
+              type: 'tool_result_attached',
+              sessionId,
+              toolUseId,
+              result: typeof result === 'string' ? result.slice(0, 500) : String(result).slice(0, 500),
+            });
+          },
+          updateMessageMetrics: async (msgId, metrics) => {
+            try {
+              await updateMessageMetrics(msgId, {
+                duration_ms: metrics.durationMs,
+                input_tokens: metrics.inputTokens,
+                output_tokens: metrics.outputTokens,
+              });
+            } catch {}
+          },
+        };
+
+        // Hang detection
+        let hangTimer: ReturnType<typeof setTimeout> | null = null;
+        const resetHangTimer = () => {
+          if (hangTimer) clearTimeout(hangTimer);
+          hangTimer = setTimeout(() => {
+            engine.abort(sessionId);
+            broadcastToSession(sessionId, {
+              type: 'error',
+              message: 'SDK response timed out during auto-resume.',
+              errorCode: 'SDK_HANG',
+              sessionId,
+            });
+          }, SDK_HANG_TIMEOUT);
+        };
+
+        try {
+          resetHangTimer();
+
+          for await (const towerMsg of engine.run(sessionId, RESUME_PROMPT, {
+            cwd: dbSession.cwd || config.defaultCwd,
+            engineSessionId,
+            projectId: (dbSession as any)?.projectId || undefined,
+          }, callbacks)) {
+            resetHangTimer();
+
+            const legacyMsg = towerToLegacy(towerMsg, sessionId);
+            if (legacyMsg) {
+              broadcastToSession(sessionId, legacyMsg);
+            }
+
+            // Update session metadata on engine_done
+            if (towerMsg.type === 'engine_done') {
+              const esid = towerMsg.engineSessionId;
+              if (esid) {
+                try { await claimClaudeSessionId(sessionId, esid); } catch {}
+              }
+              try {
+                const currentSession = await getSession(sessionId);
+                if (currentSession) {
+                  const newTurnCount = (currentSession.turnCount ?? 0) + 1;
+                  const existingFiles: string[] = currentSession.filesEdited || [];
+                  const newFiles = towerMsg.editedFiles || [];
+                  const mergedFiles = [...new Set([...existingFiles, ...newFiles])];
+                  await updateSession(sessionId, {
+                    turnCount: newTurnCount,
+                    filesEdited: mergedFiles,
+                    modelUsed: towerMsg.model,
+                  });
+                }
+              } catch {}
+            }
+          }
+        } catch (error: any) {
+          console.error(`[auto-resume] ERROR session=${sessionId.slice(0, 8)}:`, error.message || error);
+          broadcastToSession(sessionId, {
+            type: 'error',
+            message: error.message || 'Auto-resume failed',
+            sessionId,
+          });
+        } finally {
+          if (hangTimer) clearTimeout(hangTimer);
+          broadcastToAll({ type: 'session_status', sessionId, status: 'idle' });
+          console.log(`[auto-resume] END session=${sessionId.slice(0, 8)}`);
+        }
+      } catch (err: any) {
+        console.error(`[auto-resume] FATAL session=${sessionId.slice(0, 8)}:`, err.message || err);
+      }
+    })();
+
+    // Stagger resumes by 2s to avoid overwhelming concurrent session limit
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+}
 
 function send(ws: WebSocket, data: any) {
   if (ws.readyState === WebSocket.OPEN) {

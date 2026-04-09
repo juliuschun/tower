@@ -136,7 +136,7 @@ export async function detectCodeType(sourceDir: string): Promise<'static' | 'dyn
 
     // Known server file names → inspect content
     if (SERVER_FILES.includes(name)) {
-      const fullPath = path.join(entry.parentPath || entry.path || sourceDir, entry.name);
+      const fullPath = path.join((entry as any).parentPath || (entry as any).path || sourceDir, entry.name);
       try {
         const content = await fs.readFile(fullPath, 'utf-8');
         for (const pattern of SERVER_INDICATORS) {
@@ -422,7 +422,7 @@ async function updateManifestAfterDeploy(opts: DeployOptions, result: DeployResu
       existing.last_deployed_at = now;
       if (opts.description) existing.description = opts.description;
       // Clean up local-only fields when deploying to external platform
-      if (result.target !== 'local') {
+      if ((result.target as string) !== 'local') {
         delete existing.port;
         delete existing.path;
         delete existing.health_path;

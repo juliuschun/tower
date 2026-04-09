@@ -7,12 +7,12 @@ import path from 'path';
 import fs from 'fs';
 import { config, validateConfig } from './config.js';
 import apiRouter from './routes/api.js';
-import { setupWebSocket, broadcastToAll, broadcastToUser } from './routes/ws-handler.js';
+import { setupWebSocket, broadcastToAll, broadcastToUser, serverSideResumeInterrupted } from './routes/ws-handler.js';
 import { initPg, closePgPool, isPgEnabled } from './db/pg.js';
 import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';
 import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from './services/task-runner.js';
-import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown, consumeInterruptedSessions } from './services/claude-sdk.js';
+import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown, consumeInterruptedSessions, type InterruptedSession } from './services/claude-sdk.js';
 import { startScheduler, stopScheduler } from './services/task-scheduler.js';
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/heartbeat.js';
 import { initNotificationHub } from './services/notification-hub.js';
@@ -120,10 +120,12 @@ server.listen(config.port, config.host, async () => {
   await syncCompanySkillsToFs();
 
   // Load interrupted sessions from previous shutdown (before stale cleanup)
-  const interruptedSessionIds = consumeInterruptedSessions();
-  if (interruptedSessionIds.length > 0) {
-    // Store globally so ws-handler can check during reconnect
-    (globalThis as any).__interruptedSessions = new Set(interruptedSessionIds);
+  const interruptedSessions = consumeInterruptedSessions();
+  if (interruptedSessions.length > 0) {
+    // Store globally so ws-handler can check during reconnect (client-side fallback)
+    (globalThis as any).__interruptedSessions = new Set(interruptedSessions.map(s => s.id));
+    // Also store full details for server-side auto-resume
+    (globalThis as any).__interruptedSessionDetails = interruptedSessions;
   }
 
   // Audit stale sessions (missing .jsonl) — log only, never clear claude_session_id.
@@ -153,6 +155,14 @@ server.listen(config.port, config.host, async () => {
 
   // Start heartbeat scheduler (checks project HEARTBEAT.md files periodically)
   startHeartbeatScheduler(notifBroadcast);
+
+  // Server-side auto-resume: proactively resume interrupted sessions without waiting
+  // for a client WebSocket reconnect. This fixes the gap where background-only sessions
+  // or sessions with no active browser tab would be permanently lost.
+  // Runs async — does not block server startup.
+  serverSideResumeInterrupted().catch(err => {
+    console.error('[auto-resume] Failed to resume interrupted sessions:', err);
+  });
 });
 
 // Graceful shutdown — let orphan CLI processes keep running

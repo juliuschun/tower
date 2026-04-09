@@ -48,6 +48,8 @@ migrate_to_chat_ability.md
 .mcp.json
 .claude/skills/
 mcp/
+.pi/
+uploads/
 
 # Customer VM deployment artifacts
 .credentials.json

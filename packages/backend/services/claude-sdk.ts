@@ -99,11 +99,11 @@ export function stopOrphanMonitor() {
 // will SIGTERM them gracefully, giving them time to flush session files.
 // Also marks streaming sessions as "interrupted" in DB so frontend can auto-resume.
 export function gracefulShutdown(signal: string) {
-  const interruptedSessions: string[] = [];
+  const interruptedSessions: Array<{ id: string; claudeSessionId?: string }> = [];
   for (const session of activeSessions.values()) {
     if (session.isRunning) {
       session.isRunning = false;
-      interruptedSessions.push(session.id);
+      interruptedSessions.push({ id: session.id, claudeSessionId: session.claudeSessionId });
     }
   }
   if (interruptedSessions.length > 0) {
@@ -115,7 +115,7 @@ export function gracefulShutdown(signal: string) {
       return;
     }
     console.log(`[sdk] ${signal}: ${interruptedSessions.length} CLI process(es) will be cleaned up on next startup`);
-    // Write interrupted session IDs to a temp file for next startup to read.
+    // Write interrupted session details to a temp file for next startup to read.
     // Can't use async DB calls in shutdown handler (process exits too fast).
     try {
       const dataDir = path.join(process.cwd(), 'data');
@@ -493,18 +493,27 @@ export function getClaudeSessionId(sessionId: string): string | undefined {
   return activeSessions.get(sessionId)?.claudeSessionId;
 }
 
+export interface InterruptedSession {
+  id: string;
+  claudeSessionId?: string;
+}
+
 /**
  * Read and consume the interrupted-sessions.json file written during graceful shutdown.
- * Returns session IDs that were streaming when the backend last shut down.
+ * Returns session details that were streaming when the backend last shut down.
  */
-export function consumeInterruptedSessions(): string[] {
+export function consumeInterruptedSessions(): InterruptedSession[] {
   const filePath = path.join(process.cwd(), 'data', 'interrupted-sessions.json');
   try {
     if (!fs.existsSync(filePath)) return [];
     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     // Delete the file so it's only consumed once
     fs.unlinkSync(filePath);
-    const sessions: string[] = data.sessions || [];
+    const raw: Array<string | InterruptedSession> = data.sessions || [];
+    // Backward compat: old format stored plain string IDs
+    const sessions: InterruptedSession[] = raw.map(s =>
+      typeof s === 'string' ? { id: s } : s
+    );
     if (sessions.length > 0) {
       console.log(`[sdk] Recovered ${sessions.length} interrupted session(s) from previous shutdown`);
     }
