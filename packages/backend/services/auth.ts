@@ -148,7 +148,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
     });
   }
 

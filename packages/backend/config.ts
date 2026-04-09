@@ -139,7 +139,7 @@ export const config = {
   // Auth
   jwtSecret: process.env.JWT_SECRET || 'tower-secret-change-me',
   authEnabled: process.env.NO_AUTH !== 'true',
-  tokenExpiry: '24h',
+  tokenExpiry: '90d',
 
   // File system
   workspaceRoot: process.env.WORKSPACE_ROOT || os.homedir(),
