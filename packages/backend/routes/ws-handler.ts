@@ -737,25 +737,9 @@ async function handleReconnect(client: WsClient, data: { sessionId?: string; cla
   }
 
   // Interrupted sessions are now resumed server-side (serverSideResumeInterrupted).
-  // If the server-side resume is already running, the snapshot above will have caught it
-  // as 'streaming'. If it hasn't started yet, the server will resume it shortly.
-  // Either way, the client just needs to know the current state — no client-side resume needed.
-  const interruptedSet: Set<string> | undefined = (globalThis as any).__interruptedSessions;
-  const wasInterrupted = interruptedSet?.has(sessionId) ?? false;
-
-  if (wasInterrupted) {
-    // Don't consume the flag — let serverSideResumeInterrupted handle the actual resume.
-    // Just tell the client the server is about to resume this session.
-    const dbSession2 = await getSession(sessionId);
-    send(client.ws, {
-      type: 'reconnect_result',
-      status: 'interrupted',
-      sessionId,
-      claudeSessionId: data.claudeSessionId || dbSession2?.claudeSessionId || null,
-    });
-    return;
-  }
-
+  // Never return 'interrupted' to the client — the server handles all resume logic.
+  // If auto-resume is already running, the snapshot check above returns 'streaming'.
+  // If not yet started, return 'idle' — server will start it shortly and broadcast status.
   send(client.ws, { type: 'reconnect_result', status: 'idle', sessionId });
 }
 

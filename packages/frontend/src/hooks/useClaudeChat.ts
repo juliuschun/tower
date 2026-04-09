@@ -323,33 +323,6 @@ export function useClaudeChat() {
           });
           useChatStore.getState().setPendingQuestion(restoredPendingQuestion);
           // Stream silently re-attached — no toast distraction
-        } else if (data.status === 'interrupted') {
-          // Server restarted while this session was streaming.
-          // Resume prompt is now sent server-side (serverSideResumeInterrupted).
-          // Client only needs to recover UI state and wait for the server-driven stream.
-          safetyTimerFired.current = false;
-          currentAssistantMsg.current = null;
-
-          if (data.sessionId) {
-            // Recover partial messages from DB first
-            __test_recoverMessagesFromDb(data.sessionId);
-
-            // Update claudeSessionId for resume
-            if (data.claudeSessionId) {
-              useChatStore.getState().setClaudeSessionId(data.claudeSessionId);
-              useSessionStore.getState().updateSessionMeta(data.sessionId, {
-                claudeSessionId: data.claudeSessionId,
-              });
-            }
-
-            toastWarning('Server restarted — resuming conversation...');
-
-            // Server is auto-resuming this session. Mark as streaming so UI shows spinner.
-            // The server's broadcastToSession will deliver streamed messages.
-            useChatStore.getState().setStreaming(true);
-            useChatStore.getState().setTurnStartTime(Date.now());
-            useSessionStore.getState().setSessionStreaming(data.sessionId, true);
-          }
         } else {
           // status === 'idle'
           // Check wasStreaming OR safetyTimerFired (timer may have cleared isStreaming before reconnect)
