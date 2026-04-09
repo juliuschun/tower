@@ -30,6 +30,7 @@ import { webFetchTool, webSearchTool } from './pi-web-tools.js';
 import { excelReadTool, excelQueryTool } from './pi-finance-tools.js';
 import { pdfReadTool, excelWriteTool, excelDiffTool } from './pi-finance-tools-extra.js';
 import { todoWriteTool } from './pi-todo-tool.js';
+import { sharedTaskCreateTool, sharedTaskUpdateTool, sharedTaskListTool } from './pi-shared-task-tool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -483,8 +484,10 @@ export class PiEngine implements Engine {
     piTools = wrapPiTools(piTools, guard);
     console.log(`[Pi] ToolGuard active (role=${opts.userRole || 'member'}, accessiblePaths=${opts.accessiblePaths === null ? 'admin' : opts.accessiblePaths?.length ?? 'none'})`);
 
+    // Pass session file path so fork sub-agents can inherit conversation context
+    const parentSessionFile = sessionMgr.getSessionFile();
     const customTools = [
-      createAgentTool(auth, registry, guard),
+      createAgentTool(auth, registry, guard, parentSessionFile),
       createAskUserQuestionTool(callbacks?.askUser || (async () => 'No user answer available.')),
       webFetchTool,
       webSearchTool,
@@ -494,6 +497,10 @@ export class PiEngine implements Engine {
       excelWriteTool,
       excelDiffTool,
       todoWriteTool,
+      // Shared TaskList — multi-agent collaboration via file-based task queue
+      sharedTaskCreateTool,
+      sharedTaskUpdateTool,
+      sharedTaskListTool,
     ];
 
     const { session } = await createAgentSession({
@@ -685,6 +692,8 @@ export class PiEngine implements Engine {
   // Pi has no orphan processes (in-process SDK), but we still keep interrupted-session metadata.
   init(): void {
     this.interruptedSessionIds = new Set(consumeInterruptedPiSessions());
+    // Clean up stale fork session files from previous runs
+    this.cleanupStaleForkSessions();
   }
 
   shutdown(): void {
@@ -697,6 +706,69 @@ export class PiEngine implements Engine {
       try { entry.session.dispose(); } catch {}
     }
     this.sessions.clear();
+  }
+
+  /**
+   * Clean up stale fork session files and scratchpad data.
+   * Fork sessions are ephemeral — if the server crashed mid-fork,
+   * leftover .jsonl files accumulate in .pi/sessions/forks/.
+   * Also cleans up stale task list and scratchpad files older than 24h.
+   */
+  private cleanupStaleForkSessions(): void {
+    const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const now = Date.now();
+    const dirsToClean = [
+      path.join(process.cwd(), '.pi', 'sessions', 'forks'),
+      path.join(process.cwd(), '.pi', 'scratchpad'),
+    ];
+
+    for (const dir of dirsToClean) {
+      if (!fs.existsSync(dir)) continue;
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        let cleaned = 0;
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          try {
+            const stat = fs.statSync(fullPath);
+            if (now - stat.mtimeMs > STALE_THRESHOLD_MS) {
+              if (entry.isDirectory()) {
+                fs.rmSync(fullPath, { recursive: true, force: true });
+              } else {
+                fs.unlinkSync(fullPath);
+              }
+              cleaned++;
+            }
+          } catch { /* skip files that can't be stat'd */ }
+        }
+        if (cleaned > 0) {
+          console.log(`[Pi] Cleaned ${cleaned} stale files from ${dir}`);
+        }
+      } catch { /* skip if dir is unreadable */ }
+    }
+
+    // Also clean stale task lists (but NOT active ones)
+    const taskDir = path.join(process.cwd(), '.pi', 'tasks');
+    if (fs.existsSync(taskDir)) {
+      try {
+        const taskLists = fs.readdirSync(taskDir, { withFileTypes: true });
+        let cleaned = 0;
+        for (const entry of taskLists) {
+          if (!entry.isDirectory()) continue;
+          const fullPath = path.join(taskDir, entry.name);
+          try {
+            const stat = fs.statSync(fullPath);
+            if (now - stat.mtimeMs > STALE_THRESHOLD_MS) {
+              fs.rmSync(fullPath, { recursive: true, force: true });
+              cleaned++;
+            }
+          } catch { /* skip */ }
+        }
+        if (cleaned > 0) {
+          console.log(`[Pi] Cleaned ${cleaned} stale task list(s) from ${taskDir}`);
+        }
+      } catch { /* skip */ }
+    }
   }
 }
 
