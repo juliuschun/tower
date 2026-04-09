@@ -2,8 +2,7 @@ node_modules/
 dist/
 /data/*
 !/data/skills/
-/data/skills/*
-!/data/skills/company/
+/data/skills/
 *.db
 *.db-shm
 *.db-wal
