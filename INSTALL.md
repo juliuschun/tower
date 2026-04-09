@@ -176,12 +176,17 @@ cp -r templates/workspace/* ~/workspace/
 ### 7. Install Skills & Hooks (optional, requires Claude CLI)
 
 ```bash
-# Bundled Claude skills (20 skills, 3 commands, 1 agent)
+# Bundled skills (library 스킬) 설치
 ./install-skills.sh
 
 # Memory hooks (session tracking with SQLite FTS5)
 bash memory-hooks/install.sh
 ```
+
+> **스킬 추가 설치**: `install-skills.sh`는 library 스킬만 번들 설치합니다.
+> 나머지 스킬(brainstorming, research, debugging 등)은 Tower에서
+> `/library sync`를 실행하면 GitHub 카탈로그에서 자동으로 설치됩니다.
+> 상세: [`docs/skill-distribution.md`](docs/skill-distribution.md)
 
 ### 8. Start
 
@@ -557,9 +562,14 @@ npm run dev
 # Check skills are installed
 ls ~/.claude/skills/*/SKILL.md
 
-# Re-install if needed
+# Re-install bundled skills (library)
 ./install-skills.sh
+
+# Pull all skills from catalog
+# Tower 채팅에서: /library sync
 ```
+
+> 스킬 배포 구조 상세: [`docs/skill-distribution.md`](docs/skill-distribution.md)
 
 ### PM2 not found (production mode)
 
@@ -700,7 +710,7 @@ Before going live, verify:
 tower/
 ├── backend/          # Express + WebSocket server
 ├── frontend/src/     # React + Vite
-├── claude-skills/    # 20 bundled skills
+├── claude-skills/    # Bundled skills (library) + catalog
 ├── memory-hooks/     # 3-layer memory system
 ├── templates/        # Workspace templates
 ├── setup.sh          # One-step setup wizard

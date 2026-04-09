@@ -1,0 +1,261 @@
+default_dirs:
+  skills:
+    - default: .claude/skills/
+    - global: ~/.claude/skills/
+  agents:
+    - default: .claude/agents/
+    - global: ~/.claude/agents/
+  prompts:
+    - default: .claude/commands/
+    - global: ~/.claude/commands/
+
+# ─── Customer Profiles ───
+# 고객 VM에 스킬을 배포할 때 프로필로 필터링
+# /library deploy <profile> <ssh-target> 으로 사용
+profiles:
+  core:
+    description: "모든 고객에게 기본 제공되는 필수 스킬"
+    tags: [core]
+  customer-basic:
+    description: "비개발 고객용 (비즈니스 + 문서 + 검색)"
+    tags: [core, business, docs]
+  customer-full:
+    description: "기술력 있는 고객용 (basic + dev)"
+    tags: [core, business, docs, dev]
+  internal:
+    description: "Moat AI 내부 전용 (모든 스킬)"
+    tags: [core, business, docs, dev, internal]
+
+# ─── Customer Registry ───
+# 어떤 고객이 어떤 프로필을 사용하는지 기록
+customers:
+  okusystem:
+    profile: customer-basic
+    ssh: toweradmin@20.41.101.188
+    domain: okusystem.moatai.app
+    skills_dir: ~/.claude/skills/
+
+library:
+  skills:
+    # ══════════════════════════════════════
+    # CORE — 모든 고객에게 필수
+    # ══════════════════════════════════════
+    - name: brainstorming
+      description: "구현 전 아이디어 탐색, 요구사항 설계"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/brainstorming/SKILL.md
+      tags: [core]
+
+    - name: research
+      description: "Claude/Codex/Gemini 병렬 리서치 + 종합"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/research/SKILL.md
+      tags: [core]
+
+    - name: search
+      description: "과거 대화/세션 FTS5 전문 검색"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/search/SKILL.md
+      tags: [core]
+
+    - name: memory
+      description: "영구 메모리 DB 검색/관리"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/memory/SKILL.md
+      tags: [core]
+
+    - name: ready
+      description: "세션 시작시 컨텍스트 복구"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/ready/SKILL.md
+      tags: [core]
+
+    - name: review-global
+      description: "전체 프로젝트 상황 보고서"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/review-global/SKILL.md
+      tags: [core]
+
+    - name: plan-refine
+      description: "구조화된 계획 리뷰 (도메인별 방법론 적용)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/plan-refine/SKILL.md
+      tags: [core]
+
+    - name: writing-plans
+      description: "스펙/요구사항으로부터 구현 계획 작성"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/writing-plans/SKILL.md
+      tags: [core]
+
+    - name: executing-plans
+      description: "구현 계획 배치 실행 + 리뷰 체크포인트"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/executing-plans/SKILL.md
+      tags: [core]
+
+    # ══════════════════════════════════════
+    # BUSINESS — 비즈니스 문서/커뮤니케이션
+    # ══════════════════════════════════════
+    - name: offer-plan
+      description: "B2B 견적서 생성 (JSON → Excel + PDF)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/offer-plan/SKILL.md
+      tags: [business]
+
+    - name: cta
+      description: "Cognitive Task Analysis — 도메인 전문가 암묵지 추출"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/cta/SKILL.md
+      tags: [business]
+
+    - name: humanize
+      description: "AI 텍스트 탐지 점수 낮추기 (Pangram API)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/humanize/SKILL.md
+      tags: [business]
+
+    - name: ppt-gen
+      description: "AI 프레젠테이션 파이프라인 (이미지 생성 + PPTX 조립)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/ppt-gen/SKILL.md
+      tags: [business]
+
+    - name: marp
+      description: "Marp 마크다운 슬라이드 + animated SVG + PDF/PPTX"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/marp/SKILL.md
+      tags: [business]
+
+    - name: naver-search-api
+      description: "네이버 뉴스/블로그/웹 검색 API"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/naver-search-api/SKILL.md
+      tags: [business]
+
+    - name: send-sms
+      description: "알리고 SMS/LMS 발송 (템플릿 변수, 배치, Notion 선택)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/send-sms/SKILL.md
+      tags: [business]
+
+    - name: tiro
+      description: "Tiro 회의 녹음 API (전사본/요약 다운로드)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/tiro/SKILL.md
+      tags: [business]
+
+    - name: gmail
+      description: "Gmail via gws CLI (inbox, search, send, draft)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/gmail/SKILL.md
+      tags: [business]
+
+    - name: gws
+      description: "Google Workspace CLI (Calendar, Drive, Sheets, Docs, Tasks)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/gws/SKILL.md
+      tags: [business]
+
+    # ══════════════════════════════════════
+    # DOCS — 문서 생성/변환
+    # ══════════════════════════════════════
+    - name: mermaid-pdf
+      description: "Mermaid 다이어그램 포함 마크다운 → PDF 변환"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/mermaid-pdf/SKILL.md
+      tags: [docs]
+
+    - name: naver-formatter
+      description: "마크다운 → 네이버 블로그 복붙용 HTML 변환"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/naver-formatter/SKILL.md
+      tags: [docs]
+
+    - name: stibee-formatter
+      description: "마크다운 → Stibee 이메일 HTML 변환"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/stibee-formatter/SKILL.md
+      tags: [docs]
+
+    - name: svg-animation
+      description: "Animated SVG 인포그래픽 생성 (시네마틱 다크 테마)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/svg-animation/SKILL.md
+      tags: [docs]
+
+    - name: doc-seed
+      description: "프로젝트별 문서 시드 생성"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/doc-seed/SKILL.md
+      tags: [docs]
+
+    - name: agents-md
+      description: "AGENTS.md 생성 — AI 개발을 위한 비발견적 운영 지식 추출"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/agents-md/SKILL.md
+      tags: [docs]
+
+    - name: ascii-art
+      description: "ASCII 아트/다이어그램 생성 (CJK 더블위드 처리)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/ascii-art/SKILL.md
+      tags: [docs]
+
+    # ══════════════════════════════════════
+    # DEV — 개발 워크플로 (기술 고객용)
+    # ══════════════════════════════════════
+    - name: systematic-debugging
+      description: "버그 근본 원인 추적 (수정 전 원인 찾기)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/systematic-debugging/SKILL.md
+      tags: [dev]
+
+    - name: test-driven-development
+      description: "TDD — 테스트 먼저, 실패 확인, 구현"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/test-driven-development/SKILL.md
+      tags: [dev]
+
+    - name: verification-before-completion
+      description: "작업 완료 전 검증 명령 실행"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/verification-before-completion/SKILL.md
+      tags: [dev]
+
+    - name: tech-lead
+      description: "아키텍처 결정을 위한 적응적 전문가 판단"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/tech-lead/SKILL.md
+      tags: [dev]
+
+    - name: web-testing
+      description: "Chrome DevTools MCP 기반 웹 테스팅"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/web-testing/SKILL.md
+      tags: [dev]
+
+    - name: prompt-architect
+      description: "프롬프트 진단/개선 (모델별 기법)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/prompt-architect/SKILL.md
+      tags: [dev]
+
+    - name: design-explore
+      description: "디자인 스페이스 탐색, 경쟁 제안 생성"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/design-explore/SKILL.md
+      tags: [dev]
+
+    # ══════════════════════════════════════
+    # INTERNAL — Moat AI 전용
+    # ══════════════════════════════════════
+    - name: codex
+      description: "OpenAI Codex CLI 연동"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/codex/SKILL.md
+      tags: [internal]
+
+    - name: gemini
+      description: "Google Gemini CLI 연동"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/gemini/SKILL.md
+      tags: [internal]
+
+    - name: create-skill
+      description: "새 Claude Code skill 생성"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/create-skill/SKILL.md
+      tags: [internal]
+
+    - name: create-kanban-task
+      description: "칸반 보드 태스크 생성/관리"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/create-kanban-task/SKILL.md
+      tags: [internal]
+
+    - name: pinchtab
+      description: "브라우저 자동화, 스크린샷, JS 렌더링 페이지 접근"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/pinchtab/SKILL.md
+      tags: [internal]
+
+    - name: browser-live
+      description: "실시간 원격 브라우저 — 채팅 임베드 또는 팝업 (Neko WebRTC)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/browser-live/SKILL.md
+      tags: [internal]
+
+    - name: design-md
+      description: "DESIGN.md 디자인 시스템 문서 생성/적용 (55개 브랜드 프리셋 + URL 분석 생성)"
+      source: ~/.claude/skills/design-md/SKILL.md
+      tags: [internal]
+
+    - name: ui-ux-pro-max
+      description: "UI/UX 디자인 (50 스타일, 9 스택)"
+      source: https://github.com/juliuschun/internal-skills/blob/master/skills/ui-ux-pro-max/SKILL.md
+      tags: [internal]
+
+  agents: []
+  prompts: []
