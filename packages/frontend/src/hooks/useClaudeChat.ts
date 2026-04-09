@@ -324,9 +324,9 @@ export function useClaudeChat() {
           useChatStore.getState().setPendingQuestion(restoredPendingQuestion);
           // Stream silently re-attached — no toast distraction
         } else if (data.status === 'interrupted') {
-          // Server restarted while this session was streaming — auto-resume
-          useChatStore.getState().setStreaming(false);
-          useChatStore.getState().setTurnStartTime(null);
+          // Server restarted while this session was streaming.
+          // Resume prompt is now sent server-side (serverSideResumeInterrupted).
+          // Client only needs to recover UI state and wait for the server-driven stream.
           safetyTimerFired.current = false;
           currentAssistantMsg.current = null;
 
@@ -337,7 +337,6 @@ export function useClaudeChat() {
             // Update claudeSessionId for resume
             if (data.claudeSessionId) {
               useChatStore.getState().setClaudeSessionId(data.claudeSessionId);
-              // Also update session store so resume works
               useSessionStore.getState().updateSessionMeta(data.sessionId, {
                 claudeSessionId: data.claudeSessionId,
               });
@@ -345,24 +344,11 @@ export function useClaudeChat() {
 
             toastWarning('Server restarted — resuming conversation...');
 
-            // Auto-resume: send a continue message with resume context
-            // Loop prevention is handled server-side (uptime < 30s → no interrupted file written)
-            const session = useSessionStore.getState().sessions.find(s => s.id === data.sessionId);
-            setTimeout(() => {
-              const messageId = generateUUID();
-              sendRef.current({
-                type: 'chat',
-                message: 'The server was just restarted. Your previous task was interrupted mid-stream. If you were running a server restart, deployment, or build command — it already completed successfully, do NOT re-run it. Review where you left off and continue with the next step.',
-                messageId,
-                sessionId: data.sessionId,
-                claudeSessionId: data.claudeSessionId || session?.claudeSessionId,
-                cwd: session?.cwd,
-                model: useModelStore.getState().selectedModel,
-              });
-              useChatStore.getState().setStreaming(true);
-              useChatStore.getState().setTurnStartTime(Date.now());
-              useSessionStore.getState().setSessionStreaming(data.sessionId, true);
-            }, 500);
+            // Server is auto-resuming this session. Mark as streaming so UI shows spinner.
+            // The server's broadcastToSession will deliver streamed messages.
+            useChatStore.getState().setStreaming(true);
+            useChatStore.getState().setTurnStartTime(Date.now());
+            useSessionStore.getState().setSessionStreaming(data.sessionId, true);
           }
         } else {
           // status === 'idle'
@@ -459,7 +445,7 @@ export function useClaudeChat() {
             role: 'user',
             content: data.message.content,
             username: data.message.username,
-            createdAt: data.message.createdAt,
+            timestamp: data.message.createdAt ? new Date(data.message.createdAt).getTime() : Date.now(),
           });
         }
         // Bump sidebar updatedAt so session re-sorts

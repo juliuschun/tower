@@ -167,7 +167,7 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
             <span className={`text-[12px] leading-relaxed ${
               todo.status === 'completed' ? 'text-gray-500 line-through' : 'text-gray-400'
             }`}>
-              {safeStr(todo.content || todo.title)}
+              {safeStr(todo.content || (todo as any).title)}
             </span>
           </div>
         ))}

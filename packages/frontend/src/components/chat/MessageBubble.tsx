@@ -482,7 +482,7 @@ function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?
             }`}>
               {todo.status === 'in_progress' && showLive && todo.activeForm
                 ? safeStr(todo.activeForm)
-                : safeStr(todo.content || todo.title)}
+                : safeStr(todo.content || (todo as any).title)}
             </span>
           </div>
         ))}
