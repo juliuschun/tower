@@ -13,6 +13,7 @@ import { toastSuccess, toastError, toastWarning, toastInfo } from '../utils/toas
 import { notifyTaskComplete, requestNotificationPermission } from '../utils/notify';
 import { useKanbanStore } from '../stores/kanban-store';
 import { useRoomStore } from '../stores/room-store';
+import { useProjectStore } from '../stores/project-store';
 
 /** Debounce timer for auto-reload of externally changed files */
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -1226,6 +1227,133 @@ export function useClaudeChat() {
             toastInfo(`@${notif.title}`);
           }
         }
+        break;
+      }
+
+      // Cross-tab / cross-device inbox sync (added 2026-04-10).
+      // When the user reads a notification in another tab, fan out the
+      // read state so every other tab updates its badge without a refetch.
+      case 'notification_read': {
+        const { notificationId } = data;
+        if (notificationId) {
+          useRoomStore.getState().markNotificationRead(notificationId);
+        }
+        break;
+      }
+
+      case 'notification_read_all': {
+        useRoomStore.getState().markAllNotificationsRead?.();
+        break;
+      }
+
+      // ── Project CRUD (added 2026-04-10) ──────────────────────
+      // Previously these events were missing — a new project or member
+      // invite only became visible after a hard refresh. Now the backend
+      // broadcasts every mutation to the project's members.
+      case 'project_created': {
+        const { project } = data;
+        if (project) {
+          const store = useProjectStore.getState();
+          if (!store.projects.some((p) => p.id === project.id)) {
+            store.addProject(project);
+          }
+        }
+        break;
+      }
+
+      case 'project_updated': {
+        const { project } = data;
+        if (project?.id) {
+          useProjectStore.getState().updateProject(project.id, project);
+        }
+        break;
+      }
+
+      case 'project_deleted': {
+        const { projectId } = data;
+        if (projectId) {
+          useProjectStore.getState().removeProject(projectId);
+          // Also drop any sessions belonging to that project from the sidebar.
+          const sessionStore = useSessionStore.getState();
+          const orphaned = sessionStore.sessions.filter((s: any) => s.projectId === projectId);
+          for (const s of orphaned) sessionStore.removeSession(s.id);
+        }
+        break;
+      }
+
+      case 'project_member_added': {
+        // Re-fetch projects: if the current user was just invited, the
+        // project may not yet be in their list. Server already pushed the
+        // full project object for known members; handle the invitee too.
+        const { project, userId: addedUserId } = data;
+        const currentUserId = Number(localStorage.getItem('userId') || '0');
+        if (project && addedUserId === currentUserId) {
+          const store = useProjectStore.getState();
+          if (!store.projects.some((p) => p.id === project.id)) {
+            store.addProject(project);
+          }
+        } else if (project?.id) {
+          useProjectStore.getState().updateProject(project.id, project);
+        }
+        break;
+      }
+
+      case 'project_member_removed': {
+        const { projectId, userId: removedUserId } = data;
+        const currentUserId = Number(localStorage.getItem('userId') || '0');
+        if (projectId && removedUserId === currentUserId) {
+          // We got kicked — drop the project entirely from our sidebar.
+          useProjectStore.getState().removeProject(projectId);
+          const sessionStore = useSessionStore.getState();
+          const orphaned = sessionStore.sessions.filter((s: any) => s.projectId === projectId);
+          for (const s of orphaned) sessionStore.removeSession(s.id);
+        }
+        break;
+      }
+
+      case 'project_members_changed': {
+        // A group was invited en-masse. Just touch the project object so
+        // components that cached members will refetch.
+        const { project } = data;
+        if (project?.id) {
+          useProjectStore.getState().updateProject(project.id, project);
+        }
+        break;
+      }
+
+      // ── Session lifecycle (added 2026-04-10) ─────────────────
+      case 'session_deleted': {
+        const { sessionId: deletedId } = data;
+        if (deletedId) {
+          useSessionStore.getState().removeSession(deletedId);
+          // If the deleted session was the active one, clear chat store too.
+          if (useChatStore.getState().sessionId === deletedId) {
+            useChatStore.setState({ sessionId: null, claudeSessionId: null, messages: [] });
+          }
+        }
+        break;
+      }
+
+      // ── Room CRUD metadata (added 2026-04-10) ────────────────
+      // Room member add/remove was already realtime, but create/update/delete
+      // relied on a refetch. Now the backend broadcasts them to every member.
+      case 'room_created': {
+        const { room } = data;
+        if (room) useRoomStore.getState().addRoom(room);
+        break;
+      }
+
+      case 'room_updated': {
+        const { room } = data;
+        if (room?.id) {
+          useRoomStore.getState().updateRoom(room.id, room);
+        }
+        break;
+      }
+
+      case 'room_deleted': {
+        const { roomId } = data;
+        if (roomId) useRoomStore.getState().removeRoom(roomId);
         break;
       }
     }
