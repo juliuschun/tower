@@ -61,12 +61,13 @@ Inviting someone to a project grants access to all of the above.
 ### Claude Behavior Rules
 
 **Documentation**: When decisions are made, suggest recording them.
-- Decision record → `decisions/YYYY-MM-DD-title.md`
-- Process/guide → `docs/title.md`
+- Decision record → `workspace/decisions/YYYY-MM-DD-title.md` (team-wide / cross-project)
+- Project-scoped decision → `workspace/projects/<project>/.project/decisions/YYYY-MM-DD-title.md`
+- Process/guide → `workspace/docs/title.md`
 
-**Decision records**: Never delete files in decisions/. To change a decision, create a new file.
+**Decision records**: Never delete files in `workspace/decisions/` or `.project/decisions/`. To change a decision, create a new file.
 
-**Search**: When asked about past decisions or docs, search decisions/ and docs/ and answer with context.
+**Search**: When asked about past decisions or docs, search `workspace/decisions/`, `workspace/docs/`, and the relevant project's `.project/decisions/`, and answer with context.
 
 ## UI Navigation
 
