@@ -11,6 +11,116 @@ function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project';
 }
 
+// ─────────────────────────────────────────────────────────────
+// Project scaffolding templates
+// ─────────────────────────────────────────────────────────────
+// These templates are what agents see when they first read a project.
+// They must *explicitly* describe the .project/ structure — otherwise
+// agents don't know the scaffolding exists (dot-folders are hidden by
+// default listings) and the progress/decisions/heartbeat loop dies.
+
+function renderProjectAgentsMd(name: string, description: string): string {
+  return `# ${name}
+
+${description}
+
+## Project Memory
+
+This project has a self-evolving memory under \`.project/\`. **Use it.**
+
+- **\`.project/progress.md\`** — Work log. After any meaningful change
+  (files created/modified, decisions made, blockers hit, discoveries),
+  append a line: \`- YYYY-MM-DD: one-line summary\`. Even one line counts.
+- **\`.project/decisions/YYYY-MM-DD-<slug>.md\`** — Immutable decision
+  records. For significant choices, copy \`.template.md\` to a dated file
+  and fill it in. **Never edit an existing decision** — create a new file
+  that supersedes it.
+- **\`.project/state.json\`** — Heartbeat tracking. Managed by the system;
+  don't edit by hand.
+
+When progress.md accumulates enough new entries, the heartbeat service
+automatically proposes an AGENTS.md refresh. You can also trigger it
+manually with \`/agents-md --evolve\`.
+
+> Dot-folder note: \`.project/\` is hidden from casual \`ls\`. If you're
+> an agent exploring this project, check it explicitly — it's where the
+> project's memory lives.
+
+## Decisions — which folder?
+
+- Affects only this project → \`.project/decisions/\`
+- Affects multiple projects or team-wide policy → \`workspace/decisions/\`
+- Unsure → \`.project/decisions/\` (can be moved later)
+
+Decision files are immutable. To change a decision, create a new file
+with \`Status: supersedes <old-file>\`.
+
+## Context
+
+<!--
+Describe the project in enough detail that an agent opening this file
+for the first time understands:
+  - What this project is for
+  - Key files and where they live
+  - Conventions / rules specific to this project
+  - External references (docs, APIs, related projects)
+-->
+`;
+}
+
+function renderProgressSeed(today: string): string {
+  return `# Progress Log
+
+Append dated entries as work progresses. Format: \`- YYYY-MM-DD: one-line summary\`.
+This log feeds the heartbeat service, which proposes AGENTS.md refreshes
+once enough new entries accumulate.
+
+## Entries
+
+- ${today}: Project created.
+`;
+}
+
+function renderDecisionTemplate(): string {
+  return `<!--
+Decision record template.
+
+HOW TO USE:
+  1. Copy this file to \`YYYY-MM-DD-<slug>.md\` in this same directory.
+     Example: \`2026-04-10-use-postgres-over-sqlite.md\`
+  2. Fill in the sections below.
+  3. Commit / save. Do NOT edit later — decisions are immutable.
+  4. To change a decision, create a NEW file with
+     \`Status: supersedes <previous-file>\`.
+
+Keep decisions scoped to this project. Team-wide or cross-project
+decisions belong in \`workspace/decisions/\` instead.
+-->
+
+# [Decision title]
+
+**Date**: YYYY-MM-DD
+**Status**: proposed | accepted | superseded by <file>
+
+## Context
+
+What was the situation, and why did a decision need to be made?
+
+## Options
+
+- Option A — pros / cons
+- Option B — pros / cons
+
+## Decision
+
+What we chose.
+
+## Rationale
+
+Why this option over the alternatives. Include constraints and trade-offs.
+`;
+}
+
 import type { Project as ProjectBase } from '@tower/shared';
 
 export interface Project extends ProjectBase {
@@ -89,7 +199,8 @@ export async function createProject(
     const finalDir = fs.existsSync(projectDir) ? `${projectDir}-${id.slice(0, 8)}` : projectDir;
     fs.mkdirSync(finalDir, { recursive: true });
     // Create AGENTS.md (open standard) with project context + CLAUDE.md symlink for backward compat
-    const agentsMd = `# ${name}\n\n${opts?.description || 'Project context goes here. Edit this file to set instructions for all chats in this project.'}\n`;
+    const description = opts?.description || 'Project context goes here. Edit this section to describe the project\'s purpose, scope, and key rules.';
+    const agentsMd = renderProjectAgentsMd(name, description);
     const agentsMdPath = path.join(finalDir, 'AGENTS.md');
     if (!fs.existsSync(agentsMdPath)) {
       fs.writeFileSync(agentsMdPath, agentsMd, 'utf-8');
@@ -101,10 +212,11 @@ export async function createProject(
     const projectMetaDir = path.join(finalDir, '.project');
     if (!fs.existsSync(projectMetaDir)) {
       fs.mkdirSync(path.join(projectMetaDir, 'decisions'), { recursive: true });
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       fs.writeFileSync(path.join(projectMetaDir, 'progress.md'),
-        `# Progress Log\n\n<!-- Append dated entries as work progresses. -->\n<!-- This log feeds into AGENTS.md evolution. -->\n`, 'utf-8');
+        renderProgressSeed(today), 'utf-8');
       fs.writeFileSync(path.join(projectMetaDir, 'decisions', '.template.md'),
-        `# [제목]\n\n**날짜**: YYYY-MM-DD\n\n## 배경\n## 선택지\n## 결정\n## 이유\n`, 'utf-8');
+        renderDecisionTemplate(), 'utf-8');
       fs.writeFileSync(path.join(projectMetaDir, 'state.json'),
         JSON.stringify({ lastAgentsUpdate: null, lastProgressLine: 0, cycle: 0, changeLog: [] }, null, 2), 'utf-8');
     }

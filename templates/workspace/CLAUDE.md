@@ -37,6 +37,9 @@ Inviting someone to a project grants access to all of the above.
 
 1. **Know `principles.md`** — especially "Write it down" and "Record the why"
 2. **Search `decisions/` and `docs/`** before starting any task — check for prior art
+3. **If working inside a project** (cwd under `workspace/projects/<name>/`), skim
+   `.project/progress.md` and `.project/decisions/` for recent context. The
+   `.project/` folder is dot-hidden but it's where the project's memory lives.
 
 ### While Working
 
