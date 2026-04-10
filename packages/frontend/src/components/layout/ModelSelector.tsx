@@ -1,15 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useModelStore, type ModelOption } from '../../stores/model-store';
+import { type ModelOption, useSessionAwareModel } from '../../stores/model-store';
 
 export function ModelSelector() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const { availableModels, piModels, selectedModel, connectionType, setSelectedModel } = useModelStore();
 
-  const allModels = [...availableModels, ...piModels];
-  const current = allModels.find((m) => m.id === selectedModel)
-    || availableModels[0]
-    || { id: selectedModel, name: selectedModel.replace(/^pi:.*\//, '').replace(/-/g, ' '), badge: '' };
+  const {
+    effectiveSelected,
+    visibleClaudeModels,
+    visiblePiModels,
+    pick,
+  } = useSessionAwareModel();
+
+  const allVisible = [...visibleClaudeModels, ...visiblePiModels];
+  const current =
+    allVisible.find((m) => m.id === effectiveSelected) ||
+    allVisible[0] ||
+    {
+      id: effectiveSelected,
+      name: effectiveSelected.replace(/^pi:.*\//, '').replace(/-/g, ' '),
+      badge: '',
+    };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -21,19 +32,25 @@ export function ModelSelector() {
 
   if (!current) return null;
 
-  const hasPi = piModels.length > 0;
+  const hasPi = visiblePiModels.length > 0;
+  const hasClaude = visibleClaudeModels.length > 0;
+
+  const handlePick = (modelId: string) => {
+    pick(modelId);
+    setOpen(false);
+  };
 
   const renderModel = (model: ModelOption) => (
     <button
       key={model.id}
-      onClick={() => { setSelectedModel(model.id); setOpen(false); }}
+      onClick={() => handlePick(model.id)}
       className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
-        model.id === selectedModel
+        model.id === effectiveSelected
           ? 'bg-primary-600/15 text-primary-300'
           : 'text-gray-400 hover:bg-surface-800 hover:text-gray-200'
       }`}
     >
-      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === selectedModel ? 'bg-primary-400' : 'bg-surface-700'}`} />
+      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === effectiveSelected ? 'bg-primary-400' : 'bg-surface-700'}`} />
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium">{model.name}</div>
       </div>
@@ -77,21 +94,21 @@ export function ModelSelector() {
       {open && (
         <div className="absolute right-0 top-full mt-1 w-56 bg-surface-900 border border-surface-700 rounded-lg shadow-2xl shadow-black/40 overflow-hidden z-[100] animate-in fade-in slide-in-from-top-1 duration-150">
           {/* Claude Code group */}
-          {hasPi && (
+          {hasClaude && hasPi && (
             <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-surface-500 uppercase tracking-wider">
               Claude Code
             </div>
           )}
-          {availableModels.map(renderModel)}
+          {visibleClaudeModels.map(renderModel)}
 
           {/* Pi Agent group */}
           {hasPi && (
             <>
-              <div className="border-t border-surface-700/50 mx-2 my-1" />
+              {hasClaude && <div className="border-t border-surface-700/50 mx-2 my-1" />}
               <div className="px-3 pt-1 pb-1 text-[10px] font-semibold text-violet-400/70 uppercase tracking-wider">
                 Pi Agent
               </div>
-              {piModels.map(renderModel)}
+              {visiblePiModels.map(renderModel)}
             </>
           )}
         </div>

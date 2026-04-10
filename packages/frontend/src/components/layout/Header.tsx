@@ -4,7 +4,7 @@ import { useSessionStore } from '../../stores/session-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useRoomStore } from '../../stores/room-store';
 import { ModelSelector } from './ModelSelector';
-import { useModelStore } from '../../stores/model-store';
+import { useModelStore, useSessionAwareModel } from '../../stores/model-store';
 import { GitPanel } from '../git/GitPanel';
 import { NotificationBell } from './NotificationBell';
 import { useProjectStore } from '../../stores/project-store';
@@ -159,14 +159,24 @@ function ThemeToggle() {
 
 /* ─── Inline Model Selector (for hamburger menu) ─── */
 function ModelSelectorInline({ onClose }: { onClose: () => void }) {
-  const { availableModels, piModels, selectedModel, setSelectedModel } = useModelStore();
+  const {
+    effectiveSelected,
+    visibleClaudeModels,
+    visiblePiModels,
+    pick,
+  } = useSessionAwareModel();
   const [expanded, setExpanded] = React.useState(false);
-  const allModels = [...availableModels, ...piModels];
-  const current = allModels.find((m) => m.id === selectedModel)
-    || availableModels[0]
-    || { id: selectedModel, name: selectedModel.replace(/^pi:.*\//, '').replace(/-/g, ' '), badge: '' };
+  const allVisible = [...visibleClaudeModels, ...visiblePiModels];
+  const current = allVisible.find((m) => m.id === effectiveSelected)
+    || allVisible[0]
+    || { id: effectiveSelected, name: effectiveSelected.replace(/^pi:.*\//, '').replace(/-/g, ' '), badge: '' };
 
   if (!current) return null;
+
+  const handlePick = (modelId: string) => {
+    pick(modelId);
+    setExpanded(false);
+  };
 
   return (
     <div>
@@ -193,17 +203,17 @@ function ModelSelectorInline({ onClose }: { onClose: () => void }) {
       </button>
       {expanded && (
         <div className="mt-1.5 rounded-lg border border-surface-700/50 bg-surface-850 overflow-hidden">
-          {availableModels.map((model) => (
+          {visibleClaudeModels.map((model) => (
             <button
               key={model.id}
-              onClick={() => { setSelectedModel(model.id); setExpanded(false); }}
+              onClick={() => handlePick(model.id)}
               className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] transition-colors ${
-                model.id === selectedModel
+                model.id === effectiveSelected
                   ? 'bg-primary-600/15 text-primary-300'
                   : 'text-gray-400 hover:bg-surface-800 hover:text-gray-200'
               }`}
             >
-              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === selectedModel ? 'bg-primary-400' : 'bg-surface-700'}`} />
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === effectiveSelected ? 'bg-primary-400' : 'bg-surface-700'}`} />
               <span className="flex-1 text-left truncate">{model.name}</span>
               {model.badge && (
                 <span className={`text-[9px] font-bold px-1 py-px rounded shrink-0 ${
@@ -218,21 +228,21 @@ function ModelSelectorInline({ onClose }: { onClose: () => void }) {
               )}
             </button>
           ))}
-          {piModels.length > 0 && (
+          {visiblePiModels.length > 0 && (
             <>
-              <div className="border-t border-surface-700/50 mx-2 my-0.5" />
+              {visibleClaudeModels.length > 0 && <div className="border-t border-surface-700/50 mx-2 my-0.5" />}
               <div className="px-2.5 pt-1 pb-0.5 text-[9px] font-semibold text-violet-400/70 uppercase tracking-wider">Pi Agent</div>
-              {piModels.map((model) => (
+              {visiblePiModels.map((model) => (
                 <button
                   key={model.id}
-                  onClick={() => { setSelectedModel(model.id); setExpanded(false); }}
+                  onClick={() => handlePick(model.id)}
                   className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] transition-colors ${
-                    model.id === selectedModel
+                    model.id === effectiveSelected
                       ? 'bg-primary-600/15 text-primary-300'
                       : 'text-gray-400 hover:bg-surface-800 hover:text-gray-200'
                   }`}
                 >
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === selectedModel ? 'bg-primary-400' : 'bg-surface-700'}`} />
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === effectiveSelected ? 'bg-primary-400' : 'bg-surface-700'}`} />
                   <span className="flex-1 text-left truncate">{model.name}</span>
                   {model.badge && (
                     <span className={`text-[9px] font-bold px-1 py-px rounded shrink-0 ${

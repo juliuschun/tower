@@ -3,7 +3,22 @@ import { useWebSocket } from './useWebSocket';
 import { useChatStore, type ChatMessage, type SlashCommandInfo } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
-import { useModelStore, getModelIdForBackend } from '../stores/model-store';
+import { useModelStore, getModelIdForBackend, resolveEffectiveModel } from '../stores/model-store';
+
+/**
+ * Effective model for a chat send:
+ * - prefer the session's stored modelUsed
+ * - fall back to the global selectedModel
+ * Returned value is already backend-formatted (no `pi:` prefix).
+ */
+function effectiveModelForSend(sessionId: string | null | undefined): string {
+  const session = sessionId
+    ? useSessionStore.getState().sessions.find((s) => s.id === sessionId)
+    : null;
+  const global = useModelStore.getState().selectedModel;
+  const frontendId = resolveEffectiveModel(session, global);
+  return getModelIdForBackend(frontendId);
+}
 import { useGitStore } from '../stores/git-store';
 import { parseSDKMessage } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef, resolveAutoNameTarget, resolveSendSessionId, isServerRestarted } from '../utils/session-filters';
@@ -169,9 +184,10 @@ export function useClaudeChat() {
   const lastConnectTs = useRef<number>(0);
 
   const {
-    addMessage, setStreaming, setSessionId, setClaudeSessionId,
+    addMessage, setStreaming, setSessionId, setClaudeSessionId, setEngineSessionId,
     setSystemInfo, setCost, setSessionStartTime,
     setTurnStartTime,
+    setTurnPhase,
   } = useChatStore();
 
   const { setTree, setDirectoryChildren, handleFileChange } = useFileStore();
@@ -189,6 +205,10 @@ export function useClaudeChat() {
           useChatStore.getState().setTurnStartTime(null);
           useChatStore.getState().markPendingFailed();
           useChatStore.getState().setPendingQuestion(null);
+          const activeAfterRestart = useChatStore.getState().sessionId;
+          if (activeAfterRestart) {
+            useChatStore.getState().setTurnPhase(activeAfterRestart, 'error', { errorMessage: 'Server restarted' });
+          }
           currentAssistantMsg.current = null;
           // Clean up orphaned @ai streaming placeholders from all rooms
           const roomStore = useRoomStore.getState();
@@ -244,6 +264,7 @@ export function useClaudeChat() {
           const activeSid = useChatStore.getState().sessionId;
           if (activeSid && runningSessions.includes(activeSid)) {
             useChatStore.getState().setStreaming(true);
+            useChatStore.getState().setTurnPhase(activeSid, 'preparing');
             if (!useChatStore.getState().turnStartTime) {
               useChatStore.getState().setTurnStartTime(Date.now());
             }
@@ -262,6 +283,7 @@ export function useClaudeChat() {
             if (sid === currentSid) {
               useChatStore.getState().setStreaming(false);
               useChatStore.getState().setTurnStartTime(null);
+              useChatStore.getState().setTurnPhase(sid, 'idle', { pendingMessageCount: 0 });
             }
           }
         }
@@ -295,7 +317,7 @@ export function useClaudeChat() {
                 sessionId: sid,
                 claudeSessionId: session.claudeSessionId,
                 cwd: session.cwd,
-                model: useModelStore.getState().selectedModel,
+                model: effectiveModelForSend(sid),
               });
               useSessionStore.getState().setSessionStreaming(sid, true);
             }
@@ -307,6 +329,7 @@ export function useClaudeChat() {
       case 'reconnect_result': {
         if (data.status === 'streaming') {
           useChatStore.getState().setStreaming(true);
+          if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'preparing');
           // Restore live timer — use server timestamp if available, else now
           if (!useChatStore.getState().turnStartTime) {
             useChatStore.getState().setTurnStartTime(Date.now());
@@ -331,6 +354,7 @@ export function useClaudeChat() {
           useChatStore.getState().setStreaming(false);
           useChatStore.getState().setTurnStartTime(null);
           useChatStore.getState().setPendingQuestion(null);
+          if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
           safetyTimerFired.current = false;
           currentAssistantMsg.current = null;
           if (wasStreaming && data.sessionId) {
@@ -376,6 +400,7 @@ export function useClaudeChat() {
         // When switching TO a session that has active streaming, restore streaming state
         if (data.isStreaming) {
           useChatStore.getState().setStreaming(true);
+          if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'preparing');
           if (!useChatStore.getState().turnStartTime) {
             useChatStore.getState().setTurnStartTime(Date.now());
           }
@@ -391,6 +416,7 @@ export function useClaudeChat() {
           // state (from messages sent after the request) takes precedence.
           if (!useChatStore.getState().isStreaming) {
             useChatStore.getState().setTurnStartTime(null);
+            if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
           }
           // Fix stuck "running" indicator: if the server confirms this session is idle,
           // clear it from streamingSessions so the sidebar and InputBox agree.
@@ -444,11 +470,13 @@ export function useClaudeChat() {
           if (data.sessionId === currentSid) {
             useChatStore.getState().setStreaming(isStreamingNow);
             if (isStreamingNow) {
+              useChatStore.getState().setTurnPhase(data.sessionId, 'preparing');
               if (!useChatStore.getState().turnStartTime) {
                 useChatStore.getState().setTurnStartTime(Date.now());
               }
             } else {
               useChatStore.getState().setTurnStartTime(null);
+              useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
               const pendingQuestion = useChatStore.getState().pendingQuestion;
               if (pendingQuestion?.sessionId === data.sessionId) {
                 useChatStore.getState().setPendingQuestion(null);
@@ -472,7 +500,7 @@ export function useClaudeChat() {
                   sessionId: data.sessionId,
                   claudeSessionId: session?.claudeSessionId,
                   cwd: session?.cwd,
-                  model: useModelStore.getState().selectedModel,
+                  model: effectiveModelForSend(data.sessionId),
                 });
                 // Re-mark as streaming since we just sent a new message
                 useSessionStore.getState().setSessionStreaming(data.sessionId, true);
@@ -492,6 +520,7 @@ export function useClaudeChat() {
           if (data.sessionId === currentSid) {
             useChatStore.getState().setStreaming(false);
             useChatStore.getState().setTurnStartTime(null);
+            useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
           }
           // Queue drain will be triggered by InputBox's useEffect reacting to isStreaming → false
         }
@@ -523,6 +552,7 @@ export function useClaudeChat() {
           if (!shouldDropSessionMessage(curSid, data.sessionId)) {
             setSessionId(data.sessionId);
             setClaudeSessionId(sdkMsg.session_id);
+            setEngineSessionId(sdkMsg.session_id);
             // Start session timer if not already set
             if (!useChatStore.getState().sessionStartTime) {
               setSessionStartTime(Date.now());
@@ -592,7 +622,9 @@ export function useClaudeChat() {
 
         // Autocompact: compact_boundary fires right before compaction starts
         if (sdkMsg.type === 'system' && sdkMsg.subtype === 'compact_boundary') {
-          useChatStore.getState().setCompacting(useChatStore.getState().sessionId);
+          const sid = useChatStore.getState().sessionId;
+          useChatStore.getState().setCompacting(sid);
+          if (sid) useChatStore.getState().setTurnPhase(sid, 'compacting');
           return;
         }
 
@@ -601,6 +633,9 @@ export function useClaudeChat() {
           const sid = useChatStore.getState().sessionId;
           const wasCompacting = useChatStore.getState().compactingSessionId !== null;
           useChatStore.getState().setCompacting(sdkMsg.status === 'compacting' ? sid : null);
+          if (sid) {
+            useChatStore.getState().setTurnPhase(sid, sdkMsg.status === 'compacting' ? 'compacting' : 'streaming');
+          }
           // Insert compact divider when autocompact finishes (use backend markerId for dedup)
           if (wasCompacting && sdkMsg.status !== 'compacting') {
             const markerId = sdkMsg.compactMarkerId || `compact-${Date.now()}`;
@@ -631,6 +666,7 @@ export function useClaudeChat() {
         // (SDK may not send explicit status:null after compaction)
         if (sdkMsg.type === 'assistant' && useChatStore.getState().compactingSessionId !== null) {
           useChatStore.getState().setCompacting(null);
+          if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'streaming');
           // The status handler (or DB marker on next merge) handles the divider.
           // Only add a fallback marker if the last message isn't already a compact marker.
           const msgs = useChatStore.getState().messages;
@@ -649,6 +685,9 @@ export function useClaudeChat() {
         if (sdkMsg.type === 'assistant') {
           const parsed = parseSDKMessage(sdkMsg);
           const msgId = sdkMsg.uuid || generateUUID();
+
+          const hasToolUse = parsed.some((b) => b.type === 'tool_use');
+          useChatStore.getState().setTurnPhase(data.sessionId, hasToolUse ? 'tool_running' : 'streaming');
 
           // Reset ref if session changed since last assistant message
           if (shouldResetAssistantRef(currentAssistantSessionRef.current, data.sessionId)) {
@@ -790,9 +829,19 @@ export function useClaudeChat() {
         setTurnStartTime(null);
         useChatStore.getState().setCompacting(null);
         useChatStore.getState().setPendingQuestion(null);
+        if (data.sessionId) {
+          useChatStore.getState().setTurnPhase(data.sessionId, 'done', { pendingMessageCount: 0 });
+          setTimeout(() => {
+            const current = useChatStore.getState().turnStateBySession[data.sessionId];
+            if (current?.phase === 'done') {
+              useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
+            }
+          }, 1200);
+        }
         currentAssistantMsg.current = null;
         if (data.claudeSessionId) {
           setClaudeSessionId(data.claudeSessionId);
+          setEngineSessionId(data.claudeSessionId);
         }
         break;
       }
@@ -927,6 +976,11 @@ export function useClaudeChat() {
           questions: data.questions,
         });
         useChatStore.getState().setPendingQuestion(normalizedPendingQuestion);
+        if (data.sessionId) {
+          useChatStore.getState().setTurnPhase(data.sessionId, 'awaiting_user', {
+            pendingQuestionId: data.questionId,
+          });
+        }
         break;
       }
 
@@ -934,6 +988,7 @@ export function useClaudeChat() {
         const pq = useChatStore.getState().pendingQuestion;
         if (pq && pq.questionId === data.questionId) {
           useChatStore.getState().setPendingQuestion(null);
+          if (pq.sessionId) useChatStore.getState().setTurnPhase(pq.sessionId, 'preparing');
           toastWarning('응답 대기 시간이 초과되어 AI가 채팅으로 다시 질문합니다.');
         }
         break;
@@ -950,6 +1005,7 @@ export function useClaudeChat() {
           toastWarning('Message queued — waiting for current response');
           if (data.sessionId) {
             useSessionStore.getState().setSessionStreaming(data.sessionId, true);
+            useChatStore.getState().setTurnPhase(data.sessionId, 'queued');
             const activeSessionId = useChatStore.getState().sessionId;
             if (activeSessionId === data.sessionId) {
               useChatStore.getState().setStreaming(true);
@@ -965,6 +1021,9 @@ export function useClaudeChat() {
 
         setStreaming(false);
         useChatStore.getState().setCompacting(null);
+        if (data.sessionId) {
+          useChatStore.getState().setTurnPhase(data.sessionId, 'error', { errorMessage: data.message || 'Unknown error', pendingMessageCount: 0 });
+        }
         currentAssistantMsg.current = null;
         if (data.errorCode === 'RATE_LIMIT') {
           toastWarning(data.message || '요청이 너무 빠릅니다. 잠시 후 다시 시도해주세요.');
@@ -1328,7 +1387,7 @@ export function useClaudeChat() {
           useSessionStore.getState().removeSession(deletedId);
           // If the deleted session was the active one, clear chat store too.
           if (useChatStore.getState().sessionId === deletedId) {
-            useChatStore.setState({ sessionId: null, claudeSessionId: null, messages: [] });
+            useChatStore.setState({ sessionId: null, claudeSessionId: null, engineSessionId: null, messages: [], turnStateBySession: {} });
           }
         }
         break;
@@ -1357,18 +1416,18 @@ export function useClaudeChat() {
         break;
       }
     }
-  }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setSystemInfo, setCost, setSessionStartTime, setTurnStartTime, setTree, setDirectoryChildren, handleFileChange]);
+  }, [addMessage, setStreaming, setSessionId, setClaudeSessionId, setEngineSessionId, setSystemInfo, setCost, setSessionStartTime, setTurnStartTime, setTurnPhase, setTree, setDirectoryChildren, handleFileChange]);
 
   // Reconnect handler — send session context to backend for stream re-attachment
   const handleReconnect = useCallback(() => {
-    const { sessionId: sid, claudeSessionId: csid } = useChatStore.getState();
+    const { sessionId: sid, engineSessionId, claudeSessionId: csid } = useChatStore.getState();
     if (sid) {
       // Delay slightly to ensure 'connected' message is processed first
       setTimeout(() => {
         sendRef.current({
           type: 'reconnect',
           sessionId: sid,
-          claudeSessionId: csid,
+          claudeSessionId: engineSessionId || csid,
         });
       }, 50);
     }
@@ -1414,6 +1473,7 @@ export function useClaudeChat() {
         sendStatus: 'pending',
       });
 
+      setTurnPhase(activeSid, 'preparing', { pendingMessageCount: 0 });
       setStreaming(true);
       setTurnStartTime(Date.now());
       useChatStore.getState().setLastTurnMetrics(null);
@@ -1430,9 +1490,9 @@ export function useClaudeChat() {
         message,
         messageId,
         sessionId: activeSid,
-        claudeSessionId: useChatStore.getState().claudeSessionId,
+        claudeSessionId: useChatStore.getState().engineSessionId || useChatStore.getState().claudeSessionId,
         cwd,
-        model: getModelIdForBackend(useModelStore.getState().selectedModel),
+        model: effectiveModelForSend(activeSid),
       });
     },
     [send, addMessage, setStreaming, setTurnStartTime]
@@ -1450,6 +1510,7 @@ export function useClaudeChat() {
     setTurnStartTime(null);
     if (sessionId) {
       useSessionStore.getState().setSessionStreaming(sessionId, false);
+      useChatStore.getState().setTurnPhase(sessionId, 'idle', { pendingMessageCount: useChatStore.getState().messageQueue[sessionId]?.length || 0 });
     }
     useChatStore.getState().setCompacting(null);
     useChatStore.getState().setPendingQuestion(null);

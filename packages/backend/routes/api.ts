@@ -1024,7 +1024,7 @@ router.get('/sessions/:id', async (req, res) => {
 });
 
 router.patch('/sessions/:id', async (req, res) => {
-  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd, visibility } = req.body;
+  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd, visibility, modelUsed } = req.body;
   const userId = (req as any).user?.userId;
   const userRole = (req as any).user?.role;
 
@@ -1053,6 +1053,15 @@ router.patch('/sessions/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid directory path' });
     }
     updates.cwd = cwd;
+  }
+  // modelUsed: persist the user's per-session model choice.
+  // Validation is intentionally light — the ws-handler revalidates against
+  // the session's engine and falls back if the frontend sends something bad.
+  if (modelUsed !== undefined) {
+    if (modelUsed !== null && typeof modelUsed !== 'string') {
+      return res.status(400).json({ error: 'modelUsed must be a string or null' });
+    }
+    updates.modelUsed = modelUsed;
   }
   await updateSession(req.params.id as string, updates);
   // Broadcast to all clients so other users see changes in real-time
