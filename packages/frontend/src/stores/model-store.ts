@@ -118,8 +118,24 @@ export function useSessionAwareModel() {
     [sessions, activeSessionId],
   );
 
-  const effectiveSelected = resolveEffectiveModel(activeSession, selectedModel);
   const sessionEngine = activeSession?.engine as 'claude' | 'pi' | undefined;
+
+  // Resolve the model to display/send:
+  //  1. session's stored modelUsed (authoritative per-session choice)
+  //  2. if the active session is Pi but has no modelUsed yet, fall back to
+  //     the first registered Pi model (NOT the global default, which is
+  //     typically a Claude model — would render the wrong badge/name)
+  //  3. otherwise, the global selectedModel (new-session default)
+  const effectiveSelected = useMemo(() => {
+    const fromSession = modelIdFromSession(activeSession);
+    if (fromSession) return fromSession;
+    if (sessionEngine === 'pi' && piModels.length > 0) return piModels[0].id;
+    if (sessionEngine === 'claude' && availableModels.length > 0) {
+      // Only override global if it's a Pi model (engine mismatch guard)
+      if (selectedModel.startsWith('pi:')) return availableModels[0].id;
+    }
+    return selectedModel;
+  }, [activeSession, sessionEngine, piModels, availableModels, selectedModel]);
 
   const visibleClaudeModels =
     !sessionEngine || sessionEngine === 'claude' ? availableModels : [];

@@ -17,7 +17,7 @@ import { PromptEditor } from './components/prompts/PromptEditor';
 import { ResizeHandle, SidebarResizeHandle, DEFAULT_WIDTH, SIDEBAR_DEFAULT_WIDTH } from './components/layout/ResizeHandle';
 import { HorizontalResizeHandle } from './components/layout/HorizontalResizeHandle';
 import { MobileTabBar } from './components/layout/MobileTabBar';
-import { useClaudeChat } from './hooks/useClaudeChat';
+import { useChatRuntime } from './hooks/useChatRuntime';
 import { useOnboarding } from './hooks/useOnboarding';
 import { WhatsNewModal } from './components/onboarding/WhatsNewModal';
 import { useTheme } from './hooks/useTheme';
@@ -28,7 +28,7 @@ import { useFileStore } from './stores/file-store';
 import { usePinStore, type Pin } from './stores/pin-store';
 import { usePromptStore, type PromptItem } from './stores/prompt-store';
 import { useSettingsStore } from './stores/settings-store';
-import { useModelStore, getEngineFromModel } from './stores/model-store';
+import { useModelStore, getEngineFromModel, useSessionAwareModel } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
 import { useProjectStore } from './stores/project-store';
 import { useSpaceStore } from './stores/space-store'; // used via .getState()
@@ -103,7 +103,7 @@ function App() {
     localStorage.setItem('expandedPanelHeight', String(height));
   }, []);
 
-  const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, answerQuestion, connected, loadMoreMessages } = useClaudeChat();
+  const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, answerQuestion, connected, loadMoreMessages } = useChatRuntime();
   const { theme } = useTheme();
   const isMobileQuery = useMediaQuery('(max-width: 768px)');
   const isMobile = useSessionStore((s) => s.isMobile);
@@ -638,9 +638,11 @@ function App() {
       if (!res.ok) {
         // Fallback to WebSocket if HTTP fails
         requestFile(pin.file_path);
+        useFileStore.getState().setContextPanelTab('preview');
         return;
       }
       const data = await res.json();
+      useFileStore.getState().setContextPanelTab('preview');
       useFileStore.getState().setOpenFile({
         path: data.path,
         content: data.content,
@@ -653,6 +655,7 @@ function App() {
       }
     } catch {
       // Fallback to WebSocket
+      useFileStore.getState().setContextPanelTab('preview');
       requestFile(pin.file_path);
     }
   }, [token, requestFile]);
@@ -1181,11 +1184,17 @@ function App() {
 
 function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => void }) {
   const isStreaming = useChatStore((s) => s.isStreaming);
-  const sdkModel = useChatStore((s) => s.model);
-  const selectedModel = useModelStore((s) => s.selectedModel);
   const availableModels = useModelStore((s) => s.availableModels);
-  const currentModelInfo = availableModels.find((m) => m.id === selectedModel);
-  const model = sdkModel || currentModelInfo?.name || selectedModel;
+  const piModels = useModelStore((s) => s.piModels);
+  // Session-aware: prefer active session's stored modelUsed, fall back to
+  // the global selectedModel. Look up the pretty name in both Claude and
+  // Pi model lists — previously only searched availableModels, so Pi
+  // names came out as raw IDs; also ignored per-session state entirely,
+  // so the footer never changed when switching sessions.
+  const { effectiveSelected } = useSessionAwareModel();
+  const allModels = useMemo(() => [...availableModels, ...piModels], [availableModels, piModels]);
+  const currentModelInfo = allModels.find((m) => m.id === effectiveSelected);
+  const model = currentModelInfo?.name || effectiveSelected.replace(/^pi:.*\//, '').replace(/-/g, ' ');
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
