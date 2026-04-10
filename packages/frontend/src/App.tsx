@@ -787,6 +787,14 @@ function App() {
 
   const activeView = useSessionStore((s) => s.activeView);
 
+  // Files 탭을 떠날 때 side preview 자동 수납 (openFile/tabs 등 파일 상태는 유지)
+  // → AI 뷰에선 우측 ◀ 토글 버튼만 남고, Files 탭 복귀 시 원상 복구됨
+  useEffect(() => {
+    if (activeView !== 'files') {
+      useFileStore.getState().setContextPanelOpen(false);
+    }
+  }, [activeView]);
+
   // Global Ctrl+S handler (fallback when CodeMirror doesn't have focus)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
