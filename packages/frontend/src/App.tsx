@@ -306,6 +306,9 @@ function App() {
     if (useSessionStore.getState().activeView !== 'chat') {
       useSessionStore.getState().setActiveView('chat');
     }
+    if (useSessionStore.getState().sidebarTab !== 'sessions') {
+      useSessionStore.getState().setSidebarTab('sessions');
+    }
 
     // Skip if already on this session (but view switch above still runs)
     const currentId = useSessionStore.getState().activeSessionId;
