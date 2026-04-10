@@ -2313,11 +2313,14 @@ router.delete('/projects/:id/members/:uid', async (req, res) => {
 // ───── User Search (for member invitation) ─────
 
 router.get('/users/search', async (req, res) => {
+  // NOTE on limits: the invite dropdown filters by `!memberIds.includes(u.id)`
+  // on the client, so the empty-query branch MUST return every active user or
+  // large teams would silently lose alphabetically-late names. 1000 is a safe
+  // hard cap against runaway payloads; typed-search stays at 20.
   const q = (req.query.q as string || '').trim();
   if (!q) {
-    // Empty query: return all active users (for invite member list)
     const users = await query<{ id: number; username: string }>(
-      `SELECT id, username FROM users WHERE disabled = 0 ORDER BY username LIMIT 50`
+      `SELECT id, username FROM users WHERE disabled = 0 ORDER BY username LIMIT 1000`
     );
     return res.json(users);
   }
