@@ -5,6 +5,7 @@ import { type TaskMeta } from '../../stores/kanban-store';
 import { toastSuccess, toastError } from '../../utils/toast';
 
 type HistoryTab = 'sessions' | 'tasks';
+type SessionViewMode = 'recent' | 'grouped';
 
 interface ArchivedSession extends SessionMeta {}
 interface ArchivedTask extends TaskMeta {}
@@ -50,6 +51,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export function HistoryPanel() {
   const [tab, setTab] = useState<HistoryTab>('sessions');
+  const [viewMode, setViewMode] = useState<SessionViewMode>('recent');
   const [sessions, setSessions] = useState<ArchivedSession[]>([]);
   const [tasks, setTasks] = useState<ArchivedTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -141,7 +143,9 @@ export function HistoryPanel() {
     ? tasks.filter((t) => t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.description.toLowerCase().includes(searchQuery.toLowerCase()))
     : tasks;
 
-  // Group sessions by project
+  // Group sessions by project (for "By Project" view).
+  // Sort groups by most-recent session's updatedAt so the project you just
+  // deleted from floats to the top. Ungrouped sessions show as "No project".
   const groupedSessions = useMemo(() => {
     const groups = new Map<string | null, ArchivedSession[]>();
     for (const s of filteredSessions) {
@@ -150,18 +154,31 @@ export function HistoryPanel() {
       list.push(s);
       groups.set(key, list);
     }
-    // Sort: projects with names first, then ungrouped
-    const sorted: { projectId: string | null; name: string; sessions: ArchivedSession[] }[] = [];
+    const sorted: { projectId: string | null; name: string; sessions: ArchivedSession[]; mostRecent: number }[] = [];
     for (const [pid, list] of groups) {
-      sorted.push({ projectId: pid, name: pid ? (projectMap.get(pid) || 'Unknown') : 'temp', sessions: list });
+      // API already returns updated_at DESC, but sort defensively inside each group
+      list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+      const mostRecent = list[0]?.updatedAt ? new Date(list[0].updatedAt).getTime() : 0;
+      sorted.push({
+        projectId: pid,
+        name: pid ? (projectMap.get(pid) || 'Unknown project') : 'No project',
+        sessions: list,
+        mostRecent,
+      });
     }
-    sorted.sort((a, b) => {
-      if (a.projectId && !b.projectId) return -1;
-      if (!a.projectId && b.projectId) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    // Most recently-touched group first
+    sorted.sort((a, b) => b.mostRecent - a.mostRecent);
     return sorted;
   }, [filteredSessions, projectMap]);
+
+  // Flat list sorted by most-recent first (for "Recent" view).
+  // API returns updated_at DESC already, but sort defensively in case the
+  // store ever reorders them.
+  const recentSessions = useMemo(() => {
+    return [...filteredSessions].sort(
+      (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')
+    );
+  }, [filteredSessions]);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (key: string) => {
@@ -170,6 +187,56 @@ export function HistoryPanel() {
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
+  };
+
+  // Single row renderer — reused by Recent and By Project views.
+  // In Recent mode, `showProjectBadge` adds the project name so you can still
+  // tell where a session came from without the group header.
+  const renderSessionRow = (session: ArchivedSession, showProjectBadge: boolean) => {
+    const projectLabel = session.projectId
+      ? (projectMap.get(session.projectId) || 'Unknown project')
+      : 'No project';
+    return (
+      <div
+        key={session.id}
+        onClick={() => handleSessionClick(session)}
+        className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-800/60 transition-colors cursor-pointer"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="text-[12px] text-gray-400 truncate">{session.name}</div>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="text-[9px] text-surface-600">{relativeTime(session.updatedAt)}</span>
+            {showProjectBadge && (
+              <span className="text-[9px] text-surface-600 bg-surface-800 px-1 py-px rounded truncate max-w-[120px]">
+                {projectLabel}
+              </span>
+            )}
+            {session.turnCount ? <span className="text-[9px] text-surface-700">{session.turnCount}t</span> : null}
+            {session.totalCost > 0 && <span className="text-[9px] text-surface-700">${session.totalCost.toFixed(2)}</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); handleRestoreSession(session.id); }}
+            className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-green-400 transition-colors"
+            title="Restore"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleDeleteSessionPermanent(session.id); }}
+            className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-red-400 transition-colors"
+            title="Delete permanently"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -191,7 +258,7 @@ export function HistoryPanel() {
         </div>
 
         {/* Tab switcher — compact */}
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => setTab('sessions')}
             className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
@@ -212,6 +279,34 @@ export function HistoryPanel() {
           >
             Tasks ({tasks.length})
           </button>
+
+          {/* View mode toggle — only relevant for Sessions tab */}
+          {tab === 'sessions' && (
+            <div className="ml-auto flex gap-0.5 bg-surface-800 rounded p-0.5">
+              <button
+                onClick={() => setViewMode('recent')}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors ${
+                  viewMode === 'recent'
+                    ? 'bg-surface-700 text-gray-300'
+                    : 'text-surface-600 hover:text-gray-400'
+                }`}
+                title="Sort by most recent"
+              >
+                Recent
+              </button>
+              <button
+                onClick={() => setViewMode('grouped')}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors ${
+                  viewMode === 'grouped'
+                    ? 'bg-surface-700 text-gray-300'
+                    : 'text-surface-600 hover:text-gray-400'
+                }`}
+                title="Group by project"
+              >
+                By project
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -226,10 +321,16 @@ export function HistoryPanel() {
             <p className="text-[11px] text-surface-600 text-center py-8">
               {searchQuery ? 'No matching sessions' : 'No archived sessions'}
             </p>
+          ) : viewMode === 'recent' ? (
+            /* Flat list, sorted by most recent. Project shown as a badge. */
+            <div className="mt-1 space-y-0.5">
+              {recentSessions.map((session) => renderSessionRow(session, true))}
+            </div>
           ) : (
+            /* Grouped by project, groups ordered by most-recent session. */
             <div className="mt-1">
               {groupedSessions.map(({ projectId, name, sessions: groupSessions }) => {
-                const key = projectId || '__temp__';
+                const key = projectId || '__no_project__';
                 const collapsed = collapsedGroups.has(key);
                 return (
                   <div key={key} className="mb-1">
@@ -247,42 +348,7 @@ export function HistoryPanel() {
                     {/* Session items */}
                     {!collapsed && (
                       <div className="space-y-0.5">
-                        {groupSessions.map((session) => (
-                          <div
-                            key={session.id}
-                            onClick={() => handleSessionClick(session)}
-                            className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-800/60 transition-colors cursor-pointer"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[12px] text-gray-400 truncate">{session.name}</div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[9px] text-surface-600">{relativeTime(session.updatedAt)}</span>
-                                {session.turnCount ? <span className="text-[9px] text-surface-700">{session.turnCount}t</span> : null}
-                                {session.totalCost > 0 && <span className="text-[9px] text-surface-700">${session.totalCost.toFixed(2)}</span>}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleRestoreSession(session.id); }}
-                                className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-green-400 transition-colors"
-                                title="Restore"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                                </svg>
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteSessionPermanent(session.id); }}
-                                className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-red-400 transition-colors"
-                                title="Delete permanently"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                        {groupSessions.map((session) => renderSessionRow(session, false))}
                       </div>
                     )}
                   </div>
