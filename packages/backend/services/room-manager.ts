@@ -98,6 +98,27 @@ export function invalidateUsernameCache(userId?: number): void {
   }
 }
 
+// ── Room Members Cache (TTL) ─────────────────────────────────────────
+//
+// Room message handling calls getMembers() on every single inbound message
+// (for fan-out + @mention notifications). With 50 concurrent users this
+// trampled the PG pool. Memoize the result for a short TTL (5s) and
+// invalidate whenever members change.
+
+const MEMBER_CACHE_TTL_MS = 5_000;
+const memberCache = new Map<string, { expires: number; members: RoomMember[] }>();
+
+function invalidateMemberCache(roomId?: string): void {
+  if (roomId === undefined) {
+    memberCache.clear();
+  } else {
+    memberCache.delete(roomId);
+  }
+}
+
+/** Exported for callers that mutate members outside this module. */
+export { invalidateMemberCache };
+
 // ── Row → Domain Mappers ─────────────────────────────────────────────
 
 function rowToRoom(r: any): Room {
@@ -169,6 +190,7 @@ export async function createRoom(
     `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'owner')`,
     [room.id, createdBy],
   );
+  invalidateMemberCache(room.id);
 
   // Auto-add fellow group members (from SQLite groups)
   try {
@@ -217,6 +239,9 @@ export async function createRoom(
     }
   }
 
+  // Ensure cache reflects the final member roster for the new room.
+  invalidateMemberCache(room.id);
+
   return room;
 }
 
@@ -233,17 +258,40 @@ export async function listRooms(userId: number, role?: string): Promise<Room[]> 
   const userRole = role || (await queryOne<{ role: string }>('SELECT role FROM users WHERE id = $1', [userId]))?.role || 'member';
   const isAdmin = userRole === 'admin';
 
+  // 2026-04-10 (100-user scale): this function used to do N+1 queries per
+  // sidebar load (one INSERT per room for auto-join, plus one SELECT per
+  // non-project room for membership). For 100 users × 50 rooms that was
+  // ~5000 sequential round-trips. Rewritten to use batched multi-row
+  // INSERT + single batched SELECT below.
+
   // Admin: see all rooms, auto-join as admin
   if (isAdmin) {
     const { rows } = await pool.query(
       `SELECT * FROM chat_rooms WHERE (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
     );
-    for (const room of rows) {
-      await pool.query(
-        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`,
-        [room.id, userId],
-      );
+    if (rows.length === 0) return [];
+
+    // Batch INSERT — one round-trip for all rooms.
+    const placeholders: string[] = [];
+    const values: any[] = [];
+    rows.forEach((room, i) => {
+      const base = i * 2;
+      placeholders.push(`($${base + 1}, $${base + 2}, 'admin')`);
+      values.push(room.id, userId);
+    });
+
+    const r = await pool.query(
+      `INSERT INTO room_members (room_id, user_id, role)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT DO NOTHING
+       RETURNING room_id`,
+      values,
+    );
+    // Invalidate cache only for rooms we actually inserted into.
+    for (const row of r.rows) {
+      invalidateMemberCache(row.room_id);
     }
+
     return rows.map(rowToRoom);
   }
 
@@ -255,35 +303,54 @@ export async function listRooms(userId: number, role?: string): Promise<Room[]> 
   );
 
   const visible = rows.filter(r => {
-    // Room without project: must be explicit member
-    if (!r.project_id) return true; // will check room_members below
+    // Room without project: must be explicit member (checked below)
+    if (!r.project_id) return true;
     // Room with project: visible if user has project access
     if (accessibleIds === null) return true; // admin fallback
     return accessibleIds.includes(r.project_id);
   });
 
-  // Auto-join project rooms the user can see (so they appear in room_members)
-  // Only auto-join rooms WITH a project — non-project rooms require explicit invitation
-  for (const room of visible) {
-    if (room.project_id) {
-      await pool.query(
-        `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
-        [room.id, userId],
-      );
+  if (visible.length === 0) return [];
+
+  // Auto-join all project rooms the user can see — single batched INSERT.
+  const projectRooms = visible.filter(r => !!r.project_id);
+  if (projectRooms.length > 0) {
+    const placeholders: string[] = [];
+    const values: any[] = [];
+    projectRooms.forEach((room, i) => {
+      const base = i * 2;
+      placeholders.push(`($${base + 1}, $${base + 2}, 'member')`);
+      values.push(room.id, userId);
+    });
+
+    const r = await pool.query(
+      `INSERT INTO room_members (room_id, user_id, role)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT DO NOTHING
+       RETURNING room_id`,
+      values,
+    );
+    for (const row of r.rows) {
+      invalidateMemberCache(row.room_id);
     }
   }
 
-  // For non-project rooms, only return if user is already a member
+  // For non-project rooms, check membership for ALL of them in a single query.
+  const nonProjectRoomIds = visible.filter(r => !r.project_id).map(r => r.id);
+  let memberSet = new Set<string>();
+  if (nonProjectRoomIds.length > 0) {
+    const { rows: memberRows } = await pool.query(
+      `SELECT room_id FROM room_members WHERE user_id = $1 AND room_id = ANY($2::text[])`,
+      [userId, nonProjectRoomIds],
+    );
+    memberSet = new Set(memberRows.map((row: { room_id: string }) => row.room_id));
+  }
+
+  // Preserve original updated_at DESC order from the initial SELECT.
   const result: Room[] = [];
   for (const room of visible) {
-    if (room.project_id) {
+    if (room.project_id || memberSet.has(room.id)) {
       result.push(rowToRoom(room));
-    } else {
-      const { rows: memberRows } = await pool.query(
-        `SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2`,
-        [room.id, userId],
-      );
-      if (memberRows.length > 0) result.push(rowToRoom(room));
     }
   }
 
@@ -332,6 +399,7 @@ export async function deleteRoom(roomId: string): Promise<boolean> {
     'DELETE FROM chat_rooms WHERE id = $1',
     [roomId],
   );
+  invalidateMemberCache(roomId);
   return (rowCount ?? 0) > 0;
 }
 
@@ -350,6 +418,7 @@ export async function addMember(
      RETURNING *`,
     [roomId, userId, role],
   );
+  invalidateMemberCache(roomId);
   return await rowToMember(rows[0]);
 }
 
@@ -358,15 +427,24 @@ export async function removeMember(roomId: string, userId: number): Promise<bool
     'DELETE FROM room_members WHERE room_id = $1 AND user_id = $2',
     [roomId, userId],
   );
+  invalidateMemberCache(roomId);
   return (rowCount ?? 0) > 0;
 }
 
 export async function getMembers(roomId: string): Promise<RoomMember[]> {
+  const now = Date.now();
+  const cached = memberCache.get(roomId);
+  if (cached && cached.expires > now) {
+    return cached.members;
+  }
+
   const { rows } = await getPgPool().query(
     'SELECT * FROM room_members WHERE room_id = $1 ORDER BY joined_at ASC',
     [roomId],
   );
-  return await Promise.all(rows.map(rowToMember));
+  const members = await Promise.all(rows.map(rowToMember));
+  memberCache.set(roomId, { expires: now + MEMBER_CACHE_TTL_MS, members });
+  return members;
 }
 
 export async function updateMemberRole(
@@ -379,6 +457,7 @@ export async function updateMemberRole(
     'UPDATE room_members SET role = $1 WHERE room_id = $2 AND user_id = $3',
     [role, roomId, userId],
   );
+  invalidateMemberCache(roomId);
   return (rowCount ?? 0) > 0;
 }
 
@@ -689,6 +768,52 @@ export async function createNotification(
     [id, userId, roomId, type, title, body ?? null, JSON.stringify(metadata ?? {})],
   );
   return id;
+}
+
+/**
+ * Batch notification insert — one round-trip for N recipients.
+ * Returns array of { userId, notifId } in the same order as the input.
+ *
+ * Added 2026-04-10: previously, notifying N room members did N sequential
+ * INSERTs. At 50 members this serialized into a multi-second critical path.
+ */
+export async function createNotificationsBatch(
+  recipients: Array<{
+    userId: number;
+    roomId: string | null;
+    type: string;
+    title: string;
+    body?: string;
+    metadata?: Record<string, unknown>;
+  }>,
+): Promise<Array<{ userId: number; notifId: string }>> {
+  if (recipients.length === 0) return [];
+
+  const rows: string[] = [];
+  const vals: any[] = [];
+  const result: Array<{ userId: number; notifId: string }> = [];
+  let i = 1;
+  for (const r of recipients) {
+    const id = uuidv4();
+    result.push({ userId: r.userId, notifId: id });
+    rows.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}::jsonb)`);
+    vals.push(
+      id,
+      r.userId,
+      r.roomId,
+      r.type,
+      r.title,
+      r.body ?? null,
+      JSON.stringify(r.metadata ?? {}),
+    );
+  }
+
+  await getPgPool().query(
+    `INSERT INTO notifications (id, user_id, room_id, notif_type, title, body, metadata)
+     VALUES ${rows.join(', ')}`,
+    vals,
+  );
+  return result;
 }
 
 export async function getNotifications(

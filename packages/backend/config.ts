@@ -134,7 +134,9 @@ export const config = {
   permissionMode: (process.env.PERMISSION_MODE || 'bypassPermissions') as PermissionMode,
 
   // Concurrency
-  maxConcurrentSessions: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '30'),
+  // 2026-04-10 (100-user scale): default raised 30 → 50 so that up to half of
+  // a 100-user team can have an active Claude session running simultaneously.
+  maxConcurrentSessions: parseInt(process.env.MAX_CONCURRENT_SESSIONS || '50'),
 
   // Auth
   jwtSecret: process.env.JWT_SECRET || 'tower-secret-change-me',

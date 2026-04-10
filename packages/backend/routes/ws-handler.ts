@@ -1384,23 +1384,27 @@ async function handleRoomMessage(client: WsClient, data: { roomId: string; conte
     }
     if (mentionedUsernames.size > 0) {
       try {
-        const { notify } = await import('../services/notification-hub.js');
+        const { notifyMany } = await import('../services/notification-hub.js');
         const { getRoom: getRoomForMention } = await import('../services/room-manager.js');
         const mentionRoom = await getRoomForMention(data.roomId);
         const roomName = mentionRoom?.name || 'a room';
 
-        for (const member of members) {
-          if (member.userId === client.userId) continue; // don't notify self
-          if (mentionedUsernames.has(member.username.toLowerCase())) {
-            await notify(
-              member.userId,
-              data.roomId,
-              'mention',
-              `${client.username || 'Someone'} mentioned you in #${roomName}`,
-              data.content.length > 100 ? data.content.slice(0, 100) + '...' : data.content,
-              { senderId: client.userId, senderName: client.username, messageId },
-            );
-          }
+        // Collect all mentioned user IDs (skip self) then notify in a single batch.
+        // Previously this was a sequential `await notify()` loop — at 50 members
+        // with heavy mentions that stalled the PG pool for hundreds of ms.
+        const mentionedUserIds = members
+          .filter(m => m.userId !== client.userId && mentionedUsernames.has(m.username.toLowerCase()))
+          .map(m => m.userId);
+
+        if (mentionedUserIds.length > 0) {
+          await notifyMany(
+            mentionedUserIds,
+            data.roomId,
+            'mention',
+            `${client.username || 'Someone'} mentioned you in #${roomName}`,
+            data.content.length > 100 ? data.content.slice(0, 100) + '...' : data.content,
+            { senderId: client.userId, senderName: client.username, messageId },
+          );
         }
       } catch (mentionErr: any) {
         console.error('[ws] mention notification error:', mentionErr.message);

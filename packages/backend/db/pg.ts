@@ -20,11 +20,17 @@ export function getPgPool(): Pool {
     if (!connectionString) {
       throw new Error('DATABASE_URL is not set. Chat rooms require PostgreSQL.');
     }
+    // Pool size raised 20 → 50 → 80 (2026-04-10 decision: realtime-sync-and-scale,
+    // then 100-user scale follow-up the same day).
+    // Rationale: at 100 concurrent users with active rooms, each room message fans out
+    // to member queries + notification inserts. At max=50 the connection queue still
+    // saturated under admin sidebar loads (listRooms N+1) + simultaneous message writes.
+    // idleTimeout and connectionTimeout raised to absorb burst latency.
     pool = new Pool({
       connectionString,
-      max: 20,               // connection pool size
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      max: 80,                        // connection pool size (100-user target)
+      idleTimeoutMillis: 45000,       // keep warm connections longer under burst load
+      connectionTimeoutMillis: 8000,  // allow slower acquires before erroring out
     });
 
     pool.on('error', (err) => {

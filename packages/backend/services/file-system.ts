@@ -266,6 +266,27 @@ let watcher: FSWatcher | null = null;
 export type FileChangeEvent = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
 export type FileChangeCallback = (event: FileChangeEvent, filePath: string) => void;
 
+/**
+ * Debounce window for coalescing a burst of chokidar events per path.
+ *
+ * 2026-04-10 (100-user scale): without this, a single `git checkout` or a
+ * webpack-style rebuild can fire dozens of events on the same file. Each event
+ * previously fanned out to every connected WS client — with 100 clients that
+ * produces thousands of messages in <100ms and blocks the event loop.
+ *
+ * We use a "first event starts the timer, no-reset" pattern so that a continuous
+ * stream of writes still flushes every FILE_WATCHER_DEBOUNCE_MS instead of
+ * starving forever (which is what clearTimeout-on-every-event would cause).
+ */
+const FILE_WATCHER_DEBOUNCE_MS = 150;
+
+type PendingFileEvent = {
+  event: FileChangeEvent;
+  timer: NodeJS.Timeout;
+};
+
+const pendingFileEvents = new Map<string, PendingFileEvent>();
+
 export function setupFileWatcher(rootPath: string, onChange: FileChangeCallback): void {
   if (watcher) return;
 
@@ -283,12 +304,45 @@ export function setupFileWatcher(rootPath: string, onChange: FileChangeCallback)
     depth: 3,
     ignoreInitial: true,
     persistent: true,
+    // Wait until the file size is stable before emitting — prevents half-written
+    // files from firing multiple `change` events during a large save.
+    awaitWriteFinish: {
+      stabilityThreshold: 100,
+      pollInterval: 100,
+    },
   });
 
   const events: FileChangeEvent[] = ['add', 'change', 'unlink', 'addDir', 'unlinkDir'];
+
+  const scheduleEmit = (event: FileChangeEvent, filePath: string) => {
+    const existing = pendingFileEvents.get(filePath);
+    if (existing) {
+      // A timer is already running for this path — update the latest event type
+      // (so `add` → `change` → `unlink` collapses to the final state) but do NOT
+      // reset the timer. This guarantees a flush every debounce window even
+      // under continuous writes.
+      existing.event = event;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const entry = pendingFileEvents.get(filePath);
+      pendingFileEvents.delete(filePath);
+      if (entry) {
+        try {
+          onChange(entry.event, filePath);
+        } catch (err) {
+          console.error('[FileWatcher] onChange threw:', err);
+        }
+      }
+    }, FILE_WATCHER_DEBOUNCE_MS);
+
+    pendingFileEvents.set(filePath, { event, timer });
+  };
+
   for (const event of events) {
     watcher.on(event, (filePath: string) => {
-      onChange(event, filePath);
+      scheduleEmit(event, filePath);
     });
   }
 
@@ -296,13 +350,18 @@ export function setupFileWatcher(rootPath: string, onChange: FileChangeCallback)
     console.error('[FileWatcher] error:', err instanceof Error ? err.message : err);
   });
 
-  console.log(`[FileWatcher] watching ${rootPath}`);
+  console.log(`[FileWatcher] watching ${rootPath} (debounce ${FILE_WATCHER_DEBOUNCE_MS}ms)`);
 }
 
 export function stopFileWatcher(): void {
   if (watcher) {
     watcher.close();
     watcher = null;
+    // Drain any pending debounce timers so shutdown is clean.
+    for (const { timer } of pendingFileEvents.values()) {
+      clearTimeout(timer);
+    }
+    pendingFileEvents.clear();
     console.log('[FileWatcher] stopped');
   }
 }

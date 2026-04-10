@@ -5,7 +5,7 @@
  * All notification creation should flow through this module.
  */
 
-import { createNotification } from './room-manager.js';
+import { createNotification, createNotificationsBatch } from './room-manager.js';
 import { isPgEnabled } from '../db/pg.js';
 
 export type BroadcastFn = (type: string, data: any) => void;
@@ -57,6 +57,55 @@ export async function notify(
 }
 
 /**
+ * Notify a batch of users with the same title/body but distinct user IDs.
+ * Does a single INSERT round-trip (batch) and then fans out WS messages.
+ *
+ * Added 2026-04-10: previously `notifyRoomMembers` did N sequential awaits.
+ */
+export async function notifyMany(
+  userIds: number[],
+  roomId: string | null,
+  type: string,
+  title: string,
+  body?: string,
+  metadata?: Record<string, unknown>,
+): Promise<string[]> {
+  if (userIds.length === 0) return [];
+
+  let ids: Array<{ userId: number; notifId: string }>;
+  if (isPgEnabled()) {
+    ids = await createNotificationsBatch(
+      userIds.map(userId => ({ userId, roomId, type, title, body, metadata })),
+    );
+  } else {
+    ids = userIds.map(userId => ({
+      userId,
+      notifId: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }));
+  }
+
+  const createdAt = new Date().toISOString();
+  for (const { userId, notifId } of ids) {
+    broadcastFn?.('notification', {
+      targetUserId: userId,
+      notification: {
+        id: notifId,
+        userId,
+        roomId,
+        type,
+        title,
+        body: body ?? null,
+        metadata: metadata ?? {},
+        read: false,
+        createdAt,
+      },
+    });
+  }
+
+  return ids.map(x => x.notifId);
+}
+
+/**
  * Notify all members of a room.
  * Optionally exclude a user (e.g. the sender).
  */
@@ -71,8 +120,9 @@ export async function notifyRoomMembers(
   const { getMembers } = await import('./room-manager.js');
   const members = await getMembers(roomId);
 
-  for (const member of members) {
-    if (member.userId === excludeUserId) continue;
-    await notify(member.userId, roomId, type, title, body, metadata);
-  }
+  const targets = members
+    .filter(m => m.userId !== excludeUserId)
+    .map(m => m.userId);
+
+  await notifyMany(targets, roomId, type, title, body, metadata);
 }
