@@ -57,24 +57,34 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
   const [replies, setReplies] = useState<Record<string, string>>({});
   const [sentSessions, setSentSessions] = useState<Set<string>>(new Set());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set()); // mark-as-read → disappear
+  const [exitingIds, setExitingIds] = useState<Set<string>>(new Set()); // animating out
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const currentUsername = useMemo(() => localStorage.getItem('username') || '', []);
 
+  // Animate-then-dismiss helper
+  const animateDismiss = useCallback((sessionId: string) => {
+    setExitingIds((prev) => new Set(prev).add(sessionId));
+    setTimeout(() => {
+      setDismissedIds((prev) => new Set(prev).add(sessionId));
+      setExitingIds((prev) => { const next = new Set(prev); next.delete(sessionId); return next; });
+    }, 350); // match animation duration
+  }, []);
+
   // ── Two sections ──
   const unreads = useMemo(() =>
     sessions
-      .filter((s) => unreadSessions.has(s.id) && !streamingSessions.has(s.id) && s.ownerUsername === currentUsername && !dismissedIds.has(s.id))
+      .filter((s) => unreadSessions.has(s.id) && (!streamingSessions.has(s.id) || exitingIds.has(s.id)) && s.ownerUsername === currentUsername && !dismissedIds.has(s.id))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()), // newest first (inbox style)
-    [sessions, unreadSessions, streamingSessions, currentUsername, dismissedIds]
+    [sessions, unreadSessions, streamingSessions, currentUsername, dismissedIds, exitingIds]
   );
 
   const recentIdle = useMemo(() =>
     sessions
-      .filter((s) => !unreadSessions.has(s.id) && !streamingSessions.has(s.id) && s.ownerUsername === currentUsername && !dismissedIds.has(s.id))
+      .filter((s) => !unreadSessions.has(s.id) && (!streamingSessions.has(s.id) || exitingIds.has(s.id)) && s.ownerUsername === currentUsername && !dismissedIds.has(s.id))
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()) // newest first
       .slice(0, RECENT_IDLE_LIMIT), // take first N (most recent)
-    [sessions, unreadSessions, streamingSessions, currentUsername]
+    [sessions, unreadSessions, streamingSessions, currentUsername, dismissedIds, exitingIds]
   );
 
   const allVisibleIds = useMemo(() => {
@@ -190,15 +200,17 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
     const ok = sendToSession(session.id, text);
     if (ok) {
       markSessionRead(session.id);
-      // Show user's message in the card
+      // Show user's message in the card briefly, then animate out
       setLastMessages((prev) => ({
         ...prev,
         [session.id]: { sessionId: session.id, content: text, role: 'user', loadedAt: Date.now() },
       }));
       setSentSessions((prev) => new Set(prev).add(session.id));
       setReplies((prev) => ({ ...prev, [session.id]: '' }));
+      // Animate dismiss after a brief moment so user sees "Sent" state
+      setTimeout(() => animateDismiss(session.id), 400);
     }
-  }, [markSessionRead]);
+  }, [markSessionRead, animateDismiss]);
 
   const isEmpty = unreads.length === 0 && recentIdle.length === 0;
 
@@ -254,22 +266,25 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
           const isStreaming = streamingSessions.has(session.id);
           const wasSent = sentSessions.has(session.id);
 
+          const isExiting = exitingIds.has(session.id);
+
           return (
-            <InboxCard
-              key={session.id}
-              session={session}
-              projectName={project?.name}
-              lastMessage={msg}
-              replyText={replyText}
-              isUnread={isUnread}
-              isStreaming={isStreaming}
-              wasSent={wasSent}
-              onReplyChange={(text) => setReplies((prev) => ({ ...prev, [session.id]: text }))}
-              onOpenSession={() => openSession(session)}
-              onMarkRead={() => { markSessionRead(session.id); setDismissedIds((prev) => new Set(prev).add(session.id)); }}
-              onArchive={() => handleArchive(session.id)}
-              onSendReply={(text) => handleSendReply(session, text)}
-            />
+            <div key={session.id} className={isExiting ? 'inbox-card-exit' : ''}>
+              <InboxCard
+                session={session}
+                projectName={project?.name}
+                lastMessage={msg}
+                replyText={replyText}
+                isUnread={isUnread}
+                isStreaming={isStreaming}
+                wasSent={wasSent}
+                onReplyChange={(text) => setReplies((prev) => ({ ...prev, [session.id]: text }))}
+                onOpenSession={() => openSession(session)}
+                onMarkRead={() => { markSessionRead(session.id); animateDismiss(session.id); }}
+                onArchive={() => handleArchive(session.id)}
+                onSendReply={(text) => handleSendReply(session, text)}
+              />
+            </div>
           );
         })}
       </div>

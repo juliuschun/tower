@@ -660,6 +660,18 @@ code, pre, .font-mono {
   border-color: var(--th-q-pending-btn-hover-border) !important;
 }
 
+/* ─── Inbox card exit animation ─── */
+@keyframes inboxCardExit {
+  0% { opacity: 1; transform: translateY(0) scale(1); max-height: 600px; margin-bottom: 16px; }
+  50% { opacity: 0.3; transform: translateY(-12px) scale(0.97); }
+  100% { opacity: 0; transform: translateY(-24px) scale(0.95); max-height: 0; margin-bottom: 0; padding: 0; overflow: hidden; }
+}
+
+.inbox-card-exit {
+  animation: inboxCardExit 0.35s ease-out forwards;
+  pointer-events: none;
+}
+
 /* ─── Floating card slide-up ─── */
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(12px); }
