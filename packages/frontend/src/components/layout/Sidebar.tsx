@@ -435,15 +435,15 @@ export function Sidebar({
                     useSessionStore.getState().setSidebarOpen(false);
                   }
                 }}
-                className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-surface-850 active:bg-surface-800 transition-colors group/inbox"
-                title="Inbox"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-surface-850 active:bg-surface-800 transition-colors group/inbox"
+                title={t('inboxTitle')}
               >
                 <svg className={`w-3.5 h-3.5 shrink-0 transition-colors ${doneCount > 0 ? 'text-primary-400' : 'text-surface-600 group-hover/inbox:text-surface-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
                 </svg>
-                <span className={`text-[14px] font-semibold transition-colors ${doneCount > 0 ? 'text-gray-300' : 'text-surface-500 group-hover/inbox:text-surface-400'}`}>{t('inbox')}</span>
+                <span className={`text-[12px] font-medium transition-colors ${doneCount > 0 ? 'text-gray-300' : 'text-surface-500 group-hover/inbox:text-surface-400'}`}>{t('inbox')}</span>
                 {doneCount > 0 && (
-                  <span className="text-[14px] font-bold text-primary-400 bg-primary-500/15 rounded-full px-1.5 py-px leading-tight">
+                  <span className="text-[11px] font-bold text-primary-400 bg-primary-500/15 rounded-full px-1.5 py-px leading-tight">
                     {doneCount}
                   </span>
                 )}
@@ -452,13 +452,13 @@ export function Sidebar({
           })()}
           <button
             onClick={() => onNewSession(activeSession?.projectId || undefined)}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-surface-850 active:bg-surface-800 transition-colors group/new"
-            title="New chat"
+            className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-surface-850 active:bg-surface-800 transition-colors group/new"
+            title={t('newChatTitle')}
           >
             <svg className="w-3.5 h-3.5 text-surface-600 group-hover/new:text-surface-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            <span className="text-[14px] font-semibold text-surface-500 group-hover/new:text-surface-400 transition-colors">{t('new')}</span>
+            <span className="text-[12px] font-medium text-surface-500 group-hover/new:text-surface-400 transition-colors">{t('new')}</span>
           </button>
           <div className="flex-1" />
           <div className="relative">
@@ -469,7 +469,7 @@ export function Sidebar({
                   ? 'text-primary-400 bg-primary-500/10'
                   : 'text-surface-600 hover:text-surface-400 hover:bg-surface-850'
               }`}
-              title="Filters"
+              title={t('filters')}
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
@@ -496,7 +496,7 @@ export function Sidebar({
             )}
           </div>
           {onCollapseSidebar && (
-            <button onClick={onCollapseSidebar} className="p-1.5 text-surface-600 hover:text-surface-400 hover:bg-surface-850 rounded-md transition-colors" title="Hide sidebar">
+            <button onClick={onCollapseSidebar} className="p-1.5 text-surface-600 hover:text-surface-400 hover:bg-surface-850 rounded-md transition-colors" title={t('hideSidebar')}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
