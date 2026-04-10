@@ -38,6 +38,7 @@ SSL_MODE="cloudflare"
 CERTBOT_EMAIL=""
 EXISTING_HOST=""
 SKIP_VM_CREATE="false"
+TIER="recommended"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --certbot-email) CERTBOT_EMAIL="$2"; shift 2 ;;
     --existing-host) EXISTING_HOST="$2"; SKIP_VM_CREATE="true"; shift 2 ;;
     --skip-vm-create) SKIP_VM_CREATE="true"; shift ;;
+    --tier) TIER="$2"; shift 2 ;;
     -h|--help)
       cat <<'EOF'
 Usage: bash scripts/azure/deploy-e2e.sh [options]
@@ -202,7 +204,7 @@ REMOTE_CMD=$(cat <<EOF
 set -euo pipefail
 chmod +x /tmp/bootstrap-tower-prod.sh
 export ${REMOTE_ENV[*]}
-bash /tmp/bootstrap-tower-prod.sh --repo-url "$REPO_URL" --domain "$DOMAIN" --ssl-mode "$SSL_MODE" ${CERTBOT_EMAIL:+--certbot-email "$CERTBOT_EMAIL"}
+bash /tmp/bootstrap-tower-prod.sh --repo-url "$REPO_URL" --domain "$DOMAIN" --ssl-mode "$SSL_MODE" --tier "$TIER" ${CERTBOT_EMAIL:+--certbot-email "$CERTBOT_EMAIL"}
 EOF
 )
 

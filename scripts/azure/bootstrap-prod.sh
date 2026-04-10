@@ -72,6 +72,7 @@ SSL_MODE="cloudflare"
 CERTBOT_EMAIL=""
 SKIP_NGINX="false"
 SKIP_BUILD="false"
+TIER="recommended"  # essential | recommended | full
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -84,6 +85,7 @@ while [[ $# -gt 0 ]]; do
     --certbot-email) CERTBOT_EMAIL="$2"; shift 2 ;;
     --skip-nginx) SKIP_NGINX="true"; shift ;;
     --skip-build) SKIP_BUILD="true"; shift ;;
+    --tier) TIER="$2"; shift 2 ;;
     -h|--help)
       cat <<'EOF'
 Usage: bash scripts/azure/bootstrap-prod.sh [options]
@@ -98,8 +100,14 @@ Optional:
   --port <port>                  Default: 32364
   --ssl-mode <cloudflare|certbot|none>  Default: cloudflare
   --certbot-email <email>        Required when --ssl-mode certbot
+  --tier <essential|recommended|full>   Default: recommended
   --skip-nginx                   Skip nginx configuration
   --skip-build                   Skip npm build + prod-start
+
+Tiers:
+  essential    — Node, PM2, Claude CLI, nginx (minimum to run Tower)
+  recommended  — + Chromium, Playwright, Python3 pip, cron jobs (default)
+  full         — + Docker, yq, htop, all monitoring tools
 
 Secrets / optional env vars:
   ANTHROPIC_API_KEY
@@ -299,12 +307,146 @@ fi
 pm2 save >/dev/null 2>&1 || true
 sudo env PATH="$PATH" pm2 startup systemd -u "$USER" --hp "$HOME" >/tmp/pm2-startup.log 2>&1 || true
 
+# =========================================================================
+# Tier 2: Recommended — browser automation, python, cron jobs
+# =========================================================================
+if [[ "$TIER" == "recommended" || "$TIER" == "full" ]]; then
+  info "=== Tier 2: Recommended extras ==="
+
+  # --- Chromium (snap) ---
+  if ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+    info "Installing Chromium via snap"
+    sudo snap install chromium 2>/dev/null || warn "snap not available — skipping Chromium"
+  else
+    info "Chromium already installed"
+  fi
+
+  # --- Playwright browsers (for Claude Code browser automation) ---
+  if [[ ! -d "$HOME/.cache/ms-playwright" ]]; then
+    info "Installing Playwright browsers + system deps"
+    npx playwright install chromium --with-deps 2>/dev/null || warn "Playwright install failed — browser skills may not work"
+  else
+    info "Playwright browsers already installed"
+  fi
+
+  # --- Python3 pip ---
+  if ! command -v pip3 >/dev/null 2>&1; then
+    info "Installing python3-pip"
+    sudo apt install -y python3-pip
+  else
+    info "pip3 already installed"
+  fi
+
+  # --- Cron: Claude task cleanup (every 30 min) ---
+  CLEANUP_SCRIPT="$HOME/.claude/cleanup-tasks.sh"
+  mkdir -p "$HOME/.claude"
+  cat > "$CLEANUP_SCRIPT" <<'CLEANUP'
+#!/bin/bash
+# Claude task directory cleanup — remove orphan task dirs older than 2 hours
+TASKS_DIR=~/.claude/tasks
+[[ -d "$TASKS_DIR" ]] || exit 0
+find "$TASKS_DIR" -mindepth 1 -maxdepth 1 -type d -mmin +120 | while read dir; do
+  dir_name=$(basename "$dir")
+  if lsof +D "$dir" 2>/dev/null | grep -q claude; then
+    echo "[$(date '+%H:%M')] Skipping active: $dir_name" >> ~/.claude/cleanup-tasks.log
+  else
+    echo "[$(date '+%H:%M')] Removing orphan: $dir_name" >> ~/.claude/cleanup-tasks.log
+    rm -rf "$dir"
+  fi
+done
+CLEANUP
+  chmod +x "$CLEANUP_SCRIPT"
+
+  # --- Cron: Tower selfheal (every 5 min) ---
+  SELFHEAL_SCRIPT="$APP_DIR/scripts/auto-selfheal-prod.sh"
+  cat > "$SELFHEAL_SCRIPT" <<SELFHEAL
+#!/bin/bash
+# Tower prod auto-selfheal — restart if port $PORT is not listening
+LOG="\$HOME/logs/tower-selfheal.log"
+mkdir -p "\$HOME/logs"
+if ! ss -tlnp | grep -q ":$PORT "; then
+  echo "\$(date '+%Y-%m-%d %H:%M:%S') [HEAL] Port $PORT not listening — restarting tower-prod" >> "\$LOG"
+  cd $APP_DIR && pm2 restart tower-prod 2>&1 >> "\$LOG"
+else
+  # Only log every hour to avoid noise
+  minute=\$(date +%M)
+  if [[ "\$minute" == "00" ]]; then
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') [OK] tower-prod healthy" >> "\$LOG"
+  fi
+fi
+# Log rotation
+if [[ -f "\$LOG" ]] && [[ \$(wc -l < "\$LOG") -gt 500 ]]; then
+  tail -n 250 "\$LOG" > "\${LOG}.tmp" && mv "\${LOG}.tmp" "\$LOG"
+fi
+SELFHEAL
+  chmod +x "$SELFHEAL_SCRIPT"
+
+  # --- Register cron jobs (idempotent) ---
+  CRON_TMP=$(mktemp)
+  crontab -l 2>/dev/null > "$CRON_TMP" || true
+
+  add_cron() {
+    local schedule="$1"
+    local cmd="$2"
+    if ! grep -qF "$cmd" "$CRON_TMP"; then
+      echo "$schedule $cmd" >> "$CRON_TMP"
+      info "Cron added: $schedule $cmd"
+    else
+      info "Cron already exists: $cmd"
+    fi
+  }
+
+  add_cron "*/30 * * * *" "$CLEANUP_SCRIPT"
+  add_cron "*/5 * * * *" "$SELFHEAL_SCRIPT"
+
+  crontab "$CRON_TMP"
+  rm -f "$CRON_TMP"
+  info "Cron jobs registered"
+fi
+
+# =========================================================================
+# Tier 3: Full — Docker, extra tooling
+# =========================================================================
+if [[ "$TIER" == "full" ]]; then
+  info "=== Tier 3: Full extras ==="
+
+  # --- Docker ---
+  if ! command -v docker >/dev/null 2>&1; then
+    info "Installing Docker"
+    curl -fsSL https://get.docker.com | sudo sh
+    sudo usermod -aG docker "$USER"
+    info "Docker installed (re-login for group to take effect)"
+  else
+    info "Docker already installed: $(docker --version)"
+  fi
+
+  # --- yq (YAML processor) ---
+  if ! command -v yq >/dev/null 2>&1; then
+    info "Installing yq"
+    sudo snap install yq 2>/dev/null || {
+      # Fallback: direct binary
+      YQ_VERSION="v4.44.1"
+      sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+      sudo chmod +x /usr/local/bin/yq
+    }
+  else
+    info "yq already installed"
+  fi
+
+  # --- htop ---
+  if ! command -v htop >/dev/null 2>&1; then
+    info "Installing htop"
+    sudo apt install -y htop
+  fi
+fi
+
 echo ""
-info "Bootstrap complete"
+info "Bootstrap complete (tier: $TIER)"
 echo "  App dir      : $APP_DIR"
 echo "  Workspace    : $WORKSPACE_ROOT"
 echo "  Domain       : https://$DOMAIN"
 echo "  Prod port    : $PORT"
+echo "  Tier         : $TIER"
 echo ""
 echo "Next manual checks:"
 echo "  1) DNS A record for $DOMAIN -> this VM public IP"

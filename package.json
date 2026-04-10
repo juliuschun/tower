@@ -11,7 +11,7 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "PORT=32355 HOST=0.0.0.0 GIT_AUTO_COMMIT=true WORKSPACE_ROOT=$HOME/workspace DEFAULT_CWD=$HOME/workspace tsx watch --ignore './packages/backend/db/schema.ts' --ignore './packages/backend/db/migrations/*' --ignore './workspace/*' --ignore './docs/*' --ignore './data/*' packages/backend/index.ts",
     "dev:frontend": "vite --host 0.0.0.0 --port 32354",
-    "build": "vite build && tsc -p tsconfig.backend.json",
+    "build": "vite build && tsc -p tsconfig.backend.json && cp -r packages/backend/db/migrations dist/backend/packages/backend/db/",
     "start": "pm2 start ecosystem.config.cjs",
     "stop": "pm2 stop tower",
     "restart": "echo '⚠️  개발 중에는 npm run dev 를 사용하세요. restart는 production 전용 (DB 경로가 달라짐)' && npm run build && pm2 restart tower",
