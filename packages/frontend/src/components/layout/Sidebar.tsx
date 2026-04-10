@@ -1796,10 +1796,21 @@ function ProjectGroup({
                   {groupSessions.length}
                 </span>
               )}
+              {/* + New session button — always visible on mobile, hover on desktop */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onNewSession(); }}
+                className="p-0.5 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-700/50 transition-all shrink-0 ml-auto max-[768px]:opacity-100 opacity-0 group-hover/proj:opacity-100"
+                aria-label="New session in project"
+                title="New session"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </button>
               {/* 3-dot menu — hidden by default, shown on hover */}
               <button
                 onClick={(e) => { e.stopPropagation(); setCtxMenu({ x: e.currentTarget.getBoundingClientRect().right, y: e.currentTarget.getBoundingClientRect().bottom + 4 }); }}
-                className="p-0.5 rounded text-surface-600 hover:text-gray-300 hover:bg-surface-700/50 transition-all shrink-0 ml-auto opacity-0 group-hover/proj:opacity-100"
+                className="p-0.5 rounded text-surface-600 hover:text-gray-300 hover:bg-surface-700/50 transition-all shrink-0 opacity-0 group-hover/proj:opacity-100"
                 aria-label="Project actions"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -1851,12 +1862,22 @@ function ProjectGroup({
 
         // If labels toggled off or no labels, render flat
         if (!hasLabels || !showLabels) {
-          const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, getPreviewCount(groupSessions));
+          const previewCount = getPreviewCount(groupSessions);
+          const hasMore = groupSessions.length > previewCount;
+          const visibleSessions = expanded ? groupSessions : groupSessions.slice(0, previewCount);
           return (
             <div className="ml-2.5 pl-3 border-l border-surface-800 space-y-0.5">
               {visibleSessions.map((session) => (
                 <SessionItem key={session.id} session={session} isActive={session.id === activeSessionId} currentUsername={currentUsername} onSelect={onSelectSession} onDelete={onDeleteSession} onRename={onRenameSession} onToggleFavorite={onToggleFavorite} onMoveToProject={onMoveSession} projects={projects} />
               ))}
+              {hasMore && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+                  className="w-full text-left text-[11px] text-surface-500 hover:text-gray-300 py-1 px-2 rounded hover:bg-surface-800/50 transition-colors"
+                >
+                  {expanded ? 'Show less' : `Show all ${groupSessions.length}`}
+                </button>
+              )}
             </div>
           );
         }
