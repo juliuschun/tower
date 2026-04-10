@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSessionStore } from '../../stores/session-store';
 import { useProjectStore } from '../../stores/project-store';
 import type { TaskMeta } from '../../stores/kanban-store';
@@ -98,6 +99,7 @@ function Dropdown({
 }
 
 export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterProjectId }: NewTaskModalProps) {
+  const { t } = useTranslation('kanban');
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -249,29 +251,29 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
         className="bg-surface-900 border border-surface-700 rounded-t-xl sm:rounded-xl w-full max-w-md p-5 shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-base font-semibold text-gray-200 mb-4">{isEditing ? 'Edit Task' : 'New Task'}</h3>
+        <h3 className="text-base font-semibold text-gray-200 mb-4">{isEditing ? t('editTask') : t('newTask')}</h3>
 
         <div className="space-y-3">
           <div>
-            <label htmlFor="task-title" className="text-xs text-gray-400 mb-1 block">Title</label>
+            <label htmlFor="task-title" className="text-xs text-gray-400 mb-1 block">{t('title')}</label>
             <input
               id="task-title"
               autoFocus
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Fix login bug, Add dark mode..."
+              placeholder={t('titlePlaceholder')}
               className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSubmit()}
             />
           </div>
 
           <div>
-            <label htmlFor="task-description" className="text-xs text-gray-400 mb-1 block">Description</label>
+            <label htmlFor="task-description" className="text-xs text-gray-400 mb-1 block">{t('description')}</label>
             <textarea
               id="task-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Detailed task description for the agent..."
+              placeholder={t('descriptionPlaceholder')}
               rows={4}
               className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
             />
@@ -279,7 +281,7 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
 
           {/* File Attachments */}
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Attachments</label>
+            <label className="text-xs text-gray-400 mb-1 block">{t('attachments')}</label>
             <input
               ref={fileInputRef}
               type="file"
@@ -319,20 +321,20 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
                 )}
-                {uploading ? 'Uploading...' : 'Add file'}
+                {uploading ? `${t('common:loading')}` : t('addFile')}
               </button>
             </div>
           </div>
 
           {/* Project Selection */}
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Project</label>
+            <label className="text-xs text-gray-400 mb-1 block">{t('project')}</label>
             <select
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
               className="w-full px-3 py-2 text-sm bg-surface-800 border border-surface-700 rounded-lg text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
             >
-              <option value="">Select project</option>
+              <option value="">{t('selectProject')}</option>
               {activeProjects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -346,8 +348,8 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
               <span>
-                Board is filtered to <strong>{allProjects.find(p => p.id === filterProjectId)?.name}</strong>, but this task will be created in <strong>{allProjects.find(p => p.id === selectedProjectId)?.name}</strong>.
-                It won't appear in the current view.
+                {t('boardFilterWarning', { currentProject: allProjects.find(p => p.id === filterProjectId)?.name, targetProject: allProjects.find(p => p.id === selectedProjectId)?.name })}
+                {' '}{t('wontAppearInView')}
               </span>
             </div>
           )}
@@ -355,9 +357,9 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
           {/* Working Directory (auto-filled from project, editable) */}
           <div>
             <label htmlFor="task-cwd" className="text-xs text-gray-400 mb-1 flex items-center gap-1">
-              Working Directory
+              {t('workingDirectory')}
               {selectedProjectId && (
-                <span className="text-gray-600">(from project)</span>
+                <span className="text-gray-600">{t('fromProject')}</span>
               )}
             </label>
             <input
@@ -371,7 +373,7 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <label htmlFor="task-model" className="text-xs text-gray-400 mb-1 block">Model</label>
+              <label htmlFor="task-model" className="text-xs text-gray-400 mb-1 block">{t('model')}</label>
               <Dropdown
                 value={model}
                 onChange={setModel}
@@ -379,7 +381,7 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
               />
             </div>
             <div className="flex-1">
-              <label htmlFor="task-workflow" className="text-xs text-gray-400 mb-1 block">Workflow</label>
+              <label htmlFor="task-workflow" className="text-xs text-gray-400 mb-1 block">{t('workflow')}</label>
               <Dropdown
                 value={workflow}
                 onChange={setWorkflow}
@@ -394,14 +396,14 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
             onClick={onClose}
             className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
-            Cancel
+            {t('common:cancel')}
           </button>
           <button
             onClick={handleSubmit}
             disabled={!title.trim() || !effectiveCwd || submitting}
             className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
           >
-            {submitting ? (isEditing ? 'Saving...' : 'Creating...') : (isEditing ? 'Save Changes' : 'Create Task')}
+            {submitting ? (isEditing ? t('common:saving') : t('common:creating')) : (isEditing ? t('saveChanges') : t('createTask'))}
           </button>
         </div>
       </div>

@@ -15,6 +15,7 @@ import { toastError, toastSuccess } from '../../utils/toast';
 import { useRoomStore } from '../../stores/room-store';
 import { RoomList } from '../rooms/RoomList';
 import { HistoryPanel } from '../history/HistoryPanel';
+import { useTranslation } from 'react-i18next';
 
 /* ── Filter Chip ── */
 function FilterChip({ active, onClick, title, children }: {
@@ -59,6 +60,7 @@ function FilterMenuItem({ active, onClick, children }: {
 
 /* ── Stats Bar — running / done / 7-day pace ── */
 function StatsBar({ sessions }: { sessions: SessionMeta[] }) {
+  const { t } = useTranslation('layout');
   const streamingSessions = useSessionStore((s) => s.streamingSessions);
   const unreadSessions = useSessionStore((s) => s.unreadSessions);
 
@@ -87,7 +89,7 @@ function StatsBar({ sessions }: { sessions: SessionMeta[] }) {
       {runningCount > 0 && (
         <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-400">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          {runningCount} running
+          {t('running_count', { count: runningCount })}
         </span>
       )}
       {doneCount > 0 && (
@@ -95,7 +97,7 @@ function StatsBar({ sessions }: { sessions: SessionMeta[] }) {
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          {doneCount} done
+          {t('done_count', { count: doneCount })}
         </span>
       )}
       {weekCount > 0 && (
@@ -103,7 +105,7 @@ function StatsBar({ sessions }: { sessions: SessionMeta[] }) {
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
           </svg>
-          {weekCount} / 7d
+          {t('week_count', { count: weekCount })}
         </span>
       )}
     </div>
@@ -140,6 +142,7 @@ export function Sidebar({
   onPromptClick, onPromptEdit, onPromptDelete, onPromptAdd,
   onNewSessionInFolder, onCollapseSidebar,
 }: SidebarProps) {
+  const { t } = useTranslation('layout');
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sidebarTab = useSessionStore((s) => s.sidebarTab);
@@ -403,10 +406,10 @@ export function Sidebar({
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            Back
+            {t('back')}
           </button>
           <span className="text-[12px] font-semibold text-gray-300">
-            {sidebarTab === 'pins' ? 'Pins' : 'History'}
+            {sidebarTab === 'pins' ? t('pins') : t('history')}
           </span>
           <div className="flex-1" />
           {onCollapseSidebar && (
@@ -438,7 +441,7 @@ export function Sidebar({
                 <svg className={`w-3.5 h-3.5 shrink-0 transition-colors ${doneCount > 0 ? 'text-primary-400' : 'text-surface-600 group-hover/inbox:text-surface-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
                 </svg>
-                <span className={`text-[14px] font-semibold transition-colors ${doneCount > 0 ? 'text-gray-300' : 'text-surface-500 group-hover/inbox:text-surface-400'}`}>Inbox</span>
+                <span className={`text-[14px] font-semibold transition-colors ${doneCount > 0 ? 'text-gray-300' : 'text-surface-500 group-hover/inbox:text-surface-400'}`}>{t('inbox')}</span>
                 {doneCount > 0 && (
                   <span className="text-[14px] font-bold text-primary-400 bg-primary-500/15 rounded-full px-1.5 py-px leading-tight">
                     {doneCount}
@@ -455,7 +458,7 @@ export function Sidebar({
             <svg className="w-3.5 h-3.5 text-surface-600 group-hover/new:text-surface-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            <span className="text-[14px] font-semibold text-surface-500 group-hover/new:text-surface-400 transition-colors">New</span>
+            <span className="text-[14px] font-semibold text-surface-500 group-hover/new:text-surface-400 transition-colors">{t('new')}</span>
           </button>
           <div className="flex-1" />
           <div className="relative">
@@ -477,16 +480,16 @@ export function Sidebar({
                 <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
                 <div className="absolute right-0 top-full mt-1 z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[140px]">
                   <FilterMenuItem active={filterMy} onClick={() => { toggleFilter('my', filterMy, setFilterMy); }}>
-                    👤 My sessions
+                    👤 {t('mySessions')}
                   </FilterMenuItem>
                   <FilterMenuItem active={filterFav} onClick={() => { toggleFilter('fav', filterFav, setFilterFav); }}>
-                    ⭐ Favorites
+                    ⭐ {t('favorites')}
                   </FilterMenuItem>
                   <FilterMenuItem active={filterDone} onClick={() => { toggleFilter('done', filterDone, setFilterDone); }}>
-                    ✓ Done
+                    ✓ {t('done')}
                   </FilterMenuItem>
                   <FilterMenuItem active={filterLabels} onClick={() => { toggleFilter('labels', filterLabels, setFilterLabels); }}>
-                    📁 Decks
+                    📁 {t('decks')}
                   </FilterMenuItem>
                 </div>
               </>
@@ -503,7 +506,7 @@ export function Sidebar({
       ) : (
         <div className="flex items-center border-b border-surface-800/50 px-3 py-1.5">
           <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider flex-1">
-            {sidebarTab === 'rooms' ? 'Channels' : 'Files'}
+            {sidebarTab === 'rooms' ? t('channels') : t('files')}
           </span>
           {onCollapseSidebar && (
             <button onClick={onCollapseSidebar} className="p-1 text-surface-600 hover:text-gray-400 transition-colors" title="Hide sidebar">
@@ -574,7 +577,7 @@ export function Sidebar({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                       </svg>
                       <span className="text-[10px] text-surface-600 font-medium shrink-0">
-                        temp
+                        {t('temp')}
                       </span>
                       <span className="text-[9px] text-surface-700">({groupedSessions.ungrouped.length})</span>
                       <div className="flex-1" />
@@ -603,7 +606,7 @@ export function Sidebar({
                             onClick={() => setUngroupedExpanded(!ungroupedExpanded)}
                             className="w-full text-center py-1 text-[11px] text-surface-600 hover:text-gray-400 transition-colors"
                           >
-                            {ungroupedExpanded ? 'Show less' : `Show all ${groupedSessions.ungrouped.length}`}
+                            {ungroupedExpanded ? t('showLess') : t('showAll', { count: groupedSessions.ungrouped.length })}
                           </button>
                         )}
                       </div>
@@ -611,14 +614,14 @@ export function Sidebar({
                   </UngroupedDropZone>
                 )}
                 {filteredSessions.length === 0 && (
-                  <p className="text-[13px] text-surface-700 px-2 py-6 text-center">No sessions yet</p>
+                  <p className="text-[13px] text-surface-700 px-2 py-6 text-center">{t('noSessionsYet')}</p>
                 )}
               </>
             ) : (
               <>
                 {filteredSessions.length === 0 && (
                   <p className="text-[13px] text-surface-700 px-2 py-6 text-center">
-                    {searchQuery ? 'No results found' : 'No sessions yet'}
+                    {searchQuery ? t('noResults') : t('noSessionsYet')}
                   </p>
                 )}
                 {/* Flat list — group by deck when filterLabels on and not searching */}
@@ -719,7 +722,7 @@ export function Sidebar({
             {/* Message search snippets */}
             {searchResults && searchResults.filter(r => r.type === 'message').length > 0 && (
               <div className="mt-2 border-t border-surface-800/50 pt-2">
-                <div className="text-[10px] text-surface-600 uppercase tracking-wider font-medium mb-1 px-1">Messages</div>
+                <div className="text-[10px] text-surface-600 uppercase tracking-wider font-medium mb-1 px-1">{t('messages')}</div>
                 <div className="space-y-0.5">
                   {searchResults.filter(r => r.type === 'message').map((r, i) => {
                     const target = sessions.find(s => s.id === r.sessionId);
@@ -769,7 +772,7 @@ export function Sidebar({
               {sharedWithMe.length > 0 && (
                 <div className="mt-3 px-2">
                   <div className="text-[10px] text-gray-600 uppercase tracking-wide font-medium mb-1.5 px-1">
-                    Shared with me
+                    {t('sharedWithMe')}
                   </div>
                   <div className="space-y-0.5">
                     {sharedWithMe.map(s => (
@@ -806,12 +809,12 @@ export function Sidebar({
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Add Prompt
+                {t('addPrompt')}
               </button>
             )}
             {prompts.length === 0 ? (
               <p className="text-[12px] text-surface-700 px-2 py-6 text-center">
-                No saved prompts
+                {t('noSavedPrompts')}
               </p>
             ) : (
               <div className="space-y-0.5">
@@ -856,7 +859,7 @@ export function Sidebar({
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Search sessions..."
+              placeholder={t('searchSessions')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Escape') { clearSearch(); searchInputRef.current?.blur(); } }}
@@ -972,6 +975,7 @@ function SelectModeToggle() {
 }
 
 function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => void; projects: { id: string; name: string; rootPath?: string | null; color?: string }[] }) {
+  const { t } = useTranslation('layout');
   const showHidden = useFileStore((s) => s.showHidden);
   const toggleShowHidden = useFileStore((s) => s.toggleShowHidden);
   const bumpRefreshTrigger = useFileStore((s) => s.bumpRefreshTrigger);
@@ -1083,7 +1087,7 @@ function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => v
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            New
+            {t('new')}
           </button>
           {newMenuOpen && (
             <div className="absolute left-0 top-full mt-1 z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[180px]">
@@ -1097,7 +1101,7 @@ function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => v
                     <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    New file
+                    {t('newFile')}
                   </button>
                   <button
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white"
@@ -1106,7 +1110,7 @@ function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => v
                     <svg className="w-3.5 h-3.5 text-yellow-400/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
                     </svg>
-                    New folder
+                    {t('newFolder')}
                   </button>
                 </div>
               ))}
@@ -1122,7 +1126,7 @@ function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => v
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
-          Upload
+          {t('upload')}
         </button>
         <input ref={fileInputRef} type="file" multiple hidden onChange={handleFileUpload} />
 
@@ -1132,7 +1136,7 @@ function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => v
         <button
           onClick={handleToggleHidden}
           className={`${iconBtnClass} ${showHidden ? '!text-primary-400' : ''}`}
-          title={showHidden ? 'Hide dotfiles' : 'Show dotfiles (.env, .gitignore, etc.)'}
+          title={showHidden ? t('hideDotfiles') : t('showDotfiles')}
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             {showHidden ? (
@@ -1174,7 +1178,7 @@ function FilesToolbar({ onRefresh, projects }: { onRefresh: (path?: string) => v
               if (e.key === 'Escape') { setNewType(null); setTargetProject(null); }
             }}
             onBlur={() => { setNewType(null); setTargetProject(null); }}
-            placeholder={newType === 'folder' ? 'Folder name' : 'File name'}
+            placeholder={newType === 'folder' ? t('enterFolderName') : t('enterFileName')}
             className="flex-1 bg-transparent border border-primary-500/50 rounded px-2 py-0.5 text-[12px] text-gray-200 outline-none placeholder-gray-600"
           />
           <span className="text-[9px] text-gray-600 truncate max-w-[80px]">
@@ -1191,6 +1195,7 @@ function FilesDropZone({ projects, onRefresh }: {
   projects: { id: string; name: string; rootPath?: string | null; color?: string }[];
   onRefresh: (path?: string) => void;
 }) {
+  const { t } = useTranslation('layout');
   const [dragOver, setDragOver] = useState(false);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<FileList | null>(null);
@@ -1285,14 +1290,14 @@ function FilesDropZone({ projects, onRefresh }: {
         <svg className="w-5 h-5 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
         </svg>
-        <p className="text-[11px]">Drop files or click to upload</p>
+        <p className="text-[11px]">{t('dropFilesOrClick')}</p>
       </div>
       <input ref={fileInputRef} type="file" multiple hidden onChange={handleInputChange} />
 
       {/* Project picker popup — shown when multiple projects exist */}
       {showProjectPicker && pendingFiles && (
         <div ref={pickerRef} className="absolute bottom-full left-1 right-1 mb-1 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 z-50">
-          <div className="px-3 py-1.5 text-[10px] text-gray-500 font-medium">Upload to...</div>
+          <div className="px-3 py-1.5 text-[10px] text-gray-500 font-medium">{t('uploadTo')}</div>
           {projectsWithPath.map(p => (
             <button
               key={p.id}
@@ -1313,6 +1318,7 @@ function FilesDropZone({ projects, onRefresh }: {
 
 /** File tree toolbar: new file, new folder, upload, refresh, show hidden */
 function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh: () => void }) {
+  const { t } = useTranslation('layout');
   const [showInput, setShowInput] = useState<'file' | 'folder' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1379,12 +1385,12 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
   return (
     <div className="px-1 pt-1">
       <div className="flex items-center gap-0.5">
-        <button onClick={() => setShowInput(showInput === 'file' ? null : 'file')} className={btnClass} title="New file">
+        <button onClick={() => setShowInput(showInput === 'file' ? null : 'file')} className={btnClass} title={t('newFile')}>
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         </button>
-        <button onClick={() => setShowInput(showInput === 'folder' ? null : 'folder')} className={btnClass} title="New folder">
+        <button onClick={() => setShowInput(showInput === 'folder' ? null : 'folder')} className={btnClass} title={t('newFolder')}>
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
           </svg>
@@ -1399,7 +1405,7 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
         <button
           onClick={() => { toggleShowHidden(); onRefresh(); }}
           className={`${btnClass} ${showHidden ? 'text-primary-400' : ''}`}
-          title={showHidden ? 'Hide dotfiles' : 'Show dotfiles (.env, etc.)'}
+          title={showHidden ? t('hideDotfiles') : t('showDotfiles')}
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             {showHidden ? (
@@ -1420,7 +1426,7 @@ function FileTreeToolbar({ treeRoot, onRefresh }: { treeRoot: string; onRefresh:
           <input
             ref={inputRef}
             type="text"
-            placeholder={showInput === 'file' ? 'Enter file name...' : 'Enter folder name...'}
+            placeholder={showInput === 'file' ? t('enterFileName') : t('enterFolderName')}
             className="w-full bg-surface-950 border border-primary-500/50 rounded px-2 py-1 text-[11px] text-gray-200 outline-none placeholder-surface-700"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSubmit((e.target as HTMLInputElement).value);
@@ -1441,6 +1447,7 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
   onClose: () => void;
   onRequestFileTree: (path?: string) => void;
 }) {
+  const { t } = useTranslation('layout');
   const [browsePath, setBrowsePath] = useState(currentCwd);
   const [dirs, setDirs] = useState<{ name: string; path: string }[]>([]);
   const [inputValue, setInputValue] = useState(currentCwd);
@@ -1519,14 +1526,14 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleInputSubmit}
           className="w-full bg-surface-950 border border-surface-700 rounded-md px-3 py-1.5 text-[12px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
-          placeholder="Enter path and press Enter"
+          placeholder={t('enterPathHint')}
         />
       </div>
 
       {/* Recent cwds */}
       {recentCwds.length > 0 && (
         <div className="px-2 py-1.5 border-b border-surface-800">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 px-1">Recent</div>
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 px-1">{t('recent')}</div>
           {recentCwds.map((c) => (
             <button
               key={c}
@@ -1546,7 +1553,7 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
             onClick={goUp}
             disabled={browsePath === '/'}
             className="p-1 rounded hover:bg-surface-800 text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Parent directory"
+            title={t('parentDirectory')}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
           </button>
@@ -1559,9 +1566,9 @@ function SidebarCwdPicker({ currentCwd, sessionId, onClose, onRequestFileTree }:
           </button>
         </div>
         {loading ? (
-          <div className="py-4 text-center text-[11px] text-gray-500">Loading...</div>
+          <div className="py-4 text-center text-[11px] text-gray-500">{t('common:loading')}</div>
         ) : dirs.length === 0 ? (
-          <div className="py-4 text-center text-[11px] text-gray-500">No subdirectories</div>
+          <div className="py-4 text-center text-[11px] text-gray-500">{t('noSubdirectories')}</div>
         ) : (
           dirs.map((d) => (
             <button
@@ -1588,6 +1595,7 @@ function UngroupedDropZone({ children, onMoveSession, hasGroups, hasUngrouped }:
   hasGroups: boolean;
   hasUngrouped: boolean;
 }) {
+  const { t } = useTranslation('layout');
   const [dragOver, setDragOver] = useState(false);
 
   return (
@@ -1603,7 +1611,7 @@ function UngroupedDropZone({ children, onMoveSession, hasGroups, hasUngrouped }:
       }}
     >
       {!hasUngrouped && dragOver && (
-        <span className="text-[10px] text-surface-500">Drop here to remove from project</span>
+        <span className="text-[10px] text-surface-500">{t('dropToRemoveFromProject')}</span>
       )}
       {children}
     </div>
@@ -1659,6 +1667,7 @@ function ProjectGroup({
   currentUsername?: string;
   showLabels?: boolean;
 }) {
+  const { t } = useTranslation('layout');
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(project.name);
@@ -1875,7 +1884,7 @@ function ProjectGroup({
                   onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
                   className="w-full text-left text-[11px] text-surface-500 hover:text-gray-300 py-1 px-2 rounded hover:bg-surface-800/50 transition-colors"
                 >
-                  {expanded ? 'Show less' : `Show all ${groupSessions.length}`}
+                  {expanded ? t('showLess') : t('showAll', { count: groupSessions.length })}
                 </button>
               )}
             </div>
@@ -1958,6 +1967,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
   expanded: boolean;
   onToggleExpanded: () => void;
 }) {
+  const { t } = useTranslation('layout');
   const ref = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
@@ -2129,7 +2139,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
         <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
-        New Chat
+        {t('newChat')}
       </button>
       {/* Show all / Show less */}
       {sessionCount > previewCount && (
@@ -2137,7 +2147,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
           <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
-          {expanded ? 'Show less' : `Show all ${sessionCount}`}
+          {expanded ? t('showLess') : t('showAll', { count: sessionCount })}
         </button>
       )}
       <div className="border-t border-surface-700/50 my-1" />
@@ -2146,7 +2156,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
         <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
         </svg>
-        Invite Members
+        {t('inviteMembersMenu')}
       </button>
       {/* Rename */}
       <button className={itemClass} onClick={() => { onRename(); onClose(); }}>
@@ -2154,7 +2164,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
             d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
         </svg>
-        Rename
+        {t('common:rename')}
       </button>
       {/* Settings */}
       <button className={itemClass} onClick={() => setShowSettings(true)}>
@@ -2163,7 +2173,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
             d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
-        Settings
+        {t('settings')}
       </button>
       {/* Create Deck */}
       <CreateDeckInline projectId={project.id} onClose={onClose} />
@@ -2178,7 +2188,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
-        Delete Project
+        {t('deleteProject')}
       </button>
     </div>
   );
@@ -2187,6 +2197,7 @@ function ProjectContextMenu({ x, y, project, onRename, onDelete, onClose, onNewC
 /* ── Project Settings Panel ── */
 
 function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+  const { t } = useTranslation('layout');
   const [description, setDescription] = useState(project.description || '');
   const [rootPath, setRootPath] = useState(project.rootPath || '');
   const [saving, setSaving] = useState(false);
@@ -2308,7 +2319,7 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
 
       {/* Members */}
       <div className="mb-3">
-        <div className={labelClass}>Members</div>
+        <div className={labelClass}>{t('projectMembers')}</div>
         <div className="space-y-1 mb-2">
           {members.map(m => (
             <div key={m.userId} className="flex items-center justify-between text-[11px]">
@@ -2354,11 +2365,11 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
 
       {/* Description */}
       <div className="mb-3">
-        <div className={labelClass}>Description</div>
+        <div className={labelClass}>{t('projectDescription')}</div>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="What is this project about?"
+          placeholder={t('projectDescPlaceholder')}
           rows={2}
           className={`${inputClass} resize-none`}
         />
@@ -2367,11 +2378,11 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
 
       {/* Root Path */}
       <div className="mb-3">
-        <div className={labelClass}>Project Folder</div>
+        <div className={labelClass}>{t('projectFolder')}</div>
         <input
           value={rootPath}
           onChange={(e) => setRootPath(e.target.value)}
-          placeholder="Auto-created in workspace/projects/"
+          placeholder={t('autoCreatedIn')}
           className={inputClass}
         />
         <p className="text-[9px] text-surface-600 mt-0.5">New chats will work in this folder. Leave empty for default.</p>
@@ -2380,14 +2391,14 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
       {/* Actions */}
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-3 py-1 text-[11px] text-surface-500 hover:text-gray-300 transition-colors">
-          Cancel
+          {t('common:cancel')}
         </button>
         <button
           onClick={handleSave}
           disabled={saving}
           className="px-3 py-1.5 bg-primary-600 hover:bg-primary-500 rounded text-[11px] font-medium text-white transition-colors disabled:opacity-50"
         >
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? t('common:saving') : t('common:save')}
         </button>
       </div>
     </div>
@@ -2397,6 +2408,7 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
 /* ── New Project Button ── */
 
 function NewProjectButton() {
+  const { t } = useTranslation('layout');
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
@@ -2512,7 +2524,7 @@ function NewProjectButton() {
               if (e.key === 'Enter' && !memberSearch) handleCreate();
               if (e.key === 'Escape') resetForm();
             }}
-            placeholder="Project name..."
+            placeholder={t('projectNamePlaceholder')}
             className="w-full bg-surface-700 border border-surface-600 rounded text-[12px] text-gray-200 px-2.5 py-1.5 placeholder-surface-600 outline-none focus:border-primary-500/50"
           />
 
@@ -2521,7 +2533,7 @@ function NewProjectButton() {
             <input
               value={memberSearch}
               onChange={(e) => searchUsers(e.target.value)}
-              placeholder="Invite members..."
+              placeholder={t('inviteMembersHint')}
               className="w-full bg-surface-700 border border-surface-600 rounded text-[11px] text-gray-300 px-2 py-1.5 placeholder-surface-600 outline-none focus:border-primary-500/50"
             />
             {searchResults.length > 0 && (
@@ -2560,15 +2572,15 @@ function NewProjectButton() {
               onChange={(e) => setInviteGroupId(e.target.value ? parseInt(e.target.value) : null)}
               className="w-full bg-surface-700 border border-surface-600 rounded text-[11px] text-gray-300 px-2 py-1.5 outline-none focus:border-primary-500/50"
             >
-              <option value="">Invite group (optional)</option>
+              <option value="">{t('inviteGroupHint')}</option>
               {myGroups.map(g => <option key={g.id} value={g.id}>{g.name} (all members)</option>)}
             </select>
           )}
 
           <p className="text-[10px] text-surface-600 px-0.5">
             {selectedMembers.length > 0 || inviteGroupId
-              ? 'Invited members will see this project'
-              : 'Only you and admin can see this project'
+              ? t('invitedMembersCanSee')
+              : t('onlyYouAndAdmin')
             }
           </p>
         </div>
@@ -2928,6 +2940,7 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
 /* ── Create Deck (inline input inside ProjectContextMenu) ── */
 
 function CreateDeckInline({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const { t } = useTranslation('layout');
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -2972,7 +2985,7 @@ function CreateDeckInline({ projectId, onClose }: { projectId: string; onClose: 
         <svg className="w-3.5 h-3.5 text-primary-500/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
         </svg>
-        Create Deck
+        {t('createDeck')}
       </button>
     );
   }
@@ -2988,7 +3001,7 @@ function CreateDeckInline({ projectId, onClose }: { projectId: string; onClose: 
           if (e.key === 'Escape') setOpen(false);
         }}
         onClick={(e) => e.stopPropagation()}
-        placeholder="Deck name..."
+        placeholder={t('deckNamePlaceholder')}
         className="flex-1 bg-surface-700 text-[11px] text-gray-200 px-2 py-1 rounded border border-surface-600 outline-none focus:border-primary-500/50 placeholder-surface-600"
       />
       {name.trim() && (
@@ -3007,6 +3020,7 @@ function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
   currentSpaceId: number | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation('layout');
   const spaces = useSpaceStore((s) => s.spaces);
   const [open, setOpen] = useState(false);
 
@@ -3023,7 +3037,7 @@ function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
       if (res.ok) {
         const updated = await res.json();
         useProjectStore.getState().updateProject(projectId, updated);
-        toastSuccess(`Moved to ${spaceId === null ? '미분류' : spaces.find(s => s.id === spaceId)?.name || 'space'}`);
+        toastSuccess(`Moved to ${spaceId === null ? t('uncategorized') : spaces.find(s => s.id === spaceId)?.name || 'space'}`);
       }
     } catch {}
     onClose();
@@ -3038,7 +3052,7 @@ function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
             d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
         </svg>
-        Space 이동
+        {t('moveSpace')}
         <svg className={`w-3 h-3 ml-auto text-surface-600 transition-transform ${open ? 'rotate-90' : ''}`}
           fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -3069,7 +3083,7 @@ function SpaceMoveSubmenu({ projectId, currentSpaceId, onClose }: {
             disabled={currentSpaceId === null}
           >
             <span className="w-2 h-2 rounded-full shrink-0 bg-gray-600" />
-            미분류
+            {t('uncategorized')}
             {currentSpaceId === null && (
               <svg className="w-3 h-3 ml-auto text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -3101,6 +3115,7 @@ function labelDisplay(label: string): { name: string } {
 function DeckContextMenu({ x, y, label, sessions, onClose }: {
   x: number; y: number; label: string; sessions: SessionMeta[]; onClose: () => void;
 }) {
+  const { t } = useTranslation('layout');
   const ref = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState({ left: x, top: y });
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -3161,7 +3176,7 @@ function DeckContextMenu({ x, y, label, sessions, onClose }: {
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
             </svg>
           )}
-          {allProject ? 'Make all private' : 'Share all with project'}
+          {allProject ? t('makeAllPrivate') : t('shareAllWithProject')}
         </button>
       )}
       {/* Archive all sessions in this deck */}
@@ -3181,7 +3196,7 @@ function DeckContextMenu({ x, y, label, sessions, onClose }: {
           <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6" />
         </svg>
-        Ungroup all ({sessions.length})
+        {t('ungroupAll')} ({sessions.length})
       </button>
       <div className="border-t border-surface-700/50 my-1" />
       {/* Delete deck — with confirmation */}
@@ -3190,12 +3205,12 @@ function DeckContextMenu({ x, y, label, sessions, onClose }: {
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
           </svg>
-          Delete deck ({sessions.length} sessions)
+          {t('deleteDeck')} ({sessions.length})
         </button>
       ) : (
         <div className="px-2 py-1.5">
           <p className="text-[11px] text-red-400 mb-2 px-1">
-            {sessions.length}개 세션이 모두 아카이브됩니다. 계속할까요?
+            {t('archiveWarning', { count: sessions.length })}
           </p>
           <div className="flex gap-1.5">
             <button
@@ -3215,13 +3230,13 @@ function DeckContextMenu({ x, y, label, sessions, onClose }: {
                 onClose();
               }}
             >
-              Delete all
+              {t('deleteAll')}
             </button>
             <button
               className="flex-1 px-2 py-1 text-[11px] bg-surface-700 text-gray-400 rounded hover:bg-surface-600 transition-colors"
               onClick={() => setConfirmDelete(false)}
             >
-              Cancel
+              {t('common:cancel')}
             </button>
           </div>
         </div>

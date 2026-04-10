@@ -1,0 +1,20 @@
+{
+  "typeMessage": "Type a message...",
+  "queueMessage": "You can queue another message...",
+  "sendNextTurn": "Type a message to send on the next turn...",
+  "addOrSend": "Add a message or send as-is...",
+  "slashCommands": "(/ for commands)",
+  "dropHere": "Drop here",
+  "queued": "Queued:",
+  "cancelMessage": "Cancel this message",
+  "addToQueue": "Add to queue",
+  "uploadedFile": "Uploaded file:",
+  "uploadFailed": "Upload failed",
+  "uploadFailedNetwork": "Upload failed: network error",
+  "submitted": "Submitted. Values sent to conversation.",
+  "approved": "Approved",
+  "denied": "Denied",
+  "approve": "Approve",
+  "deny": "Deny",
+  "thinking": "thinking"
+}

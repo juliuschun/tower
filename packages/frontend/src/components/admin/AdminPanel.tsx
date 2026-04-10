@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useChatStore } from '../../stores/chat-store';
 
@@ -20,6 +21,7 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
+  const { t } = useTranslation('admin');
   const [tab, setTab] = useState<'users' | 'groups' | 'models' | 'accounts' | 'prompts' | 'skills' | 'heartbeat' | 'system'>('users');
 
   if (!open) return null;
@@ -44,7 +46,7 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <h2 className="text-[16px] font-bold text-gray-100">Admin</h2>
+            <h2 className="text-[16px] font-bold text-gray-100">{t('admin')}</h2>
           </div>
           <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-surface-800 rounded-lg transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,14 +57,14 @@ export function AdminPanel({ open, onClose, token }: AdminPanelProps) {
 
         {/* Tabs */}
         <div className="flex border-b border-surface-800 px-6 shrink-0">
-          <button className={tabClass('users')} onClick={() => setTab('users')}>Users</button>
-          <button className={tabClass('groups')} onClick={() => setTab('groups')}>Groups</button>
-          <button className={tabClass('models')} onClick={() => setTab('models')}>Models</button>
-          <button className={tabClass('accounts')} onClick={() => setTab('accounts')}>Accounts</button>
-          <button className={tabClass('prompts')} onClick={() => setTab('prompts')}>System Prompt</button>
-          <button className={tabClass('skills')} onClick={() => setTab('skills')}>Skills</button>
-          <button className={tabClass('heartbeat')} onClick={() => setTab('heartbeat')}>Heartbeat</button>
-          <button className={tabClass('system')} onClick={() => setTab('system')}>System</button>
+          <button className={tabClass('users')} onClick={() => setTab('users')}>{t('users')}</button>
+          <button className={tabClass('groups')} onClick={() => setTab('groups')}>{t('groups')}</button>
+          <button className={tabClass('models')} onClick={() => setTab('models')}>{t('models')}</button>
+          <button className={tabClass('accounts')} onClick={() => setTab('accounts')}>{t('accounts')}</button>
+          <button className={tabClass('prompts')} onClick={() => setTab('prompts')}>{t('systemPrompt')}</button>
+          <button className={tabClass('skills')} onClick={() => setTab('skills')}>{t('skills')}</button>
+          <button className={tabClass('heartbeat')} onClick={() => setTab('heartbeat')}>{t('heartbeat')}</button>
+          <button className={tabClass('system')} onClick={() => setTab('system')}>{t('system')}</button>
         </div>
 
         {/* Content */}
@@ -91,6 +93,7 @@ interface SimpleGroup {
 }
 
 function UserManagement({ token }: { token?: string | null }) {
+  const { t } = useTranslation('admin');
   const [users, setUsers] = useState<User[]>([]);
   const [groups, setGroups] = useState<SimpleGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -217,7 +220,7 @@ function UserManagement({ token }: { token?: string | null }) {
   };
 
   if (loading) {
-    return <div className="text-sm text-gray-500 py-8 text-center">Loading...</div>;
+    return <div className="text-sm text-gray-500 py-8 text-center">{t('common:loading')}</div>;
   }
 
   return (
@@ -231,7 +234,7 @@ function UserManagement({ token }: { token?: string | null }) {
           onClick={() => setShowForm(!showForm)}
           className="text-[12px] px-3 py-1.5 rounded-lg bg-primary-600/20 border border-primary-500/30 text-primary-300 hover:bg-primary-600/30 transition-colors font-medium"
         >
-          {showForm ? 'Cancel' : '+ Add User'}
+          {showForm ? t('common:cancel') : t('addUser')}
         </button>
       </div>
 
@@ -241,7 +244,7 @@ function UserManagement({ token }: { token?: string | null }) {
           {error && <div className="text-[12px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">{error}</div>}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Username</label>
+              <label className="block text-[11px] text-gray-500 mb-1">{t('username')}</label>
               <input
                 type="text"
                 value={newUser.username}
@@ -251,18 +254,18 @@ function UserManagement({ token }: { token?: string | null }) {
               />
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Password</label>
+              <label className="block text-[11px] text-gray-500 mb-1">{t('password')}</label>
               <input
                 type="text"
                 value={newUser.password}
                 onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                 className="w-full bg-surface-900 border border-surface-700 rounded-md px-3 py-2 text-[13px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
-                placeholder="password (min 8 chars)"
+                placeholder={t('passwordHint')}
                 autoComplete="off"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Confirm Password</label>
+              <label className="block text-[11px] text-gray-500 mb-1">{t('confirmPassword')}</label>
               <input
                 type="text"
                 value={newUser.passwordConfirm}
@@ -270,12 +273,12 @@ function UserManagement({ token }: { token?: string | null }) {
                 className={`w-full bg-surface-900 border rounded-md px-3 py-2 text-[13px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50 ${
                   newUser.passwordConfirm && newUser.password !== newUser.passwordConfirm ? 'border-red-500/50' : 'border-surface-700'
                 }`}
-                placeholder="confirm password"
+                placeholder={t('confirmPasswordHint')}
                 autoComplete="off"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Role</label>
+              <label className="block text-[11px] text-gray-500 mb-1">{t('role')}</label>
               <select
                 value={newUser.role}
                 onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
@@ -288,7 +291,7 @@ function UserManagement({ token }: { token?: string | null }) {
               </select>
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Work Directory</label>
+              <label className="block text-[11px] text-gray-500 mb-1">{t('workDirectory')}</label>
               <input
                 type="text"
                 value={newUser.allowed_path}
@@ -317,13 +320,13 @@ function UserManagement({ token }: { token?: string | null }) {
               onClick={() => { setShowForm(false); setError(''); }}
               className="px-4 py-2 text-[12px] text-gray-400 hover:text-gray-200 transition-colors rounded-md"
             >
-              Cancel
+              {t('common:cancel')}
             </button>
             <button
               onClick={handleCreate}
               className="px-4 py-2 text-[12px] bg-primary-600 hover:bg-primary-500 text-white rounded-md transition-colors font-medium"
             >
-              Create
+              {t('common:create')}
             </button>
           </div>
         </div>
@@ -334,12 +337,12 @@ function UserManagement({ token }: { token?: string | null }) {
         <table className="w-full">
           <thead>
             <tr className="bg-surface-800/60 text-[11px] text-gray-500 uppercase tracking-wider">
-              <th className="text-left px-4 py-2.5 font-semibold">Name</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Password</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Role</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Groups</th>
-              <th className="text-left px-4 py-2.5 font-semibold">Work Directory</th>
-              <th className="text-right px-4 py-2.5 font-semibold w-24">Actions</th>
+              <th className="text-left px-4 py-2.5 font-semibold">{t('name')}</th>
+              <th className="text-left px-4 py-2.5 font-semibold">{t('password')}</th>
+              <th className="text-left px-4 py-2.5 font-semibold">{t('role')}</th>
+              <th className="text-left px-4 py-2.5 font-semibold">{t('groups')}</th>
+              <th className="text-left px-4 py-2.5 font-semibold">{t('workDirectory')}</th>
+              <th className="text-right px-4 py-2.5 font-semibold w-24">{t('actions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-800/50">
@@ -362,7 +365,7 @@ function UserManagement({ token }: { token?: string | null }) {
                         {u.username[0].toUpperCase()}
                       </div>
                       <span className="text-[13px] font-medium text-gray-200">{u.username}</span>
-                      {isSelf && <span className="text-[10px] text-gray-600 bg-surface-800 px-1.5 py-0.5 rounded">you</span>}
+                      {isSelf && <span className="text-[10px] text-gray-600 bg-surface-800 px-1.5 py-0.5 rounded">{t('common:you')}</span>}
                     </div>
                   </td>
 
@@ -426,7 +429,7 @@ function UserManagement({ token }: { token?: string | null }) {
                               type="password"
                               value={resetPwValue}
                               onChange={(e) => { setResetPwValue(e.target.value); setResetPwError(''); }}
-                              placeholder="New password"
+                              placeholder={t('newPassword')}
                               className="w-28 bg-surface-900 border border-surface-700 rounded-md px-2 py-1 text-[12px] text-gray-200 focus:outline-none focus:border-primary-500/50"
                               autoFocus
                             />
@@ -454,7 +457,7 @@ function UserManagement({ token }: { token?: string | null }) {
                           <button
                             onClick={() => setResetPwUserId(u.id)}
                             className="p-1.5 text-gray-500 hover:text-yellow-400 hover:bg-surface-800 rounded-md transition-colors"
-                            title="Reset password"
+                            title={t('resetPassword')}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
                           </button>
@@ -462,7 +465,7 @@ function UserManagement({ token }: { token?: string | null }) {
                             onClick={() => handleDelete(u.id, u.username)}
                             disabled={isSelf}
                             className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-surface-800 rounded-md transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
-                            title={isSelf ? 'Cannot delete yourself' : 'Disable user'}
+                            title={isSelf ? t('cannotDeleteSelf') : t('disableUser')}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
@@ -481,6 +484,7 @@ function UserManagement({ token }: { token?: string | null }) {
 }
 
 function PasswordCell({ password, userId, token, onUpdate }: { password: string; userId: number; token?: string | null; onUpdate: () => void }) {
+  const { t } = useTranslation('admin');
   const [visible, setVisible] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -511,15 +515,15 @@ function PasswordCell({ password, userId, token, onUpdate }: { password: string;
             type="text"
             value={draft}
             onChange={(e) => { setDraft(e.target.value); setError(''); }}
-            placeholder="New password"
+            placeholder={t('newPassword')}
             className="w-28 bg-surface-900 border border-surface-700 rounded-md px-2 py-1 text-[12px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
             autoFocus
             onKeyDown={(e) => e.key === 'Enter' && handleSave()}
           />
-          <button onClick={handleSave} className="p-0.5 text-primary-400 hover:text-primary-300" title="Save">
+          <button onClick={handleSave} className="p-0.5 text-primary-400 hover:text-primary-300" title={t('common:save')}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
           </button>
-          <button onClick={() => { setEditing(false); setDraft(''); setError(''); }} className="p-0.5 text-gray-500 hover:text-gray-300" title="Cancel">
+          <button onClick={() => { setEditing(false); setDraft(''); setError(''); }} className="p-0.5 text-gray-500 hover:text-gray-300" title={t('common:cancel')}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -530,8 +534,8 @@ function PasswordCell({ password, userId, token, onUpdate }: { password: string;
 
   if (!password) {
     return (
-      <button onClick={() => setEditing(true)} className="text-[11px] text-gray-600 hover:text-primary-400 italic transition-colors" title="Set password">
-        set password
+      <button onClick={() => setEditing(true)} className="text-[11px] text-gray-600 hover:text-primary-400 italic transition-colors" title={t('setPassword')}>
+        {t('setPassword')}
       </button>
     );
   }
@@ -542,7 +546,7 @@ function PasswordCell({ password, userId, token, onUpdate }: { password: string;
       <button
         onClick={() => setVisible(!visible)}
         className="p-0.5 text-gray-600 hover:text-gray-400 transition-colors"
-        title={visible ? 'Hide' : 'Show'}
+        title={visible ? t('hide') : t('show')}
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           {visible
@@ -554,7 +558,7 @@ function PasswordCell({ password, userId, token, onUpdate }: { password: string;
       <button
         onClick={() => { setDraft(password); setEditing(true); }}
         className="p-0.5 text-gray-600 hover:text-yellow-400 transition-colors"
-        title="Change password"
+        title={t('changePassword')}
       >
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
       </button>
@@ -563,6 +567,7 @@ function PasswordCell({ password, userId, token, onUpdate }: { password: string;
 }
 
 function PathEditor({ value, role, onSave }: { value: string; role?: string; onSave: (v: string) => void }) {
+  const { t } = useTranslation('admin');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
@@ -607,7 +612,7 @@ function PathEditor({ value, role, onSave }: { value: string; role?: string; onS
           className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400"
           title="No explicit path set. This role falls back to the full workspace root. Consider setting a narrower path."
         >
-          ⚠ broad
+          ⚠ {t('broadWarning')}
         </span>
       )}
     </div>
@@ -626,6 +631,7 @@ interface GroupData {
 }
 
 function GroupManagement({ token }: { token?: string | null }) {
+  const { t } = useTranslation('admin');
   const [groups, setGroups] = useState<GroupData[]>([]);
   const [allUsers, setAllUsers] = useState<{ id: number; username: string }[]>([]);
   const [allProjects, setAllProjects] = useState<{ id: string; name: string }[]>([]);
@@ -709,7 +715,7 @@ function GroupManagement({ token }: { token?: string | null }) {
     fetchGroups();
   };
 
-  if (loading) return <div className="text-sm text-gray-500 py-8 text-center">Loading...</div>;
+  if (loading) return <div className="text-sm text-gray-500 py-8 text-center">{t('common:loading')}</div>;
 
   return (
     <div className="space-y-4">
@@ -723,7 +729,7 @@ function GroupManagement({ token }: { token?: string | null }) {
           onClick={() => setShowForm(!showForm)}
           className="text-[12px] px-3 py-1.5 rounded-lg bg-primary-600/20 border border-primary-500/30 text-primary-300 hover:bg-primary-600/30 transition-colors font-medium"
         >
-          {showForm ? 'Cancel' : '+ New Group'}
+          {showForm ? t('common:cancel') : t('newGroup')}
         </button>
       </div>
 
@@ -733,13 +739,13 @@ function GroupManagement({ token }: { token?: string | null }) {
           {error && <div className="text-[12px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">{error}</div>}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Name</label>
+              <label className="block text-[11px] text-gray-500 mb-1">{t('name')}</label>
               <input
                 type="text"
                 value={newGroup.name}
                 onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
                 className="w-full bg-surface-900 border border-surface-700 rounded-md px-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-primary-500/50"
-                placeholder="e.g. Marketing"
+                placeholder={t('groupNamePlaceholder')}
               />
             </div>
             <div>
@@ -749,14 +755,14 @@ function GroupManagement({ token }: { token?: string | null }) {
                 value={newGroup.description}
                 onChange={(e) => setNewGroup({ ...newGroup, description: e.target.value })}
                 className="w-full bg-surface-900 border border-surface-700 rounded-md px-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-primary-500/50"
-                placeholder="optional"
+                placeholder={t('optional')}
               />
             </div>
           </div>
           {/* Groups are now a bulk-invite tool, not access control */}
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={() => { setShowForm(false); setError(''); }} className="px-4 py-2 text-[12px] text-gray-400 hover:text-gray-200 transition-colors rounded-md">Cancel</button>
-            <button onClick={handleCreate} className="px-4 py-2 text-[12px] bg-primary-600 hover:bg-primary-500 text-white rounded-md transition-colors font-medium">Create</button>
+            <button onClick={() => { setShowForm(false); setError(''); }} className="px-4 py-2 text-[12px] text-gray-400 hover:text-gray-200 transition-colors rounded-md">{t('common:cancel')}</button>
+            <button onClick={handleCreate} className="px-4 py-2 text-[12px] bg-primary-600 hover:bg-primary-500 text-white rounded-md transition-colors font-medium">{t('common:create')}</button>
           </div>
         </div>
       )}
@@ -786,7 +792,7 @@ function GroupManagement({ token }: { token?: string | null }) {
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDelete(g.id, g.name); }}
                     className="p-1 text-gray-600 hover:text-red-400 transition-colors rounded"
-                    title="Delete group"
+                    title={t('deleteGroup')}
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
@@ -806,13 +812,13 @@ function GroupManagement({ token }: { token?: string | null }) {
                           value=""
                           onChange={(e) => { if (e.target.value) handleAddUser(g.id, parseInt(e.target.value)); }}
                         >
-                          <option value="">+ Add member</option>
+                          <option value="">{t('addMember')}</option>
                           {availableUsers.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
                         </select>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {g.members.length === 0 && <span className="text-[11px] text-gray-600">No members</span>}
+                      {g.members.length === 0 && <span className="text-[11px] text-gray-600">{t('noMembers')}</span>}
                       {g.members.map(m => (
                         <span key={m.id} className="inline-flex items-center gap-1 text-[11px] bg-surface-800 text-gray-300 px-2 py-1 rounded-md border border-surface-700">
                           {m.username}
@@ -827,7 +833,7 @@ function GroupManagement({ token }: { token?: string | null }) {
                   {/* Invite group to project */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Invite to Project</span>
+                      <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{t('inviteToProject')}</span>
                     </div>
                     {allProjects.length > 0 ? (
                       <select
@@ -835,11 +841,11 @@ function GroupManagement({ token }: { token?: string | null }) {
                         value=""
                         onChange={(e) => { if (e.target.value) handleInviteGroupToProject(g.id, e.target.value); }}
                       >
-                        <option value="">Select project to invite all members...</option>
+                        <option value="">{t('selectProjectToInvite')}</option>
                         {allProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     ) : (
-                      <span className="text-[11px] text-gray-600">No projects available</span>
+                      <span className="text-[11px] text-gray-600">{t('noProjectsAvailable')}</span>
                     )}
                     <p className="text-[10px] text-gray-600 mt-1">Adds all group members to the selected project (snapshot copy)</p>
                   </div>
@@ -852,7 +858,7 @@ function GroupManagement({ token }: { token?: string | null }) {
 
       {/* How it works */}
       <div className="p-3 bg-surface-800/30 rounded-lg border border-surface-700/50">
-        <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">How it works</h4>
+        <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">{t('common:howItWorks')}</h4>
         <div className="text-[12px] text-gray-500 space-y-1">
           <p><strong className="text-gray-400">Groups</strong> = bulk-invite tool for adding many users to a project at once.</p>
           <p><strong className="text-gray-400">Project access</strong> is now controlled by project members, not groups.</p>
@@ -874,6 +880,7 @@ interface SystemPromptData {
 }
 
 function SystemPromptEditor({ token }: { token?: string | null }) {
+  const { t } = useTranslation('admin');
   const [prompts, setPrompts] = useState<SystemPromptData[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingName, setEditingName] = useState<string | null>(null);
@@ -925,7 +932,7 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
   };
 
   if (loading) {
-    return <div className="text-sm text-gray-500 py-8 text-center">Loading...</div>;
+    return <div className="text-sm text-gray-500 py-8 text-center">{t('common:loading')}</div>;
   }
 
   // If editing, show full-screen editor
@@ -935,7 +942,7 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-semibold text-gray-200">{editingName}</span>
-            <span className="text-[11px] text-gray-600">system prompt</span>
+            <span className="text-[11px] text-gray-600">{t('systemPromptLabel')}</span>
           </div>
           <div className="flex items-center gap-2">
             {savedAt && (
@@ -945,14 +952,14 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
               onClick={handleCancel}
               className="text-[12px] px-3 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 transition-colors"
             >
-              Cancel
+              {t('common:cancel')}
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
               className="text-[12px] px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-500 text-white transition-colors font-medium disabled:opacity-50"
             >
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? t('common:saving') : t('common:save')}
             </button>
           </div>
         </div>
@@ -966,7 +973,7 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
             }
           }}
           className="w-full h-[400px] bg-surface-900 border border-surface-700 rounded-lg px-4 py-3 text-[13px] text-gray-200 font-mono leading-relaxed resize-none focus:outline-none focus:border-primary-500/50"
-          placeholder="Enter system prompt..."
+          placeholder={t('enterSystemPrompt')}
           autoFocus
         />
         <div className="text-[11px] text-gray-600">
@@ -983,7 +990,7 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-gray-400">
-          Manage system prompts injected into all conversations. The <span className="text-gray-200 font-semibold">default</span> prompt applies to everyone.
+          {t('managePrompts')} The <span className="text-gray-200 font-semibold">{t('common:default')}</span> prompt applies to everyone.
         </p>
       </div>
 
@@ -994,7 +1001,7 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
               <div className="flex items-center gap-2">
                 <span className="text-[13px] font-semibold text-gray-200">{p.name}</span>
                 {p.name === 'default' && (
-                  <span className="text-[10px] bg-primary-600/20 text-primary-400 border border-primary-500/30 px-1.5 py-0.5 rounded-full">active</span>
+                  <span className="text-[10px] bg-primary-600/20 text-primary-400 border border-primary-500/30 px-1.5 py-0.5 rounded-full">{t('common:active')}</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -1005,7 +1012,7 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
                   onClick={() => handleEdit(p)}
                   className="text-[12px] px-2.5 py-1 rounded-md text-gray-400 hover:text-primary-400 hover:bg-surface-800 transition-colors"
                 >
-                  Edit
+                  {t('common:edit')}
                 </button>
               </div>
             </div>
@@ -1017,7 +1024,7 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
       </div>
 
       <div className="p-3 bg-surface-800/30 rounded-lg border border-surface-700/50">
-        <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">How it works</h4>
+        <h4 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">{t('common:howItWorks')}</h4>
         <div className="text-[12px] text-gray-500 space-y-1">
           <p>Every conversation gets this system prompt + auto-appended user context:</p>
           <div className="font-mono text-[11px] bg-surface-900/50 rounded px-3 py-2 text-gray-400 mt-1">
@@ -1036,18 +1043,19 @@ function SystemPromptEditor({ token }: { token?: string | null }) {
 // ───── System Tab ─────
 
 function SystemInfo() {
+  const { t } = useTranslation('admin');
   const serverConfig = useSettingsStore((s) => s.serverConfig);
   const model = useChatStore((s) => s.model);
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Server Info</h3>
+        <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('serverInfo')}</h3>
         <div className="rounded-lg border border-surface-700 divide-y divide-surface-800/50">
-          <InfoRow label="Workspace" value={serverConfig?.workspaceRoot || '-'} mono />
-          <InfoRow label="Model" value={model || 'Not connected'} />
-          <InfoRow label="Permission Mode" value={serverConfig?.permissionMode || '-'} />
-          <InfoRow label="Version" value={serverConfig?.version || '-'} />
+          <InfoRow label={t('workspace')} value={serverConfig?.workspaceRoot || '-'} mono />
+          <InfoRow label="Model" value={model || t('notConnected')} />
+          <InfoRow label={t('permissionMode')} value={serverConfig?.permissionMode || '-'} />
+          <InfoRow label={t('version')} value={serverConfig?.version || '-'} />
         </div>
       </div>
     </div>
@@ -1062,6 +1070,7 @@ interface ModelDefaults { session: string; ai_reply: string; ai_task: string }
 interface ModelsData { claude: ClaudeModelEntry[]; pi: PiModelEntry[]; defaults?: ModelDefaults }
 
 function ModelManagement({ token }: { token?: string | null }) {
+  const { t } = useTranslation('admin');
   const [models, setModels] = useState<ModelsData | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingPi, setAddingPi] = useState(false);
@@ -1118,7 +1127,7 @@ function ModelManagement({ token }: { token?: string | null }) {
     setAddingPi(false);
   };
 
-  if (!models) return <div className="text-gray-500 text-sm py-8 text-center">Loading...</div>;
+  if (!models) return <div className="text-gray-500 text-sm py-8 text-center">{t('common:loading')}</div>;
 
   const rowClass = 'flex items-center gap-3 px-4 py-2.5 border-b border-surface-800 last:border-0';
   const toggleClass = (on: boolean) =>
@@ -1147,12 +1156,12 @@ function ModelManagement({ token }: { token?: string | null }) {
     <div className="space-y-6">
       {/* Default Models */}
       <div>
-        <h3 className="text-[13px] font-semibold text-gray-300 uppercase tracking-wider mb-2">Default Models</h3>
+        <h3 className="text-[13px] font-semibold text-gray-300 uppercase tracking-wider mb-2">{t('defaultModels')}</h3>
         <div className="bg-surface-800/50 rounded-lg border border-surface-700 divide-y divide-surface-700/50">
           {([
-            { key: 'session' as const, label: 'Session', desc: 'Default model for new chat sessions' },
-            { key: 'ai_reply' as const, label: '@ai Reply', desc: 'Model for quick AI replies in channels' },
-            { key: 'ai_task' as const, label: '@task Execution', desc: 'Model for full task execution in channels' },
+            { key: 'session' as const, label: t('sessionModel'), desc: 'Default model for new chat sessions' },
+            { key: 'ai_reply' as const, label: t('aiReplyModel'), desc: 'Model for quick AI replies in channels' },
+            { key: 'ai_task' as const, label: t('taskExecutionModel'), desc: 'Model for full task execution in channels' },
           ]).map(({ key, label, desc }) => {
             const options = defaultModelOptions(key);
             const groups = [...new Set(options.map(o => o.group))];
@@ -1189,7 +1198,7 @@ function ModelManagement({ token }: { token?: string | null }) {
 
       {/* Claude Models */}
       <div>
-        <h3 className="text-[13px] font-semibold text-gray-300 uppercase tracking-wider mb-2">Claude (MAX)</h3>
+        <h3 className="text-[13px] font-semibold text-gray-300 uppercase tracking-wider mb-2">{t('claudeMax')}</h3>
         <div className="bg-surface-800/50 rounded-lg border border-surface-700">
           {models.claude.map((m, i) => (
             <div key={m.id} className={rowClass}>
@@ -1207,12 +1216,12 @@ function ModelManagement({ token }: { token?: string | null }) {
       {/* Pi Models */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-[13px] font-semibold text-gray-300 uppercase tracking-wider">Pi (OpenRouter)</h3>
+          <h3 className="text-[13px] font-semibold text-gray-300 uppercase tracking-wider">{t('piOpenRouter')}</h3>
           <button
             onClick={() => setAddingPi(!addingPi)}
             className="text-[12px] text-primary-400 hover:text-primary-300 transition-colors"
           >
-            {addingPi ? 'Cancel' : '+ Add Model'}
+            {addingPi ? t('common:cancel') : t('addModel')}
           </button>
         </div>
 
@@ -1220,13 +1229,13 @@ function ModelManagement({ token }: { token?: string | null }) {
           <div className="bg-surface-800/50 rounded-lg border border-surface-700 p-4 mb-3 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <input
-                placeholder="Model ID (e.g. x-ai/grok-4.1)"
+                placeholder={t('modelIdPlaceholder')}
                 value={newPi.modelId}
                 onChange={e => setNewPi({ ...newPi, modelId: e.target.value })}
                 className="bg-surface-700 border border-surface-600 rounded px-3 py-1.5 text-[13px] text-gray-200 placeholder:text-gray-600"
               />
               <input
-                placeholder="Display Name"
+                placeholder={t('displayName')}
                 value={newPi.name}
                 onChange={e => setNewPi({ ...newPi, name: e.target.value })}
                 className="bg-surface-700 border border-surface-600 rounded px-3 py-1.5 text-[13px] text-gray-200 placeholder:text-gray-600"
@@ -1234,13 +1243,13 @@ function ModelManagement({ token }: { token?: string | null }) {
             </div>
             <div className="grid grid-cols-3 gap-3">
               <input
-                placeholder="Provider"
+                placeholder={t('provider')}
                 value={newPi.provider}
                 onChange={e => setNewPi({ ...newPi, provider: e.target.value })}
                 className="bg-surface-700 border border-surface-600 rounded px-3 py-1.5 text-[13px] text-gray-200 placeholder:text-gray-600"
               />
               <input
-                placeholder="Badge (e.g. OR)"
+                placeholder={t('badgePlaceholder')}
                 value={newPi.badge}
                 onChange={e => setNewPi({ ...newPi, badge: e.target.value })}
                 className="bg-surface-700 border border-surface-600 rounded px-3 py-1.5 text-[13px] text-gray-200 placeholder:text-gray-600"
@@ -1250,7 +1259,7 @@ function ModelManagement({ token }: { token?: string | null }) {
                 disabled={!newPi.modelId || !newPi.name}
                 className="bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white text-[13px] rounded px-3 py-1.5 transition-colors"
               >
-                Add
+                {t('common:add')}
               </button>
             </div>
           </div>
@@ -1258,7 +1267,7 @@ function ModelManagement({ token }: { token?: string | null }) {
 
         <div className="bg-surface-800/50 rounded-lg border border-surface-700">
           {models.pi.length === 0 && (
-            <div className="text-gray-500 text-[13px] py-4 text-center">No Pi models configured</div>
+            <div className="text-gray-500 text-[13px] py-4 text-center">{t('noPiModels')}</div>
           )}
           {models.pi.map((m, i) => (
             <div key={`${m.provider}/${m.modelId}`} className={rowClass}>
@@ -1282,13 +1291,14 @@ function ModelManagement({ token }: { token?: string | null }) {
         </div>
       </div>
 
-      {saving && <div className="text-[12px] text-primary-400 text-center">Saving...</div>}
+      {saving && <div className="text-[12px] text-primary-400 text-center">{t('common:saving')}</div>}
     </div>
   );
 }
 
 // ───── Skills Tab ─────
 function SkillsManagement({ token }: { token?: string | null }) {
+  const { t } = useTranslation('admin');
   const [skills, setSkills] = useState<any[]>([]);
   const [scope, setScope] = useState<'company' | 'project' | 'personal'>('company');
   const [editing, setEditing] = useState<any | null>(null);
@@ -1357,13 +1367,13 @@ function SkillsManagement({ token }: { token?: string | null }) {
             className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
               scope === s ? scopeColors[s] : 'text-gray-500 border-surface-700 hover:text-gray-300'
             }`}>
-            {s === 'company' ? 'Company' : s === 'project' ? 'Project' : 'Personal'}
+            {s === 'company' ? t('company') : s === 'project' ? t('project') : t('personal')}
             <span className="ml-1.5 text-[10px] opacity-60">{skills.length}</span>
           </button>
         ))}
         <button onClick={() => { setCreating(true); setEditing(null); setForm({ name: '', description: '', content: '', category: 'general' }); }}
           className="ml-auto px-3 py-1.5 text-[12px] font-medium rounded-lg bg-primary-600/20 text-primary-400 border border-primary-500/30 hover:bg-primary-600/30 transition-colors">
-          + New Skill
+          {t('newSkill')}
         </button>
       </div>
 
@@ -1371,26 +1381,26 @@ function SkillsManagement({ token }: { token?: string | null }) {
       {(creating || editing) && (
         <div className="bg-surface-800/50 border border-surface-700 rounded-lg p-4 space-y-3">
           <div className="flex gap-3">
-            <input placeholder="Skill name (no /)" value={form.name}
+            <input placeholder={t('skillNameHint')} value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               className="flex-1 bg-surface-900 border border-surface-700 rounded-lg px-3 py-2 text-[13px] text-gray-200 focus:border-primary-500/50 focus:outline-none" />
-            <input placeholder="Category" value={form.category}
+            <input placeholder={t('category')} value={form.category}
               onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
               className="w-32 bg-surface-900 border border-surface-700 rounded-lg px-3 py-2 text-[13px] text-gray-200 focus:border-primary-500/50 focus:outline-none" />
           </div>
-          <input placeholder="Description" value={form.description}
+          <input placeholder={t('description')} value={form.description}
             onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
             className="w-full bg-surface-900 border border-surface-700 rounded-lg px-3 py-2 text-[13px] text-gray-200 focus:border-primary-500/50 focus:outline-none" />
-          <textarea placeholder="SKILL.md content (with frontmatter)" value={form.content}
+          <textarea placeholder={t('skillContent')} value={form.content}
             onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
             rows={8}
             className="w-full bg-surface-900 border border-surface-700 rounded-lg px-3 py-2 text-[13px] text-gray-200 font-mono focus:border-primary-500/50 focus:outline-none resize-y" />
           <div className="flex gap-2 justify-end">
             <button onClick={() => { setCreating(false); setEditing(null); }}
-              className="px-3 py-1.5 text-[12px] text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
+              className="px-3 py-1.5 text-[12px] text-gray-400 hover:text-gray-200 transition-colors">{t('common:cancel')}</button>
             <button onClick={editing ? handleUpdate : handleCreate}
               className="px-4 py-1.5 text-[12px] font-medium rounded-lg bg-primary-600 text-white hover:bg-primary-500 transition-colors">
-              {editing ? 'Update' : 'Create'}
+              {editing ? t('common:update') : t('common:create')}
             </button>
           </div>
         </div>
@@ -1400,7 +1410,7 @@ function SkillsManagement({ token }: { token?: string | null }) {
       <div className="border border-surface-700 rounded-lg divide-y divide-surface-800 overflow-hidden">
         {skills.length === 0 && (
           <div className="px-4 py-8 text-center text-[13px] text-gray-500">
-            No {scope} skills yet
+            {t('noSkillsYet', { scope })}
           </div>
         )}
         {skills.map((skill: any) => (
@@ -1417,13 +1427,13 @@ function SkillsManagement({ token }: { token?: string | null }) {
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button onClick={() => handleToggle(skill.id, skill.enabled)}
                 className={`px-2 py-1 text-[10px] rounded ${skill.enabled ? 'text-green-400 hover:text-red-400' : 'text-red-400 hover:text-green-400'}`}>
-                {skill.enabled ? 'ON' : 'OFF'}
+                {skill.enabled ? t('common:on') : t('common:off')}
               </button>
               <button onClick={() => { setEditing(skill); setCreating(false); setForm({ name: skill.name, description: skill.description, content: '', category: skill.category }); fetch(`${API_BASE}/skills/${skill.id}`, { headers: hdrs }).then(r => r.json()).then(d => setForm(f => ({ ...f, content: d.content || '' }))); }}
-                className="px-2 py-1 text-[10px] text-gray-500 hover:text-primary-400 transition-colors">Edit</button>
+                className="px-2 py-1 text-[10px] text-gray-500 hover:text-primary-400 transition-colors">{t('common:edit')}</button>
               {skill.source !== 'bundled' && (
                 <button onClick={() => handleDelete(skill.id)}
-                  className="px-2 py-1 text-[10px] text-gray-500 hover:text-red-400 transition-colors">Del</button>
+                  className="px-2 py-1 text-[10px] text-gray-500 hover:text-red-400 transition-colors">{t('del')}</button>
               )}
             </div>
           </div>
@@ -1463,6 +1473,7 @@ interface ProjectSummary {
 }
 
 function ClaudeAccountManagement({ token }: { token?: string | null }) {
+  const { t } = useTranslation('admin');
   const [accounts, setAccounts] = useState<ClaudeAccount[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1538,7 +1549,7 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
 
   const defaultAccount = accounts.find(a => a.isDefault && a.enabled);
 
-  if (loading) return <div className="text-gray-500 text-sm p-4">Loading...</div>;
+  if (loading) return <div className="text-gray-500 text-sm p-4">{t('common:loading')}</div>;
 
   return (
     <div className="space-y-5">
@@ -1555,7 +1566,7 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
             onClick={() => setShowForm(!showForm)}
             className="px-3 py-1.5 text-[12px] font-medium bg-primary-600 hover:bg-primary-500 text-white rounded-lg transition-colors"
           >
-            {showForm ? 'Cancel' : '+ Add Account'}
+            {showForm ? t('common:cancel') : t('addAccount')}
           </button>
         </div>
 
@@ -1565,38 +1576,38 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
             {error && <div className="text-red-400 text-[12px]">{error}</div>}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] text-gray-500 block mb-1">ID (slug)</label>
+                <label className="text-[11px] text-gray-500 block mb-1">{t('idSlug')}</label>
                 <input
                   value={newAccount.id} onChange={e => setNewAccount({ ...newAccount, id: e.target.value })}
-                  placeholder="e.g. gmail"
+                  placeholder={t('idSlugPlaceholder')}
                   className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2"
                 />
               </div>
               <div>
-                <label className="text-[11px] text-gray-500 block mb-1">Label</label>
+                <label className="text-[11px] text-gray-500 block mb-1">{t('label')}</label>
                 <input
                   value={newAccount.label} onChange={e => setNewAccount({ ...newAccount, label: e.target.value })}
-                  placeholder="e.g. Gmail Max Account"
+                  placeholder={t('labelPlaceholder')}
                   className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2"
                 />
               </div>
               <div>
-                <label className="text-[11px] text-gray-500 block mb-1">Config Dir</label>
+                <label className="text-[11px] text-gray-500 block mb-1">{t('configDir')}</label>
                 <input
                   value={newAccount.configDir} onChange={e => setNewAccount({ ...newAccount, configDir: e.target.value })}
-                  placeholder="e.g. /home/user/.claude-gmail"
+                  placeholder={t('configDirPlaceholder')}
                   className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2 font-mono"
                 />
               </div>
               <div>
-                <label className="text-[11px] text-gray-500 block mb-1">Tier</label>
+                <label className="text-[11px] text-gray-500 block mb-1">{t('tier')}</label>
                 <select
                   value={newAccount.tier} onChange={e => setNewAccount({ ...newAccount, tier: e.target.value })}
                   className="w-full bg-surface-900 border border-surface-700 text-gray-200 text-[13px] rounded-lg px-3 py-2"
                 >
-                  <option value="max">Max</option>
-                  <option value="pro">Pro</option>
-                  <option value="api">API</option>
+                  <option value="max">{t('tierMax')}</option>
+                  <option value="pro">{t('tierPro')}</option>
+                  <option value="api">{t('tierApi')}</option>
                 </select>
               </div>
             </div>
@@ -1607,11 +1618,11 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
                   onChange={e => setNewAccount({ ...newAccount, isDefault: e.target.checked })}
                   className="rounded border-surface-600"
                 />
-                Set as default
+                {t('setAsDefault')}
               </label>
               <button onClick={handleCreate}
                 className="ml-auto px-4 py-1.5 text-[12px] font-medium bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
-              >Create</button>
+              >{t('common:create')}</button>
             </div>
           </div>
         )}
@@ -1636,7 +1647,7 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
                         <span className="text-[13px] text-gray-200 font-medium">{acc.label}</span>
                         <span className={`text-[11px] font-mono ${tierColors[acc.tier] || 'text-gray-400'}`}>{acc.tier.toUpperCase()}</span>
                         {acc.isDefault && (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary-600/20 text-primary-400 border border-primary-500/30">DEFAULT</span>
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary-600/20 text-primary-400 border border-primary-500/30">{t('common:default').toUpperCase()}</span>
                         )}
                       </div>
                       <div className="text-[11px] text-gray-600 font-mono truncate">{acc.configDir}</div>
@@ -1647,7 +1658,7 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
                       <button
                         onClick={() => handleToggle(acc, 'isDefault')}
                         className="px-2 py-1 text-[11px] text-gray-500 hover:text-primary-400 hover:bg-surface-700 rounded transition-colors"
-                        title="Set as default"
+                        title={t('setAsDefault')}
                       >⭐</button>
                     )}
                     <button
@@ -1655,7 +1666,7 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
                       className={`px-2 py-1 text-[11px] rounded transition-colors ${
                         acc.enabled ? 'text-green-400 hover:text-red-400 hover:bg-surface-700' : 'text-gray-600 hover:text-green-400 hover:bg-surface-700'
                       }`}
-                    >{acc.enabled ? 'ON' : 'OFF'}</button>
+                    >{acc.enabled ? t('common:on') : t('common:off')}</button>
                     <button
                       onClick={() => handleDelete(acc.id)}
                       className="px-2 py-1 text-[11px] text-gray-600 hover:text-red-400 hover:bg-surface-700 rounded transition-colors"
@@ -1678,7 +1689,7 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
 
       {/* ── Project Assignment Section ── */}
       <div>
-        <h3 className="text-[13px] font-medium text-gray-300 mb-3">Project → Account Assignment</h3>
+        <h3 className="text-[13px] font-medium text-gray-300 mb-3">{t('projectAccountAssignment')}</h3>
         <div className="bg-surface-800 border border-surface-700 rounded-lg divide-y divide-surface-700 max-h-[300px] overflow-y-auto">
           {projects.map(proj => {
             const assigned = getAccountForProject(proj);
@@ -1698,7 +1709,7 @@ function ClaudeAccountManagement({ token }: { token?: string | null }) {
                       onBlur={() => setAssigningProject(null)}
                       className="bg-surface-900 border border-primary-500/50 text-gray-200 text-[12px] rounded px-2 py-1 w-44"
                     >
-                      <option value="">— Use default —</option>
+                      <option value="">{t('useDefault')}</option>
                       {accounts.filter(a => a.enabled).map(a => (
                         <option key={a.id} value={a.id}>{a.label}{a.isDefault ? ' ⭐' : ''}</option>
                       ))}
@@ -1752,6 +1763,7 @@ const AUTONOMY_LABELS: Record<number, { label: string; color: string }> = {
 };
 
 function HeartbeatManagement({ token }: { token?: string | null }) {
+  const { t } = useTranslation('admin');
   const [heartbeats, setHeartbeats] = useState<HeartbeatConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
@@ -1802,7 +1814,7 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
   const enabledCount = heartbeats.filter(h => h.enabled).length;
   const l2Count = heartbeats.filter(h => h.autonomyLevel === 2).length;
 
-  if (loading) return <div className="text-gray-500 text-sm p-4">Loading...</div>;
+  if (loading) return <div className="text-gray-500 text-sm p-4">{t('common:loading')}</div>;
 
   return (
     <div className="space-y-4">
@@ -1817,7 +1829,7 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
           disabled={running !== null}
           className="px-3 py-1.5 text-[12px] font-medium bg-primary-600 hover:bg-primary-500 disabled:bg-gray-700 text-white rounded-lg transition-colors"
         >
-          {running === 'all' ? '⏳ Running...' : '▶ Run All Now'}
+          {running === 'all' ? `⏳ ${t('running')}` : `▶ ${t('runAllNow')}`}
         </button>
       </div>
 
@@ -1861,14 +1873,14 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
                     onClick={() => runNow(hb.projectId)}
                     disabled={running !== null}
                     className="px-2 py-1 text-[11px] text-gray-400 hover:text-primary-400 hover:bg-surface-700 rounded transition-colors disabled:opacity-30"
-                    title="Run now"
+                    title={t('runNow')}
                   >
                     {running === hb.projectId ? '⏳' : '▶'}
                   </button>
                   <button
                     onClick={() => setEditing(isEditing ? null : hb.projectId)}
                     className={`px-2 py-1 text-[11px] rounded transition-colors ${isEditing ? 'text-primary-400 bg-surface-700' : 'text-gray-500 hover:text-gray-300 hover:bg-surface-700'}`}
-                    title="Settings"
+                    title={t('layout:settings')}
                   >⚙</button>
                   <button
                     onClick={() => patchProject(hb.projectId, { enabled: !hb.enabled })}
@@ -1876,7 +1888,7 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
                       hb.enabled ? 'text-green-400 hover:text-red-400 hover:bg-surface-700' : 'text-gray-600 hover:text-green-400 hover:bg-surface-700'
                     }`}
                   >
-                    {hb.enabled ? 'ON' : 'OFF'}
+                    {hb.enabled ? t('common:on') : t('common:off')}
                   </button>
                 </div>
               </div>
@@ -1886,7 +1898,7 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
                 <div className="mt-3 ml-4 p-3 bg-surface-900 border border-surface-700 rounded-lg space-y-3">
                   {/* Autonomy Level */}
                   <div className="flex items-center gap-3">
-                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Autonomy</label>
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">{t('autonomy')}</label>
                     <div className="flex gap-1">
                       {([0, 1, 2] as const).map(level => {
                         const info = AUTONOMY_LABELS[level];
@@ -1907,7 +1919,7 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
 
                   {/* Run Hour */}
                   <div className="flex items-center gap-3">
-                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Run hour</label>
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">{t('runHour')}</label>
                     <select
                       value={hb.runHour ?? 3}
                       onChange={e => patchProject(hb.projectId, { runHour: Number(e.target.value) })}
@@ -1921,20 +1933,20 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
 
                   {/* Delta Threshold */}
                   <div className="flex items-center gap-3">
-                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Delta ≥</label>
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">{t('delta')}</label>
                     <input
                       type="number" min={1} max={100}
                       value={hb.deltaThreshold ?? 5}
                       onChange={e => patchProject(hb.projectId, { deltaThreshold: Number(e.target.value) })}
                       className="bg-surface-800 border border-surface-700 text-gray-300 text-[12px] rounded px-2 py-1 w-20"
                     />
-                    <span className="text-[11px] text-gray-600">lines in progress.md</span>
+                    <span className="text-[11px] text-gray-600">{t('linesInProgress')}</span>
                   </div>
 
                   {/* Action (L2 only) */}
                   {hb.autonomyLevel === 2 && (
                     <div className="flex items-center gap-3">
-                      <label className="text-[11px] text-gray-500 w-20 shrink-0">Action</label>
+                      <label className="text-[11px] text-gray-500 w-20 shrink-0">{t('action')}</label>
                       <input
                         type="text"
                         value={hb.action ?? '/agents-md --evolve'}
@@ -1947,7 +1959,7 @@ function HeartbeatManagement({ token }: { token?: string | null }) {
 
                   {/* Path (read-only) */}
                   <div className="flex items-center gap-3">
-                    <label className="text-[11px] text-gray-500 w-20 shrink-0">Path</label>
+                    <label className="text-[11px] text-gray-500 w-20 shrink-0">{t('path')}</label>
                     <span className="text-[11px] text-gray-600 font-mono truncate">{hb.projectPath}</span>
                   </div>
                 </div>

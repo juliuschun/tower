@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -16,6 +17,7 @@ interface HelpTopic {
 }
 
 export function HelpPanel() {
+  const { t } = useTranslation('help');
   const isOpen = useSettingsStore((s) => s.helpOpen);
   const setOpen = useSettingsStore((s) => s.setHelpOpen);
 
@@ -69,7 +71,7 @@ export function HelpPanel() {
         setLoading(false);
       })
       .catch(() => {
-        setContent('Failed to load content.');
+        setContent(t('failedToLoad'));
         setLoading(false);
       });
   }, [activeSlug, isOpen, lang]);
@@ -109,7 +111,7 @@ export function HelpPanel() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
               <line x1="12" y1="17" x2="12.01" y2="17" strokeWidth={2} strokeLinecap="round" />
             </svg>
-            Help
+            {t('help')}
           </h2>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-0.5 text-[12px] font-medium">
@@ -140,7 +142,7 @@ export function HelpPanel() {
             onClick={() => setMobileTopicOpen(!mobileTopicOpen)}
             className="w-full flex items-center justify-between text-[13px] text-gray-300 bg-surface-800 rounded-lg px-3 py-2"
           >
-            <span>{activeTopic ? `${activeTopic.icon} ${activeTopic.title}` : 'Select topic'}</span>
+            <span>{activeTopic ? `${activeTopic.icon} ${activeTopic.title}` : t('selectTopic')}</span>
             <svg className={`w-4 h-4 transition-transform ${mobileTopicOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
@@ -191,7 +193,7 @@ export function HelpPanel() {
           <div className="flex-1 overflow-y-auto px-6 py-5 md:px-8 md:py-6">
             {loading ? (
               <div className="flex items-center justify-center h-32 text-surface-600 text-sm">
-                Loading...
+                {t('common:loading')}
               </div>
             ) : (
               <div className="prose prose-invert prose-sm max-w-none

@@ -1,0 +1,9 @@
+{
+  "snapshotSaved": "Snapshot saved",
+  "commitFailed": "Commit failed",
+  "viewDiff": "View Diff",
+  "rollback": "Rollback",
+  "auto": "auto",
+  "manual": "manual",
+  "files": "files"
+}

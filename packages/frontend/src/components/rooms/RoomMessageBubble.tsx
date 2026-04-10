@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { RichContent } from '../shared/RichContent';
 import type { RoomMessage } from '../../stores/room-store';
 
@@ -35,13 +36,14 @@ function formatTime(iso: string): string {
 
 /** Action buttons shown on hover */
 function MessageActions({ onReply, onThread }: { onReply?: () => void; onThread?: () => void }) {
+  const { t } = useTranslation('rooms');
   return (
     <div className="opacity-0 group-hover:opacity-100 absolute -top-2 right-2 flex items-center gap-0.5 bg-surface-700 border border-surface-600 rounded-md shadow-sm">
       {onThread && (
         <button
           onClick={onThread}
           className="p-1 text-gray-400 hover:text-gray-200 hover:bg-surface-600 rounded-md transition-all"
-          title="Open Thread"
+          title={t('openThread')}
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
@@ -52,7 +54,7 @@ function MessageActions({ onReply, onThread }: { onReply?: () => void; onThread?
         <button
           onClick={onReply}
           className="p-1 text-gray-400 hover:text-gray-200 hover:bg-surface-600 rounded-md transition-all"
-          title="Reply"
+          title={t('reply')}
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 015 5v3M3 10l6-6M3 10l6 6" />
@@ -76,6 +78,7 @@ function ParentPreview({ parent }: { parent: RoomMessage }) {
 }
 
 export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onReply, onOpenThread }: RoomMessageBubbleProps) {
+  const { t } = useTranslation('rooms');
   const canReply = onReply && message.msgType !== 'system';
   const canThread = onOpenThread && message.msgType !== 'system';
 
@@ -101,8 +104,8 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
           <div className="flex items-baseline gap-2 mb-0.5">
             <span className="text-[12px] font-semibold text-emerald-400">
               {message.metadata?.shared_from_panel
-                ? `Shared from AI${message.senderName ? ` by ${message.senderName}` : ''}`
-                : 'AI Summary'}
+                ? (message.senderName ? t('sharedFromAiBy', { name: message.senderName }) : t('sharedFromAi'))
+                : t('aiSummary')}
             </span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
@@ -125,7 +128,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
         <div className="flex-1 min-w-0">
           {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-[12px] font-semibold text-red-400">Error</span>
+            <span className="text-[12px] font-semibold text-red-400">{t('common:error')}</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
           <div className="text-[13px] text-red-300 leading-relaxed bg-red-950/20 border border-red-900/30 rounded-lg px-3 py-2 whitespace-pre-wrap">
@@ -142,18 +145,18 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
       <div className="group relative flex gap-2.5 px-4 py-2 hover:bg-surface-900/30">
         {(canReply || canThread) && <MessageActions onReply={canReply ? () => onReply(message) : undefined} onThread={canThread ? () => onOpenThread(message) : undefined} />}
         <div className="shrink-0 mt-1 px-1.5 py-0.5 bg-blue-600/20 border border-blue-500/30 rounded text-[10px] font-bold text-blue-400 leading-tight self-start">
-          agent
+          {t('agent')}
         </div>
         <div className="flex-1 min-w-0">
           {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-[12px] font-semibold text-blue-400">[agent]</span>
+            <span className="text-[12px] font-semibold text-blue-400">{t('agentBadge')}</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
           <div className="text-[13px] text-gray-300 leading-relaxed bg-blue-950/20 border border-blue-900/30 rounded-lg px-3 py-2">
             {message.content && typeof message.content === 'string'
               ? <RichContent text={message.content} />
-              : <span className="text-gray-500 italic">typing...</span>
+              : <span className="text-gray-500 italic">{t('typing')}</span>
             }
           </div>
         </div>
@@ -164,7 +167,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
   // AI task reference — mini task card
   if (message.msgType === 'ai_task_ref') {
     const meta = message.metadata || {};
-    const taskTitle = (meta.taskTitle as string) || 'AI Task';
+    const taskTitle = (meta.taskTitle as string) || t('aiTask');
     const taskStatus = (meta.taskStatus as string) || 'pending';
     const statusColor = taskStatus === 'done' ? 'text-emerald-400' :
       taskStatus === 'running' ? 'text-blue-400' :
@@ -181,7 +184,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
         <div className="flex-1 min-w-0">
           {parentMessage && <ParentPreview parent={parentMessage} />}
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-[12px] font-semibold text-primary-400">AI Task</span>
+            <span className="text-[12px] font-semibold text-primary-400">{t('aiTask')}</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
           <div className="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2">
@@ -214,8 +217,8 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
         <div className="flex items-baseline gap-2 mb-0.5">
           <span className="text-[12px] font-semibold text-gray-200">{message.senderName || 'Unknown'}</span>
           <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
-          {isPending && <span className="text-[10px] text-gray-500 italic">Sending...</span>}
-          {isFailed && <span className="text-[10px] text-red-400 font-medium">Failed to send</span>}
+          {isPending && <span className="text-[10px] text-gray-500 italic">{t('sending')}</span>}
+          {isFailed && <span className="text-[10px] text-red-400 font-medium">{t('failedToSend')}</span>}
         </div>
         <div className={`text-[13px] leading-relaxed whitespace-pre-wrap break-words ${isFailed ? 'text-red-300' : 'text-gray-300'}`}>
           <MentionHighlightedText text={message.content} />

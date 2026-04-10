@@ -1,0 +1,21 @@
+{
+  "sessions": "세션",
+  "tasks": "작업",
+  "sessionRestored": "세션이 복원되었습니다",
+  "failedToRestore": "세션 복원 실패",
+  "permanentlyDeleted": "영구 삭제됨",
+  "failedToDelete": "삭제 실패",
+  "taskRestored": "작업이 복원되었습니다",
+  "failedToRestoreTask": "작업 복원 실패",
+  "searchHistory": "기록 검색...",
+  "sessionsCount": "세션 ({{count}})",
+  "tasksCount": "작업 ({{count}})",
+  "sortByRecent": "최신순 정렬",
+  "groupByProject": "프로젝트별 그룹",
+  "noMatchingSessions": "일치하는 세션 없음",
+  "noArchivedSessions": "보관된 세션 없음",
+  "noMatchingTasks": "일치하는 작업 없음",
+  "noArchivedTasks": "보관된 작업 없음",
+  "restore": "복원",
+  "deletePermanently": "영구 삭제"
+}

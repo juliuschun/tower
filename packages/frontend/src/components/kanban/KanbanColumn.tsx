@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { KanbanCard } from './KanbanCard';
@@ -17,6 +18,7 @@ interface KanbanColumnProps {
 }
 
 export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTask, onSpawnTask, onAbortTask, onScheduleTask, onCleanupWorktree }: KanbanColumnProps) {
+  const { t } = useTranslation('kanban');
   const { setNodeRef, isOver } = useDroppable({ id });
 
   // Group: top-level tasks first, then child tasks nested under parents
@@ -85,7 +87,7 @@ export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTas
 
         {tasks.length === 0 && (
           <div className="text-center text-gray-600 text-xs py-8">
-            {id === 'todo' ? 'Add a task to get started' : 'Drop cards here'}
+            {id === 'todo' ? t('addTaskToStart') : t('dropCardsHere')}
           </div>
         )}
       </div>

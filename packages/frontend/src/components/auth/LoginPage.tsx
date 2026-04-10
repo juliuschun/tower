@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import towerBg from '../../assets/tower-bg.png';
 
 interface LoginPageProps {
@@ -8,6 +9,7 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
+  const { t } = useTranslation('auth');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -146,7 +148,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
             className="text-sm font-medium tracking-wide"
             style={{ color: 'rgba(196, 155, 55, 0.5)' }}
           >
-            Every task builds your tower.
+            {t('tagline')}
           </p>
         </div>
 
@@ -171,7 +173,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
             className="text-[11px] text-center font-semibold tracking-[0.15em] uppercase"
             style={{ color: 'rgba(196, 155, 55, 0.45)' }}
           >
-            {isSetup ? 'Create an admin account' : 'Sign in to continue'}
+            {isSetup ? t('createAdminAccount') : t('signInToContinue')}
           </p>
 
           {/* Username */}
@@ -181,7 +183,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
               className="block text-xs mb-2 font-medium transition-colors duration-200"
               style={{ color: focused === 'username' ? 'rgba(196, 155, 55, 0.8)' : 'rgba(160, 170, 200, 0.6)' }}
             >
-              Username
+              {t('username')}
             </label>
             <input
               id="login-username"
@@ -212,7 +214,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
               className="block text-xs mb-2 font-medium transition-colors duration-200"
               style={{ color: focused === 'password' ? 'rgba(196, 155, 55, 0.8)' : 'rgba(160, 170, 200, 0.6)' }}
             >
-              Password
+              {t('password')}
             </label>
             <input
               id="login-password"
@@ -286,9 +288,9 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.3" />
                   <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                 </svg>
-                Processing...
+                {t('common:processing')}
               </span>
-            ) : isSetup ? 'Create account' : 'Sign in'}
+            ) : isSetup ? t('createAccount') : t('signIn')}
           </button>
         </form>
 
@@ -297,7 +299,7 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
           className="text-center text-[11px] mt-8 font-medium tracking-wider"
           style={{ color: 'rgba(160, 170, 200, 0.25)' }}
         >
-          Powered by Claude &middot; Enterprise AI
+          {t('poweredBy')}
         </p>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useRoomStore } from '../../stores/room-store';
 import { useProjectStore } from '../../stores/project-store';
 import { toastError } from '../../utils/toast';
@@ -10,6 +11,7 @@ interface CreateRoomModalProps {
 }
 
 export function CreateRoomModal({ open, onClose, defaultProjectId }: CreateRoomModalProps) {
+  const { t } = useTranslation('rooms');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [roomType, setRoomType] = useState<'team' | 'project' | 'dashboard'>('team');
@@ -66,55 +68,55 @@ export function CreateRoomModal({ open, onClose, defaultProjectId }: CreateRoomM
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-surface-900 border border-surface-700 rounded-xl shadow-2xl shadow-black/40 w-full max-w-md mx-4">
         <div className="px-5 py-4 border-b border-surface-800">
-          <h2 className="text-[15px] font-semibold text-gray-200">Create Room</h2>
+          <h2 className="text-[15px] font-semibold text-gray-200">{t('createRoom')}</h2>
         </div>
 
         <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
           <div>
-            <label className="block text-[12px] font-medium text-gray-400 mb-1.5">Name</label>
+            <label className="block text-[12px] font-medium text-gray-400 mb-1.5">{t('name')}</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Room name"
+              placeholder={t('roomName')}
               className="w-full px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-primary-500/50 transition-colors"
               autoFocus
             />
           </div>
 
           <div>
-            <label className="block text-[12px] font-medium text-gray-400 mb-1.5">Description</label>
+            <label className="block text-[12px] font-medium text-gray-400 mb-1.5">{t('description')}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What's this room for?"
+              placeholder={t('whatsThisFor')}
               rows={3}
               className="w-full px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-primary-500/50 transition-colors resize-none"
             />
           </div>
 
           <div>
-            <label className="block text-[12px] font-medium text-gray-400 mb-1.5">Type</label>
+            <label className="block text-[12px] font-medium text-gray-400 mb-1.5">{t('type')}</label>
             <select
               value={roomType}
               onChange={(e) => setRoomType(e.target.value as 'team' | 'project' | 'dashboard')}
               className="w-full px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 focus:outline-none focus:border-primary-500/50 transition-colors"
             >
-              <option value="team">Team</option>
-              <option value="project">Project</option>
-              <option value="dashboard">Dashboard</option>
+              <option value="team">{t('team')}</option>
+              <option value="project">{t('project')}</option>
+              <option value="dashboard">{t('dashboard')}</option>
             </select>
           </div>
 
           {projects.length > 0 && (
             <div>
-              <label className="block text-[12px] font-medium text-gray-400 mb-1.5">Project</label>
+              <label className="block text-[12px] font-medium text-gray-400 mb-1.5">{t('project')}</label>
               <select
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
                 className="w-full px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 focus:outline-none focus:border-primary-500/50 transition-colors"
               >
-                <option value="">None (General)</option>
+                <option value="">{t('noneGeneral')}</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -128,14 +130,14 @@ export function CreateRoomModal({ open, onClose, defaultProjectId }: CreateRoomM
               onClick={onClose}
               className="px-4 py-2 text-[13px] text-gray-400 hover:text-gray-200 transition-colors"
             >
-              Cancel
+              {t('common:cancel')}
             </button>
             <button
               type="submit"
               disabled={!name.trim() || submitting}
               className="px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-[13px] font-semibold text-white transition-colors"
             >
-              {submitting ? 'Creating...' : 'Create'}
+              {submitting ? t('common:creating') : t('common:create')}
             </button>
           </div>
         </form>

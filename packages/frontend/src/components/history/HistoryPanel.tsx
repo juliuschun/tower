@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSessionStore, type SessionMeta } from '../../stores/session-store';
 import { useProjectStore } from '../../stores/project-store';
 import { type TaskMeta } from '../../stores/kanban-store';
@@ -50,6 +51,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function HistoryPanel() {
+  const { t } = useTranslation('history');
   const [tab, setTab] = useState<HistoryTab>('sessions');
   const [viewMode, setViewMode] = useState<SessionViewMode>('recent');
   const [sessions, setSessions] = useState<ArchivedSession[]>([]);
@@ -93,9 +95,9 @@ export function HistoryPanel() {
         const restored = sessions.find((s) => s.id === id);
         setSessions((prev) => prev.filter((s) => s.id !== id));
         if (restored) useSessionStore.getState().addSession(restored);
-        toastSuccess('Session restored');
+        toastSuccess(t('sessionRestored'));
       }
-    } catch { toastError('Failed to restore session'); }
+    } catch { toastError(t('failedToRestore')); }
   };
 
   const handleDeleteSessionPermanent = async (id: string) => {
@@ -103,9 +105,9 @@ export function HistoryPanel() {
       const res = await fetch(`/api/sessions/${id}/permanent`, { method: 'DELETE', headers: getAuthHeaders() });
       if (res.ok) {
         setSessions((prev) => prev.filter((s) => s.id !== id));
-        toastSuccess('Permanently deleted');
+        toastSuccess(t('permanentlyDeleted'));
       }
-    } catch { toastError('Failed to delete'); }
+    } catch { toastError(t('failedToDelete')); }
   };
 
   const handleRestoreTask = async (id: string) => {
@@ -113,9 +115,9 @@ export function HistoryPanel() {
       const res = await fetch(`/api/tasks/${id}/restore`, { method: 'POST', headers: getAuthHeaders() });
       if (res.ok) {
         setTasks((prev) => prev.filter((t) => t.id !== id));
-        toastSuccess('Task restored');
+        toastSuccess(t('taskRestored'));
       }
-    } catch { toastError('Failed to restore task'); }
+    } catch { toastError(t('failedToRestoreTask')); }
   };
 
   const handleDeleteTaskPermanent = async (id: string) => {
@@ -123,9 +125,9 @@ export function HistoryPanel() {
       const res = await fetch(`/api/tasks/${id}/permanent`, { method: 'DELETE', headers: getAuthHeaders() });
       if (res.ok) {
         setTasks((prev) => prev.filter((t) => t.id !== id));
-        toastSuccess('Permanently deleted');
+        toastSuccess(t('permanentlyDeleted'));
       }
-    } catch { toastError('Failed to delete'); }
+    } catch { toastError(t('failedToDelete')); }
   };
 
   const handleSessionClick = (session: ArchivedSession) => {
@@ -219,7 +221,7 @@ export function HistoryPanel() {
           <button
             onClick={(e) => { e.stopPropagation(); handleRestoreSession(session.id); }}
             className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-green-400 transition-colors"
-            title="Restore"
+            title={t('restore')}
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -228,7 +230,7 @@ export function HistoryPanel() {
           <button
             onClick={(e) => { e.stopPropagation(); handleDeleteSessionPermanent(session.id); }}
             className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-red-400 transition-colors"
-            title="Delete permanently"
+            title={t('deletePermanently')}
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -250,7 +252,7 @@ export function HistoryPanel() {
           </svg>
           <input
             type="text"
-            placeholder="Search history..."
+            placeholder={t('searchHistory')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-surface-800 border border-surface-700 rounded-md text-[12px] text-gray-300 pl-8 pr-3 py-1.5 placeholder-surface-700 outline-none focus:border-primary-500/50 transition-colors"
@@ -267,7 +269,7 @@ export function HistoryPanel() {
                 : 'text-surface-600 hover:text-gray-400 hover:bg-surface-800'
             }`}
           >
-            Sessions ({sessions.length})
+            {t('sessionsCount', { count: sessions.length })}
           </button>
           <button
             onClick={() => setTab('tasks')}
@@ -277,7 +279,7 @@ export function HistoryPanel() {
                 : 'text-surface-600 hover:text-gray-400 hover:bg-surface-800'
             }`}
           >
-            Tasks ({tasks.length})
+            {t('tasksCount', { count: tasks.length })}
           </button>
 
           {/* View mode toggle — only relevant for Sessions tab */}
@@ -290,7 +292,7 @@ export function HistoryPanel() {
                     ? 'bg-surface-700 text-gray-300'
                     : 'text-surface-600 hover:text-gray-400'
                 }`}
-                title="Sort by most recent"
+                title={t('sortByRecent')}
               >
                 Recent
               </button>
@@ -301,7 +303,7 @@ export function HistoryPanel() {
                     ? 'bg-surface-700 text-gray-300'
                     : 'text-surface-600 hover:text-gray-400'
                 }`}
-                title="Group by project"
+                title={t('groupByProject')}
               >
                 By project
               </button>
@@ -319,7 +321,7 @@ export function HistoryPanel() {
         ) : tab === 'sessions' ? (
           filteredSessions.length === 0 ? (
             <p className="text-[11px] text-surface-600 text-center py-8">
-              {searchQuery ? 'No matching sessions' : 'No archived sessions'}
+              {searchQuery ? t('noMatchingSessions') : t('noArchivedSessions')}
             </p>
           ) : viewMode === 'recent' ? (
             /* Flat list, sorted by most recent. Project shown as a badge. */
@@ -360,7 +362,7 @@ export function HistoryPanel() {
           /* Tasks tab */
           filteredTasks.length === 0 ? (
             <p className="text-[11px] text-surface-600 text-center py-8">
-              {searchQuery ? 'No matching tasks' : 'No archived tasks'}
+              {searchQuery ? t('noMatchingTasks') : t('noArchivedTasks')}
             </p>
           ) : (
             <div className="space-y-0.5 mt-1">
@@ -385,7 +387,7 @@ export function HistoryPanel() {
                     <button
                       onClick={() => handleRestoreTask(task.id)}
                       className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-green-400 transition-colors"
-                      title="Restore"
+                      title={t('restore')}
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -394,7 +396,7 @@ export function HistoryPanel() {
                     <button
                       onClick={() => handleDeleteTaskPermanent(task.id)}
                       className="p-1 rounded hover:bg-surface-700 text-surface-600 hover:text-red-400 transition-colors"
-                      title="Delete permanently"
+                      title={t('deletePermanently')}
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

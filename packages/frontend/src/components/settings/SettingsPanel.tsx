@@ -1,5 +1,6 @@
 import React from 'react';
-import { useSettingsStore } from '../../stores/settings-store';
+import { useTranslation } from 'react-i18next';
+import { useSettingsStore, type LangId } from '../../stores/settings-store';
 import { useSessionStore } from '../../stores/session-store';
 import { OAuthConnections } from './OAuthConnections';
 
@@ -25,11 +26,19 @@ class OAuthErrorBoundary extends React.Component<{ children: React.ReactNode }, 
 }
 
 export function SettingsPanel() {
+  const { t, i18n } = useTranslation('settings');
   const isOpen = useSettingsStore((s) => s.isOpen);
   const setOpen = useSettingsStore((s) => s.setOpen);
+  const language = useSettingsStore((s) => s.language);
+  const setLanguage = useSettingsStore((s) => s.setLanguage);
   const isMobile = useSessionStore((s) => s.isMobile);
   const activeView = useSessionStore((s) => s.activeView);
   const setActiveView = useSessionStore((s) => s.setActiveView);
+
+  const handleLanguageChange = (lang: LangId) => {
+    setLanguage(lang);
+    i18n.changeLanguage(lang);
+  };
 
   if (!isOpen) return null;
 
@@ -45,7 +54,7 @@ export function SettingsPanel() {
       <div className="relative bg-surface-900 border border-surface-700 rounded-xl shadow-2xl w-[calc(100vw-32px)] max-w-[360px] max-h-[80vh] overflow-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-800">
-          <h2 className="text-[15px] font-bold text-gray-100">Settings</h2>
+          <h2 className="text-[15px] font-bold text-gray-100">{t('settings')}</h2>
           <button
             onClick={() => setOpen(false)}
             className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
@@ -58,10 +67,30 @@ export function SettingsPanel() {
 
         {/* Content */}
         <div className="p-5 space-y-5">
+          {/* Language selector */}
+          <section>
+            <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">{t('language')}</h3>
+            <div className="flex gap-2">
+              {(['en', 'ko'] as const).map((lang) => (
+                <button
+                  key={lang}
+                  onClick={() => handleLanguageChange(lang)}
+                  className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${
+                    language === lang
+                      ? 'bg-surface-800 border-primary-500 text-primary-400'
+                      : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
+                  }`}
+                >
+                  {lang === 'en' ? t('english') : t('korean')}
+                </button>
+              ))}
+            </div>
+          </section>
+
           {/* View mode — mobile only (desktop has header toggle) */}
           {isMobile && (
             <section>
-              <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">View</h3>
+              <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">{t('view')}</h3>
               <div className="flex gap-2">
                 <button
                   onClick={() => setActiveView('chat')}

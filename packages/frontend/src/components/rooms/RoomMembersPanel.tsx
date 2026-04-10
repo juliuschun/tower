@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useRoomStore, type RoomMember } from '../../stores/room-store';
 import { getTokenUserId } from '../../utils/session-restore';
 
@@ -21,6 +22,7 @@ function authHeaders(): Record<string, string> {
 }
 
 export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
+  const { t } = useTranslation('rooms');
   const members = useRoomStore((s) => s.membersByRoom[roomId] ?? []);
   const currentUserId = parseInt(localStorage.getItem('userId') || '0', 10) || getTokenUserId(localStorage.getItem('token'));
 
@@ -98,10 +100,10 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
 
   const roleLabel = (role: string) => {
     switch (role) {
-      case 'owner': return 'Owner';
-      case 'admin': return 'Admin';
-      case 'member': return 'Member';
-      case 'readonly': return 'Read-only';
+      case 'owner': return t('owner');
+      case 'admin': return t('admin');
+      case 'member': return t('member');
+      case 'readonly': return t('readOnly');
       default: return role;
     }
   };
@@ -123,7 +125,7 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
         {/* Header */}
         <div className="px-5 py-4 border-b border-surface-800 flex items-center justify-between shrink-0">
           <h2 className="text-[15px] font-semibold text-gray-200">
-            {showInvite ? 'Invite Members' : 'Room Members'}
+            {showInvite ? t('inviteMembers') : t('roomMembers')}
           </h2>
           <div className="flex items-center gap-2">
             {canInvite && (
@@ -135,7 +137,7 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
                     : 'bg-primary-600 text-white hover:bg-primary-500'
                 }`}
               >
-                {showInvite ? 'Back to Members' : '+ Invite'}
+                {showInvite ? t('backToMembers') : `+ ${t('invite')}`}
               </button>
             )}
             <button
@@ -159,7 +161,7 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search users..."
+                placeholder={t('searchUsers')}
                 className="w-full px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-primary-500/50 transition-colors"
                 autoFocus
               />
@@ -172,12 +174,12 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
 
               {loading ? (
                 <div className="py-8 text-center">
-                  <span className="text-[12px] text-gray-500">Loading users...</span>
+                  <span className="text-[12px] text-gray-500">{t('loadingUsers')}</span>
                 </div>
               ) : filteredInvitable.length === 0 ? (
                 <div className="py-8 text-center">
                   <p className="text-[13px] text-gray-400">
-                    {searchQuery ? 'No matching users' : 'All users are already members'}
+                    {searchQuery ? t('noMatchingUsers') : t('allUsersMembers')}
                   </p>
                 </div>
               ) : (
@@ -203,7 +205,7 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
                         disabled={inviting === user.id}
                         className="px-3 py-1.5 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 rounded-lg text-[12px] font-medium text-white transition-colors shrink-0"
                       >
-                        {inviting === user.id ? 'Inviting...' : 'Invite'}
+                        {inviting === user.id ? t('inviting') : t('invite')}
                       </button>
                     </div>
                   ))}
@@ -215,7 +217,7 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
             <div className="p-4 space-y-1">
               {members.length === 0 ? (
                 <div className="py-8 text-center">
-                  <span className="text-[12px] text-gray-500">No members</span>
+                  <span className="text-[12px] text-gray-500">{t('noMembers')}</span>
                 </div>
               ) : (
                 members.map((member) => (
@@ -233,7 +235,7 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
                         <span className="text-[13px] text-gray-200 truncate block">
                           {member.username}
                           {member.userId === currentUserId && (
-                            <span className="text-[11px] text-gray-500 ml-1">(you)</span>
+                            <span className="text-[11px] text-gray-500 ml-1">{t('common:you')}</span>
                           )}
                         </span>
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${roleColor(member.role)}`}>
@@ -247,7 +249,7 @@ export function RoomMembersPanel({ roomId, onClose }: RoomMembersPanelProps) {
                         disabled={removing === member.userId}
                         className="px-2.5 py-1.5 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-lg transition-colors shrink-0"
                       >
-                        {removing === member.userId ? '...' : 'Remove'}
+                        {removing === member.userId ? '...' : t('common:remove')}
                       </button>
                     )}
                   </div>

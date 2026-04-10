@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSessionStore } from '../../stores/session-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useRoomStore } from '../../stores/room-store';
@@ -28,6 +29,7 @@ interface HeaderProps {
 
 /* ─── Nav Switch (segmented toggle) ─── */
 function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
+  const { t } = useTranslation('layout');
   const sidebarTab = useSessionStore((s) => s.sidebarTab);
   const setSidebarTab = useSessionStore((s) => s.setSidebarTab);
   const activeView = useSessionStore((s) => s.activeView);
@@ -44,13 +46,13 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
   // Build tab definitions
   const tabs = React.useMemo(() => {
     const list: { key: string; label: string; badge?: number }[] = [
-      { key: 'ai', label: 'AI' },
+      { key: 'ai', label: t('ai') },
     ];
-    if (pgEnabled) list.push({ key: 'channel', label: 'Channel', badge: totalRoomUnread });
-    list.push({ key: 'files', label: 'Files' });
-    list.push({ key: 'task', label: 'Task' });
+    if (pgEnabled) list.push({ key: 'channel', label: t('channel'), badge: totalRoomUnread });
+    list.push({ key: 'files', label: t('files') });
+    list.push({ key: 'task', label: t('task') });
     return list;
-  }, [pgEnabled, totalRoomUnread]);
+  }, [pgEnabled, totalRoomUnread, t]);
 
   // Determine active key
   const activeKey = activeView === 'kanban' ? 'task'
@@ -128,6 +130,7 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
 
 /* ─── Light / Dark Toggle ─── */
 function ThemeToggle() {
+  const { t } = useTranslation('layout');
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const isLight = theme === 'light';
@@ -136,8 +139,8 @@ function ThemeToggle() {
     <button
       onClick={() => setTheme(isLight ? 'dark' : 'light')}
       className="p-2 hover:bg-surface-800 rounded-lg transition-all active:scale-95 text-gray-400 hover:text-gray-200"
-      title={isLight ? 'Dark mode' : 'Light mode'}
-      aria-label={isLight ? 'Switch to dark mode' : 'Switch to light mode'}
+      title={isLight ? t('darkMode') : t('lightMode')}
+      aria-label={isLight ? t('switchToDark') : t('switchToLight')}
     >
       {isLight ? (
         /* Moon icon */
@@ -269,6 +272,7 @@ function AppMenu({
   onUsageClick?: () => void;
   isMobile?: boolean;
 }) {
+  const { t } = useTranslation('layout');
   const [open, setOpen] = React.useState(false);
   const [gitOpen, setGitOpen] = React.useState(false);
   const [themeOpen, setThemeOpen] = React.useState(false);
@@ -375,14 +379,14 @@ function AppMenu({
               <span className="text-[12px] font-bold text-primary-400">{initial}</span>
             </div>
             <div className="min-w-0">
-              <div className="text-[13px] font-medium text-gray-200 truncate">{username || 'User'}</div>
+              <div className="text-[13px] font-medium text-gray-200 truncate">{username || t('user')}</div>
               {userRole && <div className="text-[10px] text-gray-500 capitalize">{userRole}</div>}
             </div>
           </div>
 
           {/* ── Model Selector (inline) ── */}
           <div className="px-3 py-2 border-b border-surface-800">
-            <div className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-1.5">Model</div>
+            <div className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-1.5">{t('model')}</div>
             <ModelSelectorInline onClose={() => setOpen(false)} />
           </div>
 
@@ -390,17 +394,17 @@ function AppMenu({
             {/* ── Shortcuts ── */}
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>}
-              label="Pins"
+              label={t('pins')}
               onClick={onPinsClick}
             />
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-              label="History"
+              label={t('history')}
               onClick={onHistoryClick}
             />
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>}
-              label="New Project"
+              label={t('newProject')}
               onClick={() => { setNewProjectOpen(true); }}
               keepOpen
             />
@@ -410,20 +414,20 @@ function AppMenu({
             {/* ── Settings & Admin ── */}
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-              label="Settings"
+              label={t('settings')}
               onClick={onSettingsClick}
             />
             {onAdminClick && (
               <MenuItem
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>}
-                label="Admin Panel"
+                label={t('adminPanel')}
                 onClick={onAdminClick}
               />
             )}
             {onUsageClick && (
               <MenuItem
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l3-3 4 4 5-5 6 6M3 20h18" /></svg>}
-                label="Usage"
+                label={t('usage')}
                 onClick={onUsageClick}
               />
             )}
@@ -433,12 +437,12 @@ function AppMenu({
             {/* ── Skills & Appearance ── */}
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
-              label="Skills Market"
+              label={t('skillsMarket')}
               onClick={() => { setSkillsBrowserOpen(true); }}
             />
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>}
-              label="Appearance"
+              label={t('appearance')}
               onClick={() => { setThemeOpen(true); }}
               keepOpen
             />
@@ -448,14 +452,14 @@ function AppMenu({
             {/* ── Tools ── */}
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
-              label="Version History"
+              label={t('versionHistory')}
               onClick={() => { setGitOpen(true); }}
               keepOpen
             />
             {onPublishClick && (
               <MenuItem
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                label="Publishing Hub"
+                label={t('publishingHub')}
                 onClick={onPublishClick}
               />
             )}
@@ -465,7 +469,7 @@ function AppMenu({
             {/* ── Help ── */}
             <MenuItem
               icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" strokeWidth={1.5} /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" strokeWidth={2} strokeLinecap="round" /></svg>}
-              label="Help"
+              label={t('help')}
               onClick={() => useSettingsStore.getState().setHelpOpen(true)}
             />
 
@@ -475,7 +479,7 @@ function AppMenu({
             {onLogout && (
               <MenuItem
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>}
-                label="Logout"
+                label={t('logout')}
                 onClick={onLogout}
                 danger
               />
@@ -496,7 +500,7 @@ function AppMenu({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <span className="text-[13px] font-semibold text-gray-200">New Project</span>
+            <span className="text-[13px] font-semibold text-gray-200">{t('newProject')}</span>
           </div>
           <div className="p-3">
             <input
@@ -507,7 +511,7 @@ function AppMenu({
                 if (e.key === 'Enter') handleCreateProject();
                 if (e.key === 'Escape') { setNewProjectOpen(false); setNpName(''); }
               }}
-              placeholder="Project name..."
+              placeholder={t('projectNamePlaceholder')}
               className="w-full bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 px-3 py-2 placeholder-surface-600 outline-none focus:border-primary-500/50 transition-colors"
             />
             <div className="flex gap-2 mt-2.5">
@@ -515,14 +519,14 @@ function AppMenu({
                 onClick={() => { setNewProjectOpen(false); setNpName(''); }}
                 className="flex-1 text-[12px] text-gray-400 hover:text-gray-200 py-1.5 rounded-md hover:bg-surface-800 transition-colors"
               >
-                Cancel
+                {t('common:cancel')}
               </button>
               <button
                 onClick={handleCreateProject}
                 disabled={!npName.trim()}
                 className="flex-1 text-[12px] font-medium text-primary-400 py-1.5 rounded-md bg-primary-600/15 hover:bg-primary-600/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Create
+                {t('common:create')}
               </button>
             </div>
           </div>
@@ -544,7 +548,7 @@ function AppMenu({
             <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="text-[12px] font-semibold text-gray-300 flex-1">Version History</span>
+            <span className="text-[12px] font-semibold text-gray-300 flex-1">{t('versionHistory')}</span>
             <button
               onClick={() => setOpen(false)}
               className="p-1.5 hover:bg-surface-800 rounded-lg transition-colors text-gray-500 hover:text-gray-300 active:scale-95"
@@ -575,7 +579,7 @@ function AppMenu({
             <svg className="w-3.5 h-3.5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
             </svg>
-            <span className="text-[12px] font-semibold text-gray-300 flex-1">Appearance</span>
+            <span className="text-[12px] font-semibold text-gray-300 flex-1">{t('appearance')}</span>
             <button
               onClick={() => setOpen(false)}
               className="p-1.5 hover:bg-surface-800 rounded-lg transition-colors text-gray-500 hover:text-gray-300 active:scale-95"
@@ -588,28 +592,28 @@ function AppMenu({
           <div className="p-3">
             <div className="grid grid-cols-5 gap-1.5">
               {([
-                { id: 'dark' as const,   label: 'Dark',   colors: ['#0b0d12', '#242832', '#f59e0b', '#f59e0b'] },
-                { id: 'light' as const,  label: 'Light',  colors: ['#ffffff', '#f3f4f6', '#f59e0b', '#f59e0b'] },
-                { id: 'ocean' as const,  label: 'Ocean',  colors: ['#060a14', '#18223a', '#00d4ff', '#c4a0f0'] },
-                { id: 'forest' as const, label: 'Forest', colors: ['#080c08', '#1c2c20', '#d4b840', '#d8a070'] },
-                { id: 'aurora' as const, label: 'Aurora', colors: ['#08060e', '#221e34', '#30e890', '#f0a0d0'] },
-              ]).map((t) => (
+                { id: 'dark' as const,   labelKey: 'themeDark',   colors: ['#0b0d12', '#242832', '#f59e0b', '#f59e0b'] },
+                { id: 'light' as const,  labelKey: 'themeLight',  colors: ['#ffffff', '#f3f4f6', '#f59e0b', '#f59e0b'] },
+                { id: 'ocean' as const,  labelKey: 'themeOcean',  colors: ['#060a14', '#18223a', '#00d4ff', '#c4a0f0'] },
+                { id: 'forest' as const, labelKey: 'themeForest', colors: ['#080c08', '#1c2c20', '#d4b840', '#d8a070'] },
+                { id: 'aurora' as const, labelKey: 'themeAurora', colors: ['#08060e', '#221e34', '#30e890', '#f0a0d0'] },
+              ]).map((themeItem) => (
                 <button
-                  key={t.id}
-                  onClick={() => setTheme(t.id)}
+                  key={themeItem.id}
+                  onClick={() => setTheme(themeItem.id)}
                   className={`flex flex-col items-center gap-1.5 py-2 rounded-lg border transition-all ${
-                    theme === t.id
+                    theme === themeItem.id
                       ? 'bg-surface-800 border-primary-500'
                       : 'bg-surface-900 border-surface-700 hover:border-surface-600'
                   }`}
                 >
                   <div className="flex gap-0.5">
-                    {t.colors.map((c, i) => (
+                    {themeItem.colors.map((c, i) => (
                       <span key={i} className="w-2.5 h-2.5 rounded-full border border-white/10" style={{ background: c }} />
                     ))}
                   </div>
-                  <span className={`text-[9px] font-medium ${theme === t.id ? 'text-primary-400' : 'text-surface-500'}`}>
-                    {t.label}
+                  <span className={`text-[9px] font-medium ${theme === themeItem.id ? 'text-primary-400' : 'text-surface-500'}`}>
+                    {t(themeItem.labelKey)}
                   </span>
                 </button>
               ))}
@@ -626,6 +630,7 @@ export function Header({
   onViewDiff, onLogout, onSettingsClick, onPinsClick, onHistoryClick, onUsageClick,
   onRequestFileTree, username, userRole,
 }: HeaderProps) {
+  const { t } = useTranslation('layout');
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -684,7 +689,7 @@ export function Header({
 
         {/* Connection indicator */}
         <div className={`w-2 h-2 rounded-full ring-2 ring-surface-900 ring-offset-1 ring-offset-transparent ${connected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse'}`}
-          title={connected ? 'Connected' : 'Disconnected'}
+          title={connected ? t('connected') : t('disconnected')}
         />
       </div>
     </header>

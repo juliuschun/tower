@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useRoomStore, type RoomMessage } from '../../stores/room-store';
 import { RoomMessageBubble } from './RoomMessageBubble';
 import { RoomMembersPanel } from './RoomMembersPanel';
@@ -48,6 +49,7 @@ function MentionDropdown({
 }
 
 function TypingIndicator({ roomId }: { roomId: string }) {
+  const { t } = useTranslation('rooms');
   const typingUsers = useRoomStore((s) => s.typingByRoom[roomId] ?? EMPTY_TYPING);
 
   // Clean up stale typing indicators (older than 5s)
@@ -58,7 +60,7 @@ function TypingIndicator({ roomId }: { roomId: string }) {
   return (
     <div className="px-4 py-1.5">
       <span className="text-[11px] text-gray-500 italic">
-        {names} {active.length === 1 ? 'is' : 'are'} typing...
+        {names} {active.length === 1 ? t('isTyping') : t('areTyping')}
       </span>
     </div>
   );
@@ -68,6 +70,7 @@ const EMPTY_MESSAGES: ReturnType<typeof useRoomStore.getState>['messagesByRoom']
 const EMPTY_MEMBERS: ReturnType<typeof useRoomStore.getState>['membersByRoom'][string] = [];
 
 export function RoomPanel() {
+  const { t } = useTranslation('rooms');
   const rooms = useRoomStore((s) => s.rooms);
   const activeRoomId = useRoomStore((s) => s.activeRoomId);
   const setActiveRoomId = useRoomStore((s) => s.setActiveRoomId);
@@ -370,8 +373,8 @@ export function RoomPanel() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <p className="text-[15px] text-gray-400">Select a room from the sidebar</p>
-          <p className="text-[12px] text-gray-600 mt-1">or create a new one in Admin</p>
+          <p className="text-[15px] text-gray-400">{t('selectRoom')}</p>
+          <p className="text-[12px] text-gray-600 mt-1">{t('orCreateNew')}</p>
         </div>
       </div>
     );
@@ -409,7 +412,7 @@ export function RoomPanel() {
               }
             }}
             className="p-1.5 hover:bg-surface-800 rounded-lg transition-colors group"
-            title="AI Panel"
+            title={t('aiPanel')}
           >
             <svg className="w-4 h-4 text-gray-500 group-hover:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
@@ -418,7 +421,7 @@ export function RoomPanel() {
           <button
             onClick={() => setShowMembers(true)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-surface-800 rounded-lg transition-colors group"
-            title="Manage members"
+            title={t('manageMembers')}
           >
             <svg className="w-4 h-4 text-gray-500 group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -434,13 +437,13 @@ export function RoomPanel() {
         >
           {messagesLoading ? (
             <div className="flex items-center justify-center h-full">
-              <span className="text-[12px] text-gray-500">Loading messages...</span>
+              <span className="text-[12px] text-gray-500">{t('loadingMessages')}</span>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <p className="text-[13px] text-gray-400">No messages yet</p>
-                <p className="text-[11px] text-gray-600 mt-1">Start the conversation</p>
+                <p className="text-[13px] text-gray-400">{t('noMessagesYet')}</p>
+                <p className="text-[11px] text-gray-600 mt-1">{t('startConversation')}</p>
               </div>
             </div>
           ) : (
@@ -483,7 +486,7 @@ export function RoomPanel() {
                 {' '}{replyTo.content.slice(0, 60)}{replyTo.content.length > 60 ? '...' : ''}
               </span>
               {(replyTo.msgType === 'ai_reply' || replyTo.msgType === 'ai_summary') && (
-                <span className="text-[10px] text-blue-400/70 shrink-0">@ai to reply</span>
+                <span className="text-[10px] text-blue-400/70 shrink-0">{t('atAiToReply')}</span>
               )}
               <button
                 onClick={() => setReplyTo(null)}
@@ -503,7 +506,7 @@ export function RoomPanel() {
                 : 'bg-blue-950/30 border-blue-900/30'
             }`}>
               <span className={`text-[11px] ${hintType === 'task' ? 'text-primary-400' : 'text-blue-400'}`}>
-                {hintType === 'task' ? 'Full task will be created and executed' : 'AI will reply directly in chat'}
+                {hintType === 'task' ? t('taskWillBeCreated') : t('aiWillReply')}
               </span>
             </div>
           )}
@@ -522,7 +525,7 @@ export function RoomPanel() {
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder={replyTo ? 'Reply...' : 'Type a message...'}
+              placeholder={replyTo ? t('replyPlaceholder') : t('typeMessagePlaceholder')}
               rows={1}
               className="flex-1 px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-primary-500/50 transition-colors resize-none max-h-32"
               style={{ minHeight: '38px' }}

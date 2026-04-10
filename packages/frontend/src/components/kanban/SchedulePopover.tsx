@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface SchedulePopoverProps {
   taskId: string;
@@ -47,6 +48,7 @@ export function SchedulePopover({
   onSave,
   onClose,
 }: SchedulePopoverProps) {
+  const { t } = useTranslation('kanban');
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Parse existing schedule
@@ -139,7 +141,7 @@ export function SchedulePopover({
       className="relative z-50 bg-surface-800 border border-surface-600 rounded-lg shadow-xl p-3 w-72"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="text-xs font-semibold text-gray-300 mb-2">Schedule Task</div>
+      <div className="text-xs font-semibold text-gray-300 mb-2">{t('scheduleTask')}</div>
 
       {/* Quick presets */}
       <div className="flex flex-wrap gap-1 mb-2">
@@ -160,19 +162,19 @@ export function SchedulePopover({
           onClick={() => handleTomorrow(9)}
           className="px-2 py-0.5 text-[10px] bg-surface-700 hover:bg-surface-600 text-gray-300 rounded transition-colors"
         >
-          Tomorrow 9am
+          {t('tomorrowMorning')}
         </button>
         <button
           onClick={() => handleTomorrow(14)}
           className="px-2 py-0.5 text-[10px] bg-surface-700 hover:bg-surface-600 text-gray-300 rounded transition-colors"
         >
-          Tomorrow 2pm
+          {t('tomorrowAfternoon')}
         </button>
       </div>
 
       {/* Date/time picker */}
       <div className="mb-2">
-        <div className="text-[10px] text-gray-500 mb-1">or pick date & time</div>
+        <div className="text-[10px] text-gray-500 mb-1">{t('orPickDateTime')}</div>
         <input
           type="datetime-local"
           value={datetime}
@@ -190,7 +192,7 @@ export function SchedulePopover({
             onChange={(e) => setIsRecurring(e.target.checked)}
             className="w-3 h-3 rounded border-surface-600 bg-surface-900 text-blue-500 focus:ring-0 focus:ring-offset-0"
           />
-          <span className="text-xs text-gray-300">Repeat</span>
+          <span className="text-xs text-gray-300">{t('repeat')}</span>
         </label>
       </div>
 
@@ -198,22 +200,22 @@ export function SchedulePopover({
       {isRecurring && (
         <div className="bg-surface-900 rounded p-2 mb-2 space-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-gray-500 w-10">Every</span>
+            <span className="text-[10px] text-gray-500 w-10">{t('every')}</span>
             <select
               value={cronType}
               onChange={(e) => setCronType(e.target.value as CronConfig['type'])}
               className="flex-1 px-2 py-0.5 text-xs bg-surface-800 border border-surface-600 rounded text-gray-200 focus:outline-none"
             >
-              <option value="daily">Daily</option>
-              <option value="weekdays">Weekdays</option>
-              <option value="weekly">Weekly</option>
-              <option value="interval">Every N hours</option>
+              <option value="daily">{t('daily')}</option>
+              <option value="weekdays">{t('weekdays')}</option>
+              <option value="weekly">{t('weekly')}</option>
+              <option value="interval">{t('everyNHours')}</option>
             </select>
           </div>
 
           {cronType === 'weekly' && (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 w-10">Day</span>
+              <span className="text-[10px] text-gray-500 w-10">{t('day')}</span>
               <select
                 value={cronDay}
                 onChange={(e) => setCronDay(parseInt(e.target.value))}
@@ -232,7 +234,7 @@ export function SchedulePopover({
 
           {cronType === 'interval' ? (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 w-10">Hours</span>
+              <span className="text-[10px] text-gray-500 w-10">{t('hours')}</span>
               <input
                 type="number"
                 min={1}
@@ -244,7 +246,7 @@ export function SchedulePopover({
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 w-10">At</span>
+              <span className="text-[10px] text-gray-500 w-10">{t('at')}</span>
               <input
                 type="time"
                 value={`${String(cronHour).padStart(2, '0')}:${String(cronMinute).padStart(2, '0')}`}
@@ -266,20 +268,20 @@ export function SchedulePopover({
           onClick={handleClear}
           className="px-2 py-1 text-[10px] text-gray-400 hover:text-gray-200 transition-colors"
         >
-          Clear
+          {t('clear')}
         </button>
         <div className="flex gap-1.5">
           <button
             onClick={onClose}
             className="px-2.5 py-1 text-[10px] bg-surface-700 hover:bg-surface-600 text-gray-300 rounded transition-colors"
           >
-            Cancel
+            {t('common:cancel')}
           </button>
           <button
             onClick={handleSave}
             className="px-2.5 py-1 text-[10px] bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
           >
-            Save
+            {t('common:save')}
           </button>
         </div>
       </div>

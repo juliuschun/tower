@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { TaskMeta } from '../../stores/kanban-store';
@@ -60,7 +61,7 @@ const STATUS_STYLES: Record<string, { badge: string; border: string }> = {
   failed: { badge: 'bg-red-900/50 text-red-300', border: 'border-red-500/30' },
 };
 
-function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, isScheduled, isRecurring }: {
+function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, isScheduled, isRecurring, t }: {
   task: TaskMeta;
   onSpawn?: () => void;
   onSchedule?: () => void;
@@ -68,6 +69,7 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
   onDelete?: () => void;
   isScheduled: boolean;
   isRecurring: boolean;
+  t: (key: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -115,7 +117,7 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
                   </>
                 )}
               </svg>
-              {task.status === 'failed' ? 'Retry' : 'Run'}
+              {task.status === 'failed' ? t('common:retry') : t('run')}
             </button>
           )}
           {onSchedule && (
@@ -124,7 +126,7 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              {isScheduled ? 'Edit schedule' : 'Schedule'}
+              {isScheduled ? t('editSchedule') : t('schedule')}
             </button>
           )}
           {onCleanupWorktree && task.worktreePath && task.status !== 'in_progress' && (
@@ -132,7 +134,7 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Clean worktree
+              {t('cleanWorktree')}
             </button>
           )}
           {onDelete && task.status !== 'in_progress' && (
@@ -142,7 +144,7 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                Delete
+                {t('common:delete')}
               </button>
             </>
           )}
@@ -153,6 +155,7 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
 }
 
 export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, onAbort, onSchedule, onCleanupWorktree }: KanbanCardProps) {
+  const { t } = useTranslation('kanban');
   const {
     attributes,
     listeners,
@@ -270,7 +273,7 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
             <button
               onClick={(e) => { e.stopPropagation(); onAbort(); }}
               className="text-yellow-400 hover:text-yellow-300 transition-all"
-              title="Cancel task"
+              title={t('cancelTask')}
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -287,6 +290,7 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
             onDelete={onDelete}
             isScheduled={isScheduled}
             isRecurring={isRecurring}
+            t={t}
           />
         </div>
       </div>

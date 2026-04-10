@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   DragOverlay,
@@ -19,13 +20,14 @@ import { KanbanCard } from './KanbanCard';
 import { NewTaskModal } from './NewTaskModal';
 import { SchedulePopover } from './SchedulePopover';
 
-const COLUMNS: { id: TaskMeta['status']; title: string; color: string }[] = [
-  { id: 'todo', title: 'Todo', color: 'text-gray-400' },
-  { id: 'in_progress', title: 'In Progress', color: 'text-blue-400' },
-  { id: 'done', title: 'Done', color: 'text-green-400' },
+const COLUMN_DEFS: { id: TaskMeta['status']; titleKey: string; color: string }[] = [
+  { id: 'todo', titleKey: 'todo', color: 'text-gray-400' },
+  { id: 'in_progress', titleKey: 'inProgress', color: 'text-blue-400' },
+  { id: 'done', titleKey: 'done', color: 'text-green-400' },
 ];
 
 export function KanbanBoard() {
+  const { t } = useTranslation('kanban');
   const { tasks, setTasks, setLoading } = useKanbanStore();
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -97,7 +99,7 @@ export function KanbanBoard() {
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
 
   const resolveTargetColumn = (overId: string | number): TaskMeta['status'] | null => {
-    const columnIds = new Set<string>(COLUMNS.map((c) => c.id));
+    const columnIds = new Set<string>(COLUMN_DEFS.map((c) => c.id));
     const id = String(overId);
     if (columnIds.has(id)) return id as TaskMeta['status'];
     const overTask = tasks.find((t) => t.id === id);
@@ -234,7 +236,7 @@ export function KanbanBoard() {
       {/* Board header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-gray-200">Task</h2>
+          <h2 className="text-lg font-semibold text-gray-200">{t('layout:task')}</h2>
           {/* Project filter */}
           <div className="flex items-center gap-1.5">
             <select
@@ -242,7 +244,7 @@ export function KanbanBoard() {
               onChange={(e) => setFilterProjectId(e.target.value || null)}
               className="text-xs bg-surface-800 border border-surface-700 rounded-md px-2 py-1.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer max-w-[180px]"
             >
-              <option value="">All Projects</option>
+              <option value="">{t('allProjects')}</option>
               {activeProjects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -252,7 +254,7 @@ export function KanbanBoard() {
               <button
                 onClick={() => setFilterProjectId(null)}
                 className="text-gray-500 hover:text-gray-300 transition-colors p-1"
-                title="Clear filter"
+                title={t('clearFilter')}
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -265,7 +267,7 @@ export function KanbanBoard() {
           onClick={() => setShowNewTask(true)}
           className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
         >
-          + New Task
+          + {t('newTask')}
         </button>
       </div>
 
@@ -278,11 +280,11 @@ export function KanbanBoard() {
         onDragEnd={handleDragEnd}
       >
         <div className="flex-1 flex gap-4 overflow-x-auto">
-          {COLUMNS.map((col) => (
+          {COLUMN_DEFS.map((col) => (
             <KanbanColumn
               key={col.id}
               id={col.id}
-              title={col.title}
+              title={t(col.titleKey)}
               color={col.color}
               tasks={getTasksByStatus(col.id)}
               onCardClick={handleCardClick}
