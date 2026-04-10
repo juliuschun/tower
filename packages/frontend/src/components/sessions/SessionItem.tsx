@@ -13,11 +13,11 @@ function relativeTime(dateStr: string): string {
   if (isNaN(diff)) return '';
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'now';
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return `~${mins}m`;
   const hours = diff / 3600000;
-  if (hours < 24) return `${Math.round(hours * 10) / 10}h`;
+  if (hours < 24) return `~${Math.round(hours * 10) / 10}h`;
   const days = hours / 24;
-  if (days < 30) return `${Math.round(days * 10) / 10}d`;
+  if (days < 30) return `~${Math.round(days * 10) / 10}d`;
   return new Date(normalized).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -271,6 +271,14 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 ? <>{session.ownerUsername} · {relativeTime(session.updatedAt)}</>
                 : <>{relativeTime(session.updatedAt)}</>
               }
+              {session.userTurnCount && session.userTurnCount > 0 ? (
+                <span
+                  className="text-[9px] text-surface-600 tabular-nums"
+                  title={`${session.userTurnCount}회 대화 (tool 호출 제외)`}
+                >
+                  ({session.userTurnCount})
+                </span>
+              ) : null}
             </span>
             <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
               <button

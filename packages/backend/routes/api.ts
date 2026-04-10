@@ -35,7 +35,7 @@ import { search } from '../services/search.js';
 import { extractTextFromContent } from '../utils/text.js';
 import { createTask, getTasks, getTask, updateTask, deleteTask, reorderTasks, getDistinctCwds, getArchivedTasks, restoreTask, permanentlyDeleteTask, getChildTasks, backfillTaskProjects } from '../services/task-manager.js';
 import { removeWorktree } from '../services/worktree-manager.js';
-import { broadcast, broadcastToAll } from './ws-handler.js';
+import { broadcast, broadcastToAll, broadcastToUser } from './ws-handler.js';
 import {
   createInternalShare, createExternalShare, getSharesByFile,
   getSharesWithMe, getShareByToken, revokeShare, isTokenValid,
@@ -864,6 +864,103 @@ router.delete('/admin/groups/:id/users/:uid', adminMiddleware, async (req, res) 
 
 // (project_groups endpoints removed — use project members API instead)
 
+// ───── Metrics: Usage Heatmap ─────
+// Returns project × day grid of REAL user turns (user messages with type:text only,
+// excluding tool_result bounces and assistant intermediate tool_use blocks).
+// Filtered to projects the current user owns or is a member of.
+router.get('/metrics/usage-heatmap', async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const days = Math.max(1, Math.min(parseInt(String(req.query.days || '30'), 10) || 30, 180));
+    const topN = Math.max(1, Math.min(parseInt(String(req.query.top || '10'), 10) || 10, 30));
+
+    // 1) Per-project totals over window, filtered to accessible projects
+    const totalsSql = `
+      SELECT p.id, p.name,
+        COUNT(*) FILTER (WHERE m.role='user' AND m.content LIKE '[{"type":"text"%') AS turns,
+        COUNT(DISTINCT s.id) AS sessions,
+        COUNT(DISTINCT DATE(m.created_at)) AS active_days
+      FROM projects p
+      JOIN sessions s ON s.project_id = p.id
+      JOIN messages m ON m.session_id = s.id
+      WHERE (p.archived IS NULL OR p.archived = 0)
+        AND (
+          p.user_id = $1
+          OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = $1)
+        )
+        AND m.created_at >= NOW() - ($2 || ' days')::interval
+      GROUP BY p.id, p.name
+      HAVING COUNT(*) FILTER (WHERE m.role='user' AND m.content LIKE '[{"type":"text"%') > 0
+      ORDER BY turns DESC
+      LIMIT $3
+    `;
+    const totals = await query<{ id: string; name: string; turns: string; sessions: string; active_days: string }>(
+      totalsSql, [userId, String(days), topN]
+    );
+
+    if (totals.length === 0) {
+      return res.json({ days, topN, dates: [], projects: [], grandTotal: 0 });
+    }
+
+    const projectIds = totals.map((t) => t.id);
+
+    // 2) Daily breakdown for those projects
+    const dailySql = `
+      SELECT s.project_id AS project_id,
+             to_char(DATE(m.created_at), 'YYYY-MM-DD') AS d,
+             COUNT(*) FILTER (WHERE m.role='user' AND m.content LIKE '[{"type":"text"%') AS turns
+      FROM sessions s
+      JOIN messages m ON m.session_id = s.id
+      WHERE s.project_id = ANY($1::text[])
+        AND m.created_at >= NOW() - ($2 || ' days')::interval
+      GROUP BY s.project_id, DATE(m.created_at)
+      HAVING COUNT(*) FILTER (WHERE m.role='user' AND m.content LIKE '[{"type":"text"%') > 0
+    `;
+    const daily = await query<{ project_id: string; d: string; turns: string }>(
+      dailySql, [projectIds, String(days)]
+    );
+
+    // 3) Build continuous date axis (days window ending today, inclusive)
+    const dates: string[] = [];
+    const now = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      dates.push(d.toISOString().slice(0, 10));
+    }
+
+    // 4) Build lookup and assemble per-project value arrays in the date order
+    const lookup: Record<string, Record<string, number>> = {};
+    for (const row of daily) {
+      if (!lookup[row.project_id]) lookup[row.project_id] = {};
+      lookup[row.project_id][row.d] = Number(row.turns);
+    }
+
+    let grandTotal = 0;
+    const projects = totals.map((t) => {
+      const map = lookup[t.id] || {};
+      const values = dates.map((d) => map[d] || 0);
+      const total = Number(t.turns);
+      grandTotal += total;
+      return {
+        id: t.id,
+        name: t.name,
+        total,
+        sessions: Number(t.sessions),
+        activeDays: Number(t.active_days),
+        values,
+      };
+    });
+
+    res.json({ days, topN, dates, projects, grandTotal });
+  } catch (err: any) {
+    console.error('[metrics/usage-heatmap] error:', err);
+    res.status(500).json({ error: err?.message || 'internal error' });
+  }
+});
+
 // ───── Sessions ─────
 router.get('/sessions', async (req, res) => {
   const userId = (req as any).user?.userId;
@@ -1041,13 +1138,25 @@ router.post('/sessions/:id/summarize', async (req, res) => {
 router.delete('/sessions/:id', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
+  const sessionId = req.params.id as string;
   if (userId) {
-    const access = await canDeleteSession(req.params.id as string, userId, role);
+    const access = await canDeleteSession(sessionId, userId, role);
     if (!access.allowed) return res.status(access.status).json({ error: access.message });
   }
-  const deleted = await deleteSession(req.params.id as string);
+  // Snapshot the session BEFORE delete so we know its project/owner
+  // for scoped broadcast (other tabs/members need to drop it from sidebar).
+  const snapshot = await getSession(sessionId);
+  const deleted = await deleteSession(sessionId);
   if (!deleted) return res.status(404).json({ error: 'Session not found' });
   res.json({ ok: true });
+
+  // Realtime: tell every connected client that this session is gone.
+  // Payload is tiny; frontends filter by sessionId presence in their sidebar store.
+  broadcastToAll({
+    type: 'session_deleted',
+    sessionId,
+    projectId: snapshot?.projectId ?? null,
+  });
 });
 
 // Claude native sessions (read-only)
@@ -1988,6 +2097,33 @@ router.delete('/spaces/:id', adminMiddleware, async (req, res) => {
 });
 
 // ───── Projects ─────
+//
+// Realtime broadcasting (added 2026-04-10): every mutating project endpoint
+// now fans out a WS event to the project's members so other tabs/devices
+// update their sidebars without a refresh. See decisions/2026-04-10-realtime-sync-and-scale.md
+
+/** Fire a WS event to every distinct member of a project, plus an optional extra user. */
+async function broadcastToProjectMembers(
+  projectId: string,
+  data: any,
+  extraUserId?: number,
+): Promise<void> {
+  try {
+    const members = await getProjectMembers(projectId);
+    const seen = new Set<number>();
+    for (const m of members) {
+      if (seen.has(m.userId)) continue;
+      seen.add(m.userId);
+      broadcastToUser(m.userId, data);
+    }
+    if (extraUserId !== undefined && !seen.has(extraUserId)) {
+      broadcastToUser(extraUserId, data);
+    }
+  } catch (err: any) {
+    console.error('[broadcastToProjectMembers] failed:', err?.message || err);
+  }
+}
+
 router.get('/projects', async (req, res) => {
   const userId = (req as any).user?.userId;
   const role = (req as any).user?.role;
@@ -2015,6 +2151,9 @@ router.post('/projects', async (req, res) => {
     }
 
     res.json(project);
+
+    // Realtime: push new project to every member (incl. creator cross-device)
+    broadcastToProjectMembers(project.id, { type: 'project_created', project }, userId);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2032,6 +2171,9 @@ router.patch('/projects/:id', async (req, res) => {
     const project = await updateProject(req.params.id as string, req.body);
     if (!project) return res.status(404).json({ error: 'project not found' });
     res.json(project);
+
+    // Realtime: push updated metadata to all project members
+    broadcastToProjectMembers(project.id, { type: 'project_updated', project });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2041,14 +2183,27 @@ router.delete('/projects/:id', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
+    const projectId = req.params.id as string;
     if (role !== 'admin' && userId) {
-      if (!(await isProjectOwner(req.params.id as string, userId))) {
+      if (!(await isProjectOwner(projectId, userId))) {
         return res.status(403).json({ error: 'only owner or admin can delete project' });
       }
     }
-    const ok = await deleteProject(req.params.id as string);
+    // Snapshot members BEFORE deletion so we can notify them after.
+    let formerMemberIds: number[] = [];
+    try {
+      const members = await getProjectMembers(projectId);
+      formerMemberIds = Array.from(new Set(members.map(m => m.userId)));
+    } catch { /* best-effort */ }
+
+    const ok = await deleteProject(projectId);
     if (!ok) return res.status(404).json({ error: 'project not found' });
     res.json({ ok: true });
+
+    // Realtime: notify the users who previously had this project
+    const payload = { type: 'project_deleted', projectId };
+    for (const uid of formerMemberIds) broadcastToUser(uid, payload);
+    if (userId && !formerMemberIds.includes(userId)) broadcastToUser(userId, payload);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2085,7 +2240,21 @@ router.post('/projects/:id/members', async (req, res) => {
 
   if (targetGroupId && typeof targetGroupId === 'number') {
     const added = await inviteGroupToProject(targetGroupId, projectId);
-    return res.json({ ok: true, added });
+    res.json({ ok: true, added });
+
+    // Realtime: whole group invited — refresh every current member + the full
+    // project so newly added users receive it in their sidebar immediately.
+    try {
+      const project = await getProject(projectId);
+      if (project) {
+        await broadcastToProjectMembers(projectId, {
+          type: 'project_members_changed',
+          projectId,
+          project,
+        });
+      }
+    } catch { /* best-effort */ }
+    return;
   }
 
   if (!targetUserId || typeof targetUserId !== 'number') {
@@ -2094,6 +2263,19 @@ router.post('/projects/:id/members', async (req, res) => {
 
   await addProjectMember(projectId, targetUserId, 'member');
   res.json({ ok: true });
+
+  // Realtime: notify existing members + the invitee (who may not be in
+  // project_members cache yet — pass explicitly as extraUserId).
+  try {
+    const project = await getProject(projectId);
+    if (project) {
+      await broadcastToProjectMembers(
+        projectId,
+        { type: 'project_member_added', projectId, userId: targetUserId, project },
+        targetUserId,
+      );
+    }
+  } catch { /* best-effort */ }
 });
 
 router.delete('/projects/:id/members/:uid', async (req, res) => {
@@ -2107,9 +2289,25 @@ router.delete('/projects/:id/members/:uid', async (req, res) => {
     return res.status(403).json({ error: 'only owner or admin can remove members' });
   }
 
+  // Snapshot members BEFORE removal so we can notify the one being kicked.
+  let priorMemberIds: number[] = [];
+  try {
+    const priorMembers = await getProjectMembers(projectId);
+    priorMemberIds = Array.from(new Set(priorMembers.map(m => m.userId)));
+  } catch { /* best-effort */ }
+
   const ok = await removeProjectMember(projectId, targetUserId);
   if (!ok) return res.status(400).json({ error: 'cannot remove last owner' });
   res.json({ ok: true });
+
+  // Realtime: tell remaining members + the removed user. The removed user
+  // gets a distinct payload so the frontend can drop the project from their sidebar.
+  const payload = { type: 'project_member_removed', projectId, userId: targetUserId };
+  for (const uid of priorMemberIds) broadcastToUser(uid, payload);
+  // Make sure the removed user gets the notice even if they were already gone from cache.
+  if (!priorMemberIds.includes(targetUserId)) {
+    broadcastToUser(targetUserId, payload);
+  }
 });
 
 // ───── User Search (for member invitation) ─────
@@ -2397,7 +2595,7 @@ router.post('/rooms', authMiddleware, async (req, res) => {
   try {
     const { isPgEnabled } = await import('../db/pg.js');
     if (!isPgEnabled()) return res.status(503).json({ error: 'Chat rooms require PostgreSQL' });
-    const { createRoom } = await import('../services/room-manager.js');
+    const { createRoom, getMembers } = await import('../services/room-manager.js');
     const { name, description, roomType, projectId } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
     // Project access check for room creation
@@ -2409,6 +2607,20 @@ router.post('/rooms', authMiddleware, async (req, res) => {
     }
     const room = await createRoom(name, description ?? null, roomType || 'team', userId, projectId);
     res.json(room);
+
+    // Realtime: createRoom already auto-adds project/group members. Fetch the
+    // final roster and push the new room to each so their sidebar updates.
+    try {
+      const members = await getMembers(room.id);
+      const payload = { type: 'room_created', room };
+      const seen = new Set<number>();
+      for (const m of members) {
+        if (seen.has(m.userId)) continue;
+        seen.add(m.userId);
+        broadcastToUser(m.userId, payload);
+      }
+      if (!seen.has(userId)) broadcastToUser(userId, payload);
+    } catch { /* best-effort */ }
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2426,31 +2638,58 @@ router.get('/rooms/:id', authMiddleware, async (req, res) => {
 
 router.patch('/rooms/:id', authMiddleware, async (req, res) => {
   try {
+    const roomId = req.params.id as string;
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
     if (userId) {
-      const access = await canAccessRoom(req.params.id as string, userId, role);
+      const access = await canAccessRoom(roomId, userId, role);
       if (!access.allowed) return res.status(access.status).json({ error: access.message });
     }
-    const { updateRoom } = await import('../services/room-manager.js');
-    const room = await updateRoom(req.params.id as string, req.body);
+    const { updateRoom, getMembers } = await import('../services/room-manager.js');
+    const room = await updateRoom(roomId, req.body);
     if (!room) return res.status(404).json({ error: 'Room not found' });
     res.json(room);
+
+    // Realtime: send updated room metadata to every member (sidebar + header)
+    try {
+      const members = await getMembers(roomId);
+      const payload = { type: 'room_updated', room };
+      const seen = new Set<number>();
+      for (const m of members) {
+        if (seen.has(m.userId)) continue;
+        seen.add(m.userId);
+        broadcastToUser(m.userId, payload);
+      }
+    } catch { /* best-effort */ }
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/rooms/:id', authMiddleware, async (req, res) => {
   try {
+    const roomId = req.params.id as string;
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
     if (userId) {
-      const access = await canAccessRoom(req.params.id as string, userId, role);
+      const access = await canAccessRoom(roomId, userId, role);
       if (!access.allowed) return res.status(access.status).json({ error: access.message });
     }
-    const { deleteRoom } = await import('../services/room-manager.js');
-    const ok = await deleteRoom(req.params.id as string);
+    const { deleteRoom, getMembers } = await import('../services/room-manager.js');
+
+    // Snapshot members BEFORE deletion so we can notify them.
+    let formerMemberIds: number[] = [];
+    try {
+      const members = await getMembers(roomId);
+      formerMemberIds = Array.from(new Set(members.map(m => m.userId)));
+    } catch { /* best-effort */ }
+
+    const ok = await deleteRoom(roomId);
     if (!ok) return res.status(404).json({ error: 'Room not found' });
     res.json({ success: true });
+
+    // Realtime: drop the room from every former member's sidebar.
+    const payload = { type: 'room_deleted', roomId };
+    for (const uid of formerMemberIds) broadcastToUser(uid, payload);
+    if (userId && !formerMemberIds.includes(userId)) broadcastToUser(userId, payload);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2575,17 +2814,38 @@ router.get('/notifications', authMiddleware, async (req, res) => {
 router.post('/notifications/:id/read', authMiddleware, async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
-    const { markNotificationRead } = await import('../services/room-manager.js');
-    await markNotificationRead(req.params.id as string, userId);
+    const notifId = req.params.id as string;
+    const { markNotificationRead, getUnreadCount } = await import('../services/room-manager.js');
+    await markNotificationRead(notifId, userId);
     res.json({ success: true });
+
+    // Realtime: sync read state across this user's tabs/devices.
+    // Include the fresh unreadCount so each tab can update its badge directly.
+    if (userId) {
+      try {
+        const unreadCount = await getUnreadCount(userId);
+        broadcastToUser(userId, {
+          type: 'notification_read',
+          notificationId: notifId,
+          unreadCount,
+        });
+      } catch { /* best-effort */ }
+    }
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/notifications/read-all', authMiddleware, async (req, res) => {
   try {
+    const userId = (req as any).user.userId;
     const { markAllNotificationsRead } = await import('../services/room-manager.js');
-    const count = await markAllNotificationsRead((req as any).user.userId);
+    const count = await markAllNotificationsRead(userId);
     res.json({ success: true, count });
+
+    // Realtime: sync read-all state across this user's tabs/devices.
+    broadcastToUser(userId, {
+      type: 'notification_read_all',
+      unreadCount: 0,
+    });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

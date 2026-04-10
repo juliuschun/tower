@@ -39,6 +39,7 @@ import { KanbanBoard } from './components/kanban/KanbanBoard';
 import { HistoryPanel } from './components/history/HistoryPanel';
 import { RoomPanel } from './components/rooms/RoomPanel';
 import { InboxPanel } from './components/inbox/InboxPanel';
+import { UsagePanel } from './components/usage/UsagePanel';
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
 import { SharedViewer } from './components/shared/SharedViewer';
 import { FileViewerPage } from './components/files/FileViewerPage';
@@ -924,6 +925,7 @@ function App() {
           if (!sidebarOpen) setSidebarOpen(true);
           setSidebarTab(sidebarTab === 'history' ? 'sessions' : 'history');
         }}
+        onUsageClick={() => useSessionStore.getState().setActiveView('usage')}
         onRequestFileTree={() => requestFileTree()}
         username={tokenPayload?.username}
         userRole={tokenPayload?.role}
@@ -1050,6 +1052,8 @@ function App() {
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (
                     <InboxPanel onSelectSession={handleSelectSession} />
+                  ) : activeView === 'usage' ? (
+                    <UsagePanel />
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1080,6 +1084,8 @@ function App() {
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (
                     <InboxPanel onSelectSession={handleSelectSession} />
+                  ) : activeView === 'usage' ? (
+                    <UsagePanel />
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1095,8 +1101,8 @@ function App() {
               </div>
             </main>
 
-            {/* Hide ContextPanel in kanban/history — full-width views */}
-            {activeView !== 'kanban' && activeView !== 'history' && (
+            {/* Hide ContextPanel in kanban/history/usage — full-width views */}
+            {activeView !== 'kanban' && activeView !== 'history' && activeView !== 'usage' && (
               contextPanelOpen ? (
                 <>
                   <ResizeHandle onResize={handleContextPanelResize} />
@@ -1133,6 +1139,8 @@ function App() {
                   <HistoryPanel />
                 ) : activeView === 'inbox' ? (
                   <InboxPanel onSelectSession={handleSelectSession} />
+                ) : activeView === 'usage' ? (
+                  <UsagePanel />
                 ) : activeView === 'rooms' ? (
                   <RoomPanel />
                 ) : (

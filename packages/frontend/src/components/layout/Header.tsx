@@ -19,6 +19,7 @@ interface HeaderProps {
   onSettingsClick?: () => void;
   onPinsClick?: () => void;
   onHistoryClick?: () => void;
+  onUsageClick?: () => void;
   onRequestFileTree?: () => void;
   username?: string;
   userRole?: string;
@@ -254,7 +255,7 @@ function ModelSelectorInline({ onClose }: { onClose: () => void }) {
 /* ─── App Menu (☰) ─── */
 function AppMenu({
   username, userRole, onAdminClick, onPublishClick, onViewDiff,
-  onLogout, onSettingsClick, onPinsClick, onHistoryClick, isMobile,
+  onLogout, onSettingsClick, onPinsClick, onHistoryClick, onUsageClick, isMobile,
 }: {
   username?: string;
   userRole?: string;
@@ -265,6 +266,7 @@ function AppMenu({
   onSettingsClick?: () => void;
   onPinsClick?: () => void;
   onHistoryClick?: () => void;
+  onUsageClick?: () => void;
   isMobile?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -416,6 +418,13 @@ function AppMenu({
                 icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>}
                 label="Admin Panel"
                 onClick={onAdminClick}
+              />
+            )}
+            {onUsageClick && (
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l3-3 4 4 5-5 6 6M3 20h18" /></svg>}
+                label="Usage"
+                onClick={onUsageClick}
               />
             )}
 
@@ -614,7 +623,7 @@ function AppMenu({
 
 export function Header({
   connected, onNewSession, onAdminClick, onPublishClick,
-  onViewDiff, onLogout, onSettingsClick, onPinsClick, onHistoryClick,
+  onViewDiff, onLogout, onSettingsClick, onPinsClick, onHistoryClick, onUsageClick,
   onRequestFileTree, username, userRole,
 }: HeaderProps) {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -635,6 +644,7 @@ export function Header({
         onSettingsClick={onSettingsClick}
         onPinsClick={onPinsClick}
         onHistoryClick={onHistoryClick}
+        onUsageClick={onUsageClick}
         isMobile={isMobile}
       />
 

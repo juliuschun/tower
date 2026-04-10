@@ -25,6 +25,10 @@ export interface SessionMeta {
   summary?: string;
   summaryAtTurn?: number;
   turnCount?: number;
+  /** Real user-initiated turns (messages with role='user' + type='text').
+   *  Excludes tool_result bounces and intermediate assistant tool_use/thinking.
+   *  Computed live by getSessions() via a LEFT JOIN over a partial index. */
+  userTurnCount?: number;
   filesEdited?: string[];
   projectId?: string | null;
   engine?: string;
