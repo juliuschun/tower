@@ -104,8 +104,12 @@ export interface ProjectMember {
 }
 
 export async function getProjectMembers(projectId: string): Promise<ProjectMember[]> {
+  // IMPORTANT: PostgreSQL folds unquoted identifiers to lowercase, so camelCase
+  // aliases MUST be double-quoted. Without quotes, "as userId" becomes column
+  // "userid" in the result row, and any frontend code doing `m.userId` sees
+  // undefined — breaking member deduplication in invite dropdowns.
   return await query<ProjectMember>(`
-    SELECT pm.user_id as userId, u.username, pm.role, pm.added_at as addedAt
+    SELECT pm.user_id AS "userId", u.username, pm.role, pm.added_at AS "addedAt"
     FROM project_members pm
     JOIN users u ON u.id = pm.user_id
     WHERE pm.project_id = $1 AND u.disabled = 0

@@ -294,8 +294,22 @@ function UserManagement({ token }: { token?: string | null }) {
                 value={newUser.allowed_path}
                 onChange={(e) => setNewUser({ ...newUser, allowed_path: e.target.value })}
                 className="w-full bg-surface-900 border border-surface-700 rounded-md px-3 py-2 text-[13px] text-gray-200 font-mono focus:outline-none focus:border-primary-500/50"
-                placeholder="Empty = full access"
+                placeholder={
+                  newUser.role === 'admin' || newUser.role === 'operator'
+                    ? 'Empty → workspace root (full access)'
+                    : 'Empty → workspace/projects/ (projects only)'
+                }
               />
+              <p className="mt-1 text-[10px] text-gray-600 leading-snug">
+                {newUser.role === 'admin' || newUser.role === 'operator' ? (
+                  <>
+                    <span className="text-yellow-400">⚠ </span>
+                    Leaving this empty grants full workspace root access. Set a narrower path for least-privilege.
+                  </>
+                ) : (
+                  <>Leaving this empty restricts access to <code className="text-gray-400">workspace/projects/</code>. Set an explicit path to override.</>
+                )}
+              </p>
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-1">
@@ -399,7 +413,7 @@ function UserManagement({ token }: { token?: string | null }) {
 
                   {/* Path */}
                   <td className="px-4 py-3">
-                    <PathEditor value={u.allowed_path} onSave={(v) => handlePathChange(u.id, v)} />
+                    <PathEditor value={u.allowed_path} role={u.role} onSave={(v) => handlePathChange(u.id, v)} />
                   </td>
 
                   {/* Actions */}
@@ -548,7 +562,7 @@ function PasswordCell({ password, userId, token, onUpdate }: { password: string;
   );
 }
 
-function PathEditor({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+function PathEditor({ value, role, onSave }: { value: string; role?: string; onSave: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
@@ -569,14 +583,34 @@ function PathEditor({ value, onSave }: { value: string; onSave: (v: string) => v
     );
   }
 
+  // Role-based default hint when value is empty
+  // Backend fallback (services/auth.ts → getUserAllowedPath):
+  //   admin/operator → workspaceRoot   •   member/viewer → workspace/projects/
+  const isEmpty = !value;
+  const isPrivileged = role === 'admin' || role === 'operator';
+  const defaultLabel = isPrivileged ? '(workspace root — default)' : '(projects/ — default)';
+  const showWarning = isEmpty && isPrivileged; // broad default → yellow warning
+
   return (
-    <button
-      onClick={() => { setDraft(value); setEditing(true); }}
-      className="text-[12px] text-gray-500 font-mono hover:text-gray-300 transition-colors truncate max-w-[200px] block text-left"
-      title={value || '(full access)'}
-    >
-      {value ? value.replace(/^\/home\/[^/]+/, '~') : '(all)'}
-    </button>
+    <div className="flex items-center gap-1.5">
+      <button
+        onClick={() => { setDraft(value); setEditing(true); }}
+        className={`text-[12px] font-mono hover:text-gray-300 transition-colors truncate max-w-[200px] block text-left ${
+          isEmpty ? 'text-gray-600 italic' : 'text-gray-500'
+        }`}
+        title={value || `Not set — falls back to ${isPrivileged ? 'full workspace' : 'workspace/projects/'}. Click to set an explicit path.`}
+      >
+        {value ? value.replace(/^\/home\/[^/]+/, '~') : defaultLabel}
+      </button>
+      {showWarning && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400"
+          title="No explicit path set. This role falls back to the full workspace root. Consider setting a narrower path."
+        >
+          ⚠ broad
+        </span>
+      )}
+    </div>
   );
 }
 

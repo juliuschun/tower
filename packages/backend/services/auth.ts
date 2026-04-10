@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import path from 'path';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
@@ -194,9 +195,34 @@ export async function disableUser(userId: number) {
   await execute('UPDATE users SET disabled = 1 WHERE id = $1', [userId]);
 }
 
+/**
+ * Returns the filesystem path a user is allowed to access.
+ *
+ * Resolution order:
+ *   1. Explicit `allowed_path` column on the user row (admin-set)
+ *   2. Role-based safe default when unset:
+ *        admin    → config.workspaceRoot (full workspace)
+ *        operator → config.workspaceRoot (full workspace)
+ *        member   → workspace/projects/  (projects only — safer default)
+ *        viewer   → workspace/projects/  (projects only — safer default)
+ *
+ * Rationale: non-admin users should not silently receive full workspace
+ * access just because an admin forgot to set allowed_path on creation.
+ * The AdminPanel surfaces a warning badge for empty values so admins
+ * can promote to broader access explicitly.
+ */
 export async function getUserAllowedPath(userId: number): Promise<string> {
-  const row = await queryOne<{ allowed_path: string | null }>('SELECT allowed_path FROM users WHERE id = $1', [userId]);
-  return row?.allowed_path || config.workspaceRoot;
+  const row = await queryOne<{ allowed_path: string | null; role: string | null }>(
+    'SELECT allowed_path, role FROM users WHERE id = $1',
+    [userId],
+  );
+  if (row?.allowed_path) return row.allowed_path;
+  const role = row?.role || 'member';
+  if (role === 'admin' || role === 'operator') {
+    return config.workspaceRoot;
+  }
+  // member / viewer / unknown → restrict to projects/ by default
+  return path.join(config.workspaceRoot, 'projects');
 }
 
 export function adminMiddleware(req: Request, res: Response, next: NextFunction) {
