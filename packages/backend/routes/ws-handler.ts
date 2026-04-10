@@ -818,15 +818,32 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   const engineName = (dbSession as any)?.engine || config.defaultEngine || 'claude';
   const engine = await getEngine(engineName);
 
-  // Guard: drop model if it doesn't match the session's engine
+  // Guard: drop model if it doesn't match the session's engine.
+  // When we drop the frontend-sent model, fall back to the session's stored
+  // model_used (if it matches the engine) before letting the engine use its
+  // built-in fallback — otherwise the Pi engine picks codex-mini-latest and
+  // every turn dies with stopReason='error'. (See incident 2026-04-11.)
+  const matchesEngine = (m: string | undefined, eng: string): boolean => {
+    if (!m) return false;
+    if (eng === 'claude') return m.startsWith('claude-');
+    if (eng === 'pi') return m.includes('/'); // provider/modelId format
+    return false;
+  };
+
   const requestedModel: string | undefined = data.model;
-  const isClaudeModel = !requestedModel || requestedModel.startsWith('claude-');
-  const isPiModel = requestedModel?.includes('/'); // Pi models have provider/modelId format
-  let resolvedModel: string | undefined = requestedModel;
-  if (engineName === 'claude' && !isClaudeModel) resolvedModel = undefined;
-  if (engineName === 'pi' && !isPiModel) resolvedModel = undefined;
-  if (requestedModel && !resolvedModel) {
-    console.log(`[ws] model mismatch: dropping "${requestedModel}" for engine="${engineName}"`);
+  let resolvedModel: string | undefined;
+  if (matchesEngine(requestedModel, engineName)) {
+    resolvedModel = requestedModel;
+  } else {
+    const storedModel = (dbSession as any)?.modelUsed as string | undefined;
+    if (matchesEngine(storedModel, engineName)) {
+      resolvedModel = storedModel;
+      if (requestedModel) {
+        console.log(`[ws] model mismatch: dropping "${requestedModel}" for engine="${engineName}", using stored model "${storedModel}"`);
+      }
+    } else if (requestedModel) {
+      console.log(`[ws] model mismatch: dropping "${requestedModel}" for engine="${engineName}" (no valid stored model)`);
+    }
   }
 
   console.log(`[ws] handleChat START session=${sessionId.slice(0, 8)} client=${client.id.slice(0, 8)} engine=${engineName} model=${resolvedModel || 'default'} active=${getTotalActiveCount()}`);

@@ -52,6 +52,14 @@ export class PiEngine implements Engine {
   private authStorage: AuthStorage | null = null;
   private modelRegistry: ModelRegistry | null = null;
   private interruptedSessionIds = new Set<string>();
+  /**
+   * Custom models loaded from pi-models.json, in file order.
+   * Used as the fallback when no model is specified — we prefer these over
+   * Pi SDK's built-in models because the built-in first-available is usually
+   * `openai/codex-mini-latest`, which fails auth in most deployments.
+   * (See incident 2026-04-11.)
+   */
+  private customModelKeys: Array<{ provider: string; id: string }> = [];
 
   private getAuth(): AuthStorage {
     if (!this.authStorage) {
@@ -88,8 +96,9 @@ export class PiEngine implements Engine {
       const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
       const models = data.models || [];
 
-      // Group by provider
+      // Group by provider (and remember file order for fallback priority)
       const byProvider = new Map<string, any[]>();
+      const orderedKeys: Array<{ provider: string; id: string }> = [];
       for (const m of models) {
         const list = byProvider.get(m.provider) || [];
         list.push({
@@ -103,7 +112,9 @@ export class PiEngine implements Engine {
           maxTokens: 16384,
         });
         byProvider.set(m.provider, list);
+        orderedKeys.push({ provider: m.provider, id: m.modelId });
       }
+      this.customModelKeys = orderedKeys;
 
       // registerProvider replaces ALL models for that provider, so we must
       // include every custom model (not filter out "existing" ones).
@@ -407,12 +418,25 @@ export class PiEngine implements Engine {
       }
     }
 
-    // Fallback: first available model
+    // Fallback: prefer a custom model (pi-models.json) in file order —
+    // those are the ones we actually have credentials for. Only if none
+    // of them resolve, fall back to Pi SDK's first-available (which is
+    // typically `openai/codex-mini-latest` and usually fails auth).
+    if (!model) {
+      for (const key of this.customModelKeys) {
+        const candidate = registry.find(key.provider, key.id);
+        if (candidate) {
+          model = candidate;
+          console.log(`[Pi] Using fallback model (custom): ${key.provider}/${key.id}`);
+          break;
+        }
+      }
+    }
     if (!model) {
       const available = registry.getAvailable();
       if (available.length > 0) {
         model = available[0];
-        console.log(`[Pi] Using fallback model: ${model.provider}/${model.id}`);
+        console.log(`[Pi] Using fallback model (sdk-default): ${model.provider}/${model.id}`);
       }
     }
 
