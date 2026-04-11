@@ -73,7 +73,7 @@ describe('Pi engine — source contracts', () => {
     expect(src).toMatch(/iterationCount\+\+/);
     expect(src).toMatch(/cumulativeInput/);
     // turn_done is emitted only in promptPromise.then()
-    expect(src).toMatch(/entry\.session\.prompt\(prompt\)[\s\S]*?type: 'turn_done'/);
+    expect(src).toMatch(/entry\.session\.prompt\(prompt\)[\s\S]*?emitTurnDone\(/);
   });
 
   it('does not emit turn_done directly from message_end', () => {
@@ -89,7 +89,7 @@ describe('Pi engine — source contracts', () => {
     expect(src).toMatch(/contextInputTokens:\s*lastIterationInput/);
     expect(src).toMatch(/contextOutputTokens:\s*lastIterationOutput/);
     expect(src).toMatch(/contextWindowSize:\s*modelContextWindow/);
-    expect(src).toMatch(/numIterations:\s*iterationCount/);
+    expect(src).toMatch(/numIterations:\s*Math\.max\(iterationCount,\s*1\)/);
   });
 
   it('G2: tracks durationMs as wall-clock time', () => {

@@ -98,7 +98,20 @@ export const useSessionStore = create<SessionState>((set) => ({
     if (updated === s.sessions) return s; // no change — skip rerender
     return { sessions: updated };
   }),
-  removeSession: (id) => set((s) => ({ sessions: s.sessions.filter((ss) => ss.id !== id) })),
+  removeSession: (id) =>
+    set((s) => {
+      // Also drop any cached last-turn text — otherwise a deleted session's
+      // cache entry would linger indefinitely. Mirrors how Set-based state
+      // (unreadSessions, streamingSessions) is cleaned up on session lifecycle.
+      const next: Record<string, LastTurnCacheEntry> = {};
+      for (const [sid, entry] of Object.entries(s.lastTurnTextBySession)) {
+        if (sid !== id) next[sid] = entry;
+      }
+      return {
+        sessions: s.sessions.filter((ss) => ss.id !== id),
+        lastTurnTextBySession: next,
+      };
+    }),
   updateSessionMeta: (id, updates) =>
     set((s) => ({
       sessions: s.sessions.map((ss) =>
