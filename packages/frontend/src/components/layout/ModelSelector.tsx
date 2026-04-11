@@ -9,10 +9,11 @@ export function ModelSelector() {
     effectiveSelected,
     visibleClaudeModels,
     visiblePiModels,
+    visibleLocalModels,
     pick,
   } = useSessionAwareModel();
 
-  const allVisible = [...visibleClaudeModels, ...visiblePiModels];
+  const allVisible = [...visibleClaudeModels, ...visiblePiModels, ...visibleLocalModels];
   const current =
     allVisible.find((m) => m.id === effectiveSelected) ||
     allVisible[0] ||
@@ -34,6 +35,7 @@ export function ModelSelector() {
 
   const hasPi = visiblePiModels.length > 0;
   const hasClaude = visibleClaudeModels.length > 0;
+  const hasLocal = visibleLocalModels.length > 0;
 
   const handlePick = (modelId: string) => {
     pick(modelId);
@@ -60,6 +62,8 @@ export function ModelSelector() {
             ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
             : model.badge === 'AZ'
             ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+            : model.badge === 'LOCAL'
+            ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-500/30'
             : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
         }`}>
           {model.badge}
@@ -81,6 +85,8 @@ export function ModelSelector() {
               ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
               : current.badge === 'AZ'
               ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+              : current.badge === 'LOCAL'
+              ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-500/30'
               : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
           }`}>
             {current.badge}
@@ -109,6 +115,17 @@ export function ModelSelector() {
                 Pi Agent
               </div>
               {visiblePiModels.map(renderModel)}
+            </>
+          )}
+
+          {/* Local LLM group */}
+          {hasLocal && (
+            <>
+              {(hasClaude || hasPi) && <div className="border-t border-surface-700/50 mx-2 my-1" />}
+              <div className="px-3 pt-1 pb-1 text-[10px] font-semibold text-emerald-400/70 uppercase tracking-wider">
+                Local LLM
+              </div>
+              {visibleLocalModels.map(renderModel)}
             </>
           )}
         </div>

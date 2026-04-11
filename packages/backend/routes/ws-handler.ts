@@ -449,6 +449,16 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
   }
 }
 
+function broadcastTowerMessage(sessionId: string, towerMsg: TowerMessage) {
+  localBroadcastToSession(sessionId, { type: 'tower_message', sessionId, message: towerMsg });
+  if (!isPgEnabled()) return;
+  publishWsSyncEvent(config.serverEpoch, {
+    scope: 'session',
+    sessionId,
+    data: { type: 'tower_message', sessionId, message: towerMsg },
+  });
+}
+
 /**
  * Broadcast a message to ALL connected clients (regardless of session).
  * Used for session status updates that affect the sidebar.
@@ -823,10 +833,12 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
   // model_used (if it matches the engine) before letting the engine use its
   // built-in fallback — otherwise the Pi engine picks codex-mini-latest and
   // every turn dies with stopReason='error'. (See incident 2026-04-11.)
+  const localModelIds = new Set((config.localModels || []).map((model: any) => String(model.id).replace(/^local:/, '')));
   const matchesEngine = (m: string | undefined, eng: string): boolean => {
     if (!m) return false;
     if (eng === 'claude') return m.startsWith('claude-');
     if (eng === 'pi') return m.includes('/'); // provider/modelId format
+    if (eng === 'local') return !m.startsWith('claude-') && !m.includes('/') && (localModelIds.size === 0 || localModelIds.has(m));
     return false;
   };
 
@@ -1085,8 +1097,11 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     }, callbacks)) {
       resetHangTimer();
 
+      // Direct path: frontend can consume TowerMessage without Claude-specific translation.
+      broadcastTowerMessage(sessionId, towerMsg);
+
       // ── Legacy bridge: convert TowerMessage → old frontend format ──
-      // This will be removed in Phase 3 when frontend handles TowerMessage directly.
+      // This remains temporarily until all frontend consumers migrate.
       const legacyMsg = towerToLegacy(towerMsg, sessionId);
       if (legacyMsg) {
         broadcastToSession(sessionId, legacyMsg);
@@ -1810,6 +1825,7 @@ export async function serverSideResumeInterrupted() {
           }, callbacks)) {
             resetHangTimer();
 
+            broadcastTowerMessage(sessionId, towerMsg);
             const legacyMsg = towerToLegacy(towerMsg, sessionId);
             if (legacyMsg) {
               broadcastToSession(sessionId, legacyMsg);

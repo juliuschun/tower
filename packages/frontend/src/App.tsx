@@ -306,6 +306,9 @@ function App() {
     if (useSessionStore.getState().activeView !== 'chat') {
       useSessionStore.getState().setActiveView('chat');
     }
+    if (useSessionStore.getState().sidebarTab !== 'sessions') {
+      useSessionStore.getState().setSidebarTab('sessions');
+    }
 
     // Skip if already on this session (but view switch above still runs)
     const currentId = useSessionStore.getState().activeSessionId;
@@ -861,6 +864,7 @@ function App() {
           useSettingsStore.getState().setServerConfig(data);
           if (data.models) useModelStore.getState().setAvailableModels(data.models);
           if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
+          if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
           if (data.connectionType) useModelStore.getState().setConnectionType(data.connectionType);
         }
       })
@@ -1186,15 +1190,16 @@ function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => vo
   const isStreaming = useChatStore((s) => s.isStreaming);
   const availableModels = useModelStore((s) => s.availableModels);
   const piModels = useModelStore((s) => s.piModels);
+  const localModels = useModelStore((s) => s.localModels);
   // Session-aware: prefer active session's stored modelUsed, fall back to
   // the global selectedModel. Look up the pretty name in both Claude and
   // Pi model lists — previously only searched availableModels, so Pi
   // names came out as raw IDs; also ignored per-session state entirely,
   // so the footer never changed when switching sessions.
   const { effectiveSelected } = useSessionAwareModel();
-  const allModels = useMemo(() => [...availableModels, ...piModels], [availableModels, piModels]);
+  const allModels = useMemo(() => [...availableModels, ...piModels, ...localModels], [availableModels, piModels, localModels]);
   const currentModelInfo = allModels.find((m) => m.id === effectiveSelected);
-  const model = currentModelInfo?.name || effectiveSelected.replace(/^pi:.*\//, '').replace(/-/g, ' ');
+  const model = currentModelInfo?.name || effectiveSelected.replace(/^pi:.*\//, '').replace(/^local:/, '').replace(/-/g, ' ');
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);

@@ -20,7 +20,7 @@ function effectiveModelForSend(sessionId: string | null | undefined): string {
   return getModelIdForBackend(frontendId);
 }
 import { useGitStore } from '../stores/git-store';
-import { parseSDKMessage } from '../utils/message-parser';
+import { parseSDKMessage, normalizeContentBlocks, getToolSummary } from '../utils/message-parser';
 import { shouldDropSessionMessage, shouldResetAssistantRef, resolveAutoNameTarget, resolveSendSessionId, isServerRestarted } from '../utils/session-filters';
 import { normalizePendingQuestion } from '../utils/pending-question';
 import { generateUUID } from '../utils/uuid';
@@ -191,6 +191,89 @@ export function useClaudeChat() {
   } = useChatStore();
 
   const { setTree, setDirectoryChildren, handleFileChange } = useFileStore();
+
+  const upsertAssistantMessage = useCallback((sessionId: string, msgId: string, parsed: any[], parentToolUseId?: string) => {
+    if (shouldResetAssistantRef(currentAssistantSessionRef.current, sessionId)) {
+      currentAssistantMsg.current = null;
+    }
+    currentAssistantSessionRef.current = sessionId;
+
+    if (!currentAssistantMsg.current || currentAssistantMsg.current.id !== msgId) {
+      const existingMsg = useChatStore.getState().messages.find((m) => m.id === msgId);
+      if (existingMsg) {
+        currentAssistantMsg.current = { ...existingMsg, content: parsed };
+        useChatStore.getState().updateAssistantById(msgId, parsed);
+      } else {
+        const msg: ChatMessage = {
+          id: msgId,
+          role: 'assistant',
+          content: parsed,
+          timestamp: Date.now(),
+          parentToolUseId,
+        };
+        currentAssistantMsg.current = msg;
+        addMessage(msg);
+      }
+    } else {
+      currentAssistantMsg.current = { ...currentAssistantMsg.current, content: parsed };
+      useChatStore.getState().updateAssistantById(currentAssistantMsg.current.id, parsed);
+    }
+  }, [addMessage]);
+
+  const applyTurnMetrics = useCallback((payload: {
+    totalCost?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheCreationTokens?: number;
+    cacheReadTokens?: number;
+    duration?: number;
+    contextInputTokens?: number;
+    contextOutputTokens?: number;
+    contextWindowSize?: number;
+    stopReason?: string;
+  }) => {
+    setCost({
+      totalCost: payload.totalCost || 0,
+      inputTokens: payload.inputTokens || 0,
+      outputTokens: payload.outputTokens || 0,
+      cacheCreationTokens: payload.cacheCreationTokens,
+      cacheReadTokens: payload.cacheReadTokens,
+      duration: payload.duration,
+      contextInputTokens: payload.contextInputTokens || 0,
+      contextOutputTokens: payload.contextOutputTokens || 0,
+      contextWindowSize: payload.contextWindowSize || 0,
+    });
+    const turnMetrics = {
+      inputTokens: payload.contextInputTokens || payload.inputTokens || 0,
+      outputTokens: payload.contextOutputTokens || payload.outputTokens || 0,
+      durationMs: payload.duration || 0,
+      stopReason: payload.stopReason,
+    };
+    useChatStore.getState().setLastTurnMetrics(turnMetrics);
+    if (currentAssistantMsg.current) {
+      useChatStore.getState().updateMessageMetrics(currentAssistantMsg.current.id, turnMetrics);
+    }
+  }, [setCost]);
+
+  const finishTurn = useCallback((sessionId?: string | null, engineSessionId?: string | null) => {
+    if (!sessionId) return;
+    setStreaming(false);
+    setTurnStartTime(null);
+    useChatStore.getState().setCompacting(null);
+    useChatStore.getState().setPendingQuestion(null);
+    useChatStore.getState().setTurnPhase(sessionId, 'done', { pendingMessageCount: 0 });
+    setTimeout(() => {
+      const current = useChatStore.getState().turnStateBySession[sessionId];
+      if (current?.phase === 'done') {
+        useChatStore.getState().setTurnPhase(sessionId, 'idle', { pendingMessageCount: 0 });
+      }
+    }, 1200);
+    currentAssistantMsg.current = null;
+    if (engineSessionId) {
+      setClaudeSessionId(engineSessionId);
+      setEngineSessionId(engineSessionId);
+    }
+  }, [setClaudeSessionId, setEngineSessionId, setStreaming, setTurnStartTime]);
 
   const handleMessage = useCallback((data: any) => {
     switch (data.type) {
@@ -531,7 +614,94 @@ export function useClaudeChat() {
         // Admin changed model config — update stores
         if (data.models) useModelStore.getState().setAvailableModels(data.models);
         if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
+        if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
         if (data.defaults) useModelStore.getState().setDefaults(data.defaults);
+        break;
+      }
+
+      case 'tower_message': {
+        const currentSid = useChatStore.getState().sessionId;
+        if (shouldDropSessionMessage(currentSid, data.sessionId)) return;
+
+        useChatStore.getState().markPendingDelivered();
+        const towerMsg = data.message;
+        if (!towerMsg || typeof towerMsg !== 'object') break;
+
+        if (towerMsg.type === 'assistant') {
+          setSessionId(data.sessionId);
+          const existingBlocks = currentAssistantMsg.current?.id === (towerMsg.msgId || '')
+            ? currentAssistantMsg.current.content
+            : useChatStore.getState().messages.find((m) => m.id === (towerMsg.msgId || ''))?.content || [];
+          const parsed = normalizeContentBlocks(towerMsg.content || [], existingBlocks);
+          const toolBlocks = parsed.filter((b) => b.type === 'tool_use' && b.toolUse);
+          const lastTool = toolBlocks[toolBlocks.length - 1]?.toolUse;
+          const hasToolUse = toolBlocks.length > 0;
+          const activeToolSummary = lastTool ? `${getToolSummary(lastTool.name, lastTool.input)}` : undefined;
+          useChatStore.getState().setTurnPhase(data.sessionId, hasToolUse ? 'tool_running' : 'streaming', {
+            activeToolUseId: lastTool?.id,
+            activeToolId: lastTool?.id || (lastTool && activeToolSummary ? `${lastTool.name}:${activeToolSummary}` : undefined),
+            activeToolName: lastTool?.name,
+            activeToolSummary,
+          });
+          upsertAssistantMessage(data.sessionId, towerMsg.msgId || generateUUID(), parsed, towerMsg.parentToolUseId);
+          break;
+        }
+
+        if (towerMsg.type === 'turn_done') {
+          setSessionId(data.sessionId);
+          const usage = towerMsg.usage || {};
+          applyTurnMetrics({
+            totalCost: usage.costUsd || 0,
+            inputTokens: usage.inputTokens || 0,
+            outputTokens: usage.outputTokens || 0,
+            cacheCreationTokens: usage.cacheCreationTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            duration: usage.durationMs,
+            contextInputTokens: usage.contextInputTokens || 0,
+            contextOutputTokens: usage.contextOutputTokens || 0,
+            contextWindowSize: usage.contextWindowSize || 0,
+            stopReason: usage.stopReason,
+          });
+          break;
+        }
+
+        if (towerMsg.type === 'compact') {
+          setSessionId(data.sessionId);
+          const sid = useChatStore.getState().sessionId;
+          if (towerMsg.phase === 'boundary') {
+            useChatStore.getState().setCompacting(sid);
+            if (sid) useChatStore.getState().setTurnPhase(sid, 'compacting');
+          } else if (towerMsg.phase === 'done') {
+            useChatStore.getState().setCompacting(null);
+            if (sid) useChatStore.getState().setTurnPhase(sid, 'streaming');
+          }
+          break;
+        }
+
+        if (towerMsg.type === 'engine_done') {
+          setSessionId(data.sessionId);
+          if (towerMsg.engineSessionId && data.sessionId) {
+            useSessionStore.getState().updateSessionMeta(data.sessionId, {
+              claudeSessionId: towerMsg.engineSessionId,
+              engineSessionId: towerMsg.engineSessionId,
+            });
+          }
+          if (!shouldDropSessionMessage(useChatStore.getState().sessionId, data.sessionId)) {
+            finishTurn(data.sessionId, towerMsg.engineSessionId);
+          }
+          break;
+        }
+
+        if (towerMsg.type === 'engine_error') {
+          setSessionId(data.sessionId);
+          if (towerMsg.recoverable) {
+            toastWarning(towerMsg.message || 'Previous conversation context could not be restored.');
+          } else {
+            toastError(towerMsg.message || 'Unknown error');
+          }
+          useChatStore.getState().setTurnPhase(data.sessionId, 'error', { errorMessage: towerMsg.message || 'Unknown error', pendingMessageCount: 0 });
+          break;
+        }
         break;
       }
 
@@ -683,45 +853,23 @@ export function useClaudeChat() {
 
         // Assistant message — each new UUID gets its own message bubble
         if (sdkMsg.type === 'assistant') {
-          const parsed = parseSDKMessage(sdkMsg);
           const msgId = sdkMsg.uuid || generateUUID();
+          const existingBlocks = currentAssistantMsg.current?.id === msgId
+            ? currentAssistantMsg.current.content
+            : useChatStore.getState().messages.find((m) => m.id === msgId)?.content || [];
+          const parsed = normalizeContentBlocks(parseSDKMessage(sdkMsg), existingBlocks);
 
-          const hasToolUse = parsed.some((b) => b.type === 'tool_use');
-          useChatStore.getState().setTurnPhase(data.sessionId, hasToolUse ? 'tool_running' : 'streaming');
-
-          // Reset ref if session changed since last assistant message
-          if (shouldResetAssistantRef(currentAssistantSessionRef.current, data.sessionId)) {
-            currentAssistantMsg.current = null;
-          }
-          currentAssistantSessionRef.current = data.sessionId;
-
-          if (!currentAssistantMsg.current || currentAssistantMsg.current.id !== msgId) {
-            // Check if this message already exists (e.g., loaded from DB after page reload)
-            const existingMsg = useChatStore.getState().messages.find((m) => m.id === msgId);
-            if (existingMsg) {
-              // Resume updating the existing message — don't create a duplicate
-              currentAssistantMsg.current = { ...existingMsg, content: parsed };
-              useChatStore.getState().updateAssistantById(msgId, parsed);
-            } else {
-              // New assistant message (new turn or new UUID)
-              const msg: ChatMessage = {
-                id: msgId,
-                role: 'assistant',
-                content: parsed,
-                timestamp: Date.now(),
-                parentToolUseId: sdkMsg.parent_tool_use_id,
-              };
-              currentAssistantMsg.current = msg;
-              addMessage(msg);
-            }
-          } else {
-            // Same message updated (streaming increments)
-            currentAssistantMsg.current = {
-              ...currentAssistantMsg.current,
-              content: parsed,
-            };
-            useChatStore.getState().updateAssistantById(currentAssistantMsg.current.id, parsed);
-          }
+          const toolBlocks = parsed.filter((b) => b.type === 'tool_use' && b.toolUse);
+          const lastTool = toolBlocks[toolBlocks.length - 1]?.toolUse;
+          const hasToolUse = toolBlocks.length > 0;
+          const activeToolSummary = lastTool ? `${getToolSummary(lastTool.name, lastTool.input)}` : undefined;
+          useChatStore.getState().setTurnPhase(data.sessionId, hasToolUse ? 'tool_running' : 'streaming', {
+            activeToolUseId: lastTool?.id,
+            activeToolId: lastTool?.id || (lastTool && activeToolSummary ? `${lastTool.name}:${activeToolSummary}` : undefined),
+            activeToolName: lastTool?.name,
+            activeToolSummary,
+          });
+          upsertAssistantMessage(data.sessionId, msgId, parsed, sdkMsg.parent_tool_use_id);
           return;
         }
 
@@ -743,7 +891,7 @@ export function useClaudeChat() {
           if (windowSize > 0 && ctxInput > windowSize) {
             ctxInput = windowSize;
           }
-          setCost({
+          applyTurnMetrics({
             totalCost: sdkMsg.total_cost_usd,
             inputTokens: sdkMsg.usage?.input_tokens || 0,
             outputTokens: sdkMsg.usage?.output_tokens || 0,
@@ -753,18 +901,8 @@ export function useClaudeChat() {
             contextInputTokens: ctxInput,
             contextOutputTokens: ctxOutput,
             contextWindowSize: windowSize,
-          });
-          const turnMetrics = {
-            inputTokens: ctxInput,
-            outputTokens: ctxOutput,
-            durationMs: sdkMsg.duration_ms || 0,
             stopReason: sdkMsg.stop_reason,
-          };
-          useChatStore.getState().setLastTurnMetrics(turnMetrics);
-          // Persist metrics onto the current assistant message for per-message display
-          if (currentAssistantMsg.current) {
-            useChatStore.getState().updateMessageMetrics(currentAssistantMsg.current.id, turnMetrics);
-          }
+          });
           return;
         }
         break;
@@ -825,24 +963,7 @@ export function useClaudeChat() {
         const _doneSid = useChatStore.getState().sessionId;
         if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
 
-        setStreaming(false);
-        setTurnStartTime(null);
-        useChatStore.getState().setCompacting(null);
-        useChatStore.getState().setPendingQuestion(null);
-        if (data.sessionId) {
-          useChatStore.getState().setTurnPhase(data.sessionId, 'done', { pendingMessageCount: 0 });
-          setTimeout(() => {
-            const current = useChatStore.getState().turnStateBySession[data.sessionId];
-            if (current?.phase === 'done') {
-              useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
-            }
-          }, 1200);
-        }
-        currentAssistantMsg.current = null;
-        if (data.claudeSessionId) {
-          setClaudeSessionId(data.claudeSessionId);
-          setEngineSessionId(data.claudeSessionId);
-        }
+        finishTurn(data.sessionId, data.claudeSessionId);
         break;
       }
 

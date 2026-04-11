@@ -163,10 +163,11 @@ function ModelSelectorInline({ onClose }: { onClose: () => void }) {
     effectiveSelected,
     visibleClaudeModels,
     visiblePiModels,
+    visibleLocalModels,
     pick,
   } = useSessionAwareModel();
   const [expanded, setExpanded] = React.useState(false);
-  const allVisible = [...visibleClaudeModels, ...visiblePiModels];
+  const allVisible = [...visibleClaudeModels, ...visiblePiModels, ...visibleLocalModels];
   const current = allVisible.find((m) => m.id === effectiveSelected)
     || allVisible[0]
     || { id: effectiveSelected, name: effectiveSelected.replace(/^pi:.*\//, '').replace(/-/g, ' '), badge: '' };
@@ -192,6 +193,8 @@ function ModelSelectorInline({ onClose }: { onClose: () => void }) {
               ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
               : current.badge === 'AZ'
               ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+              : current.badge === 'LOCAL'
+              ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-500/30'
               : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
           }`}>
             {current.badge}
@@ -221,6 +224,8 @@ function ModelSelectorInline({ onClose }: { onClose: () => void }) {
                     ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
                     : model.badge === 'AZ'
                     ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+                    : model.badge === 'LOCAL'
+                    ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-500/30'
                     : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
                 }`}>
                   {model.badge}
@@ -250,6 +255,41 @@ function ModelSelectorInline({ onClose }: { onClose: () => void }) {
                         ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
                         : model.badge === 'AZ'
                         ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+                        : model.badge === 'LOCAL'
+                        ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-500/30'
+                        : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
+                    }`}>
+                      {model.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </>
+          )}
+          {visibleLocalModels.length > 0 && (
+            <>
+              {(visibleClaudeModels.length > 0 || visiblePiModels.length > 0) && <div className="border-t border-surface-700/50 mx-2 my-0.5" />}
+              <div className="px-2.5 pt-1 pb-0.5 text-[9px] font-semibold text-emerald-400/70 uppercase tracking-wider">Local LLM</div>
+              {visibleLocalModels.map((model) => (
+                <button
+                  key={model.id}
+                  onClick={() => handlePick(model.id)}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] transition-colors ${
+                    model.id === effectiveSelected
+                      ? 'bg-primary-600/15 text-primary-300'
+                      : 'text-gray-400 hover:bg-surface-800 hover:text-gray-200'
+                  }`}
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${model.id === effectiveSelected ? 'bg-primary-400' : 'bg-surface-700'}`} />
+                  <span className="flex-1 text-left truncate">{model.name}</span>
+                  {model.badge && (
+                    <span className={`text-[9px] font-bold px-1 py-px rounded shrink-0 ${
+                      model.badge === 'OR'
+                        ? 'text-violet-300 bg-violet-500/20 border border-violet-500/30'
+                        : model.badge === 'AZ'
+                        ? 'text-sky-300 bg-sky-500/20 border border-sky-500/30'
+                        : model.badge === 'LOCAL'
+                        ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-500/30'
                         : 'text-purple-300 bg-purple-500/20 border border-purple-500/30'
                     }`}>
                       {model.badge}

@@ -294,6 +294,7 @@ export function AiPanel() {
   const activeThreadId = useAiPanelStore((s) => s.activeThreadId);
   const loading = useAiPanelStore((s) => s.loading);
   const activeRoomId = useRoomStore((s) => s.activeRoomId);
+  const isMobile = useSessionStore((s) => s.isMobile);
 
   // Sync context with active room (only when in room mode)
   useEffect(() => {
@@ -433,7 +434,6 @@ export function AiPanel() {
     }));
   } : undefined;
 
-  const isMobile = useSessionStore((s) => s.isMobile);
   const panelTitle = contextType === 'session' ? 'Session AI' : 'AI Panel';
 
   return (

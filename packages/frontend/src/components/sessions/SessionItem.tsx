@@ -150,6 +150,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
   const isOwnUnread = isUnread && session.ownerUsername === currentUsername;
   const queueCount = useChatStore((s) => (s.messageQueue[session.id] ?? []).length);
+  const turnPhase = useChatStore((s) => s.turnStateBySession[session.id]?.phase || 'idle');
   const isKanbanTask = session.name.startsWith('[task]') || session.name.startsWith('\u{1F7E2}'); // [task] or legacy 🟢
   const isChannelAi = session.label === 'channel_ai'; // 🤖
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
@@ -241,6 +242,9 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             {(session as any).engine === 'pi' && (
               <span className="ml-1 text-[8px] font-bold text-violet-300 bg-violet-500/20 px-1 rounded align-middle">PI</span>
             )}
+            {(session as any).engine === 'local' && (
+              <span className="ml-1 text-[8px] font-bold text-emerald-300 bg-emerald-500/20 px-1 rounded align-middle">LOCAL</span>
+            )}
             {isChannelAi && (
               <span className="ml-1 text-[8px] font-bold text-cyan-300 bg-cyan-500/15 px-1 rounded align-middle">agent</span>
             )}
@@ -256,11 +260,15 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden flex items-center gap-1">
               {isStreaming ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
-                  run{queueCount > 0 ? ` +${queueCount}` : ''}
+                  {turnPhase === 'tool_running' ? 'tool' : turnPhase === 'awaiting_user' ? 'ask' : turnPhase === 'compacting' ? 'pack' : 'run'}{queueCount > 0 ? ` +${queueCount}` : ''}
                 </span>
-              ) : queueCount > 0 ? (
+              ) : queueCount > 0 || turnPhase === 'queued' ? (
                 <span className="text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
-                  Q{queueCount}
+                  Q{queueCount || 1}
+                </span>
+              ) : turnPhase === 'error' ? (
+                <span className="text-[9px] font-semibold text-red-300 bg-red-500/10 border border-red-500/20 rounded px-1 py-0.5 leading-none">
+                  err
                 </span>
               ) : isOwnUnread ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none">

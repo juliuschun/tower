@@ -666,7 +666,7 @@ router.put('/admin/models', adminMiddleware, (req, res) => {
     saveModelsFile(data);
     const reloaded = reloadModels();
     // Broadcast updated model list to all connected clients
-    broadcast({ type: 'config_update', models: reloaded.claude, piModels: reloaded.pi, defaults: reloaded.defaults });
+    broadcast({ type: 'config_update', models: reloaded.claude, piModels: reloaded.pi, localModels: reloaded.local, defaults: reloaded.defaults });
     res.json({ ok: true, ...reloaded });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -954,7 +954,32 @@ router.get('/metrics/usage-heatmap', async (req, res) => {
       };
     });
 
-    res.json({ days, topN, dates, projects, grandTotal });
+    // 5) Daily totals across ALL accessible projects (not just top N)
+    const allDailySql = `
+      SELECT to_char(DATE(m.created_at), 'YYYY-MM-DD') AS d,
+             COUNT(*) AS turns
+      FROM projects p
+      JOIN sessions s ON s.project_id = p.id
+      JOIN messages m ON m.session_id = s.id
+      WHERE (p.archived IS NULL OR p.archived = 0)
+        AND (
+          p.user_id = $1
+          OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = $1)
+        )
+        AND m.created_at >= NOW() - ($2 || ' days')::interval
+        AND m.role = 'user' AND m.content LIKE '[{"type":"text"%'
+      GROUP BY DATE(m.created_at)
+    `;
+    const allDaily = await query<{ d: string; turns: string }>(allDailySql, [userId, String(days)]);
+    const allDailyMap: Record<string, number> = {};
+    let allTotal = 0;
+    for (const row of allDaily) {
+      allDailyMap[row.d] = Number(row.turns);
+      allTotal += Number(row.turns);
+    }
+    const dailyTotals = dates.map((d) => allDailyMap[d] || 0);
+
+    res.json({ days, topN, dates, projects, grandTotal: allTotal, dailyTotals });
   } catch (err: any) {
     console.error('[metrics/usage-heatmap] error:', err);
     res.status(500).json({ error: err?.message || 'internal error' });
@@ -2007,6 +2032,8 @@ router.get('/config', (_req, res) => {
     connectionType: 'MAX',
     piEnabled: config.piEnabled,
     piModels: config.piEnabled ? config.piModels : [],
+    localEnabled: config.localEnabled,
+    localModels: config.localEnabled ? config.localModels : [],
   });
 });
 

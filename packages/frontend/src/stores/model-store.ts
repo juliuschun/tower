@@ -23,12 +23,14 @@ const DEFAULT_DEFAULTS: ModelDefaults = {
 interface ModelState {
   availableModels: ModelOption[];
   piModels: ModelOption[];
+  localModels: ModelOption[];
   selectedModel: string;
   connectionType: string;
   defaults: ModelDefaults;
 
   setAvailableModels: (models: ModelOption[]) => void;
   setPiModels: (models: ModelOption[]) => void;
+  setLocalModels: (models: ModelOption[]) => void;
   setSelectedModel: (id: string) => void;
   setConnectionType: (type: string) => void;
   setDefaults: (defaults: ModelDefaults) => void;
@@ -37,12 +39,14 @@ interface ModelState {
 export const useModelStore = create<ModelState>((set) => ({
   availableModels: [],
   piModels: [],
+  localModels: [],
   selectedModel: localStorage.getItem('selectedModel') || DEFAULT_DEFAULTS.session,
   connectionType: 'MAX',
   defaults: DEFAULT_DEFAULTS,
 
   setAvailableModels: (models) => set({ availableModels: models }),
   setPiModels: (models) => set({ piModels: models }),
+  setLocalModels: (models) => set({ localModels: models }),
   setSelectedModel: (id) => {
     localStorage.setItem('selectedModel', id);
     set({ selectedModel: id });
@@ -51,14 +55,18 @@ export const useModelStore = create<ModelState>((set) => ({
   setDefaults: (defaults) => set({ defaults }),
 }));
 
-/** Extract engine from model ID. 'pi:openrouter/...' → 'pi', otherwise 'claude' */
-export function getEngineFromModel(modelId: string): 'claude' | 'pi' {
-  return modelId.startsWith('pi:') ? 'pi' : 'claude';
+/** Extract engine from model ID. 'pi:...' → 'pi', 'local:...' → 'local', otherwise 'claude' */
+export function getEngineFromModel(modelId: string): 'claude' | 'pi' | 'local' {
+  if (modelId.startsWith('pi:')) return 'pi';
+  if (modelId.startsWith('local:')) return 'local';
+  return 'claude';
 }
 
-/** Strip engine prefix from model ID for backend. 'pi:openrouter/...' → 'openrouter/...' */
+/** Strip engine prefix from model ID for backend. 'pi:openrouter/...' → 'openrouter/...', 'local:foo' → 'foo' */
 export function getModelIdForBackend(modelId: string): string {
-  return modelId.startsWith('pi:') ? modelId.slice(3) : modelId;
+  if (modelId.startsWith('pi:')) return modelId.slice(3);
+  if (modelId.startsWith('local:')) return modelId.slice(6);
+  return modelId;
 }
 
 /**
@@ -72,6 +80,9 @@ export function modelIdFromSession(
   if (!session?.modelUsed) return undefined;
   if (session.engine === 'pi' && !session.modelUsed.startsWith('pi:')) {
     return `pi:${session.modelUsed}`;
+  }
+  if (session.engine === 'local' && !session.modelUsed.startsWith('local:')) {
+    return `local:${session.modelUsed}`;
   }
   return session.modelUsed;
 }
@@ -99,13 +110,14 @@ export function resolveEffectiveModel(
  * Returns:
  *  - `effectiveSelected`: the frontend model ID that should be shown as picked
  *  - `sessionEngine`: engine of the active session (or undefined if none)
- *  - `visibleClaudeModels` / `visiblePiModels`: dropdown groups filtered by engine
+ *  - `visibleClaudeModels` / `visiblePiModels` / `visibleLocalModels`: dropdown groups filtered by engine
  *  - `pick(modelId)`: update either the session's modelUsed (+ PATCH backend)
  *     or the global default if no session is active
  */
 export function useSessionAwareModel() {
   const availableModels = useModelStore((s) => s.availableModels);
   const piModels = useModelStore((s) => s.piModels);
+  const localModels = useModelStore((s) => s.localModels);
   const selectedModel = useModelStore((s) => s.selectedModel);
   const setSelectedModel = useModelStore((s) => s.setSelectedModel);
 
@@ -118,7 +130,7 @@ export function useSessionAwareModel() {
     [sessions, activeSessionId],
   );
 
-  const sessionEngine = activeSession?.engine as 'claude' | 'pi' | undefined;
+  const sessionEngine = activeSession?.engine as 'claude' | 'pi' | 'local' | undefined;
 
   // Resolve the model to display/send:
   //  1. session's stored modelUsed (authoritative per-session choice)
@@ -130,17 +142,20 @@ export function useSessionAwareModel() {
     const fromSession = modelIdFromSession(activeSession);
     if (fromSession) return fromSession;
     if (sessionEngine === 'pi' && piModels.length > 0) return piModels[0].id;
+    if (sessionEngine === 'local' && localModels.length > 0) return localModels[0].id;
     if (sessionEngine === 'claude' && availableModels.length > 0) {
-      // Only override global if it's a Pi model (engine mismatch guard)
-      if (selectedModel.startsWith('pi:')) return availableModels[0].id;
+      // Only override global if it's a non-Claude model (engine mismatch guard)
+      if (selectedModel.startsWith('pi:') || selectedModel.startsWith('local:')) return availableModels[0].id;
     }
     return selectedModel;
-  }, [activeSession, sessionEngine, piModels, availableModels, selectedModel]);
+  }, [activeSession, sessionEngine, piModels, localModels, availableModels, selectedModel]);
 
   const visibleClaudeModels =
     !sessionEngine || sessionEngine === 'claude' ? availableModels : [];
   const visiblePiModels =
     !sessionEngine || sessionEngine === 'pi' ? piModels : [];
+  const visibleLocalModels =
+    !sessionEngine || sessionEngine === 'local' ? localModels : [];
 
   const pick = (modelId: string) => {
     if (!activeSession) {
@@ -176,6 +191,7 @@ export function useSessionAwareModel() {
     sessionEngine,
     visibleClaudeModels,
     visiblePiModels,
+    visibleLocalModels,
     pick,
   };
 }
