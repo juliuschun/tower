@@ -285,34 +285,44 @@ export class PiEngine implements Engine {
     const editedFiles = new Set<string>();
 
     // 4. Execute prompt
+    //
+    // turn_done contract: ALWAYS emit exactly one turn_done per prompt, regardless of
+    // whether Pi SDK fired message_end with usage. Without this, turns that produced no
+    // usage event (e.g. short answers, aborts, SDK hiccups) leave the frontend's
+    // turn-metrics state stale and can leave sessions stuck in "streaming" UI because
+    // the Inbox relies on turn completion + updatedAt bump to show cards.
+    // (See 2026-04-11 Pi real-time update bug.)
+    const emitTurnDone = (errorStopReason?: 'error' | 'aborted') => {
+      const durationMs = Date.now() - turnStartTime;
+      if (iterationCount > 0) {
+        callbacks.updateMessageMetrics(msgId, {
+          durationMs,
+          inputTokens: lastIterationInput,
+          outputTokens: lastIterationOutput,
+        });
+      }
+      eventQueue.push({
+        type: 'turn_done',
+        sessionId,
+        msgId,
+        usage: {
+          inputTokens: cumulativeInput,
+          outputTokens: cumulativeOutput,
+          costUsd: lastCostUsd,
+          durationMs,
+          stopReason: errorStopReason || stopReason,
+          contextInputTokens: lastIterationInput,
+          contextOutputTokens: lastIterationOutput,
+          contextWindowSize: modelContextWindow,
+          // numIterations must be ≥ 1 so frontend context estimation doesn't divide by zero
+          numIterations: Math.max(iterationCount, 1),
+        },
+      });
+    };
+
     const promptPromise = entry.session.prompt(prompt)
       .then(() => {
-        if (iterationCount > 0) {
-          const durationMs = Date.now() - turnStartTime;
-          // Per-message metrics: use last iteration (= current context size)
-          callbacks.updateMessageMetrics(msgId, {
-            durationMs,
-            inputTokens: lastIterationInput,
-            outputTokens: lastIterationOutput,
-          });
-          eventQueue.push({
-            type: 'turn_done',
-            sessionId,
-            msgId,
-            usage: {
-              inputTokens: cumulativeInput,
-              outputTokens: cumulativeOutput,
-              costUsd: lastCostUsd,
-              durationMs,
-              stopReason,
-              // G2: Context window tracking — same contract as Claude engine
-              contextInputTokens: lastIterationInput,
-              contextOutputTokens: lastIterationOutput,
-              contextWindowSize: modelContextWindow,
-              numIterations: iterationCount,
-            },
-          });
-        }
+        emitTurnDone();
       })
       .catch((err: any) => {
         const message = err?.message || 'Pi prompt failed';
@@ -324,6 +334,9 @@ export class PiEngine implements Engine {
             message,
           });
         }
+        // Still emit turn_done so the frontend clears streaming/turn-phase state.
+        // Without this, errors + aborts leave the turn "in progress" on the client.
+        emitTurnDone(isAbortError ? 'aborted' : 'error');
       })
       .finally(() => {
         done = true;

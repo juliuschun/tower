@@ -5,11 +5,32 @@ import type { SessionMeta } from '@tower/shared';
 
 export type MobileTab = 'sessions' | 'chat' | 'files' | 'edit' | 'pins' | 'board' | 'channel';
 
+/**
+ * A cached "last AI turn text" per session — populated live from WebSocket
+ * tower_message events for ALL sessions (even background ones).
+ *
+ * Why it exists: Inbox cards need the latest assistant response to preview.
+ * Without this cache, InboxPanel fires a REST fetch after the card appears,
+ * which is slow for long task sessions (limit=500, often takes seconds) and
+ * shows stale content when the same session re-completes. With this cache,
+ * the text is already in memory the moment the card appears.
+ */
+export interface LastTurnCacheEntry {
+  /** The full assistant text for the last turn, extracted from all text blocks. */
+  text: string;
+  /** When the last streaming update arrived (not session.updatedAt). */
+  updatedAt: number;
+  /** Set when turn_done/engine_done has been observed; text is final. */
+  finalized: boolean;
+}
+
 interface SessionState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
   streamingSessions: Set<string>;
   unreadSessions: Set<string>;
+  /** sessionId → last-turn text cache (see LastTurnCacheEntry) */
+  lastTurnTextBySession: Record<string, LastTurnCacheEntry>;
   sidebarOpen: boolean;
   sidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history';
   lastSidebarTab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history';
@@ -32,6 +53,10 @@ interface SessionState {
   updateSessionMeta: (id: string, updates: Partial<SessionMeta>) => void;
   setSessionStreaming: (id: string, streaming: boolean) => void;
   markSessionRead: (id: string) => void;
+  /** Write/update the cached last-turn text for a session. */
+  setLastTurnText: (sessionId: string, text: string, finalized?: boolean) => void;
+  /** Clear the cached last-turn text (e.g. when a session is deleted). */
+  clearLastTurnText: (sessionId: string) => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history') => void;
   setLastSidebarTab: (tab: 'sessions' | 'files' | 'prompts' | 'pins' | 'rooms' | 'history') => void;
@@ -52,6 +77,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   activeSessionId: null,
   streamingSessions: new Set(),
   unreadSessions: new Set(),
+  lastTurnTextBySession: {},
   sidebarOpen: true,
   sidebarTab: 'sessions',
   lastSidebarTab: 'sessions',
@@ -123,6 +149,26 @@ export const useSessionStore = create<SessionState>((set) => ({
       const unread = new Set(s.unreadSessions);
       unread.delete(id);
       return { unreadSessions: unread };
+    }),
+  setLastTurnText: (sessionId, text, finalized = false) =>
+    set((s) => {
+      // Skip no-op updates (same text, same finalized flag) to avoid rerendering
+      // every subscriber on each streaming token.
+      const prev = s.lastTurnTextBySession[sessionId];
+      if (prev && prev.text === text && prev.finalized === finalized) return s;
+      return {
+        lastTurnTextBySession: {
+          ...s.lastTurnTextBySession,
+          [sessionId]: { text, updatedAt: Date.now(), finalized },
+        },
+      };
+    }),
+  clearLastTurnText: (sessionId) =>
+    set((s) => {
+      if (!(sessionId in s.lastTurnTextBySession)) return s;
+      const next = { ...s.lastTurnTextBySession };
+      delete next[sessionId];
+      return { lastTurnTextBySession: next };
     }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),

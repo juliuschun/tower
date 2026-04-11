@@ -52,6 +52,9 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
   const removeSession = useSessionStore((s) => s.removeSession);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const setActiveView = useSessionStore((s) => s.setActiveView);
+  // Live last-turn text cache populated by useClaudeChat from WebSocket events.
+  // This is the primary source for card preview text — REST fetch is fallback.
+  const lastTurnTextBySession = useSessionStore((s) => s.lastTurnTextBySession);
   const projects = useProjectStore((s) => s.projects);
   const tasks = useKanbanStore((s) => s.tasks);
   const taskSessionIds = useMemo(() => new Set(tasks.filter(t => t.sessionId).map(t => t.sessionId!)), [tasks]);
@@ -119,16 +122,25 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
   // in the effect deps (which would cause re-fires on every setLastMessages).
   const inflightRef = useRef<Set<string>>(new Set());
 
-  // Load last AI turn — everything after the last user message
+  // Load last AI turn — REST fallback only.
+  //
+  // Primary source is `lastTurnTextBySession` (live WS cache populated by
+  // useClaudeChat), which is merged into card render via `effectiveLastMessages`
+  // below. This effect only handles sessions the WS cache has NOT seen — typically
+  // sessions that completed while this client was disconnected, or tasks kicked
+  // off by a teammate on another machine before we connected.
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     visibleSessionStamps.forEach(async ([sessionId, updatedAt]) => {
-      // Cache hit: we already have the turn for this exact updatedAt.
-      // Read via functional check on the store? No — lastMessages is local state.
-      // The inflightRef below protects against duplicate fetches even with stale closures.
+      // Skip REST entirely if the live WS cache already has this session's turn.
+      // The render will pick it up via effectiveLastMessages (merge below).
+      const wsCached = lastTurnTextBySession[sessionId];
+      if (wsCached && wsCached.text) return;
+
+      // REST cache hit (same session.updatedAt we already fetched for).
       const cached = lastMessages[sessionId];
       if (cached && cached.sourceUpdatedAt === updatedAt) return;
 
@@ -208,10 +220,41 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
         inflightRef.current.delete(inflightKey);
       }
     });
-    // lastMessages is intentionally omitted from deps — inflightRef handles dedupe,
-    // and including it would re-fire the effect on every setLastMessages call.
+    // lastMessages + lastTurnTextBySession are intentionally omitted from deps:
+    //   - inflightRef handles duplicate-fetch guard across stale closures
+    //   - lastTurnTextBySession updates on every streaming token — putting it in
+    //     deps would cause the effect to refire constantly during streaming.
+    //   - The render reads lastTurnTextBySession directly via `effectiveLastMessages`,
+    //     so staleness inside the effect only affects the REST skip heuristic,
+    //     not what the user sees.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleStampsKey, taskSessionIds]);
+
+  // Merge source: WS cache (live) overrides REST cache (lastMessages).
+  // This is what the render actually reads — so the moment a session's last-turn
+  // text arrives via WebSocket, the Inbox card updates with zero REST fetch.
+  const effectiveLastMessages = useMemo(() => {
+    const merged: Record<string, LastMessage> = { ...lastMessages };
+    for (const [sid, cached] of Object.entries(lastTurnTextBySession)) {
+      if (!cached?.text) continue;
+      // Prefer WS cache over REST cache — WS is always at least as fresh (captured
+      // live from the same turn). Don't clobber REST entries that have a matching
+      // sourceUpdatedAt if the WS text is identical (no-op).
+      const existing = merged[sid];
+      if (existing && existing.content === cached.text) continue;
+      merged[sid] = {
+        sessionId: sid,
+        content: cached.text,
+        role: 'assistant',
+        loadedAt: cached.updatedAt,
+        // WS source doesn't track session.updatedAt — use empty sentinel so the
+        // REST-cache check (sourceUpdatedAt === updatedAt) never short-circuits
+        // on this entry. (Prevents accidentally skipping a later REST re-fetch.)
+        sourceUpdatedAt: '',
+      };
+    }
+    return merged;
+  }, [lastMessages, lastTurnTextBySession]);
 
   // Newest first → no auto-scroll needed (already at top)
 
@@ -319,7 +362,7 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
       <div className="p-4 space-y-4">
         {allCards.map(({ session, isUnread }) => {
           const project = projects.find((p) => p.id === session.projectId);
-          const msg = lastMessages[session.id];
+          const msg = effectiveLastMessages[session.id];
           const replyText = replies[session.id] ?? '';
           const isStreaming = streamingSessions.has(session.id);
           const wasSent = sentSessions.has(session.id);

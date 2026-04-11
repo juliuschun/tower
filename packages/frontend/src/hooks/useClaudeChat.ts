@@ -33,6 +33,23 @@ import { useProjectStore } from '../stores/project-store';
 /** Debounce timer for auto-reload of externally changed files */
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * Extract concatenated text from a TowerMessage `assistant` payload's content blocks.
+ * Used to populate the Inbox last-turn cache from streaming events.
+ * Skips tool_use / tool_result / thinking blocks — Inbox cards only show prose.
+ */
+function extractAssistantText(content: any): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((b: any) => {
+      if (b?.type === 'text' && typeof b.text === 'string') return b.text;
+      return '';
+    })
+    .filter(Boolean)
+    .join('');
+}
+
 /** Get session owner username from session store */
 function getSessionOwnerUsername(sessionId: string): string | undefined {
   const sessions = useSessionStore.getState().sessions;
@@ -621,10 +638,32 @@ export function useClaudeChat() {
 
       case 'tower_message': {
         const currentSid = useChatStore.getState().sessionId;
+        const towerMsg = data.message;
+
+        // ── Inbox last-turn cache (runs for ALL sessions, even background ones) ──
+        // Must happen BEFORE the drop filter below, otherwise tower_messages for
+        // non-active sessions are discarded and the Inbox has no live preview text.
+        // This is what lets an Inbox card appear with the final AI response already
+        // populated — instead of blank-then-REST-fetch-a-few-seconds-later.
+        if (towerMsg && typeof towerMsg === 'object' && data.sessionId) {
+          if (towerMsg.type === 'assistant') {
+            const text = extractAssistantText(towerMsg.content);
+            if (text) {
+              useSessionStore.getState().setLastTurnText(data.sessionId, text, false);
+            }
+          } else if (towerMsg.type === 'turn_done' || towerMsg.type === 'engine_done') {
+            // Mark current cache entry as finalized (if it exists).
+            // Don't create a new entry — turns with no text shouldn't pollute the cache.
+            const existing = useSessionStore.getState().lastTurnTextBySession[data.sessionId];
+            if (existing && !existing.finalized) {
+              useSessionStore.getState().setLastTurnText(data.sessionId, existing.text, true);
+            }
+          }
+        }
+
         if (shouldDropSessionMessage(currentSid, data.sessionId)) return;
 
         useChatStore.getState().markPendingDelivered();
-        const towerMsg = data.message;
         if (!towerMsg || typeof towerMsg !== 'object') break;
 
         if (towerMsg.type === 'assistant') {
