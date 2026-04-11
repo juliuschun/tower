@@ -330,73 +330,23 @@ async function claimClaudeSessionId(towerSessionId: string, claudeSessionId: str
 }
 
 /**
- * Legacy bridge: convert TowerMessage → old frontend WS format.
- * Temporary — removed in Phase 3 when frontend handles TowerMessage directly.
+ * Derived events the frontend still expects in legacy shapes.
+ *
+ * tower_message covers streaming content directly, but a few
+ * terminal/error events historically arrived as top-level
+ * `sdk_done`, `resume_failed`, or `error` frames. Frontend handlers
+ * still key off those types, so translate only those here.
+ *
+ * NOTE: we do NOT emit legacy `sdk_message` frames anymore — they
+ * were a pure duplicate of tower_message for assistant/turn_done/
+ * compact and doubled our WS fan-out during streaming.
  */
-function towerToLegacy(msg: TowerMessage, sessionId: string): any {
+function towerToLegacyTerminal(msg: TowerMessage, sessionId: string): any {
   switch (msg.type) {
-    case 'assistant':
-      // Convert TowerContentBlock[] back to SDK content format
-      return {
-        type: 'sdk_message',
-        sessionId,
-        data: {
-          type: 'assistant',
-          uuid: msg.msgId,
-          message: {
-            content: msg.content.map(b => {
-              if (b.type === 'text') return { type: 'text', text: b.text };
-              if (b.type === 'thinking') {
-                return {
-                  type: 'thinking',
-                  thinking: typeof b.title === 'string'
-                    ? { text: b.text, title: b.title }
-                    : b.text,
-                };
-              }
-              if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
-              return b;
-            }),
-          },
-          parent_tool_use_id: msg.parentToolUseId,
-          session_id: sessionId,
-        },
-      };
-    case 'turn_done':
-      return {
-        type: 'sdk_message',
-        sessionId,
-        data: {
-          type: 'result',
-          duration_ms: msg.usage.durationMs,
-          stop_reason: msg.usage.stopReason,
-          usage: {
-            input_tokens: msg.usage.inputTokens,
-            output_tokens: msg.usage.outputTokens,
-            cache_read_input_tokens: msg.usage.cacheReadTokens || 0,
-            cache_creation_input_tokens: msg.usage.cacheCreationTokens || 0,
-          },
-          // Context window tracking (last iteration = real context size)
-          // Don't fallback to cumulative inputTokens — it inflates context display.
-          // Frontend handles 0 gracefully (shows estimate or hides bar).
-          context: {
-            input_tokens: msg.usage.contextInputTokens || 0,
-            output_tokens: msg.usage.contextOutputTokens || 0,
-            window_size: msg.usage.contextWindowSize || 0,
-            num_iterations: msg.usage.numIterations || 1,
-          },
-        },
-      };
     case 'compact':
-      // Forward autocompact lifecycle to frontend as SDK system messages
-      if (msg.phase === 'boundary') {
-        return {
-          type: 'sdk_message',
-          sessionId,
-          data: { type: 'system', subtype: 'compact_boundary' },
-        };
-      }
-      // When compact finishes, persist a marker in DB so it survives reload
+      // Persist a marker in DB when compact finishes so it survives reload.
+      // Frontend renders the divider from the tower_message `compact.done`
+      // event directly — no additional legacy frame needed.
       if (msg.phase === 'done') {
         const markerId = `compact-${Date.now()}`;
         saveMessage(sessionId, {
@@ -404,26 +354,8 @@ function towerToLegacy(msg: TowerMessage, sessionId: string): any {
           role: 'system',
           content: [{ type: 'text', text: '✂️ Context compacted' }],
         }).catch(() => {});
-        return {
-          type: 'sdk_message',
-          sessionId,
-          data: {
-            type: 'system',
-            subtype: 'status',
-            status: null,
-            compactMarkerId: markerId,
-          },
-        };
       }
-      return {
-        type: 'sdk_message',
-        sessionId,
-        data: {
-          type: 'system',
-          subtype: 'status',
-          status: msg.phase === 'compacting' ? 'compacting' : null,
-        },
-      };
+      return null;
     case 'engine_done':
       return {
         type: 'sdk_done',
@@ -471,7 +403,8 @@ export function broadcastToAll(data: any) {
 
 /**
  * Broadcast a message to ALL clients viewing a session.
- * Used for streaming messages (sdk_message, sdk_done, ask_user, errors).
+ * Used for streaming-related frames (sdk_done, ask_user, errors).
+ * Streaming content now goes through broadcastTowerMessage directly.
  */
 function broadcastToSession(sessionId: string, data: any, excludeClientId?: string) {
   localBroadcastToSession(sessionId, data, excludeClientId);
@@ -1097,14 +1030,16 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     }, callbacks)) {
       resetHangTimer();
 
-      // Direct path: frontend can consume TowerMessage without Claude-specific translation.
+      // Primary path: frontend consumes TowerMessage directly for
+      // assistant / turn_done / compact content.
       broadcastTowerMessage(sessionId, towerMsg);
 
-      // ── Legacy bridge: convert TowerMessage → old frontend format ──
-      // This remains temporarily until all frontend consumers migrate.
-      const legacyMsg = towerToLegacy(towerMsg, sessionId);
-      if (legacyMsg) {
-        broadcastToSession(sessionId, legacyMsg);
+      // Terminal legacy frames (sdk_done / error / resume_failed) still
+      // flow as before — the frontend has richer handlers for those
+      // (auto-name on sdk_done, error-code routing on error).
+      const terminalMsg = towerToLegacyTerminal(towerMsg, sessionId);
+      if (terminalMsg) {
+        broadcastToSession(sessionId, terminalMsg);
       }
 
       // Update session metadata on engine_done
@@ -1826,9 +1761,9 @@ export async function serverSideResumeInterrupted() {
             resetHangTimer();
 
             broadcastTowerMessage(sessionId, towerMsg);
-            const legacyMsg = towerToLegacy(towerMsg, sessionId);
-            if (legacyMsg) {
-              broadcastToSession(sessionId, legacyMsg);
+            const terminalMsg = towerToLegacyTerminal(towerMsg, sessionId);
+            if (terminalMsg) {
+              broadcastToSession(sessionId, terminalMsg);
             }
 
             // Update session metadata on engine_done

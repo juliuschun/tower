@@ -717,30 +717,10 @@ export function useClaudeChat() {
           break;
         }
 
-        if (towerMsg.type === 'engine_done') {
-          setSessionId(data.sessionId);
-          if (towerMsg.engineSessionId && data.sessionId) {
-            useSessionStore.getState().updateSessionMeta(data.sessionId, {
-              claudeSessionId: towerMsg.engineSessionId,
-              engineSessionId: towerMsg.engineSessionId,
-            });
-          }
-          if (!shouldDropSessionMessage(useChatStore.getState().sessionId, data.sessionId)) {
-            finishTurn(data.sessionId, towerMsg.engineSessionId);
-          }
-          break;
-        }
-
-        if (towerMsg.type === 'engine_error') {
-          setSessionId(data.sessionId);
-          if (towerMsg.recoverable) {
-            toastWarning(towerMsg.message || 'Previous conversation context could not be restored.');
-          } else {
-            toastError(towerMsg.message || 'Unknown error');
-          }
-          useChatStore.getState().setTurnPhase(data.sessionId, 'error', { errorMessage: towerMsg.message || 'Unknown error', pendingMessageCount: 0 });
-          break;
-        }
+        // Terminal events (engine_done / engine_error) are intentionally
+        // NOT handled here — they arrive as legacy `sdk_done` / `error` /
+        // `resume_failed` frames which have richer behaviour (auto-name
+        // trigger, SESSION_BUSY re-queue, per-errorCode messaging).
         break;
       }
 

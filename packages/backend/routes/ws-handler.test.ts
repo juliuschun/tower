@@ -245,7 +245,7 @@ describe('ws-handler integration', () => {
   });
 
   describe('chat + routing', () => {
-    it('does NOT route sdk_message to clients on a different session', async () => {
+    it('does NOT route tower_message to clients on a different session', async () => {
       // Client A on session s1
       const clientA = await createWsClient();
       await waitForMessage(clientA.messages, 'connected');
@@ -265,19 +265,23 @@ describe('ws-handler integration', () => {
 
       sendJson(clientA.ws, { type: 'chat', message: 'hello', sessionId: 's1' });
 
-      // Client A should get sdk_message
-      await waitForMessage(clientA.messages, 'sdk_message');
+      // Client A should get tower_message
+      await waitForMessage(clientA.messages, 'tower_message');
 
-      // Wait a bit then check client B did NOT get sdk_message (different session)
+      // Wait a bit then check client B did NOT get tower_message (different session)
       await delay(200);
-      const bSdkMsgs = clientB.messages.filter((m) => m.type === 'sdk_message');
-      expect(bSdkMsgs.length).toBe(0);
+      const bTowerMsgs = clientB.messages.filter((m) => m.type === 'tower_message');
+      expect(bTowerMsgs.length).toBe(0);
+
+      // Regression guard: legacy sdk_message duplicate path must not fire.
+      const aSdkMsgs = clientA.messages.filter((m) => m.type === 'sdk_message');
+      expect(aSdkMsgs.length).toBe(0);
 
       clientA.ws.close();
       clientB.ws.close();
     });
 
-    it('broadcasts sdk_message to ALL clients viewing the same session', async () => {
+    it('broadcasts tower_message to ALL clients viewing the same session', async () => {
       // Client A on session s1
       const clientA = await createWsClient();
       await waitForMessage(clientA.messages, 'connected');
@@ -297,13 +301,17 @@ describe('ws-handler integration', () => {
 
       sendJson(clientA.ws, { type: 'chat', message: 'hello', sessionId: 's1' });
 
-      // BOTH clients should get sdk_message
-      await waitForMessage(clientA.messages, 'sdk_message');
-      await waitForMessage(clientB.messages, 'sdk_message');
+      // BOTH clients should get tower_message (new primary path)
+      await waitForMessage(clientA.messages, 'tower_message');
+      await waitForMessage(clientB.messages, 'tower_message');
 
-      // Both should also get sdk_done
+      // Both should also get sdk_done (legacy terminal frame — still emitted)
       await waitForMessage(clientA.messages, 'sdk_done');
       await waitForMessage(clientB.messages, 'sdk_done');
+
+      // Regression guard: legacy sdk_message must not fire for assistant content.
+      expect(clientA.messages.filter((m) => m.type === 'sdk_message').length).toBe(0);
+      expect(clientB.messages.filter((m) => m.type === 'sdk_message').length).toBe(0);
 
       clientA.ws.close();
       clientB.ws.close();
@@ -339,8 +347,8 @@ describe('ws-handler integration', () => {
 
       sendJson(clientA.ws, { type: 'chat', message: 'start long query', sessionId: 's1' });
 
-      // Wait for first sdk_message on client A
-      await waitForMessage(clientA.messages, 'sdk_message');
+      // Wait for first tower_message on client A
+      await waitForMessage(clientA.messages, 'tower_message');
 
       // Client A switches session mid-stream — streaming should NOT be aborted
       mockGetSDKSession.mockReturnValueOnce({ isRunning: false });
@@ -348,7 +356,7 @@ describe('ws-handler integration', () => {
       await waitForMessage(clientA.messages, 'set_active_session_ack');
 
       // Client B (still on s1) should receive all 3 messages + sdk_done
-      await waitForMessages(clientB.messages, 'sdk_message', 3, 3000);
+      await waitForMessages(clientB.messages, 'tower_message', 3, 3000);
       await waitForMessage(clientB.messages, 'sdk_done');
 
       // Generator should have completed all yields
@@ -434,10 +442,10 @@ describe('ws-handler integration', () => {
       });
 
       sendJson(clientB.ws, { type: 'chat', message: 'after reconnect', sessionId: 's1' });
-      await waitForMessage(clientB.messages, 'sdk_message');
+      await waitForMessage(clientB.messages, 'tower_message');
 
-      const sdkMsg = clientB.messages.find((m) => m.type === 'sdk_message');
-      expect(sdkMsg.sessionId).toBe('s1');
+      const towerMsg = clientB.messages.find((m) => m.type === 'tower_message');
+      expect(towerMsg.sessionId).toBe('s1');
 
       clientB.ws.close();
     });
@@ -573,7 +581,7 @@ describe('ws-handler integration', () => {
       });
 
       sendJson(clientB.ws, { type: 'chat', message: 'test', sessionId: 's1' });
-      const msg = await waitForMessage(clientB.messages, 'sdk_message');
+      const msg = await waitForMessage(clientB.messages, 'tower_message');
       expect(msg.sessionId).toBe('s1');
 
       clientB.ws.close();
