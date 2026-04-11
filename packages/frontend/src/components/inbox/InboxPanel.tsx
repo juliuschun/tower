@@ -13,6 +13,9 @@ interface LastMessage {
   content: string;
   role: 'user' | 'assistant';
   loadedAt: number;
+  /** The session.updatedAt value this cache entry was built from.
+   *  Used to invalidate when a new completion lands on the same session. */
+  sourceUpdatedAt: string;
 }
 
 /* ── Send message directly via global WebSocket ── */
@@ -94,21 +97,55 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
     return ids;
   }, [unreads, recentIdle]);
 
+  // (sessionId, updatedAt) pairs for visible cards. updatedAt is the cache key —
+  // when a session re-completes, updatedAt bumps and we refetch the last turn.
+  const visibleSessionStamps = useMemo(() => {
+    const stamps: Array<[string, string]> = [];
+    for (const s of sessions) {
+      if (allVisibleIds.has(s.id)) stamps.push([s.id, s.updatedAt]);
+    }
+    return stamps;
+  }, [sessions, allVisibleIds]);
+
+  // Stable dependency key: "id:updatedAt,id:updatedAt,..."
+  // Re-fires the effect on either a new id OR an existing id with a newer updatedAt.
+  const visibleStampsKey = useMemo(
+    () => visibleSessionStamps.map(([id, u]) => `${id}:${u}`).join(','),
+    [visibleSessionStamps]
+  );
+
+  // Dedupe in-flight fetches across renders so we never fire twice for the same
+  // (sessionId, updatedAt). This is what frees us from having to put lastMessages
+  // in the effect deps (which would cause re-fires on every setLastMessages).
+  const inflightRef = useRef<Set<string>>(new Set());
+
   // Load last AI turn — everything after the last user message
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    allVisibleIds.forEach(async (sessionId) => {
-      if (lastMessages[sessionId]) return;
+    visibleSessionStamps.forEach(async ([sessionId, updatedAt]) => {
+      // Cache hit: we already have the turn for this exact updatedAt.
+      // Read via functional check on the store? No — lastMessages is local state.
+      // The inflightRef below protects against duplicate fetches even with stale closures.
+      const cached = lastMessages[sessionId];
+      if (cached && cached.sourceUpdatedAt === updatedAt) return;
+
+      const inflightKey = `${sessionId}:${updatedAt}`;
+      if (inflightRef.current.has(inflightKey)) return;
+      inflightRef.current.add(inflightKey);
+
       try {
         // Task sessions can have hundreds of messages (tool cycles);
         // fetch more to capture the full AI output after the initial user prompt.
         const isTask = taskSessionIds.has(sessionId);
         const limit = isTask ? 500 : 50;
         const res = await fetch(`/api/sessions/${sessionId}/messages?limit=${limit}`, { headers });
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.warn(`[inbox] failed to load messages for ${sessionId}: ${res.status}`);
+          return;
+        }
         const data = await res.json();
         const msgs: any[] = data.messages ?? data;
         if (msgs.length === 0) return;
@@ -157,11 +194,24 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
 
         setLastMessages((prev) => ({
           ...prev,
-          [sessionId]: { sessionId, content: text, role: 'assistant', loadedAt: Date.now() },
+          [sessionId]: {
+            sessionId,
+            content: text,
+            role: 'assistant',
+            loadedAt: Date.now(),
+            sourceUpdatedAt: updatedAt,
+          },
         }));
-      } catch {}
+      } catch (err) {
+        console.warn(`[inbox] error loading messages for ${sessionId}:`, err);
+      } finally {
+        inflightRef.current.delete(inflightKey);
+      }
     });
-  }, [[...allVisibleIds].join(',')]);
+    // lastMessages is intentionally omitted from deps — inflightRef handles dedupe,
+    // and including it would re-fire the effect on every setLastMessages call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleStampsKey, taskSessionIds]);
 
   // Newest first → no auto-scroll needed (already at top)
 
@@ -203,7 +253,15 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
       // Show user's message in the card briefly, then animate out
       setLastMessages((prev) => ({
         ...prev,
-        [session.id]: { sessionId: session.id, content: text, role: 'user', loadedAt: Date.now() },
+        [session.id]: {
+          sessionId: session.id,
+          content: text,
+          role: 'user',
+          loadedAt: Date.now(),
+          // Sentinel: empty string never matches a real updatedAt, so the next
+          // completion will be fetched fresh instead of reusing this reply stub.
+          sourceUpdatedAt: '',
+        },
       }));
       setSentSessions((prev) => new Set(prev).add(session.id));
       setReplies((prev) => ({ ...prev, [session.id]: '' }));
