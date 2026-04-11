@@ -15,6 +15,7 @@ interface HeatmapResponse {
   dates: string[];
   projects: ProjectRow[];
   grandTotal: number;
+  dailyTotals: number[];
 }
 
 // ───── Color scale (log-ish buckets) ─────
@@ -219,6 +220,11 @@ export function UsagePanel() {
           </div>
         )}
 
+        {/* ── Daily total line chart ── */}
+        {data && data.dailyTotals && data.dailyTotals.length > 0 && (
+          <DailyLineChart dates={data.dates} values={data.dailyTotals} />
+        )}
+
         {/* ── Heatmap ── */}
         {data && data.projects.length > 0 && (
           <div className="bg-surface-900 border border-surface-800 rounded-xl p-5 overflow-auto relative">
@@ -367,6 +373,141 @@ function LegendCell({ color, label }: { color: string; label: string }) {
     <div className="flex items-center gap-1">
       <div className="w-3 h-3 rounded-sm" style={{ background: color }} />
       <span>{label}</span>
+    </div>
+  );
+}
+
+// ───── Daily total line chart (pure SVG) ─────
+function DailyLineChart({ dates, values }: { dates: string[]; values: number[] }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const width = 900;
+  const height = 180;
+  const padL = 48;
+  const padR = 16;
+  const padT = 20;
+  const padB = 32;
+  const chartW = width - padL - padR;
+  const chartH = height - padT - padB;
+
+  const maxVal = Math.max(...values, 1);
+  // Y-axis ticks: up to 4 nice ticks
+  const yTicks = useMemo(() => {
+    const step = Math.ceil(maxVal / 4);
+    const ticks: number[] = [];
+    for (let v = 0; v <= maxVal; v += step) ticks.push(v);
+    if (ticks[ticks.length - 1] < maxVal) ticks.push(maxVal);
+    return ticks;
+  }, [maxVal]);
+
+  const xScale = (i: number) => padL + (i / Math.max(1, dates.length - 1)) * chartW;
+  const yScale = (v: number) => padT + chartH - (v / maxVal) * chartH;
+
+  // Build SVG path
+  const linePath = values
+    .map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i).toFixed(1)},${yScale(v).toFixed(1)}`)
+    .join(' ');
+
+  // Area fill path (line + close at bottom)
+  const areaPath = `${linePath} L${xScale(values.length - 1).toFixed(1)},${yScale(0).toFixed(1)} L${xScale(0).toFixed(1)},${yScale(0).toFixed(1)} Z`;
+
+  // X-axis labels — show ~8-10 evenly
+  const xLabelStep = Math.max(1, Math.floor(dates.length / 8));
+
+  return (
+    <div className="bg-surface-900 border border-surface-800 rounded-xl p-5 mb-4">
+      <div className="text-[11px] text-gray-400 mb-2 font-medium">전체 프로젝트 일별 턴 수</div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        style={{ maxHeight: 200 }}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {/* Grid lines */}
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line
+              x1={padL} x2={width - padR}
+              y1={yScale(v)} y2={yScale(v)}
+              stroke="#374151" strokeWidth={0.5} strokeDasharray={v === 0 ? '' : '3,3'}
+            />
+            <text x={padL - 6} y={yScale(v) + 3} textAnchor="end" fill="#6b7280" fontSize={9} fontFamily="monospace">
+              {v}
+            </text>
+          </g>
+        ))}
+
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#lineGradient)" opacity={0.3} />
+
+        {/* Gradient def */}
+        <defs>
+          <linearGradient id="lineGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#4ade80" stopOpacity={0.6} />
+            <stop offset="100%" stopColor="#4ade80" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+
+        {/* Line */}
+        <path d={linePath} fill="none" stroke="#4ade80" strokeWidth={1.8} strokeLinejoin="round" />
+
+        {/* Dots */}
+        {values.map((v, i) => (
+          <circle
+            key={i}
+            cx={xScale(i)} cy={yScale(v)}
+            r={hoverIdx === i ? 4 : (v > 0 ? 2 : 0)}
+            fill={hoverIdx === i ? '#fde047' : '#4ade80'}
+            stroke={hoverIdx === i ? '#fde047' : 'none'}
+            strokeWidth={2}
+          />
+        ))}
+
+        {/* Invisible hover targets */}
+        {values.map((_v, i) => (
+          <rect
+            key={`h${i}`}
+            x={xScale(i) - chartW / dates.length / 2}
+            y={padT}
+            width={chartW / dates.length}
+            height={chartH}
+            fill="transparent"
+            onMouseEnter={() => setHoverIdx(i)}
+          />
+        ))}
+
+        {/* Hover crosshair + label */}
+        {hoverIdx !== null && (
+          <>
+            <line
+              x1={xScale(hoverIdx)} x2={xScale(hoverIdx)}
+              y1={padT} y2={padT + chartH}
+              stroke="#6b7280" strokeWidth={0.5} strokeDasharray="3,3"
+            />
+            <rect
+              x={xScale(hoverIdx) - 36} y={yScale(values[hoverIdx]) - 28}
+              width={72} height={22} rx={4}
+              fill="#111827" stroke="#374151" strokeWidth={0.5}
+            />
+            <text
+              x={xScale(hoverIdx)} y={yScale(values[hoverIdx]) - 14}
+              textAnchor="middle" fill="#e5e7eb" fontSize={10} fontFamily="monospace"
+            >
+              {formatShortDate(dates[hoverIdx])} · {values[hoverIdx]}
+            </text>
+          </>
+        )}
+
+        {/* X-axis labels */}
+        {dates.map((d, i) => {
+          if (i % xLabelStep !== 0 && i !== dates.length - 1) return null;
+          return (
+            <text key={d} x={xScale(i)} y={height - 6} textAnchor="middle" fill="#6b7280" fontSize={9} fontFamily="monospace">
+              {formatShortDate(d)}
+            </text>
+          );
+        })}
+      </svg>
     </div>
   );
 }
