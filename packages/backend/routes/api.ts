@@ -1049,7 +1049,7 @@ router.get('/sessions/:id', async (req, res) => {
 });
 
 router.patch('/sessions/:id', async (req, res) => {
-  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd, visibility, modelUsed } = req.body;
+  const { name, tags, favorite, totalCost, totalTokens, claudeSessionId, autoNamed, cwd, visibility, modelUsed, engine } = req.body;
   const userId = (req as any).user?.userId;
   const userRole = (req as any).user?.role;
 
@@ -1087,6 +1087,14 @@ router.patch('/sessions/:id', async (req, res) => {
       return res.status(400).json({ error: 'modelUsed must be a string or null' });
     }
     updates.modelUsed = modelUsed;
+  }
+  // engine: allow switching session engine (claude/pi/local) when user picks a model from a different engine
+  if (engine !== undefined) {
+    const validEngines = ['claude', 'pi', 'local'];
+    if (!validEngines.includes(engine)) {
+      return res.status(400).json({ error: `engine must be one of: ${validEngines.join(', ')}` });
+    }
+    updates.engine = engine;
   }
   await updateSession(req.params.id as string, updates);
   // Broadcast to all clients so other users see changes in real-time
@@ -3135,6 +3143,46 @@ router.delete('/deploy/:type/:name', authMiddleware, async (req, res) => {
     const result = await deleteDeployment(name as string, type);
     res.json(result);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Proactive Agent — AI가 먼저 말을 거는 시스템
+// ═══════════════════════════════════════════════════════════════
+
+router.post('/proactive/fire', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+    const userRole = (req as any).user?.role;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    if (userRole !== 'admin') return res.status(403).json({ error: 'admin only (phase 1)' });
+
+    const { templateName, prompt, context, projectId, model, targetSessionId } = req.body;
+    if (!templateName || !prompt) {
+      return res.status(400).json({ error: 'templateName and prompt are required' });
+    }
+
+    const { fireProactive } = await import('../services/proactive-agent.js');
+
+    const template = {
+      id: `manual-${Date.now()}`,
+      name: templateName,
+      prompt,
+      model: model || undefined,
+      projectId: projectId || undefined,
+    };
+
+    const result = await fireProactive(
+      userId,
+      template,
+      context ? { summary: context } : undefined,
+      targetSessionId ? { targetSessionId } : undefined,
+    );
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('[proactive] Fire error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

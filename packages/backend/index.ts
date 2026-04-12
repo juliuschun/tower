@@ -153,6 +153,10 @@ server.listen(config.port, config.host, async () => {
   };
   initNotificationHub(notifBroadcast);
 
+  // Initialize proactive agent (AI-initiated conversations)
+  const { initProactiveAgent } = await import('./services/proactive-agent.js');
+  initProactiveAgent(notifBroadcast);
+
   // Start heartbeat scheduler (checks project HEARTBEAT.md files periodically)
   startHeartbeatScheduler(notifBroadcast);
 

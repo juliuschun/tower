@@ -1331,6 +1331,56 @@ export function useClaudeChat() {
         break;
       }
 
+      case 'session_refresh_needed': {
+        const refreshSid = data.sessionId;
+        if (!refreshSid) break;
+
+        const token = localStorage.getItem('token');
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        // Keep inbox/sidebar ordering fresh even when the full tower_message was too large
+        // to travel over pg_notify.
+        useSessionStore.getState().updateSessionMeta(refreshSid, { updatedAt: new Date().toISOString() });
+
+        fetch(`/api/sessions/${refreshSid}/messages?limit=${MESSAGE_PAGE_SIZE}`, { headers })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((payload) => {
+            if (!payload) return;
+            const stored = payload.messages ?? payload;
+            if (!Array.isArray(stored) || stored.length === 0) return;
+
+            const ownerUsername = getSessionOwnerUsername(refreshSid);
+            const msgs = stored.map((m: any) => mapStoredToChat(m, ownerUsername));
+
+            const lastRealUserIdx = [...msgs].map((m, i) => ({ m, i })).reverse().find(({ m }) => {
+              if (m.role !== 'user') return false;
+              if (m.parentToolUseId) return false;
+              if (m.content.length > 0 && m.content.every((b) => b.type === 'tool_result')) return false;
+              return true;
+            })?.i ?? -1;
+
+            const turnMsgs = lastRealUserIdx >= 0 ? msgs.slice(lastRealUserIdx + 1) : msgs;
+            const preview = joinAssistantPreviewText(
+              turnMsgs
+                .filter((m) => m.role === 'assistant')
+                .map((m) => extractAssistantText(m.content))
+            );
+
+            if (preview) {
+              useSessionStore.getState().setLastTurnText(refreshSid, preview, true);
+            }
+
+            if (useChatStore.getState().sessionId === refreshSid) {
+              useChatStore.getState().setMessages(msgs);
+              useChatStore.getState().setHasMoreMessages(payload.hasMore ?? false);
+              useChatStore.getState().setOldestMessageId(payload.oldestId ?? null);
+            }
+          })
+          .catch(() => {});
+        break;
+      }
+
       case 'task_list': {
         useKanbanStore.getState().setTasks(data.tasks || []);
         break;
@@ -1437,6 +1487,8 @@ export function useClaudeChat() {
             toastInfo(`💓 ${notif.title}`);
           } else if (notif.type === 'mention') {
             toastInfo(`@${notif.title}`);
+          } else if (notif.type === 'proactive') {
+            toastInfo(`💬 ${notif.title}`, { description: notif.body });
           }
         }
         break;
@@ -1663,7 +1715,7 @@ export function useClaudeChat() {
     setTurnStartTime(null);
     if (sessionId) {
       useSessionStore.getState().setSessionStreaming(sessionId, false);
-      useChatStore.getState().setTurnPhase(sessionId, 'idle', { pendingMessageCount: useChatStore.getState().messageQueue[sessionId]?.length || 0 });
+      useChatStore.getState().setTurnPhase(sessionId, 'stopped', { pendingMessageCount: useChatStore.getState().messageQueue[sessionId]?.length || 0 });
     }
     useChatStore.getState().setCompacting(null);
     useChatStore.getState().setPendingQuestion(null);

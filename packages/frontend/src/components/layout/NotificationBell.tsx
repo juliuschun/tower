@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useRoomStore } from '../../stores/room-store';
-import { useSessionStore } from '../../stores/session-store';
+import { useSessionStore, type SessionMeta } from '../../stores/session-store';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -26,9 +26,14 @@ const NOTIF_ICONS: Record<string, string> = {
   room_invite: '📨',
   system: '⚙️',
   session_done: '✅',
+  proactive: '💬',
 };
 
-export function NotificationBell() {
+interface NotificationBellProps {
+  onSelectSession?: (session: SessionMeta) => void;
+}
+
+export function NotificationBell({ onSelectSession }: NotificationBellProps) {
   const [open, setOpen] = React.useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -128,17 +133,40 @@ export function NotificationBell() {
                   key={n.id}
                   onClick={() => {
                     if (!n.read) handleMarkOne(n.id);
-                    // Navigate to session if session_done notification
-                    if (n.type === 'session_done' && n.metadata?.sessionId) {
+                    // Navigate to session for session_done or proactive notifications
+                    if (['session_done', 'proactive'].includes(n.type) && n.metadata?.sessionId) {
                       const sessionId = n.metadata.sessionId as string;
-                      const { sessions, setActiveSessionId, markSessionRead, setActiveView, setSidebarTab } = useSessionStore.getState();
-                      const session = sessions.find((s) => s.id === sessionId);
-                      if (session) {
-                        setActiveSessionId(sessionId);
-                        markSessionRead(sessionId);
+                      const store = useSessionStore.getState();
+                      let session = store.sessions.find((s) => s.id === sessionId);
+
+                      const navigateToSession = (s: SessionMeta) => {
+                        const { markSessionRead, setActiveView, setSidebarTab } = useSessionStore.getState();
+                        markSessionRead(s.id);
                         setActiveView('chat');
                         setSidebarTab('sessions');
+                        if (onSelectSession) {
+                          onSelectSession(s);
+                        } else {
+                          useSessionStore.getState().setActiveSessionId(s.id);
+                        }
                         setOpen(false);
+                      };
+
+                      if (session) {
+                        navigateToSession(session);
+                      } else {
+                        // Proactive sessions may not be in the list yet — fetch and add
+                        fetch(`${API}/api/sessions/${sessionId}`, {
+                          headers: { Authorization: `Bearer ${getToken()}` },
+                        })
+                          .then((r) => r.json())
+                          .then((data) => {
+                            if (data?.id) {
+                              useSessionStore.getState().addSession(data);
+                              navigateToSession(data);
+                            }
+                          })
+                          .catch(() => {});
                       }
                     }
                   }}

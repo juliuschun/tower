@@ -153,6 +153,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const turnPhase = useChatStore((s) => s.turnStateBySession[session.id]?.phase || 'idle');
   const isKanbanTask = session.name.startsWith('[task]') || session.name.startsWith('\u{1F7E2}'); // [task] or legacy 🟢
   const isChannelAi = session.label === 'channel_ai'; // 🤖
+  const isProactive = session.label === 'proactive'; // 💬
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
 
   useEffect(() => {
@@ -200,8 +201,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       >
-        {/* Favorite star (prefix) — only when not streaming/queued/unread */}
-        {!isStreaming && queueCount === 0 && !isOwnUnread && session.favorite && (
+        {/* Favorite star (prefix) — always visible when favorited */}
+        {session.favorite && (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleFavorite(session.id, false); }}
             className="shrink-0 text-yellow-400"
@@ -248,6 +249,9 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             {isChannelAi && (
               <span className="ml-1 text-[8px] font-bold text-cyan-300 bg-cyan-500/15 px-1 rounded align-middle">agent</span>
             )}
+            {isProactive && (
+              <span className="ml-1 text-[8px] font-bold text-blue-300 bg-blue-500/15 px-1 rounded align-middle">💬 ai</span>
+            )}
             {session.roomId && !isChannelAi && (
               <span className="ml-1 text-[9px] text-surface-600 align-middle">#thread</span>
             )}
@@ -260,7 +264,11 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden flex items-center gap-1">
               {isStreaming ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
-                  {turnPhase === 'tool_running' ? 'tool' : turnPhase === 'awaiting_user' ? 'ask' : turnPhase === 'compacting' ? 'pack' : 'run'}{queueCount > 0 ? ` +${queueCount}` : ''}
+                  {turnPhase === 'awaiting_user' ? 'ask' : turnPhase === 'compacting' ? 'pack' : 'run'}{queueCount > 0 ? ` +${queueCount}` : ''}
+                </span>
+              ) : turnPhase === 'stopped' ? (
+                <span className="text-[9px] font-semibold text-orange-300 bg-orange-500/10 border border-orange-500/20 rounded px-1 py-0.5 leading-none">
+                  stop
                 </span>
               ) : queueCount > 0 || turnPhase === 'queued' ? (
                 <span className="text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
