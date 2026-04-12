@@ -44,6 +44,14 @@ interface InboxPanelProps {
   onSelectSession?: (session: SessionMeta) => void;
 }
 
+function joinAssistantPreviewText(parts: string[]): string {
+  return parts
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
 export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
   const sessions = useSessionStore((s) => s.sessions);
   const unreadSessions = useSessionStore((s) => s.unreadSessions);
@@ -187,20 +195,19 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
         if (lastTurnMsgs.length === 0) return;
 
         // Concatenate all text blocks from assistant messages in the turn
-        const text = lastTurnMsgs
-          .filter((m: any) => m.role === 'assistant')
-          .map((m: any) => {
-            if (typeof m.content === 'string') return m.content;
-            if (Array.isArray(m.content)) {
-              return m.content
-                .filter((b: any) => b.type === 'text')
-                .map((b: any) => b.text)
-                .join('');
-            }
-            return '';
-          })
-          .filter(Boolean)
-          .join('\n\n');
+        const text = joinAssistantPreviewText(
+          lastTurnMsgs
+            .filter((m: any) => m.role === 'assistant')
+            .map((m: any) => {
+              if (typeof m.content === 'string') return m.content;
+              if (Array.isArray(m.content)) {
+                return joinAssistantPreviewText(
+                  m.content.map((b: any) => (b.type === 'text' ? b.text : ''))
+                );
+              }
+              return '';
+            })
+        );
 
         if (!text) return;
 
@@ -292,6 +299,9 @@ export function InboxPanel({ onSelectSession }: InboxPanelProps = {}) {
   const handleSendReply = useCallback((session: SessionMeta, text: string) => {
     const ok = sendToSession(session.id, text);
     if (ok) {
+      // Queue the inbox-origin reply so ChatPanel can render the same text
+      // if the user opens the session immediately after sending from Inbox.
+      useSessionStore.getState().setPendingReply(session.id, text);
       markSessionRead(session.id);
       // Show user's message in the card briefly, then animate out
       setLastMessages((prev) => ({

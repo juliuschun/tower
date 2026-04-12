@@ -34,20 +34,33 @@ import { useProjectStore } from '../stores/project-store';
 let fileChangeDebounce: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * Extract concatenated text from a TowerMessage `assistant` payload's content blocks.
+ * Normalize assistant prose for Inbox previews.
+ *
+ * Why this exists:
+ * - Assistant content is block-based (text / tool_use / thinking / visuals).
+ * - Joining text blocks with '' makes paragraph boundaries disappear,
+ *   which feels like the front/back of the answer got cut off.
+ * - Inbox should show prose only, but preserve readable separation.
+ */
+function joinAssistantPreviewText(parts: string[]): string {
+  return parts
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
+/**
+ * Extract normalized prose from a TowerMessage `assistant` payload's content blocks.
  * Used to populate the Inbox last-turn cache from streaming events.
  * Skips tool_use / tool_result / thinking blocks — Inbox cards only show prose.
  */
 function extractAssistantText(content: any): string {
-  if (typeof content === 'string') return content;
+  if (typeof content === 'string') return content.trim();
   if (!Array.isArray(content)) return '';
-  return content
-    .map((b: any) => {
-      if (b?.type === 'text' && typeof b.text === 'string') return b.text;
-      return '';
-    })
-    .filter(Boolean)
-    .join('');
+  return joinAssistantPreviewText(
+    content.map((b: any) => (b?.type === 'text' && typeof b.text === 'string' ? b.text : ''))
+  );
 }
 
 /** Get session owner username from session store */
