@@ -1,4 +1,27 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Hoisted mock for @mendable/firecrawl-js so every dynamic import of
+// pi-web-tools.ts gets the same mocked client.
+const firecrawlMocks = vi.hoisted(() => {
+  const scrape = vi.fn();
+  const search = vi.fn();
+  return { scrape, search };
+});
+
+vi.mock('@mendable/firecrawl-js', () => {
+  class FirecrawlClient {
+    constructor(_opts: any) {}
+    scrape = firecrawlMocks.scrape;
+    search = firecrawlMocks.search;
+  }
+  return { FirecrawlClient };
+});
+
+beforeEach(() => {
+  process.env.FIRECRAWL_API_KEY = 'test-key';
+  firecrawlMocks.scrape.mockReset();
+  firecrawlMocks.search.mockReset();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -6,80 +29,139 @@ afterEach(() => {
   vi.doUnmock('child_process');
 });
 
-describe('Pi web tools', () => {
-  it('WebFetch returns JSON response as readable text', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      headers: { get: (k: string) => k.toLowerCase() === 'content-type' ? 'application/json' : null },
-      json: async () => ({ hello: 'world' }),
-      text: async () => JSON.stringify({ hello: 'world' }),
-    })) as any);
+describe('Pi web tools (Firecrawl-first)', () => {
+  it('WebFetch returns Firecrawl markdown on success', async () => {
+    firecrawlMocks.scrape.mockResolvedValue({
+      markdown: 'Hello **world**',
+      metadata: { title: 'Demo Page' },
+    });
 
-    const { webFetchTool } = await import('./pi-web-tools.ts');
-    const result = await webFetchTool.execute('t1', { url: 'https://example.com/data.json' }, undefined as any);
-    expect(result.content[0].text).toContain('hello');
-    expect(result.content[0].text).toContain('world');
-  });
+    const mod = await import('./pi-web-tools.ts');
+    mod.__test__.clearCaches();
+    mod.__test__.resetFirecrawl();
 
-  it('WebFetch extracts text from HTML response', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      headers: { get: (k: string) => k.toLowerCase() === 'content-type' ? 'text/html' : null },
-      text: async () => '<html><head><title>Demo</title><style>.x{}</style></head><body><h1>Hello</h1><p>World</p><script>ignored()</script></body></html>',
-    })) as any);
-
-    const { webFetchTool } = await import('./pi-web-tools.ts');
-    const result = await webFetchTool.execute('t1', { url: 'https://example.com' }, undefined as any);
+    const result = await mod.webFetchTool.execute(
+      't1',
+      { url: 'https://example.com' },
+      undefined as any,
+    );
+    expect(result.content[0].text).toContain('Demo Page');
     expect(result.content[0].text).toContain('Hello');
-    expect(result.content[0].text).toContain('World');
-    expect(result.content[0].text).not.toContain('ignored');
+    expect(firecrawlMocks.scrape).toHaveBeenCalledOnce();
   });
 
-  it('WebSearch summarizes search results', async () => {
+  it('WebFetch caches identical URLs within the TTL', async () => {
+    firecrawlMocks.scrape.mockResolvedValue({ markdown: 'cached body' });
+
+    const mod = await import('./pi-web-tools.ts');
+    mod.__test__.clearCaches();
+    mod.__test__.resetFirecrawl();
+
+    await mod.webFetchTool.execute('t1', { url: 'https://cached.example' }, undefined as any);
+    await mod.webFetchTool.execute('t2', { url: 'https://cached.example' }, undefined as any);
+
+    expect(firecrawlMocks.scrape).toHaveBeenCalledTimes(1);
+  });
+
+  it('WebFetch falls back to raw fetch when Firecrawl returns empty', async () => {
+    firecrawlMocks.scrape.mockResolvedValue({ markdown: '' });
+
     vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
       status: 200,
-      headers: { get: () => 'application/json' },
-      text: async () => JSON.stringify({
-        AbstractText: 'Top abstract',
-        AbstractURL: 'https://example.com/abstract',
-        RelatedTopics: [
-          { Text: 'Result One', FirstURL: 'https://example.com/1' },
-          { Text: 'Result Two', FirstURL: 'https://example.com/2' },
-        ],
-      }),
+      headers: { get: (k: string) => k.toLowerCase() === 'content-type' ? 'text/html' : null },
+      text: async () => '<html><body><h1>Fallback Page</h1></body></html>',
     })) as any);
 
-    const { webSearchTool } = await import('./pi-web-tools.ts');
-    const result = await webSearchTool.execute('t2', { query: 'tower ai' }, undefined as any);
-    expect(result.content[0].text).toContain('tower ai');
-    expect(result.content[0].text).toContain('Top abstract');
-    expect(result.content[0].text).toContain('Result One');
+    const mod = await import('./pi-web-tools.ts');
+    mod.__test__.clearCaches();
+    mod.__test__.resetFirecrawl();
+
+    const result = await mod.webFetchTool.execute(
+      't3',
+      { url: 'https://fallback.example' },
+      undefined as any,
+    );
+    expect(result.content[0].text).toContain('Fallback Page');
   });
 
-  it('falls back to curl when fetch throws for WebFetch', async () => {
+  it('WebFetch falls back to curl when Firecrawl throws and fetch throws', async () => {
+    firecrawlMocks.scrape.mockRejectedValue(new Error('firecrawl down'));
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('fetch failed'); }) as any);
     vi.doMock('child_process', () => ({
-      execFileSync: vi.fn(() => '<html><body><h1>Fallback Works</h1></body></html>\n__TOWER_META__200|text/html'),
+      execFileSync: vi.fn(() =>
+        '<html><body><h1>Curl Fallback</h1></body></html>\n__TOWER_META__200|text/html',
+      ),
     }));
-    const { webFetchTool } = await import('./pi-web-tools.ts');
-    const result = await webFetchTool.execute('t3', { url: 'https://example.com' }, undefined as any);
-    expect(result.content[0].text).toContain('Fallback Works');
+
+    const mod = await import('./pi-web-tools.ts');
+    mod.__test__.clearCaches();
+    mod.__test__.resetFirecrawl();
+
+    const result = await mod.webFetchTool.execute(
+      't4',
+      { url: 'https://curl.example' },
+      undefined as any,
+    );
+    expect(result.content[0].text).toContain('Curl Fallback');
   });
 
-  it('falls back to curl when fetch throws for WebSearch', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('fetch failed'); }) as any);
-    vi.doMock('child_process', () => ({
-      execFileSync: vi.fn(() => '{"AbstractText":"Fallback summary","RelatedTopics":[]}\n__TOWER_META__200|application/json'),
-    }));
-    const { webSearchTool } = await import('./pi-web-tools.ts');
-    const result = await webSearchTool.execute('t4', { query: 'Tower AI agent' }, undefined as any);
-    expect(result.content[0].text).toContain('Fallback summary');
+  it('WebSearch returns Firecrawl web + news results', async () => {
+    firecrawlMocks.search.mockResolvedValue({
+      web: [
+        { title: 'Web Result One', url: 'https://a.example', description: 'snippet A' },
+      ],
+      news: [
+        { title: 'News Item', url: 'https://n.example', snippet: 'news snippet', date: '2026-04-01' },
+      ],
+    });
+
+    const mod = await import('./pi-web-tools.ts');
+    mod.__test__.clearCaches();
+    mod.__test__.resetFirecrawl();
+
+    const result = await mod.webSearchTool.execute(
+      't5',
+      { query: 'tower ai' },
+      undefined as any,
+    );
+    const text = result.content[0].text;
+    expect(text).toContain('tower ai');
+    expect(text).toContain('Web Result One');
+    expect(text).toContain('News Item');
+    expect(text).toContain('2026-04-01');
+    expect(firecrawlMocks.search).toHaveBeenCalledOnce();
   });
 
-  it('returns readable error text on fetch failure', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 500, headers: { get: () => 'text/plain' }, text: async () => 'boom' })) as any);
-    const { webFetchTool } = await import('./pi-web-tools.ts');
-    const result = await webFetchTool.execute('t5', { url: 'https://bad.example' }, undefined as any);
-    expect(result.content[0].text).toContain('WebFetch failed');
+  it('WebSearch reports unavailable when FIRECRAWL_API_KEY is missing', async () => {
+    delete process.env.FIRECRAWL_API_KEY;
+
+    const mod = await import('./pi-web-tools.ts');
+    mod.__test__.clearCaches();
+    mod.__test__.resetFirecrawl();
+
+    const result = await mod.webSearchTool.execute(
+      't6',
+      { query: 'anything' },
+      undefined as any,
+    );
+    expect(result.content[0].text).toContain('FIRECRAWL_API_KEY');
+    expect(firecrawlMocks.search).not.toHaveBeenCalled();
+  });
+
+  it('WebSearch surfaces error message on Firecrawl failure', async () => {
+    firecrawlMocks.search.mockRejectedValue(new Error('rate limit'));
+
+    const mod = await import('./pi-web-tools.ts');
+    mod.__test__.clearCaches();
+    mod.__test__.resetFirecrawl();
+
+    const result = await mod.webSearchTool.execute(
+      't7',
+      { query: 'boom' },
+      undefined as any,
+    );
+    expect(result.content[0].text).toContain('WebSearch failed');
+    expect(result.content[0].text).toContain('rate limit');
   });
 });

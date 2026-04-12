@@ -11,7 +11,10 @@
 
 export interface SessionMeta {
   id: string;
+  /** Legacy field name kept for compatibility while frontend/backend migrate to engine-neutral naming. */
   claudeSessionId?: string;
+  /** Engine-neutral alias for claudeSessionId / future engine session identifiers. */
+  engineSessionId?: string;
   name: string;
   cwd: string;
   tags: string[];

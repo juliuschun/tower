@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useChatStore, type SlashCommandInfo } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
+import { useActiveSessionTurnState } from '../../hooks/useActiveSessionTurnState';
 import { AttachmentChip } from './AttachmentChip';
 
 const EMPTY_QUEUE: string[] = [];
@@ -12,6 +13,17 @@ interface InputBoxProps {
 }
 
 const DRAFT_PREFIX = 'tower:inputDraft:';
+
+function turnStatusText(phase: string, hasQueue: boolean): string {
+  if (hasQueue && phase !== 'awaiting_user') return '대기열에 추가됨 — 현재 응답이 끝나면 자동 전송됩니다';
+  switch (phase) {
+    case 'preparing': return '응답 준비 중…';
+    case 'tool_running': return '도구 실행 중…';
+    case 'awaiting_user': return 'AI가 답변을 기다리고 있습니다';
+    case 'error': return '이전 턴에서 오류가 발생했습니다';
+    default: return '';
+  }
+}
 
 function getDraftKey(sessionId: string | null): string {
   return sessionId ? `${DRAFT_PREFIX}${sessionId}` : `${DRAFT_PREFIX}__global`;
@@ -49,6 +61,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentSessionId = useChatStore((s) => s.sessionId);
   const isStreaming = useActiveSessionStreaming();
+  const activeTurn = useActiveSessionTurnState();
   const currentQueue = useChatStore((s) => {
     const sid = s.sessionId;
     if (!sid) return EMPTY_QUEUE;
@@ -144,6 +157,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       if (drainGuardRef.current) return;  // Already sent one, wait for the next streaming cycle
       const msg = useChatStore.getState().dequeueMessage(currentSessionId);
       if (msg) {
+        useChatStore.getState().promoteLatestQueuedUser(msg);
         drainGuardRef.current = true;
         lastSentRef.current = msg;
         onSend(msg);
@@ -159,6 +173,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     const handler = () => {
       if (lastSentRef.current) {
         const sid = useChatStore.getState().sessionId || '';
+        useChatStore.getState().markLatestUserQueued(lastSentRef.current);
         useChatStore.getState().enqueueMessage(sid, lastSentRef.current);
         lastSentRef.current = null;
       }
@@ -237,6 +252,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     if (!hasContent) return;
 
     const message = buildMessage(trimmed);
+    const currentSid = useChatStore.getState().sessionId;
 
     // Read from the authoritative per-session streaming store synchronously.
     // This avoids double-sends on fast Enter presses and keeps queue behavior
@@ -247,6 +263,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       : useChatStore.getState().isStreaming;
 
     if (isCurrentSessionStreaming) {
+      useChatStore.getState().markLatestUserQueued(message);
       useChatStore.getState().enqueueMessage(sid, message);
     } else {
       lastSentRef.current = message;   // track for SESSION_BUSY re-queuing
@@ -264,6 +281,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
   const handleCancelQueue = () => {
     if (currentSessionId) {
+      useChatStore.getState().clearQueuedUsersForSession(currentSessionId);
       useChatStore.getState().clearSessionQueue(currentSessionId);
     }
   };
@@ -489,27 +507,18 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
 
   return (
     <div className="max-w-3xl mx-auto relative">
-      {/* Queued message indicator(s) */}
-      {hasQueue && (
-        <div className="mb-2 space-y-1">
-          {currentQueue.map((msg, i) => (
-            <div key={i} className="flex items-center gap-2 px-4 py-2 bg-primary-900/20 border border-primary-500/20 rounded-xl text-[13px] text-primary-300 backdrop-blur-sm">
-              <div className="w-4 h-4 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin shrink-0" />
-              <span className="truncate flex-1">
-                {currentQueue.length > 1 ? `[${i + 1}/${currentQueue.length}] ` : 'Queued: '}
-                {msg}
+      {/* Turn/runtime status */}
+      {turnStatusText(activeTurn.phase, hasQueue) && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2 px-4 py-2 bg-surface-900/60 border border-surface-700/50 rounded-xl text-[13px] text-gray-300 backdrop-blur-sm">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${activeTurn.phase === 'error' ? 'bg-red-400' : 'bg-primary-400 thinking-indicator'}`} />
+            <span className="truncate flex-1">{turnStatusText(activeTurn.phase, hasQueue)}</span>
+            {hasQueue && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary-500/10 border border-primary-500/20 text-primary-300 shrink-0">
+                +{currentQueue.length}
               </span>
-              <button
-                onClick={() => currentSessionId && useChatStore.getState().removeQueuedMessage(currentSessionId, i)}
-                className="text-primary-400/60 hover:text-primary-300 p-0.5 transition-colors shrink-0"
-                title="Cancel this message"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ))}
+            )}
+          </div>
         </div>
       )}
 
@@ -596,12 +605,12 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
-              hasQueue
-                ? 'You can queue another message...'
+              activeTurn.phase === 'awaiting_user'
+                ? '질문에 답변을 입력하세요…'
                 : isStreaming
                   ? 'Type a message to send on the next turn...'
                   : attachments.length > 0
-                    ? 'Add a message or send as-is...'
+                    ? '메시지를 덧붙이거나 바로 전송하세요…'
                     : 'Type a message...'
             }
             rows={1}

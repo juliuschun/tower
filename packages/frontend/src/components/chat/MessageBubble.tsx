@@ -1,4 +1,10 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+
+const uiStateStore = {
+  toolGroups: new Map<string, { expanded: boolean; activeToolId: string | null }>(),
+  thinkingGroups: new Map<string, { activeThinkingKey: string | null }>(),
+  agentCards: new Map<string, { expanded: boolean }>(),
+};
 import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
 import { RichContent } from '../shared/RichContent';
@@ -8,6 +14,7 @@ import { toastSuccess } from '../../utils/toast';
 import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
 import { safeStr } from '../shared/parse-loose-json';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
+import { useActiveSessionTurnState } from '../../hooks/useActiveSessionTurnState';
 
 /**
  * Copy button that writes both text/plain (raw markdown) and text/html (rendered)
@@ -97,11 +104,12 @@ interface MessageBubbleProps {
   message: ChatMessage;
   onFileClick?: (path: string) => void;
   onRetry?: (text: string) => void;
+  onCancelQueued?: (messageId: string) => void;
   showMetrics?: boolean;
   isLastAssistant?: boolean;
 }
 
-export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLastAssistant }: MessageBubbleProps) {
+export function MessageBubble({ message, onFileClick, onRetry, onCancelQueued, showMetrics, isLastAssistant }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -179,7 +187,9 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
             <div className={`relative bg-surface-800/70 border rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
               message.sendStatus === 'failed'
                 ? 'border-red-500/40 bg-red-950/20'
-                : 'border-surface-700/40'
+                : message.sendStatus === 'queued'
+                  ? 'border-primary-500/30 bg-primary-950/15'
+                  : 'border-surface-700/40'
             }`}>
               {message.content.map((block, i) => (
                 <span key={i}>{safeStr(block.text)}</span>
@@ -189,12 +199,26 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
                 className="absolute top-2 right-2 opacity-60 hover:opacity-100 transition-opacity"
               />
             </div>
+            {message.sendStatus === 'queued' && (
+              <div className="flex items-center gap-2 mt-1.5 text-[12px] text-primary-300/80 flex-wrap">
+                <div className="w-3 h-3 border-2 border-primary-500/30 border-t-primary-400 rounded-full animate-spin" />
+                <span>대기 중 · 현재 턴이 끝나면 자동 전송됩니다</span>
+                {onCancelQueued && (
+                  <button
+                    onClick={() => onCancelQueued(message.id)}
+                    className="text-primary-200 hover:text-white underline underline-offset-2 transition-colors"
+                  >
+                    취소
+                  </button>
+                )}
+              </div>
+            )}
             {message.sendStatus === 'failed' && (
-              <div className="flex items-center gap-2 mt-1.5 text-[12px] text-red-400/80">
+              <div className="flex items-center gap-2 mt-1.5 text-[12px] text-red-400/80 flex-wrap">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
-                <span>Failed to send</span>
+                <span>전송 실패</span>
                 {onRetry && (
                   <button
                     onClick={() => {
@@ -203,7 +227,7 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
                     }}
                     className="text-primary-400 hover:text-primary-300 underline underline-offset-2 transition-colors"
                   >
-                    Retry
+                    다시 시도
                   </button>
                 )}
               </div>
@@ -229,12 +253,17 @@ export function MessageBubble({ message, onFileClick, onRetry, showMetrics, isLa
   );
 }
 
-function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void }) {
+function ToolChipGroup({ blocks, onFileClick, stateKey }: { blocks: ContentBlock[]; onFileClick?: (path: string) => void; stateKey: string }) {
   const isStreaming = useActiveSessionStreaming();
-  const [expanded, setExpanded] = useState(false);
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const initialToolState = uiStateStore.toolGroups.get(stateKey) || { expanded: false, activeToolId: null };
+  const [expanded, setExpanded] = useState(initialToolState.expanded);
+  const [activeToolId, setActiveToolId] = useState<string | null>(initialToolState.activeToolId);
   // Filter out blocks without valid toolUse data
   const validBlocks = blocks.filter((b) => b.toolUse?.name);
+
+  useEffect(() => {
+    uiStateStore.toolGroups.set(stateKey, { expanded, activeToolId });
+  }, [stateKey, expanded, activeToolId]);
 
   if (validBlocks.length === 0) return null;
 
@@ -336,60 +365,78 @@ function ToolChipGroup({ blocks, onFileClick }: { blocks: ContentBlock[]; onFile
         {validBlocks.map((block, i) => (
           <ToolChip
             key={i}
+            toolUseId={block.toolUse!.id}
             name={block.toolUse!.name}
             input={block.toolUse!.input}
             result={block.toolUse!.result}
-            isActive={activeIndex === i}
+            isActive={activeToolId === block.toolUse!.id}
             isLast={i === validBlocks.length - 1}
-            onClick={() => setActiveIndex(activeIndex === i ? null : i)}
+            onClick={() => setActiveToolId(activeToolId === block.toolUse!.id ? null : block.toolUse!.id)}
           />
         ))}
       </div>
 
       {/* Expanded detail card below */}
-      {activeIndex !== null && validBlocks[activeIndex] && (
-        <div className="px-3 pb-3">
-          <ToolUseCard
-            name={validBlocks[activeIndex].toolUse!.name}
-            input={validBlocks[activeIndex].toolUse!.input}
-            result={validBlocks[activeIndex].toolUse!.result}
-            onFileClick={onFileClick}
-            defaultExpanded={true}
-          />
-        </div>
-      )}
+      {activeToolId !== null && validBlocks.find((b) => b.toolUse!.id === activeToolId) && (() => {
+        const activeBlock = validBlocks.find((b) => b.toolUse!.id === activeToolId)!;
+        return (
+          <div className="px-3 pb-3">
+            <ToolUseCard
+              toolUseId={activeBlock.toolUse!.id}
+              name={activeBlock.toolUse!.name}
+              input={activeBlock.toolUse!.input}
+              result={activeBlock.toolUse!.result}
+              onFileClick={onFileClick}
+              defaultExpanded={true}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
-function ThinkingChipGroup({ blocks, inlineToolBlocks, onFileClick }: {
+function ThinkingChipGroup({ blocks, inlineToolBlocks, onFileClick, stateKey }: {
   blocks: ContentBlock[];
   inlineToolBlocks?: ContentBlock[];
   onFileClick?: (path: string) => void;
+  stateKey: string;
 }) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const initialThinkingState = uiStateStore.thinkingGroups.get(stateKey) || { activeThinkingKey: null };
+  const [activeThinkingKey, setActiveThinkingKey] = useState<string | null>(initialThinkingState.activeThinkingKey);
+
+  useEffect(() => {
+    uiStateStore.thinkingGroups.set(stateKey, { activeThinkingKey });
+  }, [stateKey, activeThinkingKey]);
 
   return (
     <div>
       <div className="flex flex-wrap items-start gap-1.5">
-        {blocks.map((block, i) => (
-          <ThinkingChip
-            key={i}
-            text={block.thinking!.text}
-            title={block.thinking?.title}
-            isActive={activeIndex === i}
-            onClick={() => setActiveIndex(activeIndex === i ? null : i)}
-          />
-        ))}
+        {blocks.map((block, i) => {
+          const thinkingKey = `${block.thinking?.title || 'thinking'}:${block.thinking!.text.slice(0, 80)}`;
+          return (
+            <ThinkingChip
+              key={thinkingKey || i}
+              text={block.thinking!.text}
+              title={block.thinking?.title}
+              isActive={activeThinkingKey === thinkingKey}
+              onClick={() => setActiveThinkingKey(activeThinkingKey === thinkingKey ? null : thinkingKey)}
+            />
+          );
+        })}
         {inlineToolBlocks && inlineToolBlocks.length > 0 && (
-          <ToolChipGroup blocks={inlineToolBlocks} onFileClick={onFileClick} />
+          <ToolChipGroup blocks={inlineToolBlocks} onFileClick={onFileClick} stateKey={`${stateKey}:tools`} />
         )}
       </div>
-      {activeIndex !== null && blocks[activeIndex] && (
-        <div className="mt-2">
-          <ThinkingContent text={blocks[activeIndex].thinking!.text} />
-        </div>
-      )}
+      {activeThinkingKey !== null && (() => {
+        const activeBlock = blocks.find((block) => `${block.thinking?.title || 'thinking'}:${block.thinking!.text.slice(0, 80)}` === activeThinkingKey);
+        if (!activeBlock) return null;
+        return (
+          <div className="mt-2">
+            <ThinkingContent text={activeBlock.thinking!.text} />
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -404,6 +451,7 @@ interface TodoInlineItem {
 
 function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?: boolean }) {
   const isStreaming = useActiveSessionStreaming();
+  const activeTurn = useActiveSessionTurnState();
   const todos: TodoInlineItem[] = input.todos || [];
   if (todos.length === 0) return null;
 
@@ -411,8 +459,9 @@ function TodoInlineCard({ input, isLive }: { input: Record<string, any>; isLive?
   const completed = todos.filter(t => t.status === 'completed').length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const allDone = completed === total;
-  // Only show spinners/active state when streaming AND this is the latest card
-  const showLive = !!isLive && isStreaming && !allDone;
+  const hasActiveTodo = todos.some((todo) => todo.status === 'in_progress');
+  // Prefer runtime phase + todo content over just "last card + streaming"
+  const showLive = !allDone && hasActiveTodo && (activeTurn.phase === 'tool_running' || activeTurn.phase === 'streaming' || (!!isLive && isStreaming));
 
   return (
     <div className={`rounded-xl border ${
@@ -560,7 +609,7 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
             <React.Fragment key={gi}>
               {/* Regular tools — inline collapsible bar */}
               {regularBlocks.length > 0 && (
-                <ToolChipGroup blocks={regularBlocks} onFileClick={onFileClick} />
+                <ToolChipGroup blocks={regularBlocks} onFileClick={onFileClick} stateKey={`${message.id}:tool-group:${gi}`} />
               )}
               {/* Agent cards — grouped under a single left accent border */}
               {agentBlocks.length > 0 && (
@@ -605,6 +654,7 @@ function MessageBody({ groups, message, onFileClick, isLastAssistant, showMetric
                 blocks={group.blocks}
                 inlineToolBlocks={inlineRegularBlocks}
                 onFileClick={onFileClick}
+                stateKey={`${message.id}:thinking-group:${gi}`}
               />
               {inlineAgentBlocks.length > 0 && (
                 <div className="pl-2 border-l-2 border-surface-700/30 space-y-1">
@@ -801,7 +851,12 @@ function useAgentToolStats(toolId: string) {
 
 function AgentCard({ block }: { block: ContentBlock }) {
   const isStreaming = useActiveSessionStreaming();
-  const [expanded, setExpanded] = useState(false);
+  const toolId = block.toolUse?.id || 'agent';
+  const [expanded, setExpanded] = useState(uiStateStore.agentCards.get(toolId)?.expanded || false);
+
+  useEffect(() => {
+    uiStateStore.agentCards.set(toolId, { expanded });
+  }, [toolId, expanded]);
   const tool = block.toolUse!;
   const isRunning = !tool.result && isStreaming;
   const description = tool.input.description || 'Agent';

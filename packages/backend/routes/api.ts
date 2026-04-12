@@ -368,7 +368,7 @@ router.get('/shared-session/:token', async (req, res) => {
 router.use(authMiddleware);
 
 router.get('/health', (_req, res) => {
-  res.json({ status: 'ok', version: '0.2.0', publicUrl: config.publicUrl || null });
+  res.json({ status: 'ok', version: '0.2.0', buildId: config.serverEpoch, publicUrl: config.publicUrl || null });
 });
 
 // ─── Browser proxy (PinchTab) ────────────────────────────────────────────────
@@ -2025,6 +2025,7 @@ router.post('/git/rollback', async (req, res) => {
 router.get('/config', (_req, res) => {
   res.json({
     version: '0.2.0',
+    buildId: config.serverEpoch,
     workspaceRoot: config.workspaceRoot,
     permissionMode: config.permissionMode,
     claudeExecutable: config.claudeExecutable,

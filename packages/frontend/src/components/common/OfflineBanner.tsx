@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export function OfflineBanner() {
+export function OfflineBanner({ onReload }: { onReload?: () => void }) {
   const { t } = useTranslation('common');
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
@@ -27,7 +27,7 @@ export function OfflineBanner() {
         {t('offline')}
       </span>
       <button
-        onClick={() => window.location.reload()}
+        onClick={() => (onReload ? onReload() : window.location.reload())}
         className="px-2 py-0.5 bg-white/20 hover:bg-white/30 rounded text-[10px] font-semibold transition-colors cursor-pointer"
       >
         {t('retry')}

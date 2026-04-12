@@ -142,6 +142,33 @@ export interface ClaudeSession {
 
 const activeSessions = new Map<string, ClaudeSession>();
 
+// ── Global resume lock ──────────────────────────────────────────────
+// Prevents two executeQuery calls from concurrently resuming the same
+// Claude session file (.jsonl). Room-level locks in ai-quick-reply.ts
+// only serialize within one room — different rooms sharing a session ID
+// (rare but possible) would race without this.
+const resumeLocks = new Map<string, Promise<void>>();
+
+async function withResumeLock<T>(resumeId: string | undefined, fn: () => Promise<T>): Promise<T> {
+  if (!resumeId) return fn();
+
+  const prev = resumeLocks.get(resumeId) ?? Promise.resolve();
+  let resolve: () => void;
+  const next = new Promise<void>((r) => { resolve = r; });
+  resumeLocks.set(resumeId, next);
+
+  await prev;
+
+  try {
+    return await fn();
+  } finally {
+    resolve!();
+    if (resumeLocks.get(resumeId) === next) {
+      resumeLocks.delete(resumeId);
+    }
+  }
+}
+
 // Session file backup directory — protects against external .jsonl deletion
 const SESSION_BACKUP_DIR = path.join(process.cwd(), 'data', 'session-backups');
 
@@ -278,6 +305,10 @@ export async function* executeQuery(
   if (existing?.isRunning) {
     console.log(`[sdk] executeQuery aborting EXISTING running session=${sessionId}`);
     existing.abortController.abort();
+    // Wait briefly for the SDK process to flush its .jsonl before we proceed.
+    // Without this, the process may be mid-write when we try to read the file,
+    // leading to "No conversation found" or corrupt session errors.
+    await new Promise(resolve => setTimeout(resolve, 150));
   }
 
   // Preserve previous claudeSessionId for abort fallback
@@ -328,70 +359,75 @@ export async function* executeQuery(
   };
 
   if (options.resumeSessionId) {
-    const resumeCwd = queryOptions.cwd || config.defaultCwd;
-    const cfgDir = options.configDir;
+    // Global resume lock: prevents two concurrent calls from racing on the same .jsonl file.
+    // Room-level locks in ai-quick-reply.ts only serialize within one room — this catches
+    // cross-room or cross-session races on the same underlying Claude session.
+    await withResumeLock(options.resumeSessionId, async () => {
+      const resumeCwd = queryOptions.cwd || config.defaultCwd;
+      const cfgDir = options.configDir;
 
-    // Try to find .jsonl for the requested claudeSessionId
-    let resolvedResumeId = options.resumeSessionId;
-    let jsonlPath = findJsonlFile(resolvedResumeId, resumeCwd, cfgDir);
+      // Try to find .jsonl for the requested claudeSessionId
+      let resolvedResumeId = options.resumeSessionId!;
+      let jsonlPath = findJsonlFile(resolvedResumeId, resumeCwd, cfgDir);
 
-    // If not found anywhere, try restoring from our backup to the expected path
-    if (!jsonlPath) {
-      restoreSessionFile(resolvedResumeId, resumeCwd, cfgDir);
-      const expectedPath = getJsonlPath(resolvedResumeId, resumeCwd, cfgDir);
-      if (fs.existsSync(expectedPath)) jsonlPath = expectedPath;
-    }
-
-    // Fallback: if current ID's .jsonl missing (e.g. abort killed process before flush),
-    // try the previous known-good claudeSessionId whose .jsonl should still exist
-    if (!jsonlPath && prevClaudeSessionId && prevClaudeSessionId !== resolvedResumeId) {
-      console.log(`[sdk] resume fallback: session=${sessionId.slice(0,8)} current=${resolvedResumeId.slice(0,12)} → prev=${prevClaudeSessionId.slice(0,12)}`);
-      jsonlPath = findJsonlFile(prevClaudeSessionId, resumeCwd, cfgDir);
+      // If not found anywhere, try restoring from our backup to the expected path
       if (!jsonlPath) {
-        restoreSessionFile(prevClaudeSessionId, resumeCwd, cfgDir);
-        const expectedPath = getJsonlPath(prevClaudeSessionId, resumeCwd, cfgDir);
+        restoreSessionFile(resolvedResumeId, resumeCwd, cfgDir);
+        const expectedPath = getJsonlPath(resolvedResumeId, resumeCwd, cfgDir);
         if (fs.existsSync(expectedPath)) jsonlPath = expectedPath;
       }
-      if (jsonlPath) {
-        resolvedResumeId = prevClaudeSessionId;
-        session.claudeSessionId = prevClaudeSessionId;
-      }
-    }
 
-    if (jsonlPath) {
-      // If the .jsonl was found in a different configDir (e.g. session created before account rotation),
-      // copy it to the current configDir so the SDK child process can find it
-      if (cfgDir) {
-        const expectedPath = getJsonlPath(resolvedResumeId, resumeCwd, cfgDir);
-        if (jsonlPath !== expectedPath) {
-          // Copy if target doesn't exist, or source is newer/larger (account was switched back)
-          try {
-            const sourceSize = fs.statSync(jsonlPath).size;
-            const targetExists = fs.existsSync(expectedPath);
-            const targetSize = targetExists ? fs.statSync(expectedPath).size : 0;
-            if (!targetExists || sourceSize > targetSize) {
-              const dir = path.dirname(expectedPath);
-              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-              fs.copyFileSync(jsonlPath, expectedPath);
-              console.log(`[sdk] copied .jsonl to current configDir for resume: ${resolvedResumeId.slice(0, 12)} (${sourceSize} > ${targetSize})`);
-            }
-          } catch (err: any) {
-            console.warn(`[sdk] failed to copy .jsonl for resume: ${err.message}`);
-          }
+      // Fallback: if current ID's .jsonl missing (e.g. abort killed process before flush),
+      // try the previous known-good claudeSessionId whose .jsonl should still exist
+      if (!jsonlPath && prevClaudeSessionId && prevClaudeSessionId !== resolvedResumeId) {
+        console.log(`[sdk] resume fallback: session=${sessionId.slice(0,8)} current=${resolvedResumeId.slice(0,12)} → prev=${prevClaudeSessionId.slice(0,12)}`);
+        jsonlPath = findJsonlFile(prevClaudeSessionId, resumeCwd, cfgDir);
+        if (!jsonlPath) {
+          restoreSessionFile(prevClaudeSessionId, resumeCwd, cfgDir);
+          const expectedPath = getJsonlPath(prevClaudeSessionId, resumeCwd, cfgDir);
+          if (fs.existsSync(expectedPath)) jsonlPath = expectedPath;
+        }
+        if (jsonlPath) {
+          resolvedResumeId = prevClaudeSessionId;
+          session.claudeSessionId = prevClaudeSessionId;
         }
       }
-      // Repair .jsonl before resume — removes corrupted trailing lines from killed processes
-      repairSessionFile(resolvedResumeId, resumeCwd, cfgDir);
-      queryOptions.resume = resolvedResumeId;
-      console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${resolvedResumeId.slice(0,12)} jsonl=${path.basename(path.dirname(jsonlPath))}`);
-    } else {
-      // Don't silently start a new session — that's worse than failing.
-      // The user thinks they're continuing a conversation, but the AI has no context.
-      console.error(`[sdk] resume FAILED (no file, no backup): session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId.slice(0,12)} cwd=${queryOptions.cwd}`);
-      throw new Error(
-        `이전 대화를 이어갈 수 없습니다 (세션 파일을 찾을 수 없음). 새 세션에서 시작해주세요.`
-      );
-    }
+
+      if (jsonlPath) {
+        // If the .jsonl was found in a different configDir (e.g. session created before account rotation),
+        // copy it to the current configDir so the SDK child process can find it
+        if (cfgDir) {
+          const expectedPath = getJsonlPath(resolvedResumeId, resumeCwd, cfgDir);
+          if (jsonlPath !== expectedPath) {
+            // Copy if target doesn't exist, or source is newer/larger (account was switched back)
+            try {
+              const sourceSize = fs.statSync(jsonlPath).size;
+              const targetExists = fs.existsSync(expectedPath);
+              const targetSize = targetExists ? fs.statSync(expectedPath).size : 0;
+              if (!targetExists || sourceSize > targetSize) {
+                const dir = path.dirname(expectedPath);
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                fs.copyFileSync(jsonlPath, expectedPath);
+                console.log(`[sdk] copied .jsonl to current configDir for resume: ${resolvedResumeId.slice(0, 12)} (${sourceSize} > ${targetSize})`);
+              }
+            } catch (err: any) {
+              console.warn(`[sdk] failed to copy .jsonl for resume: ${err.message}`);
+            }
+          }
+        }
+        // Repair .jsonl before resume — removes corrupted trailing lines from killed processes
+        repairSessionFile(resolvedResumeId, resumeCwd, cfgDir);
+        queryOptions.resume = resolvedResumeId;
+        console.log(`[sdk] resume attempt: session=${sessionId.slice(0,8)} claudeSid=${resolvedResumeId.slice(0,12)} jsonl=${path.basename(path.dirname(jsonlPath))}`);
+      } else {
+        // Don't silently start a new session — that's worse than failing.
+        // The user thinks they're continuing a conversation, but the AI has no context.
+        console.error(`[sdk] resume FAILED (no file, no backup): session=${sessionId.slice(0,8)} claudeSid=${options.resumeSessionId!.slice(0,12)} cwd=${queryOptions.cwd}`);
+        throw new Error(
+          `이전 대화를 이어갈 수 없습니다 (세션 파일을 찾을 수 없음). 새 세션에서 시작해주세요.`
+        );
+      }
+    });
   }
 
   // Helper: run query and yield messages

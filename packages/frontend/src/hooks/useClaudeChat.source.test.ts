@@ -4,7 +4,7 @@ import path from 'path';
 
 const HOOK_PATH = path.resolve(import.meta.dirname, './useClaudeChat.ts');
 
-describe('useClaudeChat source contracts', () => {
+describe('useChatRuntime source contracts', () => {
   it('clears streaming immediately on abort so user can send next message', () => {
     const src = fs.readFileSync(HOOK_PATH, 'utf-8');
     const abortBlock = src.match(/const abort = useCallback\([\s\S]*?\n  \}, \[send.*?\]\);/);

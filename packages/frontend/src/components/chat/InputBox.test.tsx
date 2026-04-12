@@ -12,6 +12,7 @@ beforeEach(() => {
     isStreaming: false,
     sessionId: null,
     claudeSessionId: null,
+    engineSessionId: null,
     messages: [],
     slashCommands: [],
     attachments: [],

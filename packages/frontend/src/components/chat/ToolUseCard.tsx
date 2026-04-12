@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { getToolLabel, getToolSummary } from '../../utils/message-parser';
 import { safeStr } from '../shared/parse-loose-json';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
+import { useActiveSessionTurnState } from '../../hooks/useActiveSessionTurnState';
 
 interface ToolUseCardProps {
+  toolUseId?: string;
   name: string;
   input: Record<string, any>;
   result?: string;
@@ -13,6 +15,7 @@ interface ToolUseCardProps {
 }
 
 interface ToolChipProps {
+  toolUseId?: string;
   name: string;
   input: Record<string, any>;
   result?: string;
@@ -85,11 +88,18 @@ function getToolMeta(name: string) {
   return toolMeta[name] || toolMeta[name.charAt(0).toUpperCase() + name.slice(1)] || defaultMeta;
 }
 
-export function ToolChip({ name, input, result, isActive, isLast, onClick }: ToolChipProps & { isLast?: boolean }) {
+export function ToolChip({ toolUseId, name, input, result, isActive, isLast, onClick }: ToolChipProps & { isLast?: boolean }) {
   const isStreaming = useActiveSessionStreaming();
-  const isRunning = !result && isStreaming && isLast;
-  const meta = getToolMeta(name);
+  const activeTurn = useActiveSessionTurnState();
   const summary = getToolSummary(name, input);
+  const toolId = toolUseId || `${name}:${summary}`;
+  const isCurrentTool = activeTurn.activeToolUseId
+    ? activeTurn.activeToolUseId === toolUseId
+    : (!!activeTurn.activeToolId
+      ? activeTurn.activeToolId === toolId
+      : (!!activeTurn.activeToolSummary && activeTurn.activeToolSummary === summary));
+  const isRunning = !result && isStreaming && (isCurrentTool || activeTurn.phase === 'tool_running' || isLast);
+  const meta = getToolMeta(name);
 
   return (
     <button
@@ -176,9 +186,17 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
   );
 }
 
-export function ToolUseCard({ name, input, result, onFileClick, compact, defaultExpanded }: ToolUseCardProps) {
+export function ToolUseCard({ toolUseId, name, input, result, onFileClick, compact, defaultExpanded }: ToolUseCardProps) {
   const isStreaming = useActiveSessionStreaming();
-  const isRunning = !result && isStreaming;
+  const activeTurn = useActiveSessionTurnState();
+  const summary = getToolSummary(name, input);
+  const toolId = toolUseId || `${name}:${summary}`;
+  const isCurrentTool = activeTurn.activeToolUseId
+    ? activeTurn.activeToolUseId === toolUseId
+    : (!!activeTurn.activeToolId
+      ? activeTurn.activeToolId === toolId
+      : (!!activeTurn.activeToolSummary && activeTurn.activeToolSummary === summary));
+  const isRunning = !result && isStreaming && (isCurrentTool || activeTurn.phase === 'tool_running' || activeTurn.phase === 'preparing');
 
   // Collapsed by default — click to expand (or defaultExpanded from chip)
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
@@ -186,7 +204,6 @@ export function ToolUseCard({ name, input, result, onFileClick, compact, default
 
   const meta = getToolMeta(name);
   const label = getToolLabel(name);
-  const summary = getToolSummary(name, input);
   const filePath = input.file_path || input.path;
 
   // Collapse after result arrives and a new tool starts

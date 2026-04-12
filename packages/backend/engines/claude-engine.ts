@@ -381,8 +381,10 @@ export class ClaudeEngine implements Engine {
    * Returns content + engineSessionId for next resume.
    */
   async channelReply(prompt: string, opts: ChannelReplyOpts): Promise<ChannelReplyResult> {
-    // Use a stable internal session ID for the channel AI query
-    const internalSessionId = `channel-ai-${Date.now()}`;
+    // Use a unique internal session ID for the channel AI query
+    // Date.now() alone has 1ms resolution — concurrent calls can collide.
+    // Adding random suffix ensures uniqueness even at sub-millisecond intervals.
+    const internalSessionId = `channel-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     let fullContent = '';
     let engineSessionId: string | undefined;
 

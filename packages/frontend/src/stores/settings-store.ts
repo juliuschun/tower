@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 export interface ServerConfig {
   version: string;
+  buildId?: string;
   workspaceRoot: string;
   permissionMode: string;
   claudeExecutable: string;
@@ -17,12 +18,17 @@ interface SettingsState {
   theme: ThemeId;
   language: LangId;
   serverConfig: ServerConfig | null;
+  updateAvailable: boolean;
+  latestBuildId: string | null;
+  deferredUpdateRequested: boolean;
   setOpen: (open: boolean) => void;
   setSkillsBrowserOpen: (open: boolean) => void;
   setHelpOpen: (open: boolean) => void;
   setTheme: (theme: ThemeId) => void;
   setLanguage: (lang: LangId) => void;
   setServerConfig: (config: ServerConfig) => void;
+  setUpdateAvailable: (available: boolean, buildId?: string | null) => void;
+  setDeferredUpdateRequested: (requested: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -32,6 +38,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   theme: (localStorage.getItem('theme') as ThemeId) || 'dark',
   language: (localStorage.getItem('tower:lang') as LangId) || (navigator.language.startsWith('ko') ? 'ko' : 'en'),
   serverConfig: null,
+  updateAvailable: false,
+  latestBuildId: null,
+  deferredUpdateRequested: false,
   setOpen: (open) => set({ isOpen: open }),
   setSkillsBrowserOpen: (open) => set({ skillsBrowserOpen: open }),
   setHelpOpen: (open) => set({ helpOpen: open }),
@@ -45,4 +54,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ language });
   },
   setServerConfig: (config) => set({ serverConfig: config }),
+  setUpdateAvailable: (available, buildId = null) => set((s) => ({
+    updateAvailable: available,
+    latestBuildId: buildId,
+    deferredUpdateRequested: available ? s.deferredUpdateRequested : false,
+  })),
+  setDeferredUpdateRequested: (requested) => set({ deferredUpdateRequested: requested }),
 }));

@@ -114,6 +114,17 @@ function toolDisplayName(name: string): string {
 export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void> {
   const { roomId, roomName, prompt, userId, username, messageId, replyTo, broadcastToRoom } = opts;
 
+  // Notify user if their request is queued (another @ai is still running in this room)
+  const isQueued = roomAiLocks.has(roomId);
+  if (isQueued) {
+    broadcastToRoom(roomId, {
+      type: 'room_ai_status',
+      roomId,
+      messageId: `queued-${Date.now()}`,
+      status: '⏳ 이전 AI 응답 완료 대기 중...',
+    });
+  }
+
   // Mutex: queue this request behind any in-progress @ai for the same room
   return withRoomAiLock(roomId, async () => {
     const { getMessages, sendMessage } = await import('./room-manager.js');

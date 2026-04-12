@@ -15,6 +15,7 @@ beforeEach(() => {
     isStreaming: false,
     sessionId: null,
     claudeSessionId: null,
+    engineSessionId: null,
     slashCommands: [],
     tools: [],
     model: null,

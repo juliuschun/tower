@@ -1,5 +1,6 @@
 import React, { Component, type ReactNode } from 'react';
 import { withTranslation, type WithTranslation } from 'react-i18next';
+import { isChunkLoadError, reloadOnce } from '../../utils/app-version';
 
 interface Props extends WithTranslation {
   children: ReactNode;
@@ -15,6 +16,9 @@ class ErrorBoundaryInner extends Component<Props, State> {
   state: State = { hasError: false, error: null };
 
   static getDerivedStateFromError(error: Error): State {
+    if (isChunkLoadError(error)) {
+      reloadOnce('chunk-load-error');
+    }
     return { hasError: true, error };
   }
 

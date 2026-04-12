@@ -7,6 +7,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { MermaidBlock } from '../chat/MermaidBlock';
 import { splitDynamicBlocks, type DynamicBlock } from './split-dynamic-blocks';
+import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 
 // remark-math: disable inline $ to avoid $100 / $USD conflicts
 const remarkMathOptions = { singleDollarTextMath: false };

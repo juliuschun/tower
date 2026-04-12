@@ -128,8 +128,16 @@ export function parseSDKMessage(sdkMsg: any): ContentBlock[] {
  * Raw SDK: { type: 'tool_use', id, name, input }
  * ContentBlock: { type: 'tool_use', toolUse: { id, name, input } }
  */
-export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
+export function normalizeContentBlocks(blocks: any[], previousBlocks: ContentBlock[] = []): ContentBlock[] {
   if (!Array.isArray(blocks)) return [];
+
+  const previousToolResults = new Map<string, string>();
+  for (const block of previousBlocks) {
+    if ((block.type === 'tool_use' || block.type === 'tool_result') && block.toolUse?.id && block.toolUse.result) {
+      previousToolResults.set(block.toolUse.id, block.toolUse.result);
+    }
+  }
+
   return blocks.flatMap((item) => {
     // Already in ContentBlock format (has toolUse/thinking wrapper)
     if (item.type === 'tool_use' && item.toolUse) return item;
@@ -146,13 +154,14 @@ export function normalizeContentBlocks(blocks: any[]): ContentBlock[] {
 
     // Raw SDK format — convert
     if (item.type === 'tool_use') {
+      const toolId = item.id || item.toolUse?.id || '';
       return {
         type: 'tool_use' as const,
         toolUse: {
-          id: item.id || '',
-          name: item.name || '',
-          input: item.input || {},
-          result: item.result,
+          id: toolId,
+          name: item.name || item.toolUse?.name || '',
+          input: item.input || item.toolUse?.input || {},
+          result: item.result ?? item.toolUse?.result ?? (toolId ? previousToolResults.get(toolId) : undefined),
         },
       };
     }

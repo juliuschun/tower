@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { useChatStore, type ChatMessage, type PendingQuestion } from '../../stores/chat-store';
+import { useChatStore, type ChatMessage, type PendingQuestion, type TurnPhase } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useAiPanelStore } from '../../stores/ai-panel-store';
 import { normalizeContentBlocks } from '../../utils/message-parser';
@@ -8,6 +8,7 @@ import { MessageBubble, TurnMetricsBar } from './MessageBubble';
 import { InputBox } from './InputBox';
 import { FloatingQuestionCard } from './FloatingQuestionCard';
 import { AiPanel } from '../rooms/AiPanel';
+import { useActiveSessionTurnState } from '../../hooks/useActiveSessionTurnState';
 
 /* Snapshot system removed — always start at bottom on session switch.
  * Virtuoso's restoreStateFrom was unreliable across session switches
@@ -59,6 +60,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   const hasMoreMessages = useChatStore((s) => s.hasMoreMessages);
   const loadingMoreMessages = useChatStore((s) => s.loadingMoreMessages);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const activeTurn = useActiveSessionTurnState();
   const isCompacting = compactingSessionId !== null && compactingSessionId === activeSessionId;
   const _sessions = useSessionStore((s) => s.sessions); // keep subscription for sidebar reactivity
 
@@ -229,7 +231,8 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     return -1;
   }, [mergedMessages]);
 
-  const isWaitingForAssistant = isStreaming && messages.length > 0 && messages[messages.length - 1]?.role !== 'assistant';
+  const isWaitingForAssistant = activeTurn.phase === 'preparing' || activeTurn.phase === 'awaiting_user';
+  const showAssistantPlaceholder = false;
 
   // ── Load More: triggered when user scrolls to top ──
   const handleStartReached = useCallback(() => {
@@ -289,6 +292,9 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
           message={msg}
           onFileClick={onFileClick}
           onRetry={onSend}
+          onCancelQueued={(messageId) => {
+            useChatStore.getState().cancelQueuedMessage(messageId);
+          }}
           showMetrics={msg.role === 'assistant' && (msg.durationMs != null || (index === lastAssistantIndex && !isWaitingForAssistant))}
           isLastAssistant={index === lastAssistantIndex}
         />
@@ -318,25 +324,13 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
 
   // ── Footer: thinking indicator ──
   const footerComponent = useMemo(() => {
-    if (!isWaitingForAssistant) return undefined;
+    if (!showAssistantPlaceholder) return undefined;
     return (
       <div className="px-3 md:px-6">
-        <div className="flex gap-3 py-5">
-          <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
-            C
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
-              <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
-              <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
-            </div>
-            <TurnMetricsBar />
-          </div>
-        </div>
+        <AssistantPlaceholder phase={activeTurn.phase} />
       </div>
     );
-  }, [isWaitingForAssistant]);
+  }, [showAssistantPlaceholder, activeTurn.phase]);
 
   return (
     <div className="flex h-full">
@@ -393,16 +387,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
           />
         )}
 
-        {/* Autocompact banner */}
-        {isCompacting && (
-          <div className="shrink-0 mx-3 md:mx-6 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-800/80 border border-surface-700/50 text-[12px] text-gray-400">
-            <svg className="w-3.5 h-3.5 shrink-0 animate-spin text-primary-400" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-            </svg>
-            <span>컨텍스트 압축 중… 잠시만 기다려 주세요.</span>
-          </div>
-        )}
+        {/* Autocompact banner removed: compacting status is already shown above the input box. */}
 
         {/* Input + Floating Question */}
         <div className="shrink-0 px-3 md:px-6 pb-2 md:pb-6">
@@ -456,6 +441,39 @@ function fmtTokensShort(n: number): string {
  * "Context used" = last iteration's (input + output) → predicts next turn's input size.
  * "Max" = model's context_window_size from SDK (fallback 200K).
  */
+function phaseLabel(phase: TurnPhase): string {
+  switch (phase) {
+    case 'queued': return '대기열에 추가됨…';
+    case 'preparing': return '응답 준비 중…';
+    case 'streaming': return '답변 작성 중…';
+    case 'tool_running': return '도구 실행 중…';
+    case 'awaiting_user': return '응답을 기다리는 중…';
+    case 'compacting': return '컨텍스트 정리 중…';
+    case 'done': return '완료됨';
+    case 'error': return '오류가 발생했습니다';
+    default: return '작업 중…';
+  }
+}
+
+function AssistantPlaceholder({ phase }: { phase: TurnPhase }) {
+  return (
+    <div className="flex gap-3 py-5">
+      <div className="w-7 h-7 rounded-full bg-primary-600/15 border border-primary-500/25 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5 text-primary-400 select-none">
+        C
+      </div>
+      <div>
+        <div className="flex items-center gap-2 h-10 px-4 bg-surface-900/50 rounded-2xl rounded-tl-sm border border-surface-800/50 w-fit text-[13px] text-gray-300">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator"></span>
+          <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.2s' }}></span>
+          <span className="w-1.5 h-1.5 rounded-full bg-primary-500/80 thinking-indicator" style={{ animationDelay: '0.4s' }}></span>
+          <span>{phaseLabel(phase)}</span>
+        </div>
+        <TurnMetricsBar />
+      </div>
+    </div>
+  );
+}
+
 function CumulativeTokenBar() {
   const messages = useChatStore((s) => s.messages);
   const cost = useChatStore((s) => s.cost);

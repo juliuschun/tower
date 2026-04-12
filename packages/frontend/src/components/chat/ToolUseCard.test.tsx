@@ -11,6 +11,7 @@ beforeEach(() => {
     isStreaming: false,
     sessionId: 's1',
     claudeSessionId: null,
+    engineSessionId: null,
     messages: [],
     slashCommands: [],
     attachments: [],
@@ -52,7 +53,18 @@ describe('ToolUseCard streaming state', () => {
   });
 
   it('shows running state when the current session is marked streaming', () => {
-    useChatStore.setState({ isStreaming: false, sessionId: 's1' });
+    useChatStore.setState({
+      isStreaming: false,
+      sessionId: 's1',
+      turnStateBySession: {
+        s1: {
+          phase: 'tool_running',
+          startedAt: Date.now(),
+          lastActivityAt: Date.now(),
+          pendingMessageCount: 0,
+        },
+      },
+    });
     useSessionStore.setState({ streamingSessions: new Set(['s1']) });
 
     render(
