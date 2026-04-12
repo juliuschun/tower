@@ -449,15 +449,24 @@ function InboxCard({
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
   };
 
+  const isProactive = session.label === 'proactive';
+
   return (
     <div className={`rounded-xl overflow-hidden transition-all ${
-      isUnread
+      isProactive
+        ? 'bg-blue-950/30 border border-blue-500/30 hover:border-blue-500/50'
+        : isUnread
         ? 'bg-surface-850 border border-primary-500/30 hover:border-primary-500/50'
         : 'bg-surface-850/50 border border-surface-800/50 hover:border-surface-700'
     }`}>
+      {/* ── Proactive accent bar ── */}
+      {isProactive && (
+        <div className="h-0.5 bg-gradient-to-r from-blue-500/80 via-blue-400/60 to-transparent" />
+      )}
       {/* ── Header ── */}
       <div className="flex items-center gap-2 px-4 py-2.5 group">
-        {isUnread && <div className="w-2 h-2 rounded-full bg-primary-400 shrink-0" />}
+        {isProactive && <span className="text-[12px] shrink-0">💬</span>}
+        {!isProactive && isUnread && <div className="w-2 h-2 rounded-full bg-primary-400 shrink-0" />}
         {isStreaming && <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />}
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-1.5">
@@ -470,6 +479,9 @@ function InboxCard({
               </span>
             )}
           </div>
+          {isProactive && (
+            <div className="text-[10px] text-blue-400/70 leading-tight">AI가 시작한 대화</div>
+          )}
         </div>
         <span className="text-[11px] text-surface-500 shrink-0">
           {relativeTime(session.updatedAt)}

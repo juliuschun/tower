@@ -133,40 +133,37 @@ export function NotificationBell({ onSelectSession }: NotificationBellProps) {
                   key={n.id}
                   onClick={() => {
                     if (!n.read) handleMarkOne(n.id);
-                    // Navigate to session for session_done or proactive notifications
-                    if (['session_done', 'proactive'].includes(n.type) && n.metadata?.sessionId) {
+                    // Proactive notifications → go to Inbox (card with preview)
+                    if (n.type === 'proactive' && n.metadata?.sessionId) {
                       const sessionId = n.metadata.sessionId as string;
+                      // Ensure session is in store (proactive sessions may not be loaded yet)
                       const store = useSessionStore.getState();
-                      let session = store.sessions.find((s) => s.id === sessionId);
-
-                      const navigateToSession = (s: SessionMeta) => {
-                        const { markSessionRead, setActiveView, setSidebarTab } = useSessionStore.getState();
-                        markSessionRead(s.id);
-                        setActiveView('chat');
-                        setSidebarTab('sessions');
-                        if (onSelectSession) {
-                          onSelectSession(s);
-                        } else {
-                          useSessionStore.getState().setActiveSessionId(s.id);
-                        }
-                        setOpen(false);
-                      };
-
-                      if (session) {
-                        navigateToSession(session);
-                      } else {
-                        // Proactive sessions may not be in the list yet — fetch and add
+                      if (!store.sessions.find((s) => s.id === sessionId)) {
                         fetch(`${API}/api/sessions/${sessionId}`, {
                           headers: { Authorization: `Bearer ${getToken()}` },
                         })
                           .then((r) => r.json())
-                          .then((data) => {
-                            if (data?.id) {
-                              useSessionStore.getState().addSession(data);
-                              navigateToSession(data);
-                            }
-                          })
+                          .then((data) => { if (data?.id) useSessionStore.getState().addSession(data); })
                           .catch(() => {});
+                      }
+                      useSessionStore.getState().setActiveView('inbox');
+                      setOpen(false);
+                    }
+                    // session_done → go directly to session
+                    else if (n.type === 'session_done' && n.metadata?.sessionId) {
+                      const sessionId = n.metadata.sessionId as string;
+                      const store = useSessionStore.getState();
+                      const session = store.sessions.find((s) => s.id === sessionId);
+                      if (session) {
+                        store.markSessionRead(sessionId);
+                        store.setActiveView('chat');
+                        store.setSidebarTab('sessions');
+                        if (onSelectSession) {
+                          onSelectSession(session);
+                        } else {
+                          store.setActiveSessionId(sessionId);
+                        }
+                        setOpen(false);
                       }
                     }
                   }}
