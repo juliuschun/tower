@@ -78,6 +78,11 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const isAtBottom = useRef(true);
+  // User-initiated scroll-up detection: when true, followOutput stops auto-scrolling
+  // and the settle period stops re-snapping to bottom. Cleared when user returns
+  // to bottom (via the jump button or by scrolling down themselves).
+  const userScrolledUp = useRef(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
   // Track answered state: keep question data + answer briefly after answering
   const [answeredState, setAnsweredState] = useState<{
@@ -127,6 +132,21 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     return mergeConsecutiveAssistant(visible);
   }, [messages]);
 
+  // Per-message normalize cache: normalizeContentBlocks() was called on every
+  // renderMessage invocation, meaning each Virtuoso re-render re-normalized all
+  // visible assistant messages. Cache by content reference so it runs once per
+  // actual change. WeakMap auto-evicts when the message array is replaced.
+  const normalizeCache = useRef(new WeakMap<object, ChatMessage>());
+  const getNormalized = useCallback((msg: ChatMessage): ChatMessage => {
+    if (msg.role !== 'assistant') return msg;
+    const cache = normalizeCache.current;
+    const cached = cache.get(msg.content as unknown as object);
+    if (cached) return cached;
+    const normalized = { ...msg, content: normalizeContentBlocks(msg.content) };
+    cache.set(msg.content as unknown as object, normalized);
+    return normalized;
+  }, []);
+
   // ── Scroll: always start at bottom ──
   //
   // Root cause of scroll drift: defaultItemHeight (estimated) vs real height mismatch.
@@ -141,6 +161,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   // 3. Suppress isAtBottom=false during settle period (height measurement drift).
 
   const scrollToBottom = useCallback(() => {
+    if (userScrolledUp.current) return; // honor user intent
     virtuosoRef.current?.scrollToIndex({
       index: mergedMessages.length - 1,
       align: 'end',
@@ -158,17 +179,18 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   // then followOutput stops auto-scrolling → stuck in the middle.
   const settleUntil = useRef(0);
 
-  // On session switch: force bottom with retries (items need time to measure)
+  // On session switch: force bottom with a couple of retries (items need time to measure).
+  // Reduced from 4 retries to 2 — heavy blocks now lazy-render during streaming, so
+  // late layout shifts are much smaller and don't need a 1.2s tail of forced scrolls.
   useEffect(() => {
     if (!activeSessionId || mergedMessages.length === 0) return;
     isAtBottom.current = true;
-    settleUntil.current = Date.now() + 2000; // suppress false-negatives for 2s (was 1s)
+    userScrolledUp.current = false;
+    settleUntil.current = Date.now() + 1500;
     scrollToBottom();
-    const t1 = setTimeout(() => scrollToBottomRef.current(), 100);
-    const t2 = setTimeout(() => scrollToBottomRef.current(), 350);
-    const t3 = setTimeout(() => scrollToBottomRef.current(), 700);
-    const t4 = setTimeout(() => scrollToBottomRef.current(), 1200); // extra retry for slow renders
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+    const t1 = setTimeout(() => scrollToBottomRef.current(), 120);
+    const t2 = setTimeout(() => scrollToBottomRef.current(), 500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cache-miss: messages arrive after empty mount → scroll to bottom
@@ -180,13 +202,12 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     const has = mergedMessages.length > 0;
     if (has && !hadMessages.current) {
       isAtBottom.current = true;
-      settleUntil.current = Date.now() + 2000;
+      settleUntil.current = Date.now() + 1500;
       scrollToBottom();
-      const t1 = setTimeout(() => scrollToBottomRef.current(), 100);
-      const t2 = setTimeout(() => scrollToBottomRef.current(), 350);
-      const t3 = setTimeout(() => scrollToBottomRef.current(), 700);
+      const t1 = setTimeout(() => scrollToBottomRef.current(), 120);
+      const t2 = setTimeout(() => scrollToBottomRef.current(), 500);
       hadMessages.current = true;
-      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+      return () => { clearTimeout(t1); clearTimeout(t2); };
     }
     hadMessages.current = has;
   }, [mergedMessages.length, scrollToBottom]);
@@ -241,12 +262,72 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   }, [activeSessionId, onLoadMore, loadingMoreMessages, hasMoreMessages]);
 
   // ── Virtuoso: followOutput keeps scroll at bottom during streaming ──
-  // During streaming/compacting, always follow (compact can push isAtBottom false).
-  // Otherwise, only follow if user is already at bottom.
+  // Honors user scroll intent: if the user dragged/wheeled upward,
+  // we stop following until they return to the bottom.
   const followOutput = useCallback((isAtBottomNow: boolean) => {
+    if (userScrolledUp.current) return false;
     if (isAtBottomNow || isAtBottom.current) return 'auto';
     return false;
   }, []);
+
+  // ── Detect explicit user scroll intent on the Virtuoso scroller ──
+  // We listen for upward wheel ticks and touchmove deltas. The Virtuoso
+  // scroller is the first scrollable child of the wrapper div.
+  const scrollWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrap = scrollWrapRef.current;
+    if (!wrap) return;
+    const scroller = wrap.querySelector('[data-testid="virtuoso-scroller"]') as HTMLElement | null
+      || wrap.querySelector('div[style*="overflow"]') as HTMLElement | null;
+    if (!scroller) return;
+
+    const markScrolledUp = () => {
+      if (!userScrolledUp.current) {
+        userScrolledUp.current = true;
+        setShowJumpToLatest(true);
+      }
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) markScrolledUp();
+    };
+    let touchStartY = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? 0;
+      if (y - touchStartY > 8) markScrolledUp(); // finger moving down = content moving up
+    };
+    // Keyboard scroll-up
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'PageUp' || e.key === 'ArrowUp' || (e.key === 'Home')) markScrolledUp();
+    };
+
+    scroller.addEventListener('wheel', onWheel, { passive: true });
+    scroller.addEventListener('touchstart', onTouchStart, { passive: true });
+    scroller.addEventListener('touchmove', onTouchMove, { passive: true });
+    scroller.addEventListener('keydown', onKeyDown);
+    return () => {
+      scroller.removeEventListener('wheel', onWheel);
+      scroller.removeEventListener('touchstart', onTouchStart);
+      scroller.removeEventListener('touchmove', onTouchMove);
+      scroller.removeEventListener('keydown', onKeyDown);
+    };
+  }, [activeSessionId, mergedMessages.length > 0]);
+
+  // Reset scroll-up flag when session changes
+  useEffect(() => {
+    userScrolledUp.current = false;
+    setShowJumpToLatest(false);
+  }, [activeSessionId]);
+
+  const jumpToLatest = useCallback(() => {
+    userScrolledUp.current = false;
+    setShowJumpToLatest(false);
+    isAtBottom.current = true;
+    scrollToBottom();
+  }, [scrollToBottom]);
 
   const aiPanelOpen = useAiPanelStore((s) => s.open);
   const aiPanelContextType = useAiPanelStore((s) => s.contextType);
@@ -277,14 +358,12 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   const showSessionAiPanel = aiPanelOpen && aiPanelContextType === 'session';
 
   // ── Render a single message row for Virtuoso ──
-  // normalizeContentBlocks is applied lazily here — only for ~20 visible messages,
-  // not 500 upfront. This cuts initial load from seconds to instant.
+  // normalizeContentBlocks runs once per message via getNormalized cache —
+  // not on every Virtuoso re-render. This was the dominant per-token cost.
   const renderMessage = useCallback((index: number) => {
     const raw = mergedMessages[index];
     if (!raw) return null;
-    const msg = raw.role === 'assistant'
-      ? { ...raw, content: normalizeContentBlocks(raw.content) }
-      : raw;
+    const msg = getNormalized(raw);
     return (
       <div className="px-3 md:px-6 py-0.5">
         <MessageBubble
@@ -300,7 +379,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
         />
       </div>
     );
-  }, [mergedMessages, lastAssistantIndex, isWaitingForAssistant, onFileClick, onSend]);
+  }, [mergedMessages, lastAssistantIndex, isWaitingForAssistant, onFileClick, onSend, getNormalized]);
 
   // ── Header: "Load More" indicator ──
   const headerComponent = useMemo(() => {
@@ -355,10 +434,11 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
           </div>
         ) : (
           /* Virtualized message list */
+          <div ref={scrollWrapRef} className="flex-1 min-h-0 relative">
           <Virtuoso
             key={activeSessionId}
             ref={virtuosoRef}
-            className="flex-1 min-h-0"
+            className="h-full"
             style={{ willChange: 'transform' }}
             data={mergedMessages}
             initialTopMostItemIndex={mergedMessages.length - 1}
@@ -370,6 +450,18 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
             }}
             followOutput={followOutput}
             atBottomStateChange={(atBottom) => {
+              // If the user has explicitly scrolled up, never auto-snap back —
+              // they need to use the "↓ jump to latest" button.
+              if (userScrolledUp.current) {
+                isAtBottom.current = false;
+                if (atBottom) {
+                  // User reached bottom on their own → clear the flag
+                  userScrolledUp.current = false;
+                  setShowJumpToLatest(false);
+                  isAtBottom.current = true;
+                }
+                return;
+              }
               // During settle period, height re-measurement causes false atBottom=false signals.
               // Instead of ignoring them, actively re-scroll — this is the key fix for
               // "lands in the middle" after session switch. Height drift is detected here
@@ -385,6 +477,20 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
             increaseViewportBy={{ top: 400, bottom: 100 }}
             defaultItemHeight={200}
           />
+          {/* Jump-to-latest button — appears when user has scrolled up */}
+          {showJumpToLatest && (
+            <button
+              onClick={jumpToLatest}
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-600/90 hover:bg-primary-500 text-white text-[12px] font-medium shadow-lg border border-primary-400/40 backdrop-blur transition-all"
+              title="최신 메시지로 이동"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+              <span>최신 메시지로</span>
+            </button>
+          )}
+          </div>
         )}
 
         {/* Autocompact banner removed: compacting status is already shown above the input box. */}

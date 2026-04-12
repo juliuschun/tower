@@ -8,7 +8,6 @@ const uiStateStore = {
 import { ToolUseCard, ToolChip } from './ToolUseCard';
 import { ThinkingChip, ThinkingContent } from './ThinkingBlock';
 import { RichContent } from '../shared/RichContent';
-import { splitDynamicBlocks } from '../shared/split-dynamic-blocks';
 // getToolLabel / getToolSummary used by ToolUseCard.tsx
 import { toastSuccess } from '../../utils/toast';
 import { useChatStore, type ChatMessage, type ContentBlock } from '../../stores/chat-store';
@@ -140,24 +139,6 @@ export function MessageBubble({ message, onFileClick, onRetry, onCancelQueued, s
 
   // Group content blocks: consecutive tool_use blocks become a group
   const groups = useMemo(() => groupContentBlocks(message.content), [message.content]);
-
-  // Find the last text segment key — only that one gets typewriter animation.
-  // During streaming, new content appends to the end, so earlier segments are
-  // already complete and should render instantly (no parallel animations).
-  const lastTextSegKey = useMemo(() => {
-    for (let gi = groups.length - 1; gi >= 0; gi--) {
-      if (groups[gi].type !== 'text') continue;
-      const blocks = groups[gi].blocks;
-      for (let bi = blocks.length - 1; bi >= 0; bi--) {
-        if (!blocks[bi].text) continue;
-        const segs = splitDynamicBlocks(blocks[bi].text!);
-        for (let si = segs.length - 1; si >= 0; si--) {
-          if (segs[si].type === 'text') return `${gi}-${bi}-t${si}`;
-        }
-      }
-    }
-    return '';
-  }, [groups]);
 
   return (
     <div className={`flex gap-3 py-5 ${isUser ? 'justify-end' : 'justify-start'} group/message`}>

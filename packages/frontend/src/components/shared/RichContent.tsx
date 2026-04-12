@@ -228,7 +228,16 @@ function CopyBtn({ text, className = '' }: { text: string; className?: string })
 
 /* ── Markdown renderer ── */
 
-function MarkdownSegment({ content, mdComponents }: { content: string; mdComponents: Record<string, any> }) {
+/**
+ * MarkdownSegment is memoized: re-renders only when `content` changes.
+ * Without React.memo, every parent re-render (e.g. each streaming token)
+ * forces ReactMarkdown + remark/rehype plugin chain to re-execute on
+ * already-finalized text segments — the dominant cost during streaming.
+ */
+const MarkdownSegment = React.memo(function MarkdownSegment({
+  content,
+  mdComponents,
+}: { content: string; mdComponents: Record<string, any> }) {
   return (
     <div className="prose prose-invert prose-sm max-w-none overflow-hidden break-words">
       <ReactMarkdown
@@ -240,7 +249,7 @@ function MarkdownSegment({ content, mdComponents }: { content: string; mdCompone
       </ReactMarkdown>
     </div>
   );
-}
+}, (prev, next) => prev.content === next.content && prev.mdComponents === next.mdComponents);
 
 /* ── RichContent entry point ── */
 
@@ -249,22 +258,75 @@ export interface RichContentProps {
   onFileClick?: (path: string) => void;
 }
 
+/**
+ * Heavy visual blocks that are expensive to mount/render.
+ * While streaming, these are deferred behind a skeleton until either
+ * (a) streaming ends, or (b) the block is no longer the trailing segment
+ * (= the closing fence has been seen → block is "complete").
+ */
+const HEAVY_BLOCKS: ReadonlySet<DynamicBlock['type']> = new Set([
+  'mermaid', 'chart', 'treemap', 'gallery', 'map', 'html-sandbox',
+  'browser-popup', 'browser-live',
+]);
+
+/**
+ * Build a stable key for a segment based on its type + content signature.
+ * Index-based keys (`key={i}`) cause React to re-mount blocks whenever
+ * splitDynamicBlocks returns a different number of segments mid-stream
+ * (e.g. ```chart fence appears → text becomes [text, chart]).
+ * A content-derived key keeps DOM identity stable across those updates.
+ */
+function segmentKey(seg: DynamicBlock, i: number): string {
+  const head = seg.content.length > 0 ? seg.content.slice(0, 24) : '';
+  return `${i}:${seg.type}:${seg.content.length}:${head}`;
+}
+
 export function RichContent({ text, onFileClick }: RichContentProps) {
   // Defensive: ensure text is always a string (streaming may pass non-string)
   const safeText = typeof text === 'string' ? text : String(text ?? '');
   const segments = useMemo(() => splitDynamicBlocks(safeText), [safeText]);
   const mdComponents = useMemo(() => buildMdComponents({ onFileClick }), [onFileClick]);
+  const isStreaming = useActiveSessionStreaming();
 
   return (
     <>
-      {segments.map((seg, i) => (
-        <RichSegment key={i} seg={seg} mdComponents={mdComponents} />
-      ))}
+      {segments.map((seg, i) => {
+        // Heavy blocks: defer mounting if this is the LAST segment AND streaming is on.
+        // Once a closing fence appears, splitDynamicBlocks pushes a new trailing
+        // text segment after the heavy block — at that point the heavy block
+        // is "frozen" and safe to render immediately.
+        const isLast = i === segments.length - 1;
+        const deferHeavy = isStreaming && isLast && HEAVY_BLOCKS.has(seg.type);
+        return (
+          <RichSegment
+            key={segmentKey(seg, i)}
+            seg={seg}
+            mdComponents={mdComponents}
+            deferHeavy={deferHeavy}
+          />
+        );
+      })}
     </>
   );
 }
 
-function RichSegment({ seg, mdComponents }: { seg: DynamicBlock; mdComponents: Record<string, any> }) {
+const RichSegment = React.memo(function RichSegment({
+  seg,
+  mdComponents,
+  deferHeavy,
+}: { seg: DynamicBlock; mdComponents: Record<string, any>; deferHeavy?: boolean }) {
+  if (deferHeavy && HEAVY_BLOCKS.has(seg.type)) {
+    return <BlockSkeleton type={seg.type} />;
+  }
+  return <RichSegmentInner seg={seg} mdComponents={mdComponents} />;
+}, (prev, next) =>
+  prev.deferHeavy === next.deferHeavy &&
+  prev.mdComponents === next.mdComponents &&
+  prev.seg.type === next.seg.type &&
+  prev.seg.content === next.seg.content
+);
+
+function RichSegmentInner({ seg, mdComponents }: { seg: DynamicBlock; mdComponents: Record<string, any> }) {
   if (seg.type === 'text') {
     return <MarkdownSegment content={seg.content} mdComponents={mdComponents} />;
   }
