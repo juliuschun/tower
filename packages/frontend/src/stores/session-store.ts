@@ -128,11 +128,16 @@ export const useSessionStore = create<SessionState>((set) => ({
         return { streamingSessions: next };
       } else {
         next.delete(id);
-        // Only mark as unread if not currently viewed AND owned by current user
+        // Only mark as unread if not currently viewed AND owned by current user.
+        // "Currently viewed" means the session is activeSessionId AND the user
+        // is actually on the chat view.  If the user navigated to Inbox, Kanban,
+        // etc., the session is no longer "being viewed" even though
+        // activeSessionId hasn't been cleared.
         const currentUsername = localStorage.getItem('username') || '';
         const session = s.sessions.find((ss) => ss.id === id);
         const isOwnSession = session && session.ownerUsername === currentUsername;
-        if (s.activeSessionId !== id && isOwnSession) {
+        const isViewingSession = s.activeSessionId === id && s.activeView === 'chat';
+        if (!isViewingSession && isOwnSession) {
           const unread = new Set(s.unreadSessions);
           unread.add(id);
           // Add session-done notification to room store (deferred to avoid circular import)
