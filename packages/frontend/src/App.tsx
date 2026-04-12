@@ -13,6 +13,9 @@ import { BrowserPanel } from './components/browser/BrowserPanel';
 import { PublishPanel } from './components/publish/PublishPanel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OfflineBanner } from './components/common/OfflineBanner';
+import { UpdateBanner } from './components/common/UpdateBanner';
+import { clearReloadOnceFlag } from './utils/app-version';
+import { useAppUpdateCoordinator } from './hooks/useAppUpdateCoordinator';
 import { PromptEditor } from './components/prompts/PromptEditor';
 import { ResizeHandle, SidebarResizeHandle, DEFAULT_WIDTH, SIDEBAR_DEFAULT_WIDTH } from './components/layout/ResizeHandle';
 import { HorizontalResizeHandle } from './components/layout/HorizontalResizeHandle';
@@ -834,6 +837,18 @@ function App() {
     }
   }, [lastOpenedFilePath, requestFile]);
 
+  // All update / reload decisions live in this single hook. App.tsx only
+  // forwards its callbacks to OfflineBanner / UpdateBanner below, and hands
+  // the /api/config payload to `evaluateConfigPayload` from the fetch effect.
+  // Declared BEFORE the fetch effect so its dependency array can reference it
+  // without a TDZ ReferenceError. See:
+  // docs/arch_plan_0412_update_reload_coordinator.md
+  const updateCoordinator = useAppUpdateCoordinator();
+  const isBusyForReload = updateCoordinator.isBusyForReload;
+  const handleReloadForUpdate = updateCoordinator.requestReload;
+  const handleDeferUpdate = updateCoordinator.deferReload;
+  const handleCancelDeferredUpdate = updateCoordinator.cancelDefer;
+
   // Load pins + server config on mount
   useEffect(() => {
     if (authStatus === null) return;
@@ -860,16 +875,26 @@ function App() {
     fetch(`${API_BASE}/config`, { headers })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
-        if (data) {
-          useSettingsStore.getState().setServerConfig(data);
-          if (data.models) useModelStore.getState().setAvailableModels(data.models);
-          if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
-          if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
-          if (data.connectionType) useModelStore.getState().setConnectionType(data.connectionType);
-        }
+        if (!data) return;
+
+        // Hand the buildId comparison off to the update coordinator. If it
+        // decides to auto-reload (returns 'changed-safe'), short-circuit so
+        // we don't waste work on the about-to-be-discarded page.
+        const evaluation = updateCoordinator.evaluateConfigPayload(data);
+        if (evaluation?.kind === 'changed-safe') return;
+
+        useSettingsStore.getState().setServerConfig(data);
+        if (data.models) useModelStore.getState().setAvailableModels(data.models);
+        if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
+        if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
+        if (data.connectionType) useModelStore.getState().setConnectionType(data.connectionType);
       })
       .catch(() => {});
-  }, [token, authStatus]);
+  }, [token, authStatus, updateCoordinator]);
+
+  useEffect(() => {
+    clearReloadOnceFlag();
+  }, []);
 
   // Standalone file viewer — opens in new window
   if (window.location.pathname === '/file-viewer') {
@@ -904,7 +929,13 @@ function App() {
   return (
     <div className="flex flex-col overflow-hidden app-bg text-gray-100 font-sans selection:bg-primary-500/30 selection:text-primary-100 h-full" style={{ height: '100dvh' }}>
       <Toaster position="top-right" theme={theme === 'light' ? 'light' : 'dark'} richColors closeButton />
-      <OfflineBanner />
+      <OfflineBanner onReload={handleReloadForUpdate} />
+      <UpdateBanner
+        onReload={handleReloadForUpdate}
+        onDeferReload={handleDeferUpdate}
+        onCancelDeferred={handleCancelDeferredUpdate}
+        busy={isBusyForReload}
+      />
       {showWhatsNew && <WhatsNewModal onClose={dismissWhatsNew} />}
       <Header
         connected={connected}

@@ -9,6 +9,14 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, 'packages/frontend/src'),
       '@tower/shared': path.resolve(__dirname, 'packages/shared/index.ts'),
+      // `virtual:pwa-register` is a Vite virtual module supplied by
+      // vite-plugin-pwa at build/dev time. Vitest doesn't load that plugin,
+      // so we alias the import to a no-op stub for tests. Individual tests
+      // can still override behavior with `vi.mock('virtual:pwa-register', ...)`.
+      'virtual:pwa-register': path.resolve(
+        __dirname,
+        'packages/frontend/src/test-stubs/virtual-pwa-register.ts',
+      ),
     },
   },
   test: {
