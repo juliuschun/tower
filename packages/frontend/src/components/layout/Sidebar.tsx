@@ -2410,8 +2410,10 @@ function ProjectSettingsPanel({ project, onClose }: { project: Project; onClose:
 function NewProjectButton() {
   const { t } = useTranslation('layout');
   const [creating, setCreating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
+
   const [searchResults, setSearchResults] = useState<{ id: number; username: string }[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<{ id: number; username: string }[]>([]);
   const [myGroups, setMyGroups] = useState<{ id: number; name: string }[]>([]);
@@ -2477,8 +2479,10 @@ function NewProjectButton() {
   };
 
   const handleCreate = async () => {
+    if (submitting) return;
     const trimmed = name.trim();
     if (!trimmed) { setCreating(false); return; }
+    setSubmitting(true);
     const token = localStorage.getItem('token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -2499,6 +2503,7 @@ function NewProjectButton() {
     } catch {
       toastError('Failed to create project');
     }
+    setSubmitting(false);
     resetForm();
   };
 
