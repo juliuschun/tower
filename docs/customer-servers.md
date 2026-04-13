@@ -135,3 +135,5 @@ ssh toweradmin@<IP> "pm2 restart tower-prod --update-env"
 - 배포 스크립트: `scripts/azure/create-vm.sh`, `bootstrap-prod.sh`, `deploy-e2e.sh`
 - okusystem 설치 계획: `docs/plans/2026-04-03-azure-okusystem-prod-install.md`
 - Dev/Prod 운영 가이드: `devserver.md`
+- **Publishing 재설계**: `docs/plans/arch_0413_publish-gateway-redesign.md` (TOWER_ROLE, Gateway 설계)
+- 배포 엔진 (기존): `docs/deploy-engine.md` (Cloudflare/Azure 직접 배포)

@@ -1,6 +1,9 @@
 # Deploy Engine — Cloudflare Pages + Azure Container Apps
 
 > Tower Publishing Hub의 외부 배포 엔진. AI가 코드를 만들면 자동으로 적절한 플랫폼에 배포합니다.
+>
+> ⚠️ **재설계 진행 중**: Hub를 별도 프로세스에서 Backend로 통합하고, 고객 서버는 Central Gateway 경유로 전환 예정.
+> 상세 설계 → `docs/plans/arch_0413_publish-gateway-redesign.md`
 
 ## 아키텍처
 
