@@ -190,6 +190,11 @@ export const config = {
   kakaoClientSecret: process.env.KAKAO_CLIENT_SECRET || '',
   kakaoRedirectUri: process.env.KAKAO_REDIRECT_URI || '',
 
+  // Google OAuth
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+  googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || '',
+
   // Telegram Bot
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',

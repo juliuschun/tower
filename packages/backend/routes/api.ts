@@ -30,6 +30,7 @@ import {
 import { config, availableModels, loadModelsFile, saveModelsFile, reloadModels } from '../config.js';
 import { oauthManager, messageRouter, telegramLinkManager } from '../services/messaging/index.js';
 import { exchangeKakaoCode, getKakaoProfile } from 'notify-hub';
+import { isGoogleOAuthConfigured, getGoogleAuthUrl, exchangeGoogleCode, getGoogleUserInfo } from '../services/google-oauth.js';
 import { parseTelegramWebhook, TelegramChannel } from 'notify-hub';
 import { search } from '../services/search.js';
 import { extractTextFromContent } from '../utils/text.js';
@@ -191,6 +192,56 @@ router.get('/auth/kakao/callback', async (req, res) => {
     console.error('[Kakao OAuth] Error:', err.message);
     const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
     res.redirect(`${baseUrl}/?oauth=kakao&status=error&message=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// ───── Google OAuth ─────
+
+router.get('/auth/google', authMiddleware, (req, res) => {
+  if (!isGoogleOAuthConfigured()) return res.status(500).json({ error: 'Google OAuth not configured' });
+  const user = (req as any).user;
+  // Encode userId in state (JWT token) so callback can identify the user
+  const rawToken = extractToken(req);
+  const url = getGoogleAuthUrl(rawToken || String(user.userId));
+  res.json({ url });
+});
+
+router.get('/auth/google/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (!code) return res.status(400).send('Missing authorization code');
+
+    // Verify user from state (which is the JWT token)
+    const payload = state ? verifyToken(state as string) : null;
+    if (!payload) {
+      const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
+      return res.redirect(`${baseUrl}/?oauth=google&status=error&message=not_authenticated`);
+    }
+
+    // Exchange code for tokens
+    const tokens = await exchangeGoogleCode(code as string);
+
+    // Get Google user info (email, name)
+    const userInfo = await getGoogleUserInfo(tokens.accessToken);
+
+    // Save tokens to DB
+    await oauthManager.saveToken({
+      userId: payload.userId,
+      provider: 'google',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken ?? undefined,
+      expiresIn: tokens.expiresIn,
+      providerUserId: userInfo.email,
+      providerNickname: userInfo.name || userInfo.email,
+    });
+
+    // Redirect back to Tower Settings with success
+    const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
+    res.redirect(`${baseUrl}/?oauth=google&status=success`);
+  } catch (err: any) {
+    console.error('[Google OAuth] Error:', err.message);
+    const baseUrl = config.publicUrl || `${req.protocol}://${req.get('host')}`;
+    res.redirect(`${baseUrl}/?oauth=google&status=error&message=${encodeURIComponent(err.message)}`);
   }
 });
 
@@ -3217,6 +3268,106 @@ router.delete('/deploy/:type/:name', authMiddleware, async (req, res) => {
     if (type !== 'site' && type !== 'app') return res.status(400).json({ error: 'type must be site or app' });
     const result = await deleteDeployment(name as string, type);
     res.json(result);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Unified Schedules — 스케줄 통합 시스템
+// ═══════════════════════════════════════════════════════════════
+
+import {
+  getSchedules, getSchedule, createSchedule, updateSchedule, deleteSchedule,
+  getScheduleRuns, runScheduleNow, type CronConfig,
+} from '../services/unified-scheduler.js';
+
+router.get('/schedules', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const schedules = await getSchedules(userId);
+    res.json(schedules);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/schedules/:id', authMiddleware, async (req, res) => {
+  try {
+    const schedule = await getSchedule(req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'not found' });
+    res.json(schedule);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/schedules', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const { name, prompt, model, mode, targetId, triggerType, cronConfig, onceAt, projectId } = req.body;
+    if (!name || !prompt) return res.status(400).json({ error: 'name and prompt required' });
+    if (!['spawn', 'inject', 'channel'].includes(mode || 'spawn')) {
+      return res.status(400).json({ error: 'mode must be spawn, inject, or channel' });
+    }
+
+    const schedule = await createSchedule({
+      userId,
+      projectId,
+      name,
+      prompt,
+      model,
+      mode: mode || 'spawn',
+      targetId,
+      triggerType: triggerType || 'cron',
+      cronConfig,
+      onceAt,
+    });
+    res.json(schedule);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/schedules/:id', authMiddleware, async (req, res) => {
+  try {
+    const existing = await getSchedule(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not found' });
+
+    const userId = (req as any).user?.userId;
+    if (existing.userId !== userId) return res.status(403).json({ error: 'forbidden' });
+
+    const schedule = await updateSchedule(req.params.id, req.body);
+    res.json(schedule);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/schedules/:id', authMiddleware, async (req, res) => {
+  try {
+    const existing = await getSchedule(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not found' });
+
+    const userId = (req as any).user?.userId;
+    if (existing.userId !== userId) return res.status(403).json({ error: 'forbidden' });
+
+    await deleteSchedule(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/schedules/:id/run-now', authMiddleware, async (req, res) => {
+  try {
+    const existing = await getSchedule(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not found' });
+
+    const userId = (req as any).user?.userId;
+    if (existing.userId !== userId) return res.status(403).json({ error: 'forbidden' });
+
+    const result = await runScheduleNow(req.params.id);
+    res.json(result);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/schedules/:id/runs', authMiddleware, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 20;
+    const runs = await getScheduleRuns(req.params.id, Math.min(limit, 100));
+    res.json(runs);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

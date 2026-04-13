@@ -55,5 +55,11 @@ if (config.telegramBotToken) {
   telegramLinkManager = createLinkManager();
 }
 
+// ── Register Google refresher ──
+import { isGoogleOAuthConfigured, createGoogleRefresher } from '../google-oauth.js';
+if (isGoogleOAuthConfigured()) {
+  oauthManager.registerRefresher('google', createGoogleRefresher());
+}
+
 // Re-export for convenience
 export { TelegramChannel, KakaoChannel } from 'notify-hub';
