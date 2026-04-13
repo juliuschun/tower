@@ -10,6 +10,7 @@ export interface ServerConfig {
 
 export type ThemeId = 'dark' | 'light' | 'ocean' | 'forest' | 'aurora';
 export type LangId = 'en' | 'ko';
+export type FontSize = 'small' | 'medium' | 'large';
 
 interface SettingsState {
   isOpen: boolean;
@@ -17,6 +18,7 @@ interface SettingsState {
   helpOpen: boolean;
   theme: ThemeId;
   language: LangId;
+  fontSize: FontSize;
   serverConfig: ServerConfig | null;
   updateAvailable: boolean;
   latestBuildId: string | null;
@@ -26,6 +28,7 @@ interface SettingsState {
   setHelpOpen: (open: boolean) => void;
   setTheme: (theme: ThemeId) => void;
   setLanguage: (lang: LangId) => void;
+  setFontSize: (size: FontSize) => void;
   setServerConfig: (config: ServerConfig) => void;
   setUpdateAvailable: (available: boolean, buildId?: string | null) => void;
   setDeferredUpdateRequested: (requested: boolean) => void;
@@ -37,6 +40,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   helpOpen: false,
   theme: (localStorage.getItem('theme') as ThemeId) || 'dark',
   language: (localStorage.getItem('tower:lang') as LangId) || (navigator.language.startsWith('ko') ? 'ko' : 'en'),
+  fontSize: (localStorage.getItem('tower:font-size') as FontSize) || 'medium',
   serverConfig: null,
   updateAvailable: false,
   latestBuildId: null,
@@ -52,6 +56,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     localStorage.setItem('tower:lang', language);
     // i18n.changeLanguage is called from the component side
     set({ language });
+  },
+  setFontSize: (fontSize) => {
+    localStorage.setItem('tower:font-size', fontSize);
+    set({ fontSize });
   },
   setServerConfig: (config) => set({ serverConfig: config }),
   setUpdateAvailable: (available, buildId = null) => set((s) => ({

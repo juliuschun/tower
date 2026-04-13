@@ -384,11 +384,28 @@ function towerToLegacyTerminal(msg: TowerMessage, sessionId: string): any {
 function broadcastTowerMessage(sessionId: string, towerMsg: TowerMessage) {
   localBroadcastToSession(sessionId, { type: 'tower_message', sessionId, message: towerMsg });
   if (!isPgEnabled()) return;
-  publishWsSyncEvent(config.serverEpoch, {
+
+  const published = publishWsSyncEvent(config.serverEpoch, {
     scope: 'session',
     sessionId,
     data: { type: 'tower_message', sessionId, message: towerMsg },
   });
+
+  // PostgreSQL NOTIFY has a small payload limit. Large assistant/tool-rich
+  // tower_message events can exceed it, which previously meant other tabs/devices
+  // saw neither TodoWrite cards nor the final answer. Fall back to a tiny signal
+  // that tells remote clients to refresh this session from REST/DB.
+  if (!published && towerMsg.type === 'assistant') {
+    publishWsSyncEvent(config.serverEpoch, {
+      scope: 'session',
+      sessionId,
+      data: {
+        type: 'session_refresh_needed',
+        sessionId,
+        reason: 'oversized_tower_message',
+      },
+    });
+  }
 }
 
 /**

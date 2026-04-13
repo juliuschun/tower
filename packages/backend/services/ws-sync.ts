@@ -107,12 +107,19 @@ export async function stopWsSync(): Promise<void> {
   listenerClient = null;
 }
 
-export function publishWsSyncEvent(origin: string, envelope: OutboundWsSyncEnvelope): void {
-  if (!isPgEnabled()) return;
+const PG_NOTIFY_SAFE_PAYLOAD_LIMIT = 7600;
+
+export function publishWsSyncEvent(origin: string, envelope: OutboundWsSyncEnvelope): boolean {
+  if (!isPgEnabled()) return false;
   const payload = JSON.stringify({ origin, ...envelope });
+  if (payload.length > PG_NOTIFY_SAFE_PAYLOAD_LIMIT) {
+    console.warn(`[ws-sync] skip oversized payload (${payload.length} chars)`);
+    return false;
+  }
   getPgPool()
     .query('SELECT pg_notify($1, $2)', [WS_SYNC_CHANNEL, payload])
     .catch((err) => {
       console.error('[ws-sync] publish failed:', err.message || err);
     });
+  return true;
 }

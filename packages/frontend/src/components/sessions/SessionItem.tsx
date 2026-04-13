@@ -4,6 +4,7 @@ import { useSessionStore } from '../../stores/session-store';
 import { useChatStore } from '../../stores/chat-store';
 import type { Project } from '../../stores/project-store';
 import { SessionShareModal } from './SessionShareModal';
+import { prefetchSessionMessages } from '../../App';
 
 function relativeTime(dateStr: string): string {
   // Ensure UTC parse: handle "YYYY-MM-DD HH:mm:ss", "...T..." without Z, and full ISO strings
@@ -151,10 +152,19 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const isOwnUnread = isUnread && session.ownerUsername === currentUsername;
   const queueCount = useChatStore((s) => (s.messageQueue[session.id] ?? []).length);
   const turnPhase = useChatStore((s) => s.turnStateBySession[session.id]?.phase || 'idle');
+  const turnRead = useChatStore((s) => s.turnStateBySession[session.id]?.read ?? false);
+  const markTurnRead = useChatStore((s) => s.markTurnRead);
   const isKanbanTask = session.name.startsWith('[task]') || session.name.startsWith('\u{1F7E2}'); // [task] or legacy 🟢
   const isChannelAi = session.label === 'channel_ai'; // 🤖
   const isProactive = session.label === 'proactive'; // 💬
   const markSessionRead = useSessionStore((s) => s.markSessionRead);
+
+  // Auto-mark as read if user is already viewing this session when it finishes
+  useEffect(() => {
+    if (isActive && !turnRead && (turnPhase === 'done' || turnPhase === 'stopped' || turnPhase === 'error')) {
+      markTurnRead(session.id);
+    }
+  }, [isActive, turnPhase, turnRead, markTurnRead, session.id]);
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
@@ -197,7 +207,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           e.dataTransfer.setData('text/plain', session.id);
           e.dataTransfer.effectAllowed = 'move';
         }}
-        onClick={() => { markSessionRead(session.id); onSelect(session); }}
+        onClick={() => { markSessionRead(session.id); markTurnRead(session.id); onSelect(session); }}
+        onMouseEnter={() => { if (!isActive) prefetchSessionMessages(session.id); }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       >
@@ -266,7 +277,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
                   {turnPhase === 'awaiting_user' ? 'ask' : turnPhase === 'compacting' ? 'pack' : 'run'}{queueCount > 0 ? ` +${queueCount}` : ''}
                 </span>
-              ) : turnPhase === 'stopped' ? (
+              ) : turnPhase === 'stopped' && !turnRead ? (
                 <span className="text-[9px] font-semibold text-orange-300 bg-orange-500/10 border border-orange-500/20 rounded px-1 py-0.5 leading-none">
                   stop
                 </span>
@@ -274,11 +285,11 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 <span className="text-[9px] font-semibold text-primary-300 bg-primary-500/10 border border-primary-500/20 rounded px-1 py-0.5 leading-none">
                   Q{queueCount || 1}
                 </span>
-              ) : turnPhase === 'error' ? (
+              ) : turnPhase === 'error' && !turnRead ? (
                 <span className="text-[9px] font-semibold text-red-300 bg-red-500/10 border border-red-500/20 rounded px-1 py-0.5 leading-none">
                   err
                 </span>
-              ) : isOwnUnread ? (
+              ) : (turnPhase === 'done' || isOwnUnread) && !turnRead ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none">
                   done
                 </span>

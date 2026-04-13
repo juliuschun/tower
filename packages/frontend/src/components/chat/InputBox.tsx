@@ -15,14 +15,10 @@ interface InputBoxProps {
 const DRAFT_PREFIX = 'tower:inputDraft:';
 
 function turnStatusText(phase: string, hasQueue: boolean): string {
+  // Phase 상태(preparing, tool_running 등)는 AssistantPlaceholder가 메시지
+  // 영역에서 직접 표시. InputBox 위 박스는 큐 상태만 담당.
   if (hasQueue && phase !== 'awaiting_user') return '대기열에 추가됨 — 현재 응답이 끝나면 자동 전송됩니다';
-  switch (phase) {
-    case 'preparing': return '응답 준비 중…';
-    case 'tool_running': return '도구 실행 중…';
-    case 'awaiting_user': return 'AI가 답변을 기다리고 있습니다';
-    case 'error': return '이전 턴에서 오류가 발생했습니다';
-    default: return '';
-  }
+  return '';
 }
 
 function getDraftKey(sessionId: string | null): string {
@@ -614,7 +610,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                     : 'Type a message...'
             }
             rows={1}
-            className="flex-1 bg-transparent border-none px-4 py-3 text-[15px] text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:ring-0 min-h-[48px] max-h-[200px]"
+            className="flex-1 bg-transparent border-none px-4 py-3 text-input-size text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:ring-0 min-h-[48px] max-h-[200px]"
           />
 
           <div className="absolute top-3 right-[60px] text-[11px] text-surface-700 font-medium pointer-events-none tracking-wide select-none">
@@ -670,8 +666,8 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5 transform group-active:translate-y-[-1px] group-hover:translate-x-[1px] group-hover:translate-y-[-1px] transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5m-7 7l7-7 7 7" />
+                <svg className="w-5 h-5 transform group-active:translate-x-[1px] group-active:translate-y-[-1px] group-hover:translate-x-[1px] group-hover:translate-y-[-1px] transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M22 2L11 13M22 2l-7 20-4-9-9-4z" />
                 </svg>
               )}
             </button>

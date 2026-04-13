@@ -150,27 +150,27 @@ export function useSessionAwareModel() {
     return selectedModel;
   }, [activeSession, sessionEngine, piModels, localModels, availableModels, selectedModel]);
 
-  const visibleClaudeModels =
-    !sessionEngine || sessionEngine === 'claude' ? availableModels : [];
-  const visiblePiModels =
-    !sessionEngine || sessionEngine === 'pi' ? piModels : [];
-  const visibleLocalModels =
-    !sessionEngine || sessionEngine === 'local' ? localModels : [];
+  // Always show all model groups so the user can switch engines on the fly
+  const visibleClaudeModels = availableModels;
+  const visiblePiModels = piModels;
+  const visibleLocalModels = localModels;
 
   const pick = (modelId: string) => {
     if (!activeSession) {
       setSelectedModel(modelId);
       return;
     }
-    const picked = getEngineFromModel(modelId);
-    if (sessionEngine && picked !== sessionEngine) {
-      console.warn(
-        `[useSessionAwareModel] refusing to set ${modelId} on a ${sessionEngine} session`,
-      );
-      return;
-    }
+    const pickedEngine = getEngineFromModel(modelId);
     const backendModel = getModelIdForBackend(modelId);
-    updateSessionMeta(activeSession.id, { modelUsed: backendModel });
+
+    // Build the PATCH payload — always update modelUsed, and switch engine if needed
+    const patchBody: Record<string, string> = { modelUsed: backendModel };
+    if (sessionEngine && pickedEngine !== sessionEngine) {
+      patchBody.engine = pickedEngine;
+      updateSessionMeta(activeSession.id, { modelUsed: backendModel, engine: pickedEngine });
+    } else {
+      updateSessionMeta(activeSession.id, { modelUsed: backendModel });
+    }
 
     const token = localStorage.getItem('token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -178,7 +178,7 @@ export function useSessionAwareModel() {
     fetch(`/api/sessions/${activeSession.id}`, {
       method: 'PATCH',
       headers,
-      body: JSON.stringify({ modelUsed: backendModel }),
+      body: JSON.stringify(patchBody),
     }).catch((err) => {
       console.warn('[useSessionAwareModel] failed to persist modelUsed:', err);
     });

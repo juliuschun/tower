@@ -109,7 +109,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
             </span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
-          <div className="text-[13px] text-gray-300 leading-relaxed bg-emerald-950/20 border border-emerald-900/30 rounded-lg px-3 py-2">
+          <div className="text-msg-sub-size text-gray-300 leading-relaxed bg-emerald-950/20 border border-emerald-900/30 rounded-lg px-3 py-2">
             <RichContent text={message.content} />
           </div>
         </div>
@@ -131,7 +131,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
             <span className="text-[12px] font-semibold text-red-400">{t('common:error')}</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
-          <div className="text-[13px] text-red-300 leading-relaxed bg-red-950/20 border border-red-900/30 rounded-lg px-3 py-2 whitespace-pre-wrap">
+          <div className="text-msg-sub-size text-red-300 leading-relaxed bg-red-950/20 border border-red-900/30 rounded-lg px-3 py-2 whitespace-pre-wrap">
             {message.content}
           </div>
         </div>
@@ -153,7 +153,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
             <span className="text-[12px] font-semibold text-blue-400">{t('agentBadge')}</span>
             <span className="text-[10px] text-gray-600">{formatTime(message.createdAt)}</span>
           </div>
-          <div className="text-[13px] text-gray-300 leading-relaxed bg-blue-950/20 border border-blue-900/30 rounded-lg px-3 py-2">
+          <div className="text-msg-sub-size text-gray-300 leading-relaxed bg-blue-950/20 border border-blue-900/30 rounded-lg px-3 py-2">
             {message.content && typeof message.content === 'string'
               ? <RichContent text={message.content} />
               : <span className="text-gray-500 italic">{t('typing')}</span>
@@ -189,7 +189,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
           </div>
           <div className="bg-surface-800 border border-surface-700 rounded-lg px-3 py-2">
             <div className="flex items-center gap-2">
-              <span className="text-[13px] text-gray-200 font-medium">{taskTitle}</span>
+              <span className="text-msg-sub-size text-gray-200 font-medium">{taskTitle}</span>
               <span className={`text-[10px] font-semibold uppercase ${statusColor}`}>{taskStatus}</span>
             </div>
             {message.content && (
@@ -220,7 +220,7 @@ export function RoomMessageBubble({ message, isOwnMessage, parentMessage, onRepl
           {isPending && <span className="text-[10px] text-gray-500 italic">{t('sending')}</span>}
           {isFailed && <span className="text-[10px] text-red-400 font-medium">{t('failedToSend')}</span>}
         </div>
-        <div className={`text-[13px] leading-relaxed whitespace-pre-wrap break-words ${isFailed ? 'text-red-300' : 'text-gray-300'}`}>
+        <div className={`text-msg-sub-size leading-relaxed whitespace-pre-wrap break-words ${isFailed ? 'text-red-300' : 'text-gray-300'}`}>
           <MentionHighlightedText text={message.content} />
         </div>
       </div>

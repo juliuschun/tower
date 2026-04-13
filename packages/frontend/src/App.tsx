@@ -24,6 +24,7 @@ import { useChatRuntime } from './hooks/useChatRuntime';
 import { useOnboarding } from './hooks/useOnboarding';
 import { WhatsNewModal } from './components/onboarding/WhatsNewModal';
 import { useTheme } from './hooks/useTheme';
+import { useFontSize } from './hooks/useFontSize';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useChatStore } from './stores/chat-store';
 import { useSessionStore, type SessionMeta } from './stores/session-store';
@@ -52,7 +53,34 @@ const API_BASE = '/api';
 
 // 세션 메시지 인메모리 캐시 — 페이지 리로드 전까지 유지
 // 이미 방문한 세션 재클릭 시 즉시 표시, 서버 갱신은 백그라운드
-const sessionMsgCache = new Map<string, import('./stores/chat-store').ChatMessage[]>();
+export const sessionMsgCache = new Map<string, import('./stores/chat-store').ChatMessage[]>();
+
+// 호버 프리페치: 세션에 마우스를 올리면 캐시가 비어있을 때 미리 로딩
+const prefetchingSet = new Set<string>(); // 중복 요청 방지
+export function prefetchSessionMessages(sessionId: string) {
+  if (sessionMsgCache.has(sessionId) || prefetchingSet.has(sessionId)) return;
+  prefetchingSet.add(sessionId);
+  const token = localStorage.getItem('token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  fetch(`${API_BASE}/sessions/${sessionId}/messages?limit=500`, { headers })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data) return;
+      const stored = data.messages ?? data;
+      if (stored?.length > 0) {
+        const msgs = stored.map((m: any) => ({
+          id: m.id, role: m.role,
+          content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
+          timestamp: new Date(m.created_at).getTime(),
+          parentToolUseId: m.parent_tool_use_id,
+        }));
+        sessionMsgCache.set(sessionId, msgs);
+      }
+    })
+    .catch(() => {})
+    .finally(() => prefetchingSet.delete(sessionId));
+}
 
 function findEntry(entries: import('./stores/file-store').FileEntry[], path: string): import('./stores/file-store').FileEntry | null {
   for (const e of entries) {
@@ -108,6 +136,7 @@ function App() {
 
   const { sendMessage, abort, setActiveSession, requestFile, requestFileTree, saveFile, answerQuestion, connected, loadMoreMessages } = useChatRuntime();
   const { theme } = useTheme();
+  useFontSize();
   const isMobileQuery = useMediaQuery('(max-width: 768px)');
   const isMobile = useSessionStore((s) => s.isMobile);
   const mobileContextOpen = useSessionStore((s) => s.mobileContextOpen);
@@ -271,6 +300,7 @@ function App() {
     // Don't abort streaming — let the SDK query run in background and save to DB
     useChatStore.getState().setStreaming(false);
     useChatStore.getState().clearAttachments();
+    useChatStore.getState().setSessionLoading(false);
     const session = await createSessionInDb(undefined, projectId);
     if (session) {
       setActiveSessionId(session.id);
@@ -335,6 +365,7 @@ function App() {
       // Replace messages atomically — skip clearMessages() to avoid 1-frame empty flash.
       // Reset non-message state inline instead.
       const store = useChatStore.getState();
+      store.setSessionLoading(false);
       store.setMessages(cached);
       store.setCost({ totalCost: 0, inputTokens: 0, outputTokens: 0, cumulativeInputTokens: 0, cumulativeOutputTokens: 0, turnCount: 0, contextInputTokens: 0, contextOutputTokens: 0, contextWindowSize: 0 });
       store.setRateLimit(null);
@@ -386,6 +417,7 @@ function App() {
     }
 
     // ── Cache miss: clear state then fetch ──
+    useChatStore.getState().setSessionLoading(true);
     clearMessages();
 
     try {
@@ -414,10 +446,13 @@ function App() {
           useChatStore.getState().setMessages(msgs);
           useChatStore.getState().setHasMoreMessages(data.hasMore ?? false);
           useChatStore.getState().setOldestMessageId(data.oldestId ?? null);
+          useChatStore.getState().setSessionLoading(false);
           return;
         }
       }
     } catch (err) { console.warn('[app] handleSelectSession load messages failed:', err); }
+
+    useChatStore.getState().setSessionLoading(false);
 
     // Show switch indicator (only if no messages restored)
     useChatStore.getState().addMessage({
@@ -965,6 +1000,7 @@ function App() {
         }}
         onUsageClick={() => useSessionStore.getState().setActiveView('usage')}
         onRequestFileTree={() => requestFileTree()}
+        onSelectSession={handleSelectSession}
         username={tokenPayload?.username}
         userRole={tokenPayload?.role}
       />

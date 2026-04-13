@@ -124,6 +124,7 @@ export type TurnPhase =
   | 'awaiting_user'
   | 'compacting'
   | 'done'
+  | 'stopped'
   | 'error';
 
 export interface SessionTurnState {
@@ -137,6 +138,9 @@ export interface SessionTurnState {
   activeToolSummary?: string;
   pendingQuestionId?: string;
   errorMessage?: string;
+  /** True when the user has viewed this session after the turn ended (done/stopped/error).
+   *  Badge hides once read. Resets when a new turn starts (preparing). */
+  read?: boolean;
 }
 
 interface ChatState {
@@ -166,6 +170,8 @@ interface ChatState {
   oldestMessageId: string | null;
   /** Incremented when background refresh replaces messages — signals ChatPanel to scroll to bottom */
   scrollGeneration: number;
+  /** True while switching to a session and loading its messages from server */
+  sessionLoading: boolean;
 
   addMessage: (msg: ChatMessage) => void;
   updateAssistantById: (id: string, content: ContentBlock[]) => void;
@@ -201,12 +207,15 @@ interface ChatState {
   removeQueuedMessage: (sessionId: string, index: number) => void;
   clearSessionQueue: (sessionId: string) => void;
   setTurnPhase: (sessionId: string, phase: TurnPhase, meta?: Partial<Omit<SessionTurnState, 'phase'>>) => void;
+  /** Mark the turn badge as read (user viewed the session). Badge hides for done/stopped/error. */
+  markTurnRead: (sessionId: string) => void;
   clearTurnState: (sessionId: string) => void;
   setHasMoreMessages: (v: boolean) => void;
   setLoadingMoreMessages: (v: boolean) => void;
   setOldestMessageId: (id: string | null) => void;
   prependMessages: (msgs: ChatMessage[]) => void;
   bumpScrollGeneration: () => void;
+  setSessionLoading: (v: boolean) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -232,6 +241,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadingMoreMessages: false,
   oldestMessageId: null,
   scrollGeneration: 0,
+  sessionLoading: false,
 
   addMessage: (msg) => set((s) => {
     if (s.messages.some((m) => m.id === msg.id)) {
@@ -556,6 +566,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setTurnPhase: (sessionId, phase, meta = {}) => set((s) => {
     const prev = s.turnStateBySession[sessionId];
+    // Reset read flag when a new turn begins (preparing) so the badge shows again
+    const read = phase === 'preparing' ? false : (meta.read ?? prev?.read ?? false);
     return {
       turnStateBySession: {
         ...s.turnStateBySession,
@@ -570,7 +582,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
           activeToolSummary: meta.activeToolSummary ?? prev?.activeToolSummary,
           pendingQuestionId: meta.pendingQuestionId ?? prev?.pendingQuestionId,
           errorMessage: meta.errorMessage ?? (phase === 'error' ? prev?.errorMessage : undefined),
+          read,
         },
+      },
+    };
+  }),
+
+  markTurnRead: (sessionId) => set((s) => {
+    const prev = s.turnStateBySession[sessionId];
+    if (!prev || prev.read) return s; // no-op if already read or no state
+    return {
+      turnStateBySession: {
+        ...s.turnStateBySession,
+        [sessionId]: { ...prev, read: true },
       },
     };
   }),
@@ -586,4 +610,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setOldestMessageId: (id) => set({ oldestMessageId: id }),
   prependMessages: (msgs) => set((s) => ({ messages: [...msgs, ...s.messages] })),
   bumpScrollGeneration: () => set((s) => ({ scrollGeneration: s.scrollGeneration + 1 })),
+  setSessionLoading: (v) => set({ sessionLoading: v }),
 }));

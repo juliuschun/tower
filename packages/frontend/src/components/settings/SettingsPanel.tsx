@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSettingsStore, type LangId } from '../../stores/settings-store';
+import { useSettingsStore, type LangId, type FontSize } from '../../stores/settings-store';
 import { useSessionStore } from '../../stores/session-store';
 import { OAuthConnections } from './OAuthConnections';
 
@@ -31,6 +31,8 @@ export function SettingsPanel() {
   const setOpen = useSettingsStore((s) => s.setOpen);
   const language = useSettingsStore((s) => s.language);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+  const fontSize = useSettingsStore((s) => s.fontSize);
+  const setFontSize = useSettingsStore((s) => s.setFontSize);
   const isMobile = useSessionStore((s) => s.isMobile);
   const activeView = useSessionStore((s) => s.activeView);
   const setActiveView = useSessionStore((s) => s.setActiveView);
@@ -82,6 +84,31 @@ export function SettingsPanel() {
                   }`}
                 >
                   {lang === 'en' ? t('english') : t('korean')}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Font size selector */}
+          <section>
+            <h3 className="text-[12px] font-semibold text-surface-500 uppercase tracking-wider mb-3">{t('fontSize')}</h3>
+            <div className="flex gap-2">
+              {([
+                { id: 'small' as FontSize, label: t('fontSmall'), preview: 'A' },
+                { id: 'medium' as FontSize, label: t('fontMedium'), preview: 'A' },
+                { id: 'large' as FontSize, label: t('fontLarge'), preview: 'A' },
+              ]).map(({ id, label, preview }) => (
+                <button
+                  key={id}
+                  onClick={() => setFontSize(id)}
+                  className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all flex flex-col items-center gap-1 ${
+                    fontSize === id
+                      ? 'bg-surface-800 border-primary-500 text-primary-400'
+                      : 'bg-surface-900 border-surface-700 text-surface-500 hover:border-surface-600'
+                  }`}
+                >
+                  <span style={{ fontSize: id === 'small' ? '15px' : id === 'medium' ? '17px' : '20px' }}>{preview}</span>
+                  <span>{label}</span>
                 </button>
               ))}
             </div>

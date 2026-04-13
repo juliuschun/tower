@@ -482,9 +482,43 @@ code, pre, .font-mono {
 ::-webkit-scrollbar-thumb { background: var(--th-scrollbar-thumb); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--th-scrollbar-thumb-hover); }
 
+/* ─── Font Size Preferences ─── */
+:root, :root[data-font-size="medium"] {
+  --prose-font-size: 1.0625rem;            /* 17px */
+  --prose-font-size-mobile: 1rem;          /* 16px */
+  --prose-code-font-size: 0.875rem;        /* 14px */
+  --prose-code-font-size-mobile: 0.8125rem;/* 13px */
+  --input-font-size: 1.0625rem;            /* 17px */
+  --msg-font-size: 1.0625rem;              /* 17px */
+  --msg-sub-font-size: 0.875rem;           /* 14px */
+}
+:root[data-font-size="small"] {
+  --prose-font-size: 0.9375rem;            /* 15px */
+  --prose-font-size-mobile: 0.875rem;      /* 14px */
+  --prose-code-font-size: 0.8125rem;       /* 13px */
+  --prose-code-font-size-mobile: 0.75rem;  /* 12px */
+  --input-font-size: 0.9375rem;            /* 15px */
+  --msg-font-size: 0.9375rem;              /* 15px */
+  --msg-sub-font-size: 0.8125rem;          /* 13px */
+}
+:root[data-font-size="large"] {
+  --prose-font-size: 1.25rem;              /* 20px */
+  --prose-font-size-mobile: 1.125rem;      /* 18px */
+  --prose-code-font-size: 1rem;            /* 16px */
+  --prose-code-font-size-mobile: 0.9375rem;/* 15px */
+  --input-font-size: 1.25rem;              /* 20px */
+  --msg-font-size: 1.25rem;               /* 20px */
+  --msg-sub-font-size: 1rem;              /* 16px */
+}
+
+/* Font-size utility classes (follow user preference) */
+.text-input-size { font-size: var(--input-font-size); }
+.text-msg-size { font-size: var(--msg-font-size); }
+.text-msg-sub-size { font-size: var(--msg-sub-font-size); }
+
 /* ─── Markdown Prose ─── */
 .prose {
-  font-size: 0.9375rem; /* 15px */
+  font-size: var(--prose-font-size); /* default 15px */
   line-height: 1.75;
   color: var(--th-prose-body);
   overflow-wrap: break-word;      /* 긴 URL 등 줄바꿈 불가 문자열 강제 줄바꿈 */
@@ -527,7 +561,7 @@ code, pre, .font-mono {
   padding: 1rem 1.25rem;
   overflow-x: auto;
   margin: 0.75em 0;
-  font-size: 0.8125rem; /* 13px */
+  font-size: var(--prose-code-font-size); /* default 13px */
   line-height: 1.65;
   tab-size: 4;                                       /* 탭 폭 고정 */
   -moz-tab-size: 4;
@@ -717,10 +751,10 @@ code, pre, .font-mono {
 /* ─── Mobile prose size ─── */
 @media (max-width: 768px) {
   .prose {
-    font-size: 0.875rem;
+    font-size: var(--prose-font-size-mobile);
   }
   .prose pre {
-    font-size: 0.75rem;
+    font-size: var(--prose-code-font-size-mobile);
     padding: 0.75rem 1rem;
     border-radius: 8px;
     -webkit-overflow-scrolling: touch;

@@ -2,7 +2,7 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>Tower</title>
     <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
     <link rel="icon" type="image/png" href="/pwa-192x192.png" sizes="192x192" />
@@ -33,11 +33,13 @@
   </head>
   <body class="text-gray-100" style="font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', sans-serif; background-color: var(--th-bg-primary);">
     <script>
-      // Apply saved theme immediately to prevent flash
+      // Apply saved theme & font size immediately to prevent flash
       (function() {
         var t = localStorage.getItem('theme');
         if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', t);
+        var fs = localStorage.getItem('tower:font-size');
+        if (fs) document.documentElement.setAttribute('data-font-size', fs);
       })();
       // PWA service worker is managed by vite-plugin-pwa (registerType: 'autoUpdate')
       // Do NOT unregister here — it kills the PWA install prompt & offline caching

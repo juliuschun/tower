@@ -5,5 +5,9 @@
   "language": "언어",
   "english": "English",
   "korean": "한국어",
-  "theme": "테마"
+  "theme": "테마",
+  "fontSize": "글자 크기",
+  "fontSmall": "작게",
+  "fontMedium": "보통",
+  "fontLarge": "크게"
 }

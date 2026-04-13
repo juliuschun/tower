@@ -1,7 +1,7 @@
 {
   "claude": [
-    { "id": "claude-sonnet-4-6", "name": "Sonnet 4.6", "badge": "MAX", "enabled": true },
     { "id": "claude-opus-4-6", "name": "Opus 4.6", "badge": "MAX", "enabled": true },
+    { "id": "claude-sonnet-4-6", "name": "Sonnet 4.6", "badge": "MAX", "enabled": true },
     { "id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "badge": "MAX", "enabled": true }
   ],
   "pi": [

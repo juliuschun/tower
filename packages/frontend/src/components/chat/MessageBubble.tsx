@@ -165,7 +165,7 @@ export function MessageBubble({ message, onFileClick, onRetry, onCancelQueued, s
                 <span className="text-[11px] text-gray-500">{formatMessageTime(message.timestamp)}</span>
               )}
             </div>
-            <div className={`relative bg-surface-800/70 border rounded-2xl rounded-tr-sm px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+            <div className={`relative bg-surface-800/70 border rounded-2xl rounded-tr-sm px-4 py-3 text-msg-size leading-relaxed whitespace-pre-wrap ${
               message.sendStatus === 'failed'
                 ? 'border-red-500/40 bg-red-950/20'
                 : message.sendStatus === 'queued'

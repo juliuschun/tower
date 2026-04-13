@@ -22,6 +22,7 @@ interface HeaderProps {
   onHistoryClick?: () => void;
   onUsageClick?: () => void;
   onRequestFileTree?: () => void;
+  onSelectSession?: (session: import('../../stores/session-store').SessionMeta) => void;
   username?: string;
   userRole?: string;
   sidebarOpen?: boolean;
@@ -678,7 +679,7 @@ function AppMenu({
 export function Header({
   connected, onNewSession, onAdminClick, onPublishClick,
   onViewDiff, onLogout, onSettingsClick, onPinsClick, onHistoryClick, onUsageClick,
-  onRequestFileTree, username, userRole,
+  onRequestFileTree, onSelectSession, username, userRole,
 }: HeaderProps) {
   const { t } = useTranslation('layout');
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -735,7 +736,7 @@ export function Header({
         {/* Light/Dark toggle */}
         <ThemeToggle />
 
-        <NotificationBell />
+        <NotificationBell onSelectSession={onSelectSession} />
 
         {/* Connection indicator */}
         <div className={`w-2 h-2 rounded-full ring-2 ring-surface-900 ring-offset-1 ring-offset-transparent ${connected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse'}`}

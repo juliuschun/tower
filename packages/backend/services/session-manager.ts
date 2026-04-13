@@ -59,8 +59,8 @@ export async function getSessionPanelSessions(parentSessionId: string, userId: n
  *  so that sidebar "last used" times remain accurate. */
 const ACTIVITY_FIELDS = new Set(['cwd', 'claudeSessionId', 'totalCost', 'totalTokens', 'modelUsed', 'summary', 'summaryAtTurn', 'turnCount', 'filesEdited']);
 
-export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited' | 'visibility' | 'label'>>) {
-  const hasActivity = Object.keys(updates).some(k => ACTIVITY_FIELDS.has(k));
+export async function updateSession(id: string, updates: Partial<Pick<SessionMeta, 'name' | 'cwd' | 'claudeSessionId' | 'totalCost' | 'totalTokens' | 'tags' | 'favorite' | 'modelUsed' | 'autoNamed' | 'summary' | 'summaryAtTurn' | 'turnCount' | 'filesEdited' | 'visibility' | 'label' | 'engine'>>) {
+  const hasActivity = Object.keys(updates).some(k => ACTIVITY_FIELDS.has(k) && (updates as any)[k] !== undefined);
   const sets: string[] = hasActivity ? ['updated_at = CURRENT_TIMESTAMP'] : [];
   const values: any[] = [];
   let paramIndex = 1;
@@ -80,6 +80,7 @@ export async function updateSession(id: string, updates: Partial<Pick<SessionMet
   if (updates.filesEdited !== undefined) { sets.push(`files_edited = $${paramIndex++}`); values.push(JSON.stringify(updates.filesEdited)); }
   if (updates.visibility !== undefined) { sets.push(`visibility = $${paramIndex++}`); values.push(updates.visibility); }
   if ('label' in updates) { sets.push(`label = $${paramIndex++}`); values.push(updates.label || null); }
+  if (updates.engine !== undefined) { sets.push(`engine = $${paramIndex++}`); values.push(updates.engine); }
 
   values.push(id);
   await execute(`UPDATE sessions SET ${sets.join(', ')} WHERE id = $${paramIndex}`, values);
