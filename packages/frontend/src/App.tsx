@@ -56,30 +56,52 @@ const API_BASE = '/api';
 export const sessionMsgCache = new Map<string, import('./stores/chat-store').ChatMessage[]>();
 
 // 호버 프리페치: 세션에 마우스를 올리면 캐시가 비어있을 때 미리 로딩
-const prefetchingSet = new Set<string>(); // 중복 요청 방지
+// 안전장치: debounce 150ms + 동시 최대 2건 + LRU 캐시 50개
+const prefetchingSet = new Set<string>();
+const MAX_CONCURRENT_PREFETCH = 2;
+const MAX_CACHE_SIZE = 50;
+let prefetchTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function prefetchSessionMessages(sessionId: string) {
+  // 이미 캐시에 있거나 로딩 중이면 skip
   if (sessionMsgCache.has(sessionId) || prefetchingSet.has(sessionId)) return;
-  prefetchingSet.add(sessionId);
-  const token = localStorage.getItem('token');
-  const headers: Record<string, string> = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  fetch(`${API_BASE}/sessions/${sessionId}/messages?limit=500`, { headers })
-    .then(r => r.ok ? r.json() : null)
-    .then(data => {
-      if (!data) return;
-      const stored = data.messages ?? data;
-      if (stored?.length > 0) {
-        const msgs = stored.map((m: any) => ({
-          id: m.id, role: m.role,
-          content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
-          timestamp: new Date(m.created_at).getTime(),
-          parentToolUseId: m.parent_tool_use_id,
-        }));
-        sessionMsgCache.set(sessionId, msgs);
-      }
-    })
-    .catch(() => {})
-    .finally(() => prefetchingSet.delete(sessionId));
+  // 동시 요청 제한
+  if (prefetchingSet.size >= MAX_CONCURRENT_PREFETCH) return;
+
+  // 150ms debounce — 빠르게 스크롤해서 지나가는 세션은 무시
+  if (prefetchTimer) clearTimeout(prefetchTimer);
+  prefetchTimer = setTimeout(() => {
+    // 타이머 콜백 시점에 다시 체크 (hover가 이미 떠났을 수 있음)
+    if (sessionMsgCache.has(sessionId) || prefetchingSet.has(sessionId)) return;
+    if (prefetchingSet.size >= MAX_CONCURRENT_PREFETCH) return;
+
+    prefetchingSet.add(sessionId);
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(`${API_BASE}/sessions/${sessionId}/messages?limit=500`, { headers })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        const stored = data.messages ?? data;
+        if (stored?.length > 0) {
+          const msgs = stored.map((m: any) => ({
+            id: m.id, role: m.role,
+            content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
+            timestamp: new Date(m.created_at).getTime(),
+            parentToolUseId: m.parent_tool_use_id,
+          }));
+          // LRU eviction: 캐시가 꽉 차면 가장 오래된 항목 제거
+          if (sessionMsgCache.size >= MAX_CACHE_SIZE) {
+            const oldest = sessionMsgCache.keys().next().value;
+            if (oldest) sessionMsgCache.delete(oldest);
+          }
+          sessionMsgCache.set(sessionId, msgs);
+        }
+      })
+      .catch(() => {})
+      .finally(() => prefetchingSet.delete(sessionId));
+  }, 150);
 }
 
 function findEntry(entries: import('./stores/file-store').FileEntry[], path: string): import('./stores/file-store').FileEntry | null {
