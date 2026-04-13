@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, queryOne, execute, transaction, withClient } from '../db/pg-repo.js';
 import { config } from '../config.js';
 import type { SkillMeta, SkillScope } from '@tower/shared';
+import { syncSkillProviders } from './skill-credential.js';
 
 // ── Filesystem layout ──
 const DATA_SKILLS_DIR = path.join(path.dirname(config.dbPath), 'skills');
@@ -44,13 +45,19 @@ export async function seedBundledSkills(bundledDir: string): Promise<number> {
       const name = parseFrontmatterField(content, 'name') || entry.name;
       const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
 
-      await db.execute(`
+      const skillId = uuidv4();
+      const result = await db.queryOne<{ id: string }>(`
         INSERT INTO skill_registry (id, name, scope, description, category, content, source)
         VALUES ($1, $2, 'company', $3, 'general', $4, 'bundled')
         ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
         DO UPDATE SET content = excluded.content, description = excluded.description,
                       updated_at = CURRENT_TIMESTAMP
-      `, [uuidv4(), name, description, content]);
+        RETURNING id
+      `, [skillId, name, description, content]);
+      // Sync provider requirements from SKILL.md frontmatter
+      if (result?.id) {
+        await syncSkillProviders(result.id, content);
+      }
       count++;
     }
   });

@@ -289,6 +289,57 @@ router.post('/auth/oauth/:provider/test', authMiddleware, async (req, res) => {
   res.json(result);
 });
 
+// ───── Skill Credential Binding ─────
+
+import {
+  getUserConnections,
+  getUserSkillReadiness,
+  checkSkillReadiness,
+  getSkillProviders,
+  setSkillProviders,
+  PROVIDER_META,
+} from '../services/skill-credential.js';
+
+// My connections overview (all providers + connection status)
+router.get('/me/connections', authMiddleware, async (req, res) => {
+  const user = (req as any).user;
+  const connections = await getUserConnections(user.userId);
+  res.json(connections);
+});
+
+// My skill readiness (which skills I can/can't use due to missing credentials)
+router.get('/me/skill-readiness', authMiddleware, async (req, res) => {
+  const user = (req as any).user;
+  const readiness = await getUserSkillReadiness(user.userId);
+  res.json(readiness);
+});
+
+// Check readiness for a specific skill
+router.get('/skills/:id/readiness', authMiddleware, async (req, res) => {
+  const user = (req as any).user;
+  const readiness = await checkSkillReadiness(req.params.id as string, user.userId);
+  res.json(readiness);
+});
+
+// Get providers required by a skill
+router.get('/skills/:id/providers', authMiddleware, async (req, res) => {
+  const providers = await getSkillProviders(req.params.id as string);
+  res.json(providers);
+});
+
+// Set providers for a skill (admin only)
+router.put('/skills/:id/providers', authMiddleware, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  await setSkillProviders(req.params.id as string, req.body.providers ?? []);
+  res.json({ ok: true });
+});
+
+// Available provider types (for UI dropdowns)
+router.get('/providers', authMiddleware, (_req, res) => {
+  res.json(PROVIDER_META);
+});
+
 // ───── Public: Shared file viewer (no auth required) ─────
 const MIME_TYPES: Record<string, string> = {
   pdf: 'application/pdf',

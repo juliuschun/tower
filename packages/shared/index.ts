@@ -163,6 +163,29 @@ export interface SkillMeta {
   userId?: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Providers this skill requires (populated from skill_providers table) */
+  providers?: SkillProvider[];
+}
+
+export interface SkillProvider {
+  provider: string;       // 'google', 'kakao', 'slack', 'github', ...
+  required: boolean;
+  scopeHint: string;      // 'gmail.readonly gmail.send', etc.
+}
+
+export interface ConnectionStatus {
+  provider: string;
+  connected: boolean;
+  nickname?: string | null;
+  expiresAt?: number | null;   // Unix timestamp (ms)
+}
+
+export interface SkillReadiness {
+  skillId: string;
+  skillName: string;
+  ready: boolean;
+  missing: string[];     // providers not yet connected
+  providers: Array<SkillProvider & { connected: boolean }>;
 }
 
 // ── Git ──────────────────────────────────────────────────────────
