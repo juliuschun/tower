@@ -251,14 +251,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return { messages: [...s.messages, msg] };
   }),
 
-  updateAssistantById: (id, content) =>
-    set((s) => {
-      const idx = s.messages.findIndex((m) => m.id === id);
-      if (idx === -1) return s; // stale message — ignore
-      const msgs = [...s.messages];
-      msgs[idx] = { ...msgs[idx], content };
-      return { messages: msgs };
-    }),
+  // RAF-throttled: during fast streaming, multiple updateAssistantById calls
+  // within one animation frame are batched into a single Zustand state update.
+  // This prevents React from re-rendering 60+ times/sec when tokens arrive rapidly.
+  updateAssistantById: (() => {
+    let pending: Map<string, ContentBlock[]> | null = null;
+    let rafId: number | null = null;
+
+    return (id: string, content: ContentBlock[]) => {
+      if (!pending) pending = new Map();
+      pending.set(id, content);
+      if (rafId !== null) return; // already scheduled
+
+      rafId = requestAnimationFrame(() => {
+        const batch = pending!;
+        pending = null;
+        rafId = null;
+
+        set((s) => {
+          let changed = false;
+          const msgs = [...s.messages];
+          for (const [batchId, batchContent] of batch) {
+            const idx = msgs.findIndex((m) => m.id === batchId);
+            if (idx === -1) continue;
+            msgs[idx] = { ...msgs[idx], content: batchContent };
+            changed = true;
+          }
+          return changed ? { messages: msgs } : s;
+        });
+      });
+    };
+  })(),
 
   appendToLastAssistant: (block) =>
     set((s) => {

@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { useChatStore, type ChatMessage, type PendingQuestion, type TurnPhase } from '../../stores/chat-store';
+import { useChatStore, type ChatMessage, type ContentBlock, type PendingQuestion, type TurnPhase } from '../../stores/chat-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useAiPanelStore } from '../../stores/ai-panel-store';
 import { useSessionAwareModel, type ModelOption, getEngineFromModel } from '../../stores/model-store';
@@ -134,18 +134,19 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     return mergeConsecutiveAssistant(visible);
   }, [messages]);
 
-  // Per-message normalize cache: normalizeContentBlocks() was called on every
-  // renderMessage invocation, meaning each Virtuoso re-render re-normalized all
-  // visible assistant messages. Cache by content reference so it runs once per
-  // actual change. WeakMap auto-evicts when the message array is replaced.
-  const normalizeCache = useRef(new WeakMap<object, ChatMessage>());
+  // Per-message normalize cache keyed by message ID + content length + last-block snapshot.
+  // WeakMap<content array> doesn't work because content is a new array every time
+  // (Zustand immutable update). Instead use a Map<string, {contentRef, result}>.
+  const normalizeCache = useRef(new Map<string, { contentRef: ContentBlock[]; result: ChatMessage }>());
   const getNormalized = useCallback((msg: ChatMessage): ChatMessage => {
     if (msg.role !== 'assistant') return msg;
     const cache = normalizeCache.current;
-    const cached = cache.get(msg.content as unknown as object);
-    if (cached) return cached;
+    const entry = cache.get(msg.id);
+    // Same content array reference → cache hit (fast path for non-streaming messages)
+    if (entry && entry.contentRef === msg.content) return entry.result;
+    // Content changed: re-normalize
     const normalized = { ...msg, content: normalizeContentBlocks(msg.content) };
-    cache.set(msg.content as unknown as object, normalized);
+    cache.set(msg.id, { contentRef: msg.content, result: normalized });
     return normalized;
   }, []);
 
@@ -448,8 +449,9 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
             key={activeSessionId}
             ref={virtuosoRef}
             className="h-full"
-            style={{ willChange: 'transform' }}
+            style={{ overscrollBehavior: 'contain' }}
             data={mergedMessages}
+            computeItemKey={(_idx, item) => item.id}
             initialTopMostItemIndex={mergedMessages.length - 1}
             alignToBottom={true}
             itemContent={renderMessage}
@@ -490,7 +492,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
           {showJumpToLatest && (
             <button
               onClick={jumpToLatest}
-              className="absolute bottom-4 right-4 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-primary-600/90 hover:bg-primary-500 text-white shadow-lg border border-primary-400/40 backdrop-blur transition-all"
+              className="absolute bottom-4 right-4 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-primary-600 hover:bg-primary-500 text-white shadow-lg border border-primary-400/40 transition-colors"
               title="최신 메시지로 이동"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
