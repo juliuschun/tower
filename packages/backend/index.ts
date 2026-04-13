@@ -49,6 +49,16 @@ app.use('/api/auth', authLimiter);
 // API routes
 app.use('/api', apiRouter);
 
+// Gateway routes (full mode only — serves as Central Publish Gateway for managed customers)
+if (config.towerRole === 'full') {
+  import('./routes/gateway.js').then(({ default: gatewayRouter }) => {
+    app.use('/api/gateway', gatewayRouter);
+    console.log('[gateway] Central Publish Gateway enabled (TOWER_ROLE=full)');
+  }).catch(err => {
+    console.warn('[gateway] Failed to load gateway routes:', err.message);
+  });
+}
+
 // Serve frontend in production
 const frontendPath = config.frontendDir;
 if (fs.existsSync(frontendPath)) {

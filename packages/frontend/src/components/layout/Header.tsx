@@ -52,7 +52,7 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
     if (pgEnabled) list.push({ key: 'channel', label: t('channel'), badge: totalRoomUnread });
     list.push({ key: 'files', label: t('files') });
     list.push({ key: 'task', label: t('task') });
-    list.push({ key: 'schedule', label: '⏰' });
+    list.push({ key: 'schedule', label: t('schedule') });
     return list;
   }, [pgEnabled, totalRoomUnread, t]);
 

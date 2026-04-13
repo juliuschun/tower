@@ -5,6 +5,15 @@
 상태: Phase 0 + Phase 2 완료 / Phase 4는 보류
 범위: Tower frontend runtime, PWA update flow, deploy/restart recovery UX
 
+### 진행 요약
+업데이트/리로드 안정화 작업 진행했음.
+- buildId 기반 새 버전 감지 추가
+- chunk load error 시 1회 자동 reload 추가
+- 작업 중에는 UpdateBanner로 안내
+- `턴 끝나면 업데이트` 예약 가능
+- service worker update lifecycle 1차 연결
+- PWA precache에서 html 제외로 하드 리프레시 필요성 완화
+
 ---
 
 ## 1. 왜 이 문서를 쓰는가

@@ -3,20 +3,6 @@
   "domain": "",
   "updated_at": "",
   "sites": [],
-  "apps": [
-    {
-      "name": "hub",
-      "port": 32400,
-      "path": "/hub/",
-      "description": "Publishing Hub — site/app management dashboard",
-      "access": "private",
-      "health_path": "/hub/api/manifest",
-      "runtime": "node",
-      "exec": "/usr/bin/node server.js",
-      "working_dir": "",
-      "managed": false,
-      "created_at": ""
-    }
-  ],
+  "apps": [],
   "extra_locations": []
 }

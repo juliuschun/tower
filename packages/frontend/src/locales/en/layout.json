@@ -98,5 +98,6 @@
   "ungroupAll": "Ungroup all",
   "deleteDeck": "Delete deck",
   "deleteAll": "Delete all",
-  "archiveWarning": "{{count}} sessions will be archived. Continue?"
+  "archiveWarning": "{{count}} sessions will be archived. Continue?",
+  "schedule": "Schedule"
 }

@@ -3202,6 +3202,7 @@ router.get('/help/:slug', async (req, res) => {
 
 // ───── Publishing & Deploy Engine ─────
 import { deploy, listDeployments, deleteDeployment, detectCodeType, getPublishStatus, getTrafficStats } from '../services/deploy-engine.js';
+import { publishViaGateway } from '../services/publish-client.js';
 
 // Publish status (replaces Hub /health) — returns sites/apps with live status checks
 router.get('/publish/status', authMiddleware, async (_req, res) => {
@@ -3221,10 +3222,19 @@ router.get('/publish/stats', authMiddleware, async (_req, res) => {
 
 // Publish info — returns tower role + config for frontend UI
 router.get('/publish/info', authMiddleware, async (_req, res) => {
-  res.json({
+  const info: Record<string, unknown> = {
     role: config.towerRole,
     gatewayConfigured: config.towerRole === 'managed' && !!config.publishGatewayUrl,
-  });
+  };
+  // For managed mode, show gateway URL (not the key)
+  if (config.towerRole === 'managed' && config.publishGatewayUrl) {
+    info.gatewayUrl = config.publishGatewayUrl;
+  }
+  // For full mode, indicate gateway is serving
+  if (config.towerRole === 'full') {
+    info.gatewayEnabled = true;
+  }
+  res.json(info);
 });
 
 // Detect code type for a directory
@@ -3238,6 +3248,8 @@ router.post('/deploy/detect', authMiddleware, async (req, res) => {
 });
 
 // Deploy a site or app
+// When TOWER_ROLE=managed, routes through the Central Publish Gateway
+// When full/standalone, deploys directly via Cloudflare/Azure
 router.post('/deploy', authMiddleware, async (req, res) => {
   try {
     const { name, sourceDir, target, port, env, description } = req.body;
@@ -3248,8 +3260,15 @@ router.post('/deploy', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'name must be lowercase alphanumeric with hyphens' });
     }
 
-    const result = await deploy({ name, sourceDir, target, port, env, description });
-    res.json(result);
+    if (config.towerRole === 'managed') {
+      // Route through Central Publish Gateway
+      const result = await publishViaGateway({ name, sourceDir, type: undefined, target, port, description });
+      res.json(result);
+    } else {
+      // Direct deploy (full or standalone)
+      const result = await deploy({ name, sourceDir, target, port, env, description });
+      res.json(result);
+    }
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3412,6 +3431,83 @@ router.post('/proactive/fire', authMiddleware, async (req, res) => {
     res.json(result);
   } catch (err: any) {
     console.error('[proactive] Fire error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ───── Fleet Management (admin-only, internal) ─────
+import {
+  getCustomers, getCustomer, getFleetStatus, getVMStatus,
+  checkWorkspace, getLogs, remoteExec,
+} from '../services/fleet-manager.js';
+
+// List all customers
+router.get('/admin/fleet', adminMiddleware, async (_req, res) => {
+  try {
+    const customers = await getCustomers();
+    res.json(customers);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Full fleet status (SSHs into all VMs)
+router.get('/admin/fleet/status', adminMiddleware, async (_req, res) => {
+  try {
+    const status = await getFleetStatus();
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Single customer status
+router.get('/admin/fleet/:customer/status', adminMiddleware, async (req, res) => {
+  try {
+    const info = await getCustomer(req.params.customer as string);
+    if (!info) return res.status(404).json({ error: 'Customer not found' });
+    const status = await getVMStatus(info);
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Workspace health check
+router.get('/admin/fleet/:customer/workspace', adminMiddleware, async (req, res) => {
+  try {
+    const info = await getCustomer(req.params.customer as string);
+    if (!info) return res.status(404).json({ error: 'Customer not found' });
+    const check = await checkWorkspace(info);
+    res.json(check);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Logs
+router.get('/admin/fleet/:customer/logs', adminMiddleware, async (req, res) => {
+  try {
+    const info = await getCustomer(req.params.customer as string);
+    if (!info) return res.status(404).json({ error: 'Customer not found' });
+    const lines = parseInt(req.query.lines as string) || 30;
+    const logs = await getLogs(info, Math.min(lines, 200));
+    res.json({ logs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remote command execution
+router.post('/admin/fleet/:customer/exec', adminMiddleware, async (req, res) => {
+  try {
+    const info = await getCustomer(req.params.customer as string);
+    if (!info) return res.status(404).json({ error: 'Customer not found' });
+    const { command } = req.body;
+    if (!command) return res.status(400).json({ error: 'command required' });
+    const output = await remoteExec(info, command);
+    res.json({ output });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

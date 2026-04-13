@@ -46,6 +46,7 @@
 
 | 날짜 | 커밋 | 주요 변경 | 비고 |
 |------|------|----------|------|
+| 2026-04-13 | `3529b7fa` | Publishing Hub 제거→Backend 통합, TOWER_ROLE config, customer-servers.md, prefetch 최적화, font size, Proactive Agent/Inbox UX | Hub 의존성 완전 제거. "Hub not reachable" 에러 해소 |
 | 2026-04-13 | `9fdca6bb` | UI polish, turn badge read system, font size 설정, 스트리밍 스크롤 개선, Proactive Agent/Inbox UX | npm install + build + PM2 restart 정상 |
 | 2026-04-12 | `b3795f58` | Proactive Inbox UX, Proactive Agent, 스트리밍 스크롤 개선, turn-phase 모델, i18n 인프라, Usage 패널, local-engine, update coordinator | 대규모 업데이트. 126 files changed (+9422 -1511). DB 마이그레이션 2개 (021, 022) 포함 |
 | 2026-04-04 | `a0f0025` | 최초 배포 | VM 생성 → 전체 프로비저닝. 런북 기준 배포 |
@@ -54,6 +55,7 @@
 
 | 날짜 | 커밋 | 주요 변경 | 비고 |
 |------|------|----------|------|
+| 2026-04-13 | `3529b7fa` | Publishing Hub→Backend 통합, TOWER_ROLE, arch doc, 고객 가이드 | Phase 1+2 완료 |
 | 2026-04-13 | `9fdca6bb` | UI polish + turn badge read system | Dev + Prod 동시 반영 |
 
 ---

@@ -98,5 +98,6 @@
   "ungroupAll": "전체 그룹 해제",
   "deleteDeck": "덱 삭제",
   "deleteAll": "전체 삭제",
-  "archiveWarning": "{{count}}개 세션이 모두 아카이브됩니다. 계속할까요?"
+  "archiveWarning": "{{count}}개 세션이 모두 아카이브됩니다. 계속할까요?",
+  "schedule": "스케줄"
 }
