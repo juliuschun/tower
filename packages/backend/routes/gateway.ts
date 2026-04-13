@@ -123,7 +123,7 @@ router.post('/publish', gatewayUpload.single('file'), gatewayKeyAuth, async (req
     await fs.mkdir(extractDir, { recursive: true });
     await execFileAsync('tar', ['-xzf', file.path, '-C', extractDir], { timeout: 60_000 });
 
-    console.log(`[gateway] Deploying for ${customer.customer_name}: ${deployName} (type: ${detectedType})`);
+    console.log(`[gateway] Deploying for ${customer.customer_name}: ${deployName} (type: ${estimatedType})`);
 
     // Auto-detect type if not specified
     const finalType = type || await detectCodeType(extractDir);
