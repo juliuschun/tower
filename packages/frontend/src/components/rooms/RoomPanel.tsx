@@ -527,7 +527,7 @@ export function RoomPanel() {
               onKeyDown={handleKeyDown}
               placeholder={replyTo ? t('replyPlaceholder') : t('typeMessagePlaceholder')}
               rows={1}
-              className="flex-1 px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-[13px] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-primary-500/50 transition-colors resize-none max-h-32"
+              className="flex-1 px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-input-size text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-primary-500/50 transition-colors resize-none max-h-32"
               style={{ minHeight: '38px' }}
             />
             <button

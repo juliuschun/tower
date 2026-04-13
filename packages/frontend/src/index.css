@@ -779,6 +779,10 @@ code, pre, .font-mono {
   textarea {
     transform: translateZ(0);     /* promote to GPU layer */
   }
+  /* Prevent iOS Safari auto-zoom on input focus (requires ≥16px) */
+  input[type="text"], input[type="search"], textarea, select {
+    font-size: max(var(--input-font-size, 1rem), 16px) !important;
+  }
 }
 
 /* ─── Mermaid: prevent CJK text clipping inside nodes ─── */

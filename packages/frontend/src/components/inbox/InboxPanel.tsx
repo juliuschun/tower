@@ -520,7 +520,7 @@ function InboxCard({
               {lastMessage.role === 'user' ? 'You' : 'AI'}
             </span>
             {lastMessage.role === 'user' ? (
-              <div className="text-[13px] leading-relaxed whitespace-pre-wrap text-blue-300/80">
+              <div className="text-msg-sub-size leading-relaxed whitespace-pre-wrap text-blue-300/80">
                 {lastMessage.content}
               </div>
             ) : (
@@ -561,7 +561,7 @@ function InboxCard({
             onKeyDown={handleKeyDown}
             placeholder="Reply... (Enter to send)"
             rows={1}
-            className="flex-1 bg-transparent text-[13px] text-gray-300 placeholder-surface-600 resize-none outline-none py-1 leading-relaxed"
+            className="flex-1 bg-transparent text-input-size text-gray-300 placeholder-surface-600 resize-none outline-none py-1 leading-relaxed"
             style={{ maxHeight: '120px' }}
           />
           {replyText.trim() && (
