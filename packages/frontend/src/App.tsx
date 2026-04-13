@@ -40,6 +40,7 @@ import { useSpaceStore } from './stores/space-store'; // used via .getState()
 import { generateUUID } from './utils/uuid';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
+import { SchedulePanel } from './components/schedule/SchedulePanel';
 import { HistoryPanel } from './components/history/HistoryPanel';
 import { RoomPanel } from './components/rooms/RoomPanel';
 import { InboxPanel } from './components/inbox/InboxPanel';
@@ -1144,6 +1145,8 @@ function App() {
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
+                  ) : activeView === 'schedules' ? (
+                    <SchedulePanel />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (
@@ -1176,6 +1179,8 @@ function App() {
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
                     <KanbanBoard />
+                  ) : activeView === 'schedules' ? (
+                    <SchedulePanel />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (

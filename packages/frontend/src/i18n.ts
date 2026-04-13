@@ -14,6 +14,7 @@ import enHelp from './locales/en/help.json';
 import enGit from './locales/en/git.json';
 import enHistory from './locales/en/history.json';
 import enShare from './locales/en/share.json';
+import enSchedule from './locales/en/schedule.json';
 
 // -- Korean --
 import koCommon from './locales/ko/common.json';
@@ -28,6 +29,7 @@ import koHelp from './locales/ko/help.json';
 import koGit from './locales/ko/git.json';
 import koHistory from './locales/ko/history.json';
 import koShare from './locales/ko/share.json';
+import koSchedule from './locales/ko/schedule.json';
 
 export const defaultNS = 'common';
 export const resources = {
@@ -44,6 +46,7 @@ export const resources = {
     git: enGit,
     history: enHistory,
     share: enShare,
+    schedule: enSchedule,
   },
   ko: {
     common: koCommon,
@@ -58,6 +61,7 @@ export const resources = {
     git: koGit,
     history: koHistory,
     share: koShare,
+    schedule: koSchedule,
   },
 } as const;
 

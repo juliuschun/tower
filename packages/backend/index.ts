@@ -13,7 +13,7 @@ import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';
 import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from './services/task-runner.js';
 import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown, consumeInterruptedSessions, type InterruptedSession } from './services/claude-sdk.js';
-import { startScheduler, stopScheduler } from './services/task-scheduler.js';
+import { startUnifiedScheduler, stopUnifiedScheduler } from './services/unified-scheduler.js';
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/heartbeat.js';
 import { initNotificationHub } from './services/notification-hub.js';
 import { auditStaleSessions } from './services/session-manager.js';
@@ -138,8 +138,8 @@ server.listen(config.port, config.host, async () => {
   resumeOrphanedTaskMonitoring((type, payload) => broadcastToAll({ type, ...payload }));
   cleanupOrphanedSdkProcesses();
 
-  // Start scheduled-task poller (checks every 30s for due tasks)
-  startScheduler((type, payload) => broadcastToAll({ type, ...payload }));
+  // Start unified scheduler (checks every 30s for due schedules + legacy tasks)
+  startUnifiedScheduler((type, payload) => broadcastToAll({ type, ...payload }));
 
   // Initialize notification hub — routes notifications to specific users via WS
   const notifBroadcast = (type: string, data: any) => {
@@ -173,7 +173,7 @@ server.listen(config.port, config.host, async () => {
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
   gracefulShutdown('SIGINT');
-  stopScheduler();
+  stopUnifiedScheduler();
   stopHeartbeatScheduler();
   stopOrphanMonitor();
   stopAllMonitors();
@@ -185,7 +185,7 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   gracefulShutdown('SIGTERM');
-  stopScheduler();
+  stopUnifiedScheduler();
   stopHeartbeatScheduler();
   stopOrphanMonitor();
   stopAllMonitors();

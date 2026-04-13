@@ -79,6 +79,49 @@ export interface TaskMeta {
   userId: number | null;
 }
 
+// ── Schedule ────────────────────────────────────────────────────
+
+export interface ScheduleEntry {
+  id: string;
+  userId: number;
+  projectId: string | null;
+  name: string;
+  prompt: string;
+  model: string;
+  mode: 'spawn' | 'inject' | 'channel';
+  targetId: string | null;
+  triggerType: 'cron' | 'once';
+  cronConfig: ScheduleCronConfig | null;
+  onceAt: string | null;
+  enabled: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  runCount: number;
+  lastStatus: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduleCronConfig {
+  type: 'daily' | 'weekdays' | 'weekly' | 'interval';
+  hour?: number;
+  minute?: number;
+  day?: number;
+  hours?: number;
+}
+
+export interface ScheduleRun {
+  id: string;
+  scheduleId: string;
+  status: string;
+  mode: string;
+  resultId: string | null;
+  error: string | null;
+  durationMs: number | null;
+  ranAt: string;
+}
+
 // ── Space ───────────────────────────────────────────────────────
 
 export interface Space {

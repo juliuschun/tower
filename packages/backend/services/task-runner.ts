@@ -5,7 +5,7 @@ import { saveMessage, attachToolResultInDb } from './message-store.js';
 import { type TowerRole } from './damage-control.js';
 import { buildSystemPrompt } from './system-prompt.js';
 import { getUserAccessiblePaths, buildToolGuard } from './project-access.js';
-import { calculateNextRun } from './task-scheduler.js';
+import { calculateNextRun } from './unified-scheduler.js';
 import { buildWorkflowPrompt } from './workflow-prompts.js';
 import { createWorktree } from './worktree-manager.js';
 import { v4 as uuidv4 } from 'uuid';

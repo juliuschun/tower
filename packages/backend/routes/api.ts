@@ -3277,7 +3277,7 @@ router.delete('/deploy/:type/:name', authMiddleware, async (req, res) => {
 
 import {
   getSchedules, getSchedule, createSchedule, updateSchedule, deleteSchedule,
-  getScheduleRuns, runScheduleNow, type CronConfig,
+  getScheduleRuns, runScheduleNow,
 } from '../services/unified-scheduler.js';
 
 router.get('/schedules', authMiddleware, async (req, res) => {
@@ -3291,7 +3291,8 @@ router.get('/schedules', authMiddleware, async (req, res) => {
 
 router.get('/schedules/:id', authMiddleware, async (req, res) => {
   try {
-    const schedule = await getSchedule(req.params.id);
+    const id = req.params.id as string;
+    const schedule = await getSchedule(id);
     if (!schedule) return res.status(404).json({ error: 'not found' });
     res.json(schedule);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -3326,47 +3327,51 @@ router.post('/schedules', authMiddleware, async (req, res) => {
 
 router.patch('/schedules/:id', authMiddleware, async (req, res) => {
   try {
-    const existing = await getSchedule(req.params.id);
+    const id = req.params.id as string;
+    const existing = await getSchedule(id);
     if (!existing) return res.status(404).json({ error: 'not found' });
 
     const userId = (req as any).user?.userId;
     if (existing.userId !== userId) return res.status(403).json({ error: 'forbidden' });
 
-    const schedule = await updateSchedule(req.params.id, req.body);
+    const schedule = await updateSchedule(id, req.body);
     res.json(schedule);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/schedules/:id', authMiddleware, async (req, res) => {
   try {
-    const existing = await getSchedule(req.params.id);
+    const id = req.params.id as string;
+    const existing = await getSchedule(id);
     if (!existing) return res.status(404).json({ error: 'not found' });
 
     const userId = (req as any).user?.userId;
     if (existing.userId !== userId) return res.status(403).json({ error: 'forbidden' });
 
-    await deleteSchedule(req.params.id);
+    await deleteSchedule(id);
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/schedules/:id/run-now', authMiddleware, async (req, res) => {
   try {
-    const existing = await getSchedule(req.params.id);
+    const id = req.params.id as string;
+    const existing = await getSchedule(id);
     if (!existing) return res.status(404).json({ error: 'not found' });
 
     const userId = (req as any).user?.userId;
     if (existing.userId !== userId) return res.status(403).json({ error: 'forbidden' });
 
-    const result = await runScheduleNow(req.params.id);
+    const result = await runScheduleNow(id);
     res.json(result);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/schedules/:id/runs', authMiddleware, async (req, res) => {
   try {
+    const id = req.params.id as string;
     const limit = parseInt(req.query.limit as string) || 20;
-    const runs = await getScheduleRuns(req.params.id, Math.min(limit, 100));
+    const runs = await getScheduleRuns(id, Math.min(limit, 100));
     res.json(runs);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

@@ -52,11 +52,13 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
     if (pgEnabled) list.push({ key: 'channel', label: t('channel'), badge: totalRoomUnread });
     list.push({ key: 'files', label: t('files') });
     list.push({ key: 'task', label: t('task') });
+    list.push({ key: 'schedule', label: '⏰' });
     return list;
   }, [pgEnabled, totalRoomUnread, t]);
 
   // Determine active key
   const activeKey = activeView === 'kanban' ? 'task'
+    : activeView === 'schedules' ? 'schedule'
     : activeView === 'rooms' ? 'channel'
     : activeView === 'files' ? 'files'
     : 'ai';
@@ -91,6 +93,13 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
           setActiveView('chat'); store.setSidebarOpen(true);
         } else {
           setActiveView('kanban'); store.setSidebarOpen(false);
+        }
+        break;
+      case 'schedule':
+        if (activeView === 'schedules') {
+          setActiveView('chat'); store.setSidebarOpen(true);
+        } else {
+          setActiveView('schedules'); store.setSidebarOpen(false);
         }
         break;
     }
