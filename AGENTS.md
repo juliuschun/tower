@@ -148,6 +148,27 @@ API 키, 토큰, 시크릿 등 민감 데이터가 필요할 때 사용자에게
 - 이미 존재하는 키는 업데이트, 새 키는 append
 - 위젯 출력 전후로 간단한 설명을 함께 제공할 것 (왜 이 키가 필요한지)
 
+## Customer Server Management — 고객 서버 관리
+
+Tower를 고객 전용 Azure VM에 배포·운영한다. 서버 추가/업데이트/장애 대응 시 아래 문서를 참조.
+
+| 문서 | 위치 | 내용 |
+|------|------|------|
+| **서버 레지스트리 & 운영 로그** | `docs/customer-servers.md` | 전체 서버 목록, 버전, 배포 이력, 장애 기록 |
+| **배포 런북** | `docs/azure-customer-deployment-runbook.md` | 신규 고객 배포 step-by-step (VM 생성 → 인증 → 스킬) |
+| **배포 가이드 (요약)** | `docs/azure-prod-deployment.md` | 배포 아키텍처 + 스크립트 사용법 |
+| **스킬 프로필** | `claude-skills/skills/library/library.yaml` | 고객별 스킬 세트 (customer-basic / customer-full) |
+
+**업데이트 배포 절차** (기존 고객 서버):
+```bash
+ssh toweradmin@<IP> "cd ~/tower && git pull origin main && npm install && ./start.sh prod-restart"
+```
+
+**규칙**:
+- 서버 추가/변경 시 반드시 `docs/customer-servers.md`에 기록
+- 배포 후 버전과 날짜를 운영 로그에 추가
+- 장애 발생 시 원인·해결을 로그에 남겨 다음에 재발 방지
+
 ## Communication Style
 
 When explaining architecture, systems, or technical decisions — use plain language and everyday analogies, as if explaining to a smart non-developer. Avoid jargon. If a technical term is necessary, explain it in one sentence right after. Default to the simplest possible explanation first, then add detail only if asked.
