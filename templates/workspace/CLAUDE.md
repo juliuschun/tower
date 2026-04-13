@@ -3,6 +3,18 @@
 This directory is the **team brain** — decisions, docs, and project outputs.
 It is *not* a code project. For code-specific rules, see each repo's own CLAUDE.md.
 
+## Tower 제품 가이드
+
+사용자가 Tower 사용법, 기능, 스킬, 시각화, 권한 등을 물으면 `guide/tower-knowledge.md`를 참조하여 답변하세요.
+- 기능 질문 → `guide/tower-knowledge.md`
+- 시작 방법 → `guide/getting-started.md`
+- 활용 팁 → `guide/tips.md`
+
+사용자가 "뭘 할 수 있어?", "도움말", "기능 목록", "스킬 목록" 등을 물으면:
+- 설치된 스킬과 각 1줄 설명을 보여주세요
+- 시각화 기능 예시를 포함하세요
+- "이런 것도 할 수 있어요" 식으로 구체적 예시를 들어주세요
+
 ## Directory Structure
 
 ```
