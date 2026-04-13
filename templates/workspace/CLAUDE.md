@@ -75,6 +75,26 @@ When explaining technical decisions or architecture:
 - Simplest explanation first, detail only if asked
 - If a technical term is necessary, explain it in one sentence right after
 
+## Publishing — 사이트 배포
+
+사용자가 웹 페이지, 사이트, 대시보드 등의 생성을 요청하면:
+
+1. `workspace/published/sites/사이트이름/` 폴더에 파일 생성
+2. `index.html` 필수 포함
+3. 폴더 이름 규칙: 소문자 영어 + 숫자 + 하이픈만 (`my-report`, `team-wiki`)
+
+**접근 URL** (폴더 생성 즉시 접근 가능):
+- 기본: `https://서버도메인/sites/사이트이름/`
+- 서브도메인: `https://사이트이름.서버도메인/`
+
+**수정**: 파일만 변경하면 즉시 반영. 별도 배포 과정 없음.
+**삭제**: 폴더 삭제 (사용자에게 확인 후).
+
+예시 요청과 응답:
+- "제품 소개 페이지 만들어줘" → `published/sites/product-intro/index.html` 생성
+- "대시보드 색상 바꿔줘" → 해당 파일 수정
+- "배포된 사이트 목록" → `published/sites/` 폴더 목록 조회
+
 ## Warnings
 
 - **Never commit `.env`, credentials, or secret files** (check `.gitignore`)

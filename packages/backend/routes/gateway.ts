@@ -335,4 +335,72 @@ router.get('/deploys', authMiddleware, adminMiddleware, async (req: Request, res
   }
 });
 
+// ══════════════════════════════════════════════════════
+// DNS Management (admin only)
+// ══════════════════════════════════════════════════════
+import {
+  createWildcardForCustomer, getCustomerDnsStatus,
+  listCustomerWildcards, removeCustomerDns,
+} from '../services/cloudflare-dns.js';
+
+/** POST /api/gateway/customers/:id/setup-dns — Create wildcard DNS for customer */
+router.post('/customers/:id/setup-dns', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const customer = await queryOne<GatewayCustomer>(`SELECT * FROM gateway_customers WHERE id = $1`, [id]);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    const { ip } = req.body;
+    if (!ip) return res.status(400).json({ error: 'ip is required (customer VM IP address)' });
+
+    const result = await createWildcardForCustomer(customer.customer_name, ip);
+    res.json({
+      customer: customer.customer_name,
+      domain: `*.${customer.customer_name}.moatai.app`,
+      ip,
+      ...result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/gateway/customers/:id/dns — Check DNS status for customer */
+router.get('/customers/:id/dns', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const customer = await queryOne<GatewayCustomer>(`SELECT * FROM gateway_customers WHERE id = $1`, [id]);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    const status = await getCustomerDnsStatus(customer.customer_name);
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/gateway/customers/:id/dns — Remove customer DNS records */
+router.delete('/customers/:id/dns', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const customer = await queryOne<GatewayCustomer>(`SELECT * FROM gateway_customers WHERE id = $1`, [id]);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    const result = await removeCustomerDns(customer.customer_name);
+    res.json({ customer: customer.customer_name, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/gateway/dns/wildcards — List all customer wildcard DNS records */
+router.get('/dns/wildcards', authMiddleware, adminMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const wildcards = await listCustomerWildcards();
+    res.json(wildcards);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

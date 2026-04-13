@@ -158,6 +158,7 @@ Tower를 고객 전용 Azure VM에 배포·운영한다. 서버 추가/업데이
 | **배포 런북** | `docs/azure-customer-deployment-runbook.md` | 신규 고객 배포 step-by-step (VM 생성 → 인증 → 스킬) |
 | **배포 가이드 (요약)** | `docs/azure-prod-deployment.md` | 배포 아키텍처 + 스크립트 사용법 |
 | **스킬 프로필** | `claude-skills/skills/library/library.yaml` | 고객별 스킬 세트 (customer-basic / customer-full) |
+| **Publishing 가이드** | `docs/publishing-guide.md` | 사이트 배포 + 도메인 + 고객 안내 전체 가이드 |
 | **Publishing 재설계** | `docs/plans/arch_0413_publish-gateway-redesign.md` | TOWER_ROLE 기반 배포 아키텍처 (Hub→Backend 통합, Gateway) |
 | **배포 엔진 (기존)** | `docs/deploy-engine.md` | Cloudflare Pages + Azure Container Apps 배포 흐름 |
 
