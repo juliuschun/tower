@@ -531,6 +531,101 @@ export async function runScheduleNow(id: string): Promise<{ resultId: string | n
   }
 }
 
+// ── Automations table tick (new unified table) ──
+
+async function tickAutomations() {
+  if (!broadcastRef) return;
+
+  try {
+    const now = new Date().toISOString();
+    const dueRows = await query<any>(`
+      SELECT * FROM automations
+      WHERE enabled = true
+        AND trigger_type IN ('cron', 'once')
+        AND next_run_at IS NOT NULL
+        AND next_run_at <= $1
+        AND status != 'archived'
+      ORDER BY next_run_at ASC
+      LIMIT $2
+    `, [now, MAX_PER_TICK]);
+
+    if (dueRows.length === 0) return;
+
+    console.log(`[unified-scheduler] Found ${dueRows.length} due automation(s)`);
+
+    // Import automation-manager dynamically to avoid circular deps
+    const { advanceSchedule: advanceAuto, logRun: logAutoRun } = await import('./automation-manager.js');
+
+    for (const row of dueRows) {
+      const startTime = Date.now();
+      const mode = row.mode || 'spawn';
+      const autoEntry: ScheduleEntry = {
+        id: row.id,
+        userId: row.user_id,
+        projectId: row.project_id || null,
+        name: row.name,
+        prompt: row.prompt || row.description || row.name,
+        model: row.model || 'claude-sonnet-4-6',
+        mode,
+        targetId: row.target_id || null,
+        triggerType: row.trigger_type || 'cron',
+        cronConfig: row.cron_config || null,
+        onceAt: row.once_at || null,
+        enabled: row.enabled ?? true,
+        nextRunAt: row.next_run_at || null,
+        lastRunAt: row.last_run_at || null,
+        runCount: row.run_count || 0,
+        lastStatus: row.last_status || null,
+        lastError: row.last_error || null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+
+      try {
+        let resultId: string | null = null;
+
+        switch (mode) {
+          case 'spawn':
+            resultId = await executeSpawn(autoEntry);
+            break;
+          case 'inject':
+            resultId = await executeInject(autoEntry);
+            break;
+          case 'channel':
+            resultId = await executeChannel(autoEntry);
+            break;
+          default:
+            throw new Error(`Unknown mode: ${mode}`);
+        }
+
+        const durationMs = Date.now() - startTime;
+        await logAutoRun(row.id, 'success', mode, resultId, null, durationMs);
+        // Advance using automations table
+        await advanceAuto({
+          id: row.id,
+          triggerType: autoEntry.triggerType as any,
+          cronConfig: autoEntry.cronConfig as any,
+        } as any, 'success', null);
+
+        console.log(`[unified-scheduler] ✓ automation ${mode} "${row.name}" (${durationMs}ms)`);
+
+      } catch (err: any) {
+        const durationMs = Date.now() - startTime;
+        await logAutoRun(row.id, 'failed', mode, null, err.message, durationMs);
+        await advanceAuto({
+          id: row.id,
+          triggerType: autoEntry.triggerType as any,
+          cronConfig: autoEntry.cronConfig as any,
+        } as any, 'failed', err.message);
+
+        console.error(`[unified-scheduler] ✗ automation ${mode} "${row.name}":`, err.message);
+      }
+    }
+  } catch (err: any) {
+    console.error('[unified-scheduler] Automations tick error:', err.message);
+  }
+}
+
 // ── Lifecycle ──
 
 export function startUnifiedScheduler(broadcast: BroadcastFn): void {
@@ -544,10 +639,12 @@ export function startUnifiedScheduler(broadcast: BroadcastFn): void {
   // Run first tick immediately
   tick();
   tickLegacyTasks();
+  tickAutomations();
 
   tickTimer = setInterval(() => {
     tick();
     tickLegacyTasks();
+    tickAutomations();
   }, TICK_INTERVAL);
 
   console.log(`[unified-scheduler] Started (interval=${TICK_INTERVAL / 1000}s)`);

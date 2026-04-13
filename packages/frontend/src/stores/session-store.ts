@@ -39,7 +39,7 @@ interface SessionState {
   mobileTab: MobileTab;
   mobileContextOpen: boolean;
   mobileTabBeforeContext: MobileTab;  // 파일 열기 전 탭 기억 (뒤로가기용)
-  activeView: 'chat' | 'kanban' | 'history' | 'rooms' | 'files' | 'inbox' | 'usage' | 'schedules';
+  activeView: 'chat' | 'kanban' | 'history' | 'rooms' | 'files' | 'inbox' | 'usage' | 'schedules' | 'automations';
 
   // Inbox → ChatPanel pending reply queue (set in InboxPanel, consumed in ChatPanel)
   pendingReplies: Record<string, string>;
@@ -66,7 +66,7 @@ interface SessionState {
   setMobileContextOpen: (v: boolean) => void;
   openMobileContext: () => void;   // 현재 탭 기억하고 context panel 열기
   closeMobileContext: (fromPopState?: boolean) => void;  // 기억한 탭으로 복귀
-  setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms' | 'files' | 'inbox' | 'usage' | 'schedules') => void;
+  setActiveView: (view: 'chat' | 'kanban' | 'history' | 'rooms' | 'files' | 'inbox' | 'usage' | 'schedules' | 'automations') => void;
 }
 
 // Detect mobile at store creation to avoid first-render layout flash

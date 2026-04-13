@@ -52,13 +52,14 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
     if (pgEnabled) list.push({ key: 'channel', label: t('channel'), badge: totalRoomUnread });
     list.push({ key: 'files', label: t('files') });
     list.push({ key: 'task', label: t('task') });
-    list.push({ key: 'schedule', label: t('schedule') });
+    list.push({ key: 'automation', label: t('automation') });
     return list;
   }, [pgEnabled, totalRoomUnread, t]);
 
   // Determine active key
   const activeKey = activeView === 'kanban' ? 'task'
-    : activeView === 'schedules' ? 'schedule'
+    : activeView === 'schedules' ? 'automation'
+    : activeView === 'automations' ? 'automation'
     : activeView === 'rooms' ? 'channel'
     : activeView === 'files' ? 'files'
     : 'ai';
@@ -95,11 +96,11 @@ function NavTabs({ onRequestFileTree }: { onRequestFileTree?: () => void }) {
           setActiveView('kanban'); store.setSidebarOpen(false);
         }
         break;
-      case 'schedule':
-        if (activeView === 'schedules') {
+      case 'automation':
+        if (activeView === 'automations') {
           setActiveView('chat'); store.setSidebarOpen(true);
         } else {
-          setActiveView('schedules'); store.setSidebarOpen(false);
+          setActiveView('automations'); store.setSidebarOpen(false);
         }
         break;
     }

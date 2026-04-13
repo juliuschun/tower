@@ -41,6 +41,7 @@ import { generateUUID } from './utils/uuid';
 import { toastSuccess, toastError } from './utils/toast';
 import { KanbanBoard } from './components/kanban/KanbanBoard';
 import { SchedulePanel } from './components/schedule/SchedulePanel';
+import { AutomationPanel } from './components/automation/AutomationPanel';
 import { HistoryPanel } from './components/history/HistoryPanel';
 import { RoomPanel } from './components/rooms/RoomPanel';
 import { InboxPanel } from './components/inbox/InboxPanel';
@@ -1147,6 +1148,8 @@ function App() {
                     <KanbanBoard />
                   ) : activeView === 'schedules' ? (
                     <SchedulePanel />
+                  ) : activeView === 'automations' ? (
+                    <AutomationPanel />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (
@@ -1181,6 +1184,8 @@ function App() {
                     <KanbanBoard />
                   ) : activeView === 'schedules' ? (
                     <SchedulePanel />
+                  ) : activeView === 'automations' ? (
+                    <AutomationPanel />
                   ) : activeView === 'history' ? (
                     <HistoryPanel />
                   ) : activeView === 'inbox' ? (

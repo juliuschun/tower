@@ -122,6 +122,81 @@ export interface ScheduleRun {
   ranAt: string;
 }
 
+// ── Automation ──────────────────────────────────────────────────
+
+export type AutomationMode = 'spawn' | 'inject' | 'channel';
+export type AutomationTrigger = 'manual' | 'cron' | 'once' | 'event';
+export type AutomationStatus = 'idle' | 'running' | 'done' | 'failed' | 'archived';
+
+export interface Automation {
+  id: string;
+  userId: number;
+  projectId: string | null;
+  name: string;
+  description: string;
+  prompt: string;
+  model: string;
+  workflow: string;
+  mode: AutomationMode;
+  targetId: string | null;
+  cwd: string | null;
+  triggerType: AutomationTrigger;
+  cronConfig: AutomationCronConfig | null;
+  onceAt: string | null;
+  status: AutomationStatus;
+  enabled: boolean;
+  sortOrder: number;
+  sessionId: string | null;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  runCount: number;
+  lastStatus: string | null;
+  lastError: string | null;
+  progressSummary: string[];
+  todoSnapshot: TodoItem[] | null;
+  parentId: string | null;
+  worktreePath: string | null;
+  roomId: string | null;
+  triggeredBy: number | null;
+  roomMessageId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface AutomationCronConfig {
+  type: 'daily' | 'weekdays' | 'weekly' | 'interval';
+  hour?: number;
+  minute?: number;
+  day?: number;
+  hours?: number;
+}
+
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  status: string;
+  mode: string;
+  resultId: string | null;
+  error: string | null;
+  durationMs: number | null;
+  ranAt: string;
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  nameKo: string;
+  description: string;
+  descriptionKo: string;
+  icon: string;
+  defaultTrigger: AutomationTrigger;
+  defaultMode: AutomationMode;
+  defaultCron?: AutomationCronConfig;
+  promptTemplate: string;
+  category: 'research' | 'development' | 'operations' | 'communication';
+}
+
 // ── Space ───────────────────────────────────────────────────────
 
 export interface Space {
