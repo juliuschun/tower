@@ -34,7 +34,7 @@ interface PublishPanelProps {
   onClose: () => void;
 }
 
-const HUB_BASE = '/hub/api';
+const API_BASE = '/api/publish';
 const PUBLIC_HOST = window.location.host;
 
 export function PublishPanel({ open, onClose }: PublishPanelProps) {
@@ -55,19 +55,19 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
     setError('');
     try {
       const headers = authHeaders();
-      const [healthRes, statsRes] = await Promise.all([
-        fetch(`${HUB_BASE}/health`, { headers }),
-        fetch(`${HUB_BASE}/stats`, { headers }),
+      const [statusRes, statsRes] = await Promise.all([
+        fetch(`${API_BASE}/status`, { headers }),
+        fetch(`${API_BASE}/stats`, { headers }),
       ]);
-      if (healthRes.status === 401) throw new Error('Login required');
-      if (!healthRes.ok) throw new Error('Hub not reachable');
-      const health = await healthRes.json();
+      if (statusRes.status === 401) throw new Error('Login required');
+      if (!statusRes.ok) throw new Error('Publishing service unavailable');
+      const health = await statusRes.json();
       const stats = await statsRes.json().catch(() => []);
       setSites(health.sites || []);
       setApps(health.apps || []);
       setTraffic(stats || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect to Publishing Hub');
+      setError(err instanceof Error ? err.message : 'Failed to load publish status');
     } finally {
       setLoading(false);
     }
@@ -127,17 +127,6 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={`http://${PUBLIC_HOST}/hub/`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-gray-400 hover:text-gray-200 bg-neutral-800 hover:bg-neutral-700 rounded-md transition-colors"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              Open Full Dashboard
-            </a>
             <button
               onClick={fetchData}
               disabled={loading}

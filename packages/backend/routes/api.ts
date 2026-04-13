@@ -3098,8 +3098,32 @@ router.get('/help/:slug', async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ───── Deploy Engine ─────
-import { deploy, listDeployments, deleteDeployment, detectCodeType } from '../services/deploy-engine.js';
+// ───── Publishing & Deploy Engine ─────
+import { deploy, listDeployments, deleteDeployment, detectCodeType, getPublishStatus, getTrafficStats } from '../services/deploy-engine.js';
+
+// Publish status (replaces Hub /health) — returns sites/apps with live status checks
+router.get('/publish/status', authMiddleware, async (_req, res) => {
+  try {
+    const status = await getPublishStatus();
+    res.json(status);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Publish traffic stats (replaces Hub /stats) — parses nginx access log
+router.get('/publish/stats', authMiddleware, async (_req, res) => {
+  try {
+    const stats = await getTrafficStats();
+    res.json(stats);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Publish info — returns tower role + config for frontend UI
+router.get('/publish/info', authMiddleware, async (_req, res) => {
+  res.json({
+    role: config.towerRole,
+    gatewayConfigured: config.towerRole === 'managed' && !!config.publishGatewayUrl,
+  });
+});
 
 // Detect code type for a directory
 router.post('/deploy/detect', authMiddleware, async (req, res) => {

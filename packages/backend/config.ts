@@ -194,6 +194,16 @@ export const config = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
 
+  // Tower role: determines publishing behavior and feature set
+  // 'full'       — Moat AI internal: all features + Publish Gateway server
+  // 'managed'    — Customer server: publishes via central Gateway (no local credentials needed)
+  // 'standalone' — Self-hosted: customer manages their own Cloudflare/Azure credentials
+  towerRole: (process.env.TOWER_ROLE || 'standalone') as 'full' | 'managed' | 'standalone',
+
+  // Publish Gateway (managed mode only)
+  publishGatewayUrl: process.env.PUBLISH_GATEWAY_URL || '',
+  publishApiKey: process.env.PUBLISH_API_KEY || '',
+
   // Server epoch — changes on each restart, used to detect server restarts
   serverEpoch: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
 };
@@ -205,6 +215,12 @@ export function validateConfig() {
     console.error('  Run: openssl rand -hex 32');
     console.error('  Then set JWT_SECRET in .env\n');
     process.exit(1);
+  }
+
+  // Log tower role
+  console.log(`[config] TOWER_ROLE=${config.towerRole}`);
+  if (config.towerRole === 'managed' && !config.publishGatewayUrl) {
+    console.warn('[config] TOWER_ROLE=managed but PUBLISH_GATEWAY_URL is not set. External publishing will be unavailable.');
   }
 }
 

@@ -9,6 +9,7 @@ import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
+import http from 'http';
 import { config } from '../config.js';
 
 const execFileAsync = promisify(execFile);
@@ -478,6 +479,104 @@ export async function deploy(opts: DeployOptions): Promise<DeployResult> {
   }
 
   return result;
+}
+
+// ── Publish Status (replaces Hub /health) ──
+
+interface SiteStatus extends ManifestSite {
+  status: 'live' | 'empty' | 'missing';
+  files: number;
+}
+
+interface AppStatus extends ManifestApp {
+  status: 'up' | 'down' | 'timeout' | 'no-port' | 'external';
+  statusCode?: number;
+}
+
+async function checkSiteExists(name: string): Promise<{ status: string; files: number }> {
+  const siteDir = path.join(PUBLISHED_DIR(), 'sites', name);
+  try {
+    const entries = await fs.readdir(siteDir);
+    const files = entries.filter(f => !f.startsWith('.')).length;
+    return { status: files > 0 ? 'live' : 'empty', files };
+  } catch {
+    return { status: 'missing', files: 0 };
+  }
+}
+
+async function checkAppHealth(app: ManifestApp): Promise<{ status: string; statusCode?: number }> {
+  // External deployments — we can't health-check from localhost
+  if (app.external_url) {
+    return { status: 'external' };
+  }
+  if (!app.port) {
+    return { status: 'no-port' };
+  }
+
+  return new Promise((resolve) => {
+    const healthPath = (app as any).health_path || '/';
+    const req = http.get(
+      `http://localhost:${app.port}${healthPath}`,
+      { timeout: 3000 },
+      (res) => {
+        resolve({ status: 'up', statusCode: res.statusCode });
+        res.resume(); // drain
+      },
+    );
+    req.on('error', () => resolve({ status: 'down' }));
+    req.on('timeout', () => { req.destroy(); resolve({ status: 'timeout' }); });
+  });
+}
+
+export async function getPublishStatus(): Promise<{ sites: SiteStatus[]; apps: AppStatus[] }> {
+  const manifest = await readManifest();
+
+  const sites: SiteStatus[] = await Promise.all(
+    manifest.sites.map(async (s) => {
+      const check = await checkSiteExists(s.name);
+      return { ...s, status: check.status as SiteStatus['status'], files: check.files };
+    }),
+  );
+
+  const apps: AppStatus[] = await Promise.all(
+    manifest.apps.map(async (a) => {
+      const check = await checkAppHealth(a);
+      return { ...a, status: check.status as AppStatus['status'], statusCode: check.statusCode };
+    }),
+  );
+
+  return { sites, apps };
+}
+
+// ── Traffic Stats (replaces Hub /stats) ──
+
+interface TrafficEntry {
+  hits: number;
+  path: string;
+}
+
+export async function getTrafficStats(): Promise<TrafficEntry[]> {
+  try {
+    const { stdout } = await execFileAsync('tail', ['-1000', '/var/log/nginx/access.log'], { timeout: 5000 });
+    const pathCounts: Record<string, number> = {};
+    for (const line of stdout.split('\n')) {
+      // nginx combined log: ... "GET /path HTTP/1.1" ...
+      const match = line.match(/"(?:GET|POST|PUT|DELETE|PATCH)\s+([^\s"]+)/);
+      if (match) {
+        const p = match[1].split('?')[0]; // strip query string
+        // Only count published sites/apps paths
+        if (p.startsWith('/sites/') || p.startsWith('/apps/')) {
+          pathCounts[p] = (pathCounts[p] || 0) + 1;
+        }
+      }
+    }
+    return Object.entries(pathCounts)
+      .map(([p, hits]) => ({ path: p, hits }))
+      .sort((a, b) => b.hits - a.hits)
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
 }
 
 // ── List Deployments ──

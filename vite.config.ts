@@ -45,7 +45,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB
         globPatterns: ['**/*.{js,css,ico,png,svg,woff2}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/valuelens/, /^\/hub\//, /^\/edge\//, /^\/pulse\//, /^\/miroball\//, /^\/text2sql\//, /^\/collectors\//, /^\/sites\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/valuelens/, /^\/edge\//, /^\/pulse\//, /^\/miroball\//, /^\/text2sql\//, /^\/collectors\//, /^\/sites\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,
@@ -76,7 +76,6 @@ export default defineConfig({
         target: 'ws://localhost:32355',
         ws: true,
       },
-      '/hub': 'http://localhost:32400',
       '/sites': 'http://localhost:80',
     },
   },
