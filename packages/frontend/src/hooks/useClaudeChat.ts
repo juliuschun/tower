@@ -212,6 +212,10 @@ export function useClaudeChat() {
   const sendRef = useRef<(data: any) => void>(() => {});
   const serverEpochRef = useRef<string | null>(null);
   const lastConnectTs = useRef<number>(0);
+  // Track if session was streaming before a server restart (epoch change).
+  // The 'connected' handler clears isStreaming, so reconnect_result can't detect it.
+  // This ref bridges the gap so DB message recovery still works.
+  const serverRestartWasStreaming = useRef(false);
 
   const {
     addMessage, setStreaming, setSessionId, setClaudeSessionId, setEngineSessionId,
@@ -312,7 +316,9 @@ export function useClaudeChat() {
         requestNotificationPermission();
         const newEpoch = data.serverEpoch;
         if (isServerRestarted(serverEpochRef.current, newEpoch)) {
-          // Server restarted — epoch changed
+          // Server restarted — epoch changed.
+          // Preserve wasStreaming before clearing, so reconnect_result can trigger DB recovery.
+          const wasStreamingBeforeRestart = useChatStore.getState().isStreaming;
           toastWarning('Server restarted');
           useChatStore.getState().setStreaming(false);
           useChatStore.getState().setTurnStartTime(null);
@@ -320,8 +326,12 @@ export function useClaudeChat() {
           useChatStore.getState().setPendingQuestion(null);
           const activeAfterRestart = useChatStore.getState().sessionId;
           if (activeAfterRestart) {
-            useChatStore.getState().setTurnPhase(activeAfterRestart, 'error', { errorMessage: 'Server restarted' });
+            // Use 'stopped' (not 'error') — server restart is a clean interruption, not an error.
+            // 'error' phase shows red dot and blocks UX; 'stopped' shows a neutral badge.
+            useChatStore.getState().setTurnPhase(activeAfterRestart, 'stopped');
           }
+          // Stash flag so reconnect_result handler can recover messages from DB
+          serverRestartWasStreaming.current = wasStreamingBeforeRestart;
           currentAssistantMsg.current = null;
           // Clean up orphaned @ai streaming placeholders from all rooms
           const roomStore = useRoomStore.getState();
@@ -462,13 +472,18 @@ export function useClaudeChat() {
           // Stream silently re-attached — no toast distraction
         } else {
           // status === 'idle'
-          // Check wasStreaming OR safetyTimerFired (timer may have cleared isStreaming before reconnect)
-          const wasStreaming = useChatStore.getState().isStreaming || safetyTimerFired.current;
+          // Check wasStreaming OR safetyTimerFired OR serverRestartWasStreaming
+          // (connected handler clears isStreaming before reconnect_result arrives,
+          //  so serverRestartWasStreaming bridges the gap for DB recovery)
+          const wasStreaming = useChatStore.getState().isStreaming
+            || safetyTimerFired.current
+            || serverRestartWasStreaming.current;
           useChatStore.getState().setStreaming(false);
           useChatStore.getState().setTurnStartTime(null);
           useChatStore.getState().setPendingQuestion(null);
           if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
           safetyTimerFired.current = false;
+          serverRestartWasStreaming.current = false;
           currentAssistantMsg.current = null;
           if (wasStreaming && data.sessionId) {
             // Was streaming but SDK finished while disconnected — recover from DB
