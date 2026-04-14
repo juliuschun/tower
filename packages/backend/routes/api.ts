@@ -88,6 +88,41 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+// Temp uploads: files land here first, move to permanent uploads/ on message send
+const TEMP_UPLOADS_DIR = path.join(config.workspaceRoot, '.temp-uploads');
+if (!fs.existsSync(TEMP_UPLOADS_DIR)) {
+  fs.mkdirSync(TEMP_UPLOADS_DIR, { recursive: true });
+}
+
+// Startup cleanup: delete temp files older than 7 days
+(function cleanupOldTempUploads() {
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  try {
+    const scanDir = (dir: string) => {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanDir(fullPath);
+          try { if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath); } catch {}
+        } else {
+          try {
+            const stat = fs.statSync(fullPath);
+            if (now - stat.mtimeMs > SEVEN_DAYS_MS) {
+              fs.unlinkSync(fullPath);
+            }
+          } catch {}
+        }
+      }
+    };
+    scanDir(TEMP_UPLOADS_DIR);
+    console.log('[startup] cleaned up old temp uploads');
+  } catch (err) {
+    console.warn('[startup] temp upload cleanup error:', err);
+  }
+})();
+
 const router = Router();
 
 // ───── Auth ─────
@@ -1577,34 +1612,28 @@ router.post('/files/upload', handleMulterUpload, async (req, res) => {
   }
 });
 
-// ───── Chat File Upload (saves to project uploads/ or global uploads/) ─────
+// ───── Chat File Upload (saves to .temp-uploads/ first, finalized on send) ─────
 router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
   try {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });
 
-    // Determine upload directory: project-scoped or global
-    let uploadDir = UPLOADS_DIR;
+    // Determine temp upload sub-directory: project-scoped or global
+    let tempSubDir = 'global';
     const projectId = req.body?.projectId;
     if (projectId) {
       try {
         const { getProject } = await import('../services/project-manager.js');
         const project = await getProject(projectId);
         if (project?.rootPath) {
-          uploadDir = path.join(project.rootPath, 'uploads');
-          fs.mkdirSync(uploadDir, { recursive: true });
+          tempSubDir = projectId;
         }
       } catch {}
     }
+    const uploadDir = path.join(TEMP_UPLOADS_DIR, tempSubDir);
+    fs.mkdirSync(uploadDir, { recursive: true });
 
-    // Project path access check for non-admin users
-    const uploadUserId = (req as any).user?.userId;
-    const uploadRole = (req as any).user?.role;
-    if (uploadUserId && !(await isPathAccessible(uploadDir, uploadUserId, uploadRole))) {
-      return res.status(403).json({ error: 'Access denied: upload directory outside your project folders' });
-    }
-
-    const results: { name: string; path: string; error?: string }[] = [];
+    const results: { name: string; path: string; size?: number; mimeType?: string; error?: string }[] = [];
 
     for (const file of files) {
       const ext = path.extname(file.originalname).toLowerCase();
@@ -1617,15 +1646,90 @@ router.post('/files/chat-upload', handleMulterUpload, async (req, res) => {
       const safeName = `${Date.now()}-${file.originalname.replace(/[^\p{L}\p{N}._-]/gu, '_')}`;
       const filePath = path.join(uploadDir, safeName);
       try {
-        // Use uploadDir as allowedRoot — project uploads may be outside workspaceRoot
         writeFileBinary(filePath, file.buffer, uploadDir);
-        results.push({ name: file.originalname, path: filePath });
+        results.push({ name: file.originalname, path: filePath, size: file.size, mimeType: file.mimetype });
       } catch (err: any) {
         results.push({ name: file.originalname, path: '', error: err.message });
       }
     }
 
     res.json({ results });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ───── Finalize temp uploads: move from .temp-uploads/ to permanent uploads/ ─────
+router.post('/files/finalize-uploads', async (req, res) => {
+  try {
+    const { tempPaths, projectId } = req.body;
+    if (!Array.isArray(tempPaths) || tempPaths.length === 0) {
+      return res.status(400).json({ error: 'tempPaths array required' });
+    }
+
+    // Determine permanent upload directory
+    let permanentDir = UPLOADS_DIR;
+    if (projectId) {
+      try {
+        const { getProject } = await import('../services/project-manager.js');
+        const project = await getProject(projectId);
+        if (project?.rootPath) {
+          permanentDir = path.join(project.rootPath, 'uploads');
+          fs.mkdirSync(permanentDir, { recursive: true });
+        }
+      } catch {}
+    }
+
+    const results: { tempPath: string; newPath: string; error?: string }[] = [];
+
+    for (const tempPath of tempPaths) {
+      // Security: ensure tempPath is actually inside .temp-uploads/
+      const resolved = path.resolve(tempPath);
+      if (!resolved.startsWith(path.resolve(TEMP_UPLOADS_DIR))) {
+        results.push({ tempPath, newPath: '', error: 'Invalid temp path' });
+        continue;
+      }
+      if (!fs.existsSync(resolved)) {
+        results.push({ tempPath, newPath: '', error: 'File not found' });
+        continue;
+      }
+      const fileName = path.basename(resolved);
+      const newPath = path.join(permanentDir, fileName);
+      try {
+        fs.renameSync(resolved, newPath);
+        results.push({ tempPath, newPath });
+      } catch {
+        // Cross-device fallback: copy + delete
+        try {
+          fs.copyFileSync(resolved, newPath);
+          fs.unlinkSync(resolved);
+          results.push({ tempPath, newPath });
+        } catch (e2: any) {
+          results.push({ tempPath, newPath: '', error: e2.message });
+        }
+      }
+    }
+
+    res.json({ results });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ───── Delete a single temp upload ─────
+router.delete('/files/temp-upload', async (req, res) => {
+  try {
+    const tempPath = (req.query.path as string) || req.body?.path;
+    if (!tempPath) return res.status(400).json({ error: 'path required' });
+
+    const resolved = path.resolve(tempPath);
+    if (!resolved.startsWith(path.resolve(TEMP_UPLOADS_DIR))) {
+      return res.status(403).json({ error: 'Not a temp upload path' });
+    }
+    if (fs.existsSync(resolved)) {
+      fs.unlinkSync(resolved);
+    }
+    res.json({ ok: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

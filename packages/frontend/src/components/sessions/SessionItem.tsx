@@ -3,7 +3,7 @@ import type { SessionMeta } from '../../stores/session-store';
 import { useSessionStore } from '../../stores/session-store';
 import { useChatStore } from '../../stores/chat-store';
 import type { Project } from '../../stores/project-store';
-import { SessionShareModal } from './SessionShareModal';
+import { toastSuccess, toastError } from '../../utils/toast';
 import { prefetchSessionMessages } from '../../App';
 
 function relativeTime(dateStr: string): string {
@@ -24,10 +24,9 @@ function relativeTime(dateStr: string): string {
 
 /* ── Context Menu (fixed positioning, outside-click close) ── */
 
-function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose, onShare, onMoveToProject, projects }: {
+function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose, onMoveToProject, projects }: {
   x: number; y: number; session: SessionMeta;
   onRename: () => void; onToggleFavorite: () => void; onDelete: () => void; onClose: () => void;
-  onShare: () => void;
   onMoveToProject?: (sessionId: string, projectId: string | null) => void;
   projects?: Project[];
 }) {
@@ -103,6 +102,19 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
           {session.visibility === 'project' ? 'Make private' : 'Share with project'}
         </button>
       )}
+      {/* Copy link */}
+      <button className={itemClass} onClick={async () => {
+        try {
+          const origin = window.location.origin;
+          await navigator.clipboard.writeText(`${origin}/s/${session.id}`);
+          onClose();
+        } catch {}
+      }}>
+        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+        </svg>
+        Copy link
+      </button>
       {/* Deck — flat list (frequently used) */}
       <SessionDeckFlat session={session} onClose={onClose} />
       {/* Move to Project — expandable submenu */}

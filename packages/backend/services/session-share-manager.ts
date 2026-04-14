@@ -113,3 +113,16 @@ export function isSessionShareValid(share: SessionShare): boolean {
   if (share.expires_at && new Date(share.expires_at) < new Date()) return false;
   return true;
 }
+
+/** Check if user has access to session via internal share */
+export async function hasInternalShareAccess(sessionId: string, userId: number): Promise<boolean> {
+  const result = await queryOne(`
+    SELECT 1 FROM session_shares
+    WHERE session_id = $1
+      AND target_user_id = $2
+      AND share_type = 'internal'
+      AND revoked = 0
+    LIMIT 1
+  `, [sessionId, userId]);
+  return !!result;
+}

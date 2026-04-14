@@ -517,9 +517,41 @@ function App() {
         if (r.status === 401) { localStorage.removeItem('token'); setToken(null); return []; }
         return r.ok ? r.json() : [];
       })
-      .then((data) => {
+      .then(async (data) => {
         setSessions(data);
         setSessionsLoaded(true);
+
+        // Deep link: /s/:sessionId — open shared/linked session directly
+        const deepLinkMatch = window.location.pathname.match(/^\/s\/([a-f0-9-]+)$/i);
+        if (deepLinkMatch) {
+          const targetId = deepLinkMatch[1];
+          // Clean URL immediately (keep history clean)
+          window.history.replaceState(null, '', '/');
+          // Try to find in loaded sessions first
+          const found = data.find((s: SessionMeta) => s.id === targetId);
+          if (found) {
+            handleSelectSession(found);
+            return;
+          }
+          // Not in user's own list — fetch session directly (shared session)
+          try {
+            const h: Record<string, string> = {};
+            if (token) h['Authorization'] = `Bearer ${token}`;
+            const res = await fetch(`${API_BASE}/sessions/${targetId}`, { headers: h });
+            if (res.ok) {
+              const session = await res.json();
+              handleSelectSession(session);
+            } else {
+              const { toastError } = await import('./utils/toast');
+              toastError('세션에 접근할 수 없습니다');
+            }
+          } catch {
+            const { toastError } = await import('./utils/toast');
+            toastError('세션을 불러올 수 없습니다');
+          }
+          return;
+        }
+
         // Silently restore the last session the user was viewing
         const lastId = localStorage.getItem(lastViewedKey(getTokenUserId(token)));
         if (lastId) {

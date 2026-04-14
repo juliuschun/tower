@@ -15,6 +15,79 @@ import { safeStr } from '../shared/parse-loose-json';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 import { useActiveSessionTurnState } from '../../hooks/useActiveSessionTurnState';
 
+/* ── File tag rendering for user messages ── */
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
+const FILE_TAG_REGEX = /\[file:\s*([^\]]+)\]/g;
+
+function getFileServeUrl(filePath: string): string {
+  const token = localStorage.getItem('token') || '';
+  return `/api/files/serve?path=${encodeURIComponent(filePath.trim())}&token=${encodeURIComponent(token)}`;
+}
+
+function getExtension(filePath: string): string {
+  return filePath.split('.').pop()?.toLowerCase() || '';
+}
+
+/** Render user message text, replacing [file: /path] with inline previews */
+function renderUserText(text: string, onFileClick?: (path: string) => void): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  const regex = new RegExp(FILE_TAG_REGEX.source, 'g');
+
+  for (const match of text.matchAll(regex)) {
+    const fullMatch = match[0];
+    const filePath = match[1].trim();
+    const start = match.index!;
+
+    // Text before this match
+    if (start > lastIndex) {
+      parts.push(<React.Fragment key={`t-${lastIndex}`}>{text.slice(lastIndex, start)}</React.Fragment>);
+    }
+
+    const ext = getExtension(filePath);
+    const fileName = filePath.split('/').pop() || filePath;
+    // Strip timestamp prefix for display (e.g. "1776161802132-image.png" → "image.png")
+    const displayName = fileName.replace(/^\d{10,}-/, '');
+
+    if (IMAGE_EXTS.has(ext)) {
+      // Image preview
+      parts.push(
+        <span key={`f-${start}`} className="block my-2">
+          <img
+            src={getFileServeUrl(filePath)}
+            alt={displayName}
+            className="max-w-full max-h-[300px] rounded-lg border border-surface-700/40 cursor-pointer hover:border-primary-500/50 transition-colors"
+            loading="lazy"
+            onClick={() => onFileClick?.(filePath)}
+          />
+          <span className="text-[11px] text-gray-500 mt-1 block">{displayName}</span>
+        </span>
+      );
+    } else {
+      // File link chip
+      parts.push(
+        <span
+          key={`f-${start}`}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-900/20 border border-blue-500/20 text-blue-300 text-[12px] cursor-pointer hover:bg-blue-900/30 transition-colors mx-0.5"
+          onClick={() => onFileClick?.(filePath)}
+        >
+          📄 {displayName}
+        </span>
+      );
+    }
+
+    lastIndex = start + fullMatch.length;
+  }
+
+  // Remaining text
+  if (lastIndex < text.length) {
+    parts.push(<React.Fragment key={`t-${lastIndex}`}>{text.slice(lastIndex)}</React.Fragment>);
+  }
+
+  return parts.length > 0 ? parts : [<React.Fragment key="raw">{text}</React.Fragment>];
+}
+
 /**
  * Copy button that writes both text/plain (raw markdown) and text/html (rendered)
  * to the clipboard. Rich editors (Google Docs, Notion, Slack) use the HTML;
@@ -173,7 +246,7 @@ export function MessageBubble({ message, onFileClick, onRetry, onCancelQueued, s
                   : 'border-surface-700/40'
             }`}>
               {message.content.map((block, i) => (
-                <span key={i}>{safeStr(block.text)}</span>
+                <span key={i}>{renderUserText(safeStr(block.text), onFileClick)}</span>
               ))}
               <CopyButton
                 text={getMessageText(message.content)}

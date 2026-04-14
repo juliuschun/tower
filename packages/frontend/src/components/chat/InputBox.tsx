@@ -245,11 +245,11 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     };
   }, [hasQueue, isStreaming, currentSessionId]);
 
-  const buildMessage = (text: string): string => {
-    if (attachments.length === 0) return text;
+  const buildMessageFrom = (text: string, atts: typeof attachments): string => {
+    if (atts.length === 0) return text;
 
     const parts: string[] = [];
-    for (const att of attachments) {
+    for (const att of atts) {
       if (att.type === 'prompt') {
         parts.push(att.content);
       } else if (att.type === 'command') {
@@ -262,10 +262,10 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     }
 
     // Command type: prepend as slash command prefix
-    const hasCommand = attachments.some((a) => a.type === 'command');
+    const hasCommand = atts.some((a) => a.type === 'command');
     if (hasCommand) {
-      const cmdParts = attachments.filter((a) => a.type === 'command').map((a) => a.content);
-      const otherParts = attachments.filter((a) => a.type !== 'command');
+      const cmdParts = atts.filter((a) => a.type === 'command').map((a) => a.content);
+      const otherParts = atts.filter((a) => a.type !== 'command');
       const prefix = cmdParts.join(' ');
       const otherContent = otherParts.map((a) => a.type === 'file' ? `[file: ${a.content}]` : a.content).join('\n\n');
       const combined = otherContent ? `${otherContent}\n\n${text}` : text;
@@ -276,13 +276,55 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     return `${parts.join('\n\n')}\n\n${text}`.trim();
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const trimmed = input.trim();
     const hasContent = trimmed || attachments.length > 0;
     if (!hasContent) return;
 
-    const message = buildMessage(trimmed);
-    const currentSid = useChatStore.getState().sessionId;
+    // Clear UI immediately to prevent double-submit
+    const currentAttachments = [...attachments];
+    setInput('');
+    saveDraft(currentSessionId, '');
+    setShowCommands(false);
+    useChatStore.getState().clearAttachments();
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+
+    // Finalize temp uploads → move to permanent uploads/
+    const fileAtts = currentAttachments.filter(a => a.type === 'file' && a.tempPath);
+    if (fileAtts.length > 0) {
+      try {
+        const token = localStorage.getItem('token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const activeSession = useSessionStore.getState().sessions.find(
+          s => s.id === useSessionStore.getState().activeSessionId
+        );
+        const res = await fetch('/api/files/finalize-uploads', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            tempPaths: fileAtts.map(a => a.tempPath),
+            projectId: activeSession?.projectId || '',
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          for (const r of data.results) {
+            if (r.newPath) {
+              const att = fileAtts.find(a => a.tempPath === r.tempPath);
+              if (att) att.content = r.newPath;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[chat] finalize-uploads failed, using temp paths:', err);
+      }
+    }
+
+    // Build message with (now finalized) attachment paths
+    const message = buildMessageFrom(trimmed, currentAttachments);
 
     // Read from the authoritative per-session streaming store synchronously.
     // This avoids double-sends on fast Enter presses and keeps queue behavior
@@ -298,14 +340,6 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     } else {
       lastSentRef.current = message;   // track for SESSION_BUSY re-queuing
       onSend(message);
-    }
-
-    setInput('');
-    saveDraft(currentSessionId, '');
-    setShowCommands(false);
-    useChatStore.getState().clearAttachments();
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
     }
   };
 
@@ -500,6 +534,9 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
               type: 'file',
               label: r.name,
               content: r.path,
+              size: r.size,
+              mimeType: r.mimeType,
+              tempPath: r.path,  // path is temp until finalized on send
             });
           }
         }
@@ -621,7 +658,19 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
               <AttachmentChip
                 key={att.id}
                 attachment={att}
-                onRemove={(id) => useChatStore.getState().removeAttachment(id)}
+                onRemove={(id) => {
+                  const att = useChatStore.getState().attachments.find(a => a.id === id);
+                  // Delete temp file on server when user removes a file attachment
+                  if (att?.type === 'file' && att.tempPath) {
+                    const token = localStorage.getItem('token');
+                    const headers: Record<string, string> = {};
+                    if (token) headers['Authorization'] = `Bearer ${token}`;
+                    fetch(`/api/files/temp-upload?path=${encodeURIComponent(att.tempPath)}`, {
+                      method: 'DELETE', headers,
+                    }).catch(() => {});  // fire-and-forget
+                  }
+                  useChatStore.getState().removeAttachment(id);
+                }}
               />
             ))}
           </div>

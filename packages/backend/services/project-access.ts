@@ -11,6 +11,7 @@ import path from 'path';
 import { getAccessibleProjectIds, isProjectMember } from './group-manager.js';
 import { queryOne } from '../db/pg-repo.js';
 import { buildDamageControl, buildPathEnforcement, type DamageCheckResult } from './damage-control.js';
+import { hasInternalShareAccess } from './session-share-manager.js';
 
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || path.join(process.env.HOME || '/tmp', 'workspace');
 
@@ -75,7 +76,10 @@ export async function canAccessSession(
   // Session owner can always access
   if (row.user_id === userId) return { allowed: true };
 
-  // No project → only owner or admin
+  // Check internal share access
+  if (await hasInternalShareAccess(sessionId, userId)) return { allowed: true };
+
+  // No project → only owner, admin, or internal share
   if (!row.project_id) {
     return { allowed: false, status: 403, message: 'Access denied: session has no project' };
   }

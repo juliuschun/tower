@@ -102,6 +102,12 @@ export interface Attachment {
   type: 'prompt' | 'command' | 'file' | 'upload';
   label: string;
   content: string;
+  /** File size in bytes (file attachments only) */
+  size?: number;
+  /** MIME type (file attachments only) */
+  mimeType?: string;
+  /** Temp path before finalization (file attachments only) */
+  tempPath?: string;
 }
 
 export interface PendingQuestion {

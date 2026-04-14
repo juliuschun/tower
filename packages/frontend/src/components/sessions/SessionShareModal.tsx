@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toastSuccess, toastError } from '../../utils/toast';
 
 interface User { id: number; username: string; }
@@ -25,14 +25,15 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 export function SessionShareModal({ sessionId, sessionName, onClose }: Props) {
-  const [tab, setTab] = useState<'internal' | 'external'>('external');
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [expiresIn, setExpiresIn] = useState<'1h' | '24h' | '7d'>('24h');
   const [shares, setShares] = useState<SessionShareItem[]>([]);
   const [generatedUrl, setGeneratedUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showExternal, setShowExternal] = useState(false);
   const [siteOrigin, setSiteOrigin] = useState(window.location.origin);
+  const [linkCopied, setLinkCopied] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,6 +49,19 @@ export function SessionShareModal({ sessionId, sessionName, onClose }: Props) {
   const loadShares = () => {
     fetch(`/api/session-shares?sessionId=${encodeURIComponent(sessionId)}`, { headers: getAuthHeaders() })
       .then(r => r.json()).then(setShares).catch(() => {});
+  };
+
+  const deepLink = `${siteOrigin}/s/${sessionId}`;
+
+  const handleCopyDeepLink = async () => {
+    try {
+      await navigator.clipboard.writeText(deepLink);
+      setLinkCopied(true);
+      toastSuccess('링크가 복사되었습니다');
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      toastError('링크를 복사할 수 없습니다');
+    }
   };
 
   const handleInternalShare = async () => {
@@ -86,9 +100,9 @@ export function SessionShareModal({ sessionId, sessionName, onClose }: Props) {
       loadShares();
       try {
         await navigator.clipboard.writeText(fullUrl);
-        toastSuccess('링크 생성 및 복사 완료!');
+        toastSuccess('외부 링크 생성 및 복사 완료!');
       } catch {
-        toastSuccess('링크가 생성되었습니다.');
+        toastSuccess('외부 링크가 생성되었습니다.');
       }
     } catch (e: any) { toastError(e.message); }
     finally { setLoading(false); }
@@ -135,72 +149,46 @@ export function SessionShareModal({ sessionId, sessionName, onClose }: Props) {
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-surface-700">
-          {(['external', 'internal'] as const).map(t => (
-            <button key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2 text-[12px] font-medium transition-colors ${
-                tab === t
-                  ? 'text-primary-400 border-b-2 border-primary-500'
-                  : 'text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {t === 'external' ? '외부 링크' : '내부 공유'}
-            </button>
-          ))}
-        </div>
-
         <div className="p-4 space-y-4">
-          {/* External tab */}
-          {tab === 'external' && (
-            <div className="space-y-3">
-              <p className="text-[11px] text-amber-400/80 bg-amber-950/20 border border-amber-800/30 rounded-lg px-3 py-2">
-                ⚠ 외부 링크는 공유 시점까지의 대화 스냅샷만 포함됩니다. 이후 대화는 반영되지 않습니다.
-              </p>
-              <div className="flex gap-2">
-                {(['1h', '24h', '7d'] as const).map(opt => (
-                  <button key={opt}
-                    onClick={() => setExpiresIn(opt)}
-                    className={`flex-1 py-1.5 rounded text-[11px] font-medium border transition-colors ${
-                      expiresIn === opt
-                        ? 'bg-primary-600/30 border-primary-500/50 text-primary-300'
-                        : 'border-surface-600 text-gray-500 hover:border-surface-500 hover:text-gray-300'
-                    }`}
-                  >
-                    {opt === '1h' ? '1시간' : opt === '24h' ? '24시간' : '7일'}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={handleExternalShare}
-                disabled={loading}
-                className="w-full py-2 rounded-lg bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white text-[12px] font-medium transition-colors"
-              >
-                {loading ? '생성 중...' : '링크 생성 & 복사'}
-              </button>
-              {generatedUrl && (
-                <div className="flex items-center gap-2 bg-surface-900 rounded-lg px-3 py-2">
-                  <span className="flex-1 text-[11px] text-gray-400 truncate">{generatedUrl}</span>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(generatedUrl); toastSuccess('복사됨'); }}
-                    className="text-primary-400 hover:text-primary-300 text-[10px] shrink-0"
-                  >복사</button>
-                </div>
-              )}
+          {/* ── Deep link (primary action) ── */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-primary-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              <span className="text-[12px] text-white font-medium">공유 링크</span>
             </div>
-          )}
+            <div className="flex items-center gap-2 bg-surface-900 rounded-lg px-3 py-2.5">
+              <span className="flex-1 text-[11px] text-gray-400 truncate select-all">{deepLink}</span>
+              <button
+                onClick={handleCopyDeepLink}
+                className={`shrink-0 px-2.5 py-1 rounded text-[11px] font-medium transition-all ${
+                  linkCopied
+                    ? 'bg-green-600/20 text-green-400'
+                    : 'bg-primary-600/20 text-primary-400 hover:bg-primary-600/30'
+                }`}
+              >
+                {linkCopied ? '복사됨' : '복사'}
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-600">
+              로그인된 팀원이 이 링크로 세션에 바로 접근합니다. 같은 프로젝트 멤버이거나 아래에서 접근 권한을 부여한 유저만 볼 수 있습니다.
+            </p>
+          </div>
 
-          {/* Internal tab */}
-          {tab === 'internal' && (
-            <div className="space-y-3">
-              <p className="text-[11px] text-gray-500">
-                내부 유저에게 공유하면 해당 유저의 세션 목록에서 이 세션을 볼 수 있습니다.
-              </p>
+          {/* ── Share with specific user ── */}
+          <div className="border-t border-surface-700/50 pt-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-green-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              <span className="text-[12px] text-white font-medium">접근 권한 부여</span>
+            </div>
+            <div className="flex gap-2">
               <select
                 value={selectedUserId}
                 onChange={e => setSelectedUserId(Number(e.target.value) || '')}
-                className="w-full bg-surface-900 border border-surface-600 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-primary-500"
+                className="flex-1 bg-surface-900 border border-surface-600 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none focus:border-primary-500"
               >
                 <option value="">유저 선택...</option>
                 {users.map(u => <option key={u.id} value={u.id}>@{u.username}</option>)}
@@ -208,21 +196,87 @@ export function SessionShareModal({ sessionId, sessionName, onClose }: Props) {
               <button
                 onClick={handleInternalShare}
                 disabled={loading || !selectedUserId}
-                className="w-full py-2 rounded-lg bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white text-[12px] font-medium transition-colors"
+                className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white text-[12px] font-medium transition-colors shrink-0"
               >
-                {loading ? '공유 중...' : '공유하기'}
+                {loading ? '...' : '추가'}
               </button>
+            </div>
+          </div>
+
+          {/* ── Current shares list ── */}
+          {internalShares.length > 0 && (
+            <div className="space-y-1.5">
+              {internalShares.map(s => (
+                <div key={s.id} className="flex items-center gap-2 bg-surface-900 rounded-lg px-3 py-2">
+                  <svg className="w-3.5 h-3.5 text-green-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span className="flex-1 text-[11px] text-gray-400">@{s.target_username}</span>
+                  <button onClick={() => handleRevoke(s.id)} className="text-[10px] text-red-400 hover:text-red-300 shrink-0">제거</button>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* Share list */}
-          {(externalShares.length > 0 || internalShares.length > 0) && (
-            <div className="border-t border-surface-700/50 pt-3">
-              <h3 className="text-[11px] text-gray-500 mb-2 font-medium uppercase tracking-wide">현재 공유 목록</h3>
-              <div className="space-y-1.5">
+          {/* ── External link (collapsed) ── */}
+          <div className="border-t border-surface-700/50 pt-3">
+            <button
+              onClick={() => setShowExternal(!showExternal)}
+              className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <svg className={`w-3 h-3 transition-transform ${showExternal ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              외부 공유 링크 만들기
+              <span className="text-[10px] text-gray-600">(비로그인 접근, 스냅샷)</span>
+            </button>
+
+            {showExternal && (
+              <div className="mt-3 space-y-3 pl-1">
+                <p className="text-[10px] text-amber-400/80 bg-amber-950/20 border border-amber-800/30 rounded-lg px-3 py-2">
+                  외부 링크는 로그인 없이 접근 가능합니다. 공유 시점의 대화 스냅샷만 포함되며, 이후 대화는 반영되지 않습니다.
+                </p>
+                <div className="flex gap-2 items-center">
+                  <div className="flex gap-1.5 flex-1">
+                    {(['1h', '24h', '7d'] as const).map(opt => (
+                      <button key={opt}
+                        onClick={() => setExpiresIn(opt)}
+                        className={`flex-1 py-1.5 rounded text-[11px] font-medium border transition-colors ${
+                          expiresIn === opt
+                            ? 'bg-primary-600/30 border-primary-500/50 text-primary-300'
+                            : 'border-surface-600 text-gray-500 hover:border-surface-500 hover:text-gray-300'
+                        }`}
+                      >
+                        {opt === '1h' ? '1시간' : opt === '24h' ? '24시간' : '7일'}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={handleExternalShare}
+                    disabled={loading}
+                    className="px-4 py-1.5 rounded-lg bg-surface-700 hover:bg-surface-600 border border-surface-600 disabled:opacity-50 text-white text-[11px] font-medium transition-colors shrink-0"
+                  >
+                    {loading ? '생성 중...' : '생성'}
+                  </button>
+                </div>
+                {generatedUrl && (
+                  <div className="flex items-center gap-2 bg-surface-900 rounded-lg px-3 py-2">
+                    <span className="flex-1 text-[11px] text-gray-400 truncate">{generatedUrl}</span>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(generatedUrl); toastSuccess('복사됨'); }}
+                      className="text-primary-400 hover:text-primary-300 text-[10px] shrink-0 font-medium"
+                    >복사</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* External shares list */}
+            {externalShares.length > 0 && (
+              <div className="mt-2 space-y-1.5">
                 {externalShares.map(s => (
                   <div key={s.id} className="flex items-center gap-2 bg-surface-900 rounded-lg px-3 py-2">
-                    <svg className="w-3.5 h-3.5 text-primary-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                     </svg>
                     <span className="flex-1 text-[11px] text-gray-400">
@@ -231,18 +285,9 @@ export function SessionShareModal({ sessionId, sessionName, onClose }: Props) {
                     <button onClick={() => handleRevoke(s.id)} className="text-[10px] text-red-400 hover:text-red-300 shrink-0">취소</button>
                   </div>
                 ))}
-                {internalShares.map(s => (
-                  <div key={s.id} className="flex items-center gap-2 bg-surface-900 rounded-lg px-3 py-2">
-                    <svg className="w-3.5 h-3.5 text-green-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    <span className="flex-1 text-[11px] text-gray-400">@{s.target_username}</span>
-                    <button onClick={() => handleRevoke(s.id)} className="text-[10px] text-red-400 hover:text-red-300 shrink-0">취소</button>
-                  </div>
-                ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
