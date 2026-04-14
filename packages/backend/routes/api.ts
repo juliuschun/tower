@@ -2622,12 +2622,22 @@ router.get('/files/serve', async (req, res) => {
     if (!filePath) return res.status(400).json({ error: 'path required' });
     const userId = (req as any).user?.userId;
     const role = (req as any).user?.role;
-    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
-    if (!isPathSafe(filePath, userRoot)) return res.status(403).json({ error: 'Access denied' });
-    // Project-level path check (same as /files/read)
+
+    // Use project-level access check (handles external project roots like /tower/uploads/)
+    // Falls back to workspace root path safety for non-project paths
     if (userId) {
       const pathOk = await isPathAccessible(filePath, userId, role);
-      if (!pathOk) return res.status(403).json({ error: 'Access denied: project path' });
+      if (!pathOk) {
+        // Last resort: check basic path safety against user's allowed root
+        const userRoot = await getUserAllowedPath(userId);
+        if (!isPathSafe(filePath, userRoot)) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+      }
+    } else {
+      if (!isPathSafe(filePath, config.workspaceRoot)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
     }
 
     const isDownload = req.query.download === '1';

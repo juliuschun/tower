@@ -39,7 +39,9 @@
     "vite-plugin-pwa": "^1.2.0",
     "vitest": "^4.1.2"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.107"
+  },
   "overrides": {
     "vite": "$vite"
   }
