@@ -831,7 +831,7 @@ function renderSharedSessionHtml(title: string, messages: any[], sharedAt: strin
   /* Messages — chat bubble style */
   .msg { display: flex; flex-direction: column; }
   .msg-user { align-self: flex-end; align-items: flex-end; max-width: 85%; }
-  .msg-ai { align-self: flex-start; align-items: flex-start; max-width: 100%; }
+  .msg-ai { align-self: flex-start; align-items: flex-start; width: 100%; }
   .msg-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.02em; margin-bottom: 0.2rem; padding: 0 0.5rem; display: flex; align-items: center; gap: 0.35rem; }
   .msg-user .msg-label { color: #2d7dd2; }
   .msg-ai .msg-label { color: #7c3aed; }

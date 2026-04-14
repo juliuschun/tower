@@ -5,6 +5,60 @@ import { useSettingsStore } from '../../stores/settings-store';
 
 let currentTheme: string | null = null;
 
+/**
+ * Theme-aware color palettes for Mermaid diagrams.
+ * - Dark modes: soft pastel backgrounds + dark text → readable on dark surfaces
+ * - Light mode: standard Mermaid defaults (already fine)
+ */
+const darkThemeVariables = {
+  // Node colors — soft pastels that stay readable with dark text
+  primaryColor: '#dbeafe',        // blue-100 — main nodes
+  primaryTextColor: '#1e293b',    // slate-800
+  primaryBorderColor: '#93c5fd',  // blue-300
+  secondaryColor: '#ede9fe',      // violet-100 — alt nodes
+  secondaryTextColor: '#1e293b',
+  secondaryBorderColor: '#c4b5fd',// violet-300
+  tertiaryColor: '#d1fae5',       // emerald-100 — tertiary
+  tertiaryTextColor: '#1e293b',
+  tertiaryBorderColor: '#6ee7b7', // emerald-300
+
+  // Lines & labels
+  lineColor: '#94a3b8',           // slate-400
+  textColor: '#e2e8f0',           // slate-200 — general text (outside nodes)
+
+  // Background — transparent so it inherits chat bubble bg
+  background: 'transparent',
+  mainBkg: '#dbeafe',
+  nodeBorder: '#93c5fd',
+  nodeTextColor: '#1e293b',
+
+  // Flowchart specifics
+  clusterBkg: '#1e293b',          // slate-800
+  clusterBorder: '#475569',       // slate-600
+  defaultLinkColor: '#94a3b8',
+  titleColor: '#e2e8f0',
+  edgeLabelBackground: '#1e293b',
+
+  // Sequence diagram
+  actorBkg: '#dbeafe',
+  actorTextColor: '#1e293b',
+  actorBorder: '#93c5fd',
+  actorLineColor: '#94a3b8',
+  signalColor: '#e2e8f0',
+  signalTextColor: '#e2e8f0',
+  labelBoxBkgColor: '#1e293b',
+  labelBoxBorderColor: '#475569',
+  labelTextColor: '#e2e8f0',
+  loopTextColor: '#e2e8f0',
+  noteBkgColor: '#fef3c7',        // amber-100
+  noteTextColor: '#1e293b',
+  noteBorderColor: '#fcd34d',     // amber-300
+
+  // State / class diagrams
+  labelColor: '#e2e8f0',
+  altBackground: '#334155',       // slate-700
+};
+
 function ensureInit(theme: string) {
   const mermaidTheme = theme !== 'light' ? 'dark' : 'default';
   if (currentTheme !== mermaidTheme) {
@@ -13,6 +67,7 @@ function ensureInit(theme: string) {
       theme: mermaidTheme,
       securityLevel: 'loose',
       fontFamily: 'inherit',
+      ...(mermaidTheme === 'dark' ? { themeVariables: darkThemeVariables } : {}),
       flowchart: { padding: 24, nodeSpacing: 40, rankSpacing: 50, htmlLabels: true, wrappingWidth: 200 },
       sequence: { boxMargin: 10, noteMargin: 12 },
     });
@@ -66,7 +121,7 @@ function downloadSvg(svg: string) {
   URL.revokeObjectURL(url);
 }
 
-async function downloadJpg(svgContent: string) {
+async function downloadJpg(svgContent: string, theme?: string) {
   // Parse to get real dimensions from viewBox / width / height
   const parser = new DOMParser();
   const doc = parser.parseFromString(svgContent, 'image/svg+xml');
@@ -100,7 +155,7 @@ async function downloadJpg(svgContent: string) {
   canvas.height = height * scale;
   const ctx = canvas.getContext('2d')!;
   ctx.scale(scale, scale);
-  ctx.fillStyle = '#1e1e2e';
+  ctx.fillStyle = theme === 'light' ? '#ffffff' : '#1e1e2e';
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(img, 0, 0);
   URL.revokeObjectURL(url);
@@ -289,8 +344,8 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBl
 
   const handleDownloadJpg = useCallback(() => {
     const raw = rawSvgRef.current;
-    if (raw) downloadJpg(raw);
-  }, []);
+    if (raw) downloadJpg(raw, theme);
+  }, [theme]);
 
   if (error) {
     return (
