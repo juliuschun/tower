@@ -483,23 +483,201 @@ router.get('/shared/:token', async (req, res) => {
 router.get('/shared-session/:token', async (req, res) => {
   const share = await getSessionShareByToken(req.params.token as string);
   if (!share || !isSessionShareValid(share)) {
-    return res.status(410).json({ error: 'This link has expired or been revoked.' });
+    const expired = !share ? 'not found' : 'expired';
+    if (req.query.format === 'json') {
+      return res.status(410).json({ error: 'This link has expired or been revoked.' });
+    }
+    return res.status(410).send(renderSharedSessionError(expired));
   }
   try {
-    // Return frozen snapshot (no live data for external shares)
-    const snapshot = share.snapshot_json ? JSON.parse(share.snapshot_json) : [];
-    // Get session name
+    const snapshot: any[] = share.snapshot_json ? JSON.parse(share.snapshot_json) : [];
     const session = await queryOne('SELECT name FROM sessions WHERE id = $1', [share.session_id]);
-    res.json({
-      sessionName: (session as any)?.name ?? 'Shared Session',
-      messages: snapshot,
-      sharedAt: share.created_at,
-      expiresAt: share.expires_at,
-    });
+    const sessionName = (session as any)?.name ?? 'Shared Session';
+
+    // JSON format (for programmatic access)
+    if (req.query.format === 'json') {
+      return res.json({ sessionName, messages: snapshot, sharedAt: share.created_at, expiresAt: share.expires_at });
+    }
+
+    // Default: render as readable HTML document
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(renderSharedSessionHtml(sessionName, snapshot, share.created_at, share.expires_at));
   } catch {
-    return res.status(500).json({ error: 'Failed to load shared session.' });
+    return res.status(500).send(renderSharedSessionError('error'));
   }
 });
+
+/** Extract text from message content (string, JSON string, or ContentBlock array) */
+function extractMessageText(content: any): string {
+  // Already an array of blocks
+  if (Array.isArray(content)) {
+    return content
+      .filter((b: any) => b.type === 'text' && b.text)
+      .map((b: any) => b.text)
+      .join('\n\n');
+  }
+  if (typeof content !== 'string') return '';
+  // Try to parse as JSON (double-serialized content blocks)
+  const trimmed = content.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((b: any) => b.type === 'text' && b.text)
+          .map((b: any) => b.text)
+          .join('\n\n');
+      }
+    } catch { /* not JSON, treat as plain text */ }
+  }
+  return content;
+}
+
+/** Minimal HTML escape */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Merge consecutive same-role messages and drop empties */
+function collapseMessages(messages: any[]): { role: string; text: string; username?: string }[] {
+  const result: { role: string; text: string; username?: string }[] = [];
+  for (const m of messages) {
+    if (m.role !== 'user' && m.role !== 'assistant') continue;
+    const text = extractMessageText(m.content).trim();
+    if (!text) continue;
+    const last = result[result.length - 1];
+    if (last && last.role === m.role) {
+      // Merge consecutive same-role messages
+      last.text += '\n\n' + text;
+    } else {
+      result.push({ role: m.role, text, username: m.username });
+    }
+  }
+  return result;
+}
+
+/** Simple markdown-to-HTML (code blocks, inline code, bold, headers, lists) */
+function mdToHtml(text: string): string {
+  let html = esc(text);
+  // Code blocks (must be before line-level transforms)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) =>
+    `<pre${lang ? ` data-lang="${lang}"` : ''}><code>${code}</code></pre>`);
+  // Headers (## and ###)
+  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+  // Bullet lists (- item)
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
+  // Numbered lists (1. item)
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Line breaks (but not inside <pre>)
+  html = html.replace(/(?<!\n)\n(?!\n)/g, '<br>');
+  html = html.replace(/\n{2,}/g, '</p><p>');
+  return `<p>${html}</p>`;
+}
+
+/** Render shared session as a readable HTML document */
+function renderSharedSessionHtml(title: string, messages: any[], sharedAt: string, expiresAt?: string): string {
+  const sharedDate = new Date(sharedAt).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const expiresDate = expiresAt ? new Date(expiresAt).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+
+  const collapsed = collapseMessages(messages);
+  const messagesHtml = collapsed
+    .map((m) => {
+      const isUser = m.role === 'user';
+      const label = isUser ? (m.username || 'User') : 'AI';
+      const labelClass = isUser ? 'msg-user' : 'msg-ai';
+      return `<div class="msg ${labelClass}"><div class="msg-label">${esc(label)}</div><div class="msg-body">${mdToHtml(m.text)}</div></div>`;
+    })
+    .join('\n');
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)} — Tower</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0a0a0b; color: #d1d5db; line-height: 1.7; }
+  .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  .header { border-bottom: 1px solid #1f2937; padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  .header h1 { font-size: 1.25rem; color: #f3f4f6; font-weight: 600; margin-bottom: 0.5rem; }
+  .header .meta { font-size: 0.75rem; color: #6b7280; }
+  .header .meta span { margin-right: 1.5rem; }
+  .msg { margin-bottom: 1.5rem; }
+  .msg-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+  .msg-user .msg-label { color: #60a5fa; }
+  .msg-ai .msg-label { color: #a78bfa; }
+  .msg-body { font-size: 0.9rem; color: #d1d5db; }
+  .msg-body p { margin-bottom: 0.5rem; }
+  .msg-body p:last-child { margin-bottom: 0; }
+  .msg-body h3 { font-size: 1rem; color: #f3f4f6; font-weight: 600; margin: 1rem 0 0.4rem; }
+  .msg-body h4 { font-size: 0.9rem; color: #e5e7eb; font-weight: 600; margin: 0.75rem 0 0.3rem; }
+  .msg-body ul { padding-left: 1.5rem; margin: 0.4rem 0; }
+  .msg-body li { margin-bottom: 0.2rem; }
+  .msg-user .msg-body { color: #e5e7eb; }
+  pre { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 0.75rem 0; font-size: 0.8rem; line-height: 1.5; }
+  code { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.85em; }
+  :not(pre) > code { background: #1f2937; padding: 0.15em 0.4em; border-radius: 4px; color: #e5e7eb; }
+  strong { color: #f3f4f6; }
+  .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #1f2937; text-align: center; }
+  .footer p { font-size: 0.7rem; color: #4b5563; }
+  .badge { display: inline-block; font-size: 0.65rem; background: #1f2937; color: #9ca3af; padding: 0.2em 0.6em; border-radius: 4px; }
+  @media (max-width: 640px) { .container { padding: 1rem; } .msg-body { font-size: 0.85rem; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>${esc(title)}</h1>
+    <div class="meta">
+      <span>공유: ${sharedDate}</span>
+      ${expiresDate ? `<span>만료: ${expiresDate}</span>` : ''}
+      <span class="badge">읽기 전용 스냅샷</span>
+    </div>
+  </div>
+  ${messagesHtml}
+  <div class="footer">
+    <p>Powered by Tower</p>
+  </div>
+</div>
+</body>
+</html>`;
+}
+
+/** Error page for expired/invalid shared sessions */
+function renderSharedSessionError(reason: string): string {
+  const message = reason === 'expired'
+    ? '이 공유 링크는 만료되었거나 취소되었습니다.'
+    : reason === 'not found'
+    ? '존재하지 않는 공유 링크입니다.'
+    : '세션을 불러오는 중 오류가 발생했습니다.';
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공유 세션 — Tower</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0a0a0b; color: #d1d5db; display: flex; align-items: center; justify-content: center; height: 100dvh; margin: 0; }
+  .box { text-align: center; }
+  .icon { font-size: 3rem; margin-bottom: 1rem; }
+  p { font-size: 0.9rem; color: #9ca3af; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="icon">🔗</div>
+  <p>${message}</p>
+</div>
+</body>
+</html>`;
+}
 
 // ───── Protected routes ─────
 router.use(authMiddleware);

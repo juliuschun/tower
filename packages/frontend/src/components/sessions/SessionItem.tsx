@@ -121,12 +121,30 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
       <SessionProjectSubmenu session={session} onClose={onClose} onMoveToProject={onMoveToProject} projects={projects} />
       {/* Divider */}
       <div className="border-t border-surface-700/50 my-1" />
-      {/* Share session */}
-      <button className={itemClass} onClick={() => { onShare(); onClose(); }}>
+      {/* Web share — create 24h external snapshot link */}
+      <button className={itemClass} onClick={async () => {
+        onClose();
+        try {
+          const tk = localStorage.getItem('token');
+          const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (tk) hdrs['Authorization'] = `Bearer ${tk}`;
+          const res = await fetch('/api/session-shares', {
+            method: 'POST', headers: hdrs,
+            body: JSON.stringify({ shareType: 'external', sessionId: session.id, expiresIn: '24h' }),
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed');
+          const data = await res.json();
+          const fullUrl = `${window.location.origin}${data.url}`;
+          await navigator.clipboard.writeText(fullUrl);
+          toastSuccess('24시간 웹 공유 링크가 복사되었습니다');
+        } catch (e: any) {
+          toastError(e.message || '링크 생성에 실패했습니다');
+        }
+      }}>
         <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
         </svg>
-        Share
+        Web share
       </button>
       {/* Archive (soft-delete) */}
       <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => { onDelete(); onClose(); }}>
@@ -157,7 +175,6 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [shareModalOpen, setShareModalOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
@@ -281,10 +298,10 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           </span>
         )}
 
-        {/* Time (default) → action buttons (on hover) */}
+        {/* Time (default) → action buttons (on hover) — use opacity/visibility to avoid layout shift */}
         {!editing && (
-          <>
-            <span className="text-[10px] text-surface-700 shrink-0 group-hover:hidden flex items-center gap-1">
+          <div className="relative shrink-0 flex items-center">
+            <span className="text-[10px] text-surface-700 flex items-center gap-1 transition-opacity duration-150 group-hover:opacity-0">
               {isStreaming ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
                   {turnPhase === 'awaiting_user' ? 'ask' : turnPhase === 'compacting' ? 'pack' : 'run'}{queueCount > 0 ? ` +${queueCount}` : ''}
@@ -319,7 +336,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 </span>
               ) : null}
             </span>
-            <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 invisible transition-opacity duration-150 group-hover:opacity-100 group-hover:visible">
               <button
                 onClick={(e) => { e.stopPropagation(); startEditing(); }}
                 className="p-1.5 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
@@ -342,7 +359,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 </svg>
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
 
@@ -354,17 +371,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           onToggleFavorite={() => onToggleFavorite(session.id, !session.favorite)}
           onDelete={() => onDelete(session.id)}
           onClose={() => setCtxMenu(null)}
-          onShare={() => setShareModalOpen(true)}
           onMoveToProject={onMoveToProject}
           projects={projects}
-        />
-      )}
-      {/* Share modal */}
-      {shareModalOpen && (
-        <SessionShareModal
-          sessionId={session.id}
-          sessionName={session.name}
-          onClose={() => setShareModalOpen(false)}
         />
       )}
     </>
