@@ -433,6 +433,36 @@ ssh $VM_USER@$VM_IP 'curl -s https://<DOMAIN>/api/health'
 |------|---------|-----|--------|-----|------|--------|------|
 | okusystem | okusystem | 20.41.101.188 | okusystem.moatai.app | tower_customers | B2ms/8GB/128GB | 2026-04-04 | 첫 고객, certbot, PG 로컬 |
 
+### 9. 서버 타임존 UTC → 세션 시간 혼란
+
+**증상**: 세션명에 표시되는 시간이 한국 시간과 9시간 차이
+**원인**: Azure VM 기본 타임존이 UTC
+**해결**: `sudo timedatectl set-timezone Asia/Seoul`
+**예방**: Phase 3(런타임)에서 첫 번째로 설정. 런북에 추가 완료
+
+### 10. 세션이 "임시"로 분류됨
+
+**증상**: 새 세션이 프로젝트 대신 "임시" 섹션으로 들어감
+**원인**: `createSessionInDb()`에서 projectId를 넘기지 않으면, cwd가 workspace 루트 → 어떤 프로젝트에도 매칭 안 됨
+**해결**: App.tsx 패치 — 활성 세션 → 최근 세션 순으로 projectId 자동 상속 (2026-04-14)
+**예방**: 코드 배포 시 자동 적용. 초기 배포 후 Phase 11에서 검증
+
+### 11. Common 섹션에 프로젝트 폴더 중복 노출
+
+**증상**: Files 탭 → Common 아래에 projects/ 폴더가 보이고, 각 프로젝트가 중복 표시
+**원인**: Common의 rootPath가 workspace 전체를 가리킴
+**해결**: Common을 admin에게만 표시 (Sidebar.tsx 패치, 2026-04-14)
+**예방**: 코드 배포 시 자동 적용
+
+### 12. 프로젝트 폴더명이 project-<hash> 형태
+
+**증상**: workspace/projects/ 아래 폴더가 `project-2ca0f112` 같은 무의미한 이름
+**원인**: Tower 프로젝트 생성 시 slug를 `project-<uuid 앞 8자리>`로 자동 생성
+**해결**: 배포 후 Phase 11에서 의미 있는 영문명으로 리네임 + DB root_path 업데이트
+**예방**: 장기적으로 프로젝트 생성 시 이름 기반 slug 자동 생성 로직 개선 필요
+
+---
+
 ## 향후 개선 사항
 
 1. **create-vm.sh NSG 중복 방지**: 포트 22 규칙 존재 확인 후 skip
