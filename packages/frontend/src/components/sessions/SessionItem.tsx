@@ -310,6 +310,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); startEditing(); }}
+                onMouseDown={(e) => { e.stopPropagation(); }}
                 className="p-1.5 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
                 title="Rename"
                 aria-label="Rename session"
@@ -320,7 +321,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 </svg>
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
+                onClick={(e) => { e.stopPropagation(); console.log('[SessionItem] X clicked, calling onDelete', session.id); onDelete(session.id); }}
+                onMouseDown={(e) => { e.stopPropagation(); }}
                 className="p-1.5 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
                 title="Delete"
                 aria-label="Delete session"
