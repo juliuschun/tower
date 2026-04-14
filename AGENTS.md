@@ -92,20 +92,15 @@ Sidebar is the single navigation point. No header view toggle.
 Header has a **Task board icon** (kanban grid) that toggles `activeView = 'kanban'`.
 Sidebar footer: Pins, History (toggle views), Settings.
 
-## Dynamic Visual — 시각화 포맷
+## Dynamic Visual — 확장 포맷 (개발 참고)
 
-Tower 채팅에서 AI 응답에 다음 코드블록을 사용하면 자동 렌더링됩니다.
-Sessions(1:1 대화)과 Rooms(팀 채널 AI 메시지) 양쪽에서 동작합니다.
+> 기본 포맷(chart, mermaid, datatable, timeline, math, html-sandbox, map)은
+> 시스템 프롬프트(`system-prompt.ts`)에서 모든 세션에 자동 주입됩니다.
+> 확장 포맷(secure-input, steps, diff 등 11개)도 동일하게 시스템 프롬프트에 포함됩니다.
+> 아래는 개발자용 참고 정보입니다.
 
 | 포맷 | 코드블록 | 설명 |
 |------|---------|------|
-| 다이어그램 | ` ```mermaid ` | flowchart, sequence, class, ER 등 |
-| 차트 | ` ```chart ` | JSON: `{ "type": "bar", "data": [...], "xKey": "...", "yKey": "..." }` |
-| 수식 | `$$...$$` | LaTeX 블록 수식. **인라인 `$`는 비활성** (금융 달러 충돌 방지) |
-| 데이터 테이블 | ` ```datatable ` | JSON: `{ "columns": [...], "data": [[...]] }` — 정렬, 페이징 |
-| 타임라인 | ` ```timeline ` | JSON: `{ "items": [{ "date", "title", "status" }] }` |
-| HTML 샌드박스 | ` ```html-sandbox ` | iframe sandbox 실행 |
-| 지도 | ` ```map ` | Leaflet CDN 기반 마커/폴리곤 |
 | 보안 입력 | ` ```secure-input ` | 민감 데이터 입력 위젯 → .env 직접 저장 |
 | 스텝 가이드 | ` ```steps ` | JSON: `{ "steps": [{ "title", "status" }], "current": 2 }` |
 | 코드 비교 | ` ```diff ` | JSON: `{ "before": "...", "after": "...", "mode": "split" }` |
@@ -118,9 +113,7 @@ Sessions(1:1 대화)과 Rooms(팀 채널 AI 메시지) 양쪽에서 동작합니
 | 갤러리 | ` ```gallery ` | JSON: `{ "images": [{ "src", "caption" }], "columns": 3 }` |
 | 오디오 | ` ```audio ` | JSON: `{ "src": "...", "title": "..." }` |
 
-**차트 type**: `bar`, `line`, `area`, `pie`, `scatter`, `radar`, `composed`
-
-**핵심 동작**:
+**렌더링 인프라**:
 - 코드블록이 닫히면 즉시 렌더 (스트리밍 중에도)
 - JSON 파싱 실패 시 원본 코드블록 폴백 (크래시 없음)
 - `React.lazy` 코드 스플릿 — 사용 안 하는 시각화는 로드 안 됨
