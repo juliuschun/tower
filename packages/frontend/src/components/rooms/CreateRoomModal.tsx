@@ -28,7 +28,10 @@ export function CreateRoomModal({ open, onClose, defaultProjectId }: CreateRoomM
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || submitting) return;
+    if (!name.trim() || submitting) {
+      if (!name.trim()) toastError('채널 이름을 입력해주세요');
+      return;
+    }
 
     setSubmitting(true);
     try {

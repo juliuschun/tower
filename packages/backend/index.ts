@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -36,6 +37,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,   // breaks iframe embeds
 }));
 app.use(cors());
+app.use(compression({ threshold: 512 })); // gzip responses > 512 bytes
 app.use(express.json({ limit: '10mb' }));
 
 const authLimiter = rateLimit({

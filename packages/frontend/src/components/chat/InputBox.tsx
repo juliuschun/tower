@@ -4,6 +4,7 @@ import { useSessionStore } from '../../stores/session-store';
 import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming';
 import { useActiveSessionTurnState } from '../../hooks/useActiveSessionTurnState';
 import { AttachmentChip } from './AttachmentChip';
+import { toastInfo } from '../../utils/toast';
 
 const EMPTY_QUEUE: string[] = [];
 
@@ -177,6 +178,39 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     window.addEventListener('session-busy-requeue', handler);
     return () => window.removeEventListener('session-busy-requeue', handler);
   }, []);
+
+  // Listen for queue-cancel restore — put cancelled text back into input or clipboard
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail;
+      if (!text) return;
+
+      const currentInput = textareaRef.current?.value?.trim() || '';
+      if (!currentInput) {
+        // Input is empty — restore directly
+        setInput(text);
+        saveDraft(currentSessionId, text);
+        if (textareaRef.current) {
+          const el = textareaRef.current;
+          requestAnimationFrame(() => {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+            el.focus();
+          });
+        }
+        toastInfo('대기열 취소 — 입력창에 복원했습니다');
+      } else {
+        // Input has text — copy to clipboard instead
+        navigator.clipboard.writeText(text).then(() => {
+          toastInfo('대기열 취소 — 클립보드에 복사했습니다');
+        }).catch(() => {
+          toastInfo('대기열 취소됨');
+        });
+      }
+    };
+    window.addEventListener('restore-input-text', handler);
+    return () => window.removeEventListener('restore-input-text', handler);
+  }, [currentSessionId]);
 
   // Stale queue guard: if queue has messages and isStreaming stays true for 2 minutes,
   // ask the server to confirm the session is actually still streaming.
@@ -610,6 +644,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                     : 'Type a message...'
             }
             rows={1}
+            aria-label="메시지 입력"
             className="flex-1 bg-transparent border-none px-4 py-3 text-input-size text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:ring-0 min-h-[48px] max-h-[200px]"
           />
 
@@ -643,6 +678,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
               }}
               className="p-2 m-1 bg-surface-700 hover:bg-surface-600 rounded-xl transition-all shrink-0 text-red-400 hover:shadow-lg shadow-surface-900"
               title="Stop"
+              aria-label="응답 중단"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                 <rect x="7" y="7" width="10" height="10" rx="2" />
@@ -660,6 +696,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
                   : 'bg-primary-600 hover:bg-primary-500 disabled:bg-surface-700 disabled:text-surface-600 disabled:shadow-none text-white shadow-lg shadow-primary-900/20'
               }`}
               title={isStreaming ? 'Add to queue' : 'Send'}
+              aria-label={isStreaming ? '대기열에 추가' : '메시지 전송'}
             >
               {isStreaming && (input.trim() || attachments.length > 0) ? (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

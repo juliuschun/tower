@@ -113,6 +113,9 @@ az vm start --resource-group tower_customers --name <CUSTOMER>
 VM_IP=<PUBLIC_IP>
 VM_USER=toweradmin
 
+# 타임존 KST 설정 (Azure 기본 = UTC)
+ssh $VM_USER@$VM_IP 'sudo timedatectl set-timezone Asia/Seoul'
+
 # 기본 패키지
 ssh $VM_USER@$VM_IP 'sudo apt update && sudo apt upgrade -y && \
   sudo apt install -y curl ca-certificates gnupg lsb-release unzip jq \
@@ -286,7 +289,38 @@ customers:
 **스킬 업데이트 시:**
 소스 서버(moatai.app)에서 스킬을 수정한 후, `deploy-profile.sh --customer <name>`을 다시 실행하면 rsync로 변경분만 동기화된다.
 
-### Phase 11: 운영 안정화
+### Phase 11: 초기 데이터 정돈
+
+배포 직후 프로젝트/세션 구조가 깨끗한 상태인지 확인한다.
+이 단계를 건너뛰면 사용자가 만드는 세션이 "임시"로 빠지고, Files 탭에서 Common 아래에 프로젝트가 중복 노출되는 문제가 발생한다.
+
+```bash
+# 1) 타임존 확인 (Phase 3에서 설정했지만 재확인)
+ssh $VM_USER@$VM_IP 'timedatectl | grep "Time zone"'
+# → Asia/Seoul (KST, +0900) 이어야 함
+
+# 2) 프로젝트-폴더 1:1 매칭 확인
+ssh $VM_USER@$VM_IP 'ls ~/workspace/projects/'
+# → DB의 projects 테이블 root_path와 1:1 대응해야 함.
+#   폴더는 있는데 DB에 없으면 프로젝트 생성 필요.
+#   DB에 있는데 폴더가 없으면 아카이브(archived=1) 처리.
+
+# 3) 임시 세션 확인 (project_id가 NULL인 세션)
+ssh $VM_USER@$VM_IP "PGPASSWORD=<DB_PASS> psql -U toweradmin -d tower -t -c \
+  \"SELECT COUNT(*) FROM sessions WHERE project_id IS NULL AND parent_session_id IS NULL;\""
+# → 0이어야 함. 0이 아니면 cwd 기반으로 프로젝트 재연결 필요.
+
+# 4) 프로젝트 폴더명 정리
+# Tower가 자동 생성하는 폴더는 project-<uuid8> 형태 (못생김).
+# 의미 있는 영문 slug로 리네임하고 DB root_path도 함께 업데이트.
+```
+
+> **학습 (okusystem, 2026-04-14)**:
+> - `project-2ca0f112` 같은 자동 생성 폴더명 → `shredder-plant`로 정돈
+> - Common(가상 섹션)은 admin에게만 표시 (코드 패치 완료, 2026-04-14)
+> - 세션 생성 시 projectId 자동 상속 로직 추가 (App.tsx 패치 완료, 2026-04-14)
+
+### Phase 12: 운영 안정화
 
 ```bash
 # PM2 부팅 자동시작

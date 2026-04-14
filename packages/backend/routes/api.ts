@@ -1330,7 +1330,7 @@ router.get('/sessions/:id/full', async (req, res) => {
       const access = await canAccessSession(req.params.id as string, userId, role);
       if (!access.allowed) return res.status(access.status).json({ error: access.message });
     }
-    const limit = parseInt(req.query.limit as string) || 500;
+    const limit = parseInt(req.query.limit as string) || 100;
     const [session, msgResult] = await Promise.all([
       getSession(req.params.id as string),
       getMessagesPaginated(req.params.id as string, { limit }),

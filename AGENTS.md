@@ -33,6 +33,16 @@ AI command center for your team. Stack your own tower of AI and systems.
 - Full server ops guide → `devserver.md`
 - Full warning history → `codify.md` (search "좀비" or "zombie")
 
+## 링크 규칙
+
+URL이나 파일 경로를 사용자에게 안내할 때 **반드시 클릭 가능한 전체 URL**로 제공한다.
+- ✅ `https://desk-dev.moatai.app/automation-preview.html`
+- ❌ `/automation-preview.html` (상대 경로만)
+- ❌ `packages/frontend/public/automation-preview.html` (파일 시스템 경로만)
+
+Dev 서버의 public 파일 → `https://desk-dev.moatai.app/<filename>`
+Prod 서버의 public 파일 → `https://tower.moatai.app/<filename>`
+
 ## Workspace
 
 Each deployment has a workspace directory (set via `WORKSPACE_ROOT` env var).

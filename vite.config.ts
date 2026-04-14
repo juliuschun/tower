@@ -82,5 +82,17 @@ export default defineConfig({
   build: {
     outDir: '../../dist/frontend',
     emptyOutDir: true,
+    target: 'es2022',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-mermaid': ['mermaid'],
+          'vendor-katex': ['katex', 'rehype-katex', 'remark-math'],
+          'vendor-recharts': ['recharts'],
+          'vendor-codemirror': ['@uiw/react-codemirror', '@codemirror/lang-javascript', '@codemirror/lang-json', '@codemirror/lang-markdown', '@codemirror/lang-python', '@codemirror/theme-one-dark'],
+          'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+        },
+      },
+    },
   },
 });

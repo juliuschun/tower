@@ -6,6 +6,7 @@ interface ProjectState {
   projects: Project[];
   collapsedProjects: Set<string>;
   collapsedLabels: Set<string>;   // key = "projectId::label"
+  hiddenLabels: Set<string>;      // key = "projectId::label" — hidden decks
 
   setProjects: (projects: Project[]) => void;
   addProject: (project: Project) => void;
@@ -13,6 +14,9 @@ interface ProjectState {
   removeProject: (id: string) => void;
   toggleProjectCollapsed: (projectId: string) => void;
   toggleLabelCollapsed: (projectId: string, label: string) => void;
+  toggleLabelHidden: (projectId: string, label: string) => void;
+  setLabelHidden: (projectId: string, label: string, hidden: boolean) => void;
+  renameLabelInHidden: (projectId: string, oldLabel: string, newLabel: string) => void;
 }
 
 // Persist collapsed state in localStorage
@@ -40,10 +44,23 @@ function saveCollapsedLabels(set: Set<string>) {
   localStorage.setItem('collapsedLabels', JSON.stringify([...set]));
 }
 
+function loadHiddenLabels(): Set<string> {
+  try {
+    const raw = localStorage.getItem('hiddenLabels');
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+function saveHiddenLabels(set: Set<string>) {
+  localStorage.setItem('hiddenLabels', JSON.stringify([...set]));
+}
+
 export const useProjectStore = create<ProjectState>((set) => ({
   projects: [],
   collapsedProjects: loadCollapsed(),
   collapsedLabels: loadCollapsedLabels(),
+  hiddenLabels: loadHiddenLabels(),
 
   setProjects: (projects) => set({ projects }),
   addProject: (project) => set((s) => ({ projects: [...s.projects, project] })),
@@ -68,5 +85,41 @@ export const useProjectStore = create<ProjectState>((set) => ({
       else next.add(key);
       saveCollapsedLabels(next);
       return { collapsedLabels: next };
+    }),
+  toggleLabelHidden: (projectId, label) =>
+    set((s) => {
+      const key = `${projectId}::${label}`;
+      const next = new Set(s.hiddenLabels);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      saveHiddenLabels(next);
+      return { hiddenLabels: next };
+    }),
+  setLabelHidden: (projectId, label, hidden) =>
+    set((s) => {
+      const key = `${projectId}::${label}`;
+      const next = new Set(s.hiddenLabels);
+      if (hidden) next.add(key);
+      else next.delete(key);
+      saveHiddenLabels(next);
+      return { hiddenLabels: next };
+    }),
+  renameLabelInHidden: (projectId, oldLabel, newLabel) =>
+    set((s) => {
+      const oldKey = `${projectId}::${oldLabel}`;
+      const newKey = `${projectId}::${newLabel}`;
+      if (!s.hiddenLabels.has(oldKey)) return {};
+      const next = new Set(s.hiddenLabels);
+      next.delete(oldKey);
+      next.add(newKey);
+      saveHiddenLabels(next);
+      // Also update collapsedLabels key
+      const nextCollapsed = new Set(s.collapsedLabels);
+      if (nextCollapsed.has(oldKey)) {
+        nextCollapsed.delete(oldKey);
+        nextCollapsed.add(newKey);
+        saveCollapsedLabels(nextCollapsed);
+      }
+      return { hiddenLabels: next, collapsedLabels: nextCollapsed };
     }),
 }));

@@ -22,6 +22,7 @@
   "clearFilter": "필터 초기화",
   "addTaskToStart": "태스크를 추가해서 시작하세요",
   "dropCardsHere": "여기에 카드를 놓으세요",
+  "noScheduleYet": "스케줄된 태스크가 없습니다",
   "run": "실행",
   "cancelTask": "태스크 취소",
   "cleanWorktree": "워크트리 정리",

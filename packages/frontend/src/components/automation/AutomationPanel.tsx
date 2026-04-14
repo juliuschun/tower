@@ -1,73 +1,22 @@
 /**
- * AutomationPanel — Tasks + Schedules 통합 UI.
+ * AutomationPanel v3 — Ultra-minimal, Linear/Notion-inspired.
  *
- * 리스트 뷰, 칸반 뷰, 템플릿 갤러리를 하나의 패널에서 관리한다.
- * activeView = 'automations' 일 때 표시.
+ * Structure:
+ *   1. Template chips (horizontal scroll) → click → inline prompt → run
+ *   2. Running items (pulse dot, only when active)
+ *   3. Flat list (dot + name + schedule ... ▶ toggle)
+ *   4. Click row → expand detail (progressive disclosure)
+ *
+ * Replaces both KanbanBoard and SchedulePanel.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useProjectStore } from '../../stores/project-store';
+import { useSessionStore } from '../../stores/session-store';
 import type { Automation, AutomationRun, WorkflowTemplate } from '@tower/shared';
 
 const API = '/api/automations';
-
-// ── Helpers ──
-
-function modeIcon(mode: string) {
-  switch (mode) {
-    case 'spawn': return '\u{1F680}';   // rocket
-    case 'inject': return '\u{1F4AC}';  // speech bubble
-    case 'channel': return '\u{1F4E2}'; // loudspeaker
-    default: return '\u{2699}';         // gear
-  }
-}
-
-function statusBadge(status: string) {
-  switch (status) {
-    case 'running': return { bg: 'bg-blue-500/20', text: 'text-blue-400', dot: 'bg-blue-400' };
-    case 'idle': return { bg: 'bg-gray-500/20', text: 'text-gray-400', dot: 'bg-gray-400' };
-    case 'done': return { bg: 'bg-green-500/20', text: 'text-green-400', dot: 'bg-green-400' };
-    case 'failed': return { bg: 'bg-red-500/20', text: 'text-red-400', dot: 'bg-red-400' };
-    default: return { bg: 'bg-gray-500/20', text: 'text-gray-400', dot: 'bg-gray-400' };
-  }
-}
-
-function triggerLabel(a: Automation, t: (k: string) => string): string {
-  if (a.triggerType === 'manual') return t('manual');
-  if (a.triggerType === 'once') {
-    return a.onceAt ? new Date(a.onceAt).toLocaleString() : t('once');
-  }
-  if (!a.cronConfig) return t('cron');
-  const c = a.cronConfig;
-  const time = `${String(c.hour ?? 9).padStart(2, '0')}:${String(c.minute ?? 0).padStart(2, '0')}`;
-  switch (c.type) {
-    case 'daily': return `${t('daily')} ${time}`;
-    case 'weekdays': return `${t('weekdays')} ${time}`;
-    case 'weekly': {
-      const days = [t('sun'), t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat')];
-      return `${t('every')} ${days[c.day ?? 1]} ${time}`;
-    }
-    case 'interval': return `${t('every')} ${c.hours ?? 1}${t('hours')}`;
-    default: return t('cron');
-  }
-}
-
-function relativeTime(dateStr: string | null): string {
-  if (!dateStr) return '-';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  if (diff < 0) {
-    const mins = Math.floor(-diff / 60000);
-    if (mins < 60) return `in ${mins}m`;
-    const hours = Math.floor(mins / 60);
-    return `in ${hours}h`;
-  }
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 
 // ── Fetch helper ──
 
@@ -87,223 +36,386 @@ async function fetchJson<T>(url: string, opts?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ── Tab / View types ──
+// ── Helpers ──
 
-type ViewMode = 'list' | 'kanban';
-type StatusFilter = 'all' | 'running' | 'idle' | 'scheduled' | 'done';
+function triggerLabel(a: Automation): string {
+  if (a.triggerType === 'manual') return '';
+  if (a.triggerType === 'once' && a.onceAt) return new Date(a.onceAt).toLocaleDateString();
+  if (!a.cronConfig) return '';
+  const c = a.cronConfig;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const time = `${pad(c.hour ?? 9)}:${pad(c.minute ?? 0)}`;
+  switch (c.type) {
+    case 'daily': return `매일 ${time}`;
+    case 'weekdays': return `평일 ${time}`;
+    case 'weekly': {
+      const days = ['일','월','화','수','목','금','토'];
+      return `매주 ${days[c.day ?? 1]} ${time}`;
+    }
+    case 'interval': return `${c.hours ?? 1}시간마다`;
+    default: return '';
+  }
+}
+
+function elapsedStr(since: string): string {
+  const ms = Date.now() - new Date(since).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
 
 // ── Component ──
 
 export function AutomationPanel() {
   const { t } = useTranslation('automation');
+  const projects = useProjectStore((s) => s.projects);
+  const activeProjects = useMemo(() => projects.filter(p => !p.archived), [projects]);
 
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
+
+  // Inline create from template
+  const [inlineTemplate, setInlineTemplate] = useState<WorkflowTemplate | null>(null);
+  const [inlinePrompt, setInlinePrompt] = useState('');
+  const inlineInputRef = useRef<HTMLInputElement>(null);
+
+  // Expand detail
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [runs, setRuns] = useState<AutomationRun[]>([]);
 
-  // ── Data loading ──
+  // Create/Edit modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const loadAutomations = useCallback(async () => {
+  // Elapsed time ticker (for running items)
+  const [, setTick] = useState(0);
+  const running = useMemo(() => automations.filter(a => a.status === 'running'), [automations]);
+  useEffect(() => {
+    if (running.length === 0) return;
+    const iv = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, [running.length]);
+
+  const load = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await fetchJson<Automation[]>(API);
-      setAutomations(data);
-      setError(null);
-    } catch (err: any) {
-      setError(err.message);
+      const [autoData, tplData] = await Promise.all([
+        fetchJson<Automation[]>(API),
+        fetchJson<WorkflowTemplate[]>(`${API}/templates`),
+      ]);
+      setAutomations(autoData);
+      setTemplates(tplData);
+    } catch (err) {
+      console.error('Failed to load automations:', err);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const loadTemplates = useCallback(async () => {
-    try {
-      const data = await fetchJson<WorkflowTemplate[]>(`${API}/templates`);
-      setTemplates(data);
-    } catch {}
-  }, []);
+  useEffect(() => { load(); }, [load]);
 
-  useEffect(() => { loadAutomations(); loadTemplates(); }, [loadAutomations, loadTemplates]);
+  // WS updates for running tasks
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'task_update' || msg.type === 'task_progress' || msg.type === 'task_done') {
+          load();
+        }
+      } catch {}
+    };
+    const ws = (window as any).__claudeWs;
+    if (ws) ws.addEventListener('message', handler);
+    return () => { if (ws) ws.removeEventListener('message', handler); };
+  }, [load]);
 
-  // ── Filtering ──
+  // ── Filtered & sorted ──
 
   const filtered = useMemo(() => {
-    if (statusFilter === 'all') return automations;
-    if (statusFilter === 'scheduled') return automations.filter(a => a.triggerType !== 'manual');
-    return automations.filter(a => a.status === statusFilter);
-  }, [automations, statusFilter]);
+    let list = automations;
+    if (filterProjectId) list = list.filter(a => a.projectId === filterProjectId);
+    // Don't show archived
+    list = list.filter(a => a.status !== 'archived');
+    return list;
+  }, [automations, filterProjectId]);
 
-  // Counts for tabs
-  const counts = useMemo(() => ({
-    all: automations.length,
-    running: automations.filter(a => a.status === 'running').length,
-    idle: automations.filter(a => a.status === 'idle').length,
-    scheduled: automations.filter(a => a.triggerType !== 'manual').length,
-    done: automations.filter(a => a.status === 'done' || a.status === 'failed').length,
-  }), [automations]);
-
-  // Kanban columns
-  const kanbanColumns = useMemo(() => ({
-    idle: filtered.filter(a => a.status === 'idle'),
-    running: filtered.filter(a => a.status === 'running'),
-    done: filtered.filter(a => a.status === 'done' || a.status === 'failed'),
-  }), [filtered]);
+  const runningItems = useMemo(() => filtered.filter(a => a.status === 'running'), [filtered]);
+  const listItems = useMemo(() => {
+    // Non-running items, sorted: scheduled first, then idle, then done/failed
+    const items = filtered.filter(a => a.status !== 'running');
+    return items.sort((a, b) => {
+      const order = (x: Automation) => {
+        if (x.triggerType !== 'manual' && x.enabled) return 0; // scheduled
+        if (x.status === 'idle') return 1;
+        if (x.status === 'done') return 2;
+        if (x.status === 'failed') return 3;
+        return 4;
+      };
+      return order(a) - order(b) || a.sortOrder - b.sortOrder;
+    });
+  }, [filtered]);
 
   // ── Actions ──
+
+  const handleRun = (automationId: string) => {
+    const ws = (window as any).__claudeWs;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'task_spawn', taskId: automationId }));
+    } else {
+      console.warn('[automation] WS not open');
+    }
+  };
+
+  const handleAbort = (automationId: string) => {
+    const ws = (window as any).__claudeWs;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'task_abort', taskId: automationId }));
+    }
+  };
 
   const handleToggle = async (id: string, enabled: boolean) => {
     try {
       await fetchJson(`${API}/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !enabled }) });
-      loadAutomations();
-    } catch (err: any) { setError(err.message); }
+      setAutomations(prev => prev.map(a => a.id === id ? { ...a, enabled: !enabled } : a));
+    } catch (err) {
+      console.error('Failed to toggle:', err);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm(t('confirmDelete'))) return;
     try {
       await fetchJson(`${API}/${id}`, { method: 'DELETE' });
-      loadAutomations();
-    } catch (err: any) { setError(err.message); }
+      setAutomations(prev => prev.filter(a => a.id !== id));
+      if (expandedId === id) setExpandedId(null);
+    } catch (err) {
+      console.error('Failed to delete:', err);
+    }
   };
 
   const handleExpand = async (id: string) => {
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
     try {
-      const data = await fetchJson<AutomationRun[]>(`${API}/${id}/runs?limit=10`);
+      const data = await fetchJson<AutomationRun[]>(`${API}/${id}/runs?limit=5`);
       setRuns(data);
     } catch { setRuns([]); }
   };
 
-  const handleCreateFromTemplate = async (templateId: string) => {
+  const handleInlineRun = async () => {
+    if (!inlineTemplate || !inlinePrompt.trim()) return;
     try {
-      await fetchJson(`${API}/from-template`, {
+      const created = await fetchJson<Automation>(`${API}/from-template`, {
         method: 'POST',
-        body: JSON.stringify({ templateId }),
+        body: JSON.stringify({
+          templateId: inlineTemplate.id,
+          prompt: inlinePrompt.trim(),
+          projectId: filterProjectId,
+        }),
       });
-      setShowTemplates(false);
-      loadAutomations();
-    } catch (err: any) { setError(err.message); }
+      setInlineTemplate(null);
+      setInlinePrompt('');
+      await load();
+      // Auto-run the created automation
+      handleRun(created.id);
+    } catch (err) {
+      console.error('Failed to create from template:', err);
+    }
   };
 
-  // ── Render ──
+  const handleCardClick = (a: Automation) => {
+    if (a.sessionId) {
+      const { setActiveView } = useSessionStore.getState();
+      setActiveView('chat');
+      window.dispatchEvent(new CustomEvent('kanban-select-session', { detail: { sessionId: a.sessionId } }));
+    } else {
+      handleExpand(a.id);
+    }
+  };
+
+  // Focus inline input when template is selected
+  useEffect(() => {
+    if (inlineTemplate && inlineInputRef.current) {
+      inlineInputRef.current.focus();
+    }
+  }, [inlineTemplate]);
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-primary)]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">{t('title')}</h1>
-        <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex rounded-lg overflow-hidden border border-[var(--border-primary)]">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                viewMode === 'list'
-                  ? 'bg-[var(--accent-primary)] text-white'
-                  : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-              }`}
-            >
-              {t('listView')}
-            </button>
-            <button
-              onClick={() => setViewMode('kanban')}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                viewMode === 'kanban'
-                  ? 'bg-[var(--accent-primary)] text-white'
-                  : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-              }`}
-            >
-              {t('kanbanView')}
-            </button>
-          </div>
-
-          <button
-            onClick={() => setShowTemplates(true)}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-primary)] transition-colors"
+    <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold text-gray-200">{t('title')}</h2>
+          <select
+            value={filterProjectId ?? ''}
+            onChange={(e) => setFilterProjectId(e.target.value || null)}
+            className="text-xs bg-surface-800 border border-surface-700 rounded-md px-2 py-1.5 text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer max-w-[180px]"
           >
-            {t('templates')}
-          </button>
-
-          <button
-            onClick={() => { setEditingId(null); setShowCreate(true); }}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity"
-          >
-            + {t('create')}
-          </button>
+            <option value="">{t('allProjects')}</option>
+            {activeProjects.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {filterProjectId && (
+            <button
+              onClick={() => setFilterProjectId(null)}
+              className="text-gray-500 hover:text-gray-300 transition-colors p-1"
+              title={t('clearFilter')}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
+        <button
+          onClick={() => { setEditingId(null); setShowCreate(true); }}
+          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+        >
+          + {t('newAutomation')}
+        </button>
       </div>
 
-      {/* Status filter tabs */}
-      <div className="flex gap-1 px-5 py-2 border-b border-[var(--border-primary)] overflow-x-auto">
-        {(['all', 'running', 'idle', 'scheduled', 'done'] as StatusFilter[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => setStatusFilter(f)}
-            className={`px-3 py-1 text-xs rounded-full whitespace-nowrap transition-colors ${
-              statusFilter === f
-                ? 'bg-[var(--accent-primary)] text-white'
-                : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-            }`}
-          >
-            {t(`filter_${f}`)} {counts[f] > 0 && <span className="ml-1 opacity-70">{counts[f]}</span>}
-          </button>
-        ))}
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="mx-5 mt-3 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 ml-2">&times;</button>
+      {/* ── Template Chips ── */}
+      {templates.length > 0 && (
+        <div className="flex gap-2 mb-3 overflow-x-auto flex-shrink-0 pb-1 scrollbar-none">
+          {templates.map(tpl => (
+            <button
+              key={tpl.id}
+              onClick={() => {
+                if (inlineTemplate?.id === tpl.id) {
+                  setInlineTemplate(null);
+                } else {
+                  setInlineTemplate(tpl);
+                  setInlinePrompt('');
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs whitespace-nowrap transition-all flex-shrink-0 ${
+                inlineTemplate?.id === tpl.id
+                  ? 'border-blue-500/50 bg-blue-500/10 text-blue-400'
+                  : 'border-surface-700 bg-surface-800 text-gray-400 hover:bg-surface-700 hover:text-gray-300'
+              }`}
+            >
+              <span className="text-sm">{tpl.icon}</span>
+              {tpl.nameKo}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-5">
-        {loading ? (
-          <div className="flex items-center justify-center h-40 text-[var(--text-tertiary)]">{t('loading')}</div>
-        ) : automations.length === 0 ? (
-          <EmptyState t={t} onShowTemplates={() => setShowTemplates(true)} />
-        ) : viewMode === 'list' ? (
-          <ListView
-            automations={filtered}
-            expandedId={expandedId}
-            runs={runs}
-            onToggle={handleToggle}
-            onDelete={handleDelete}
-            onExpand={handleExpand}
-            onEdit={(id) => { setEditingId(id); setShowCreate(true); }}
-            t={t}
+      {/* ── Inline Create Bar ── */}
+      {inlineTemplate && (
+        <div className="flex items-center gap-2 px-3 py-2.5 mb-3 rounded-lg border border-surface-700 bg-surface-850 flex-shrink-0">
+          <span className="text-sm flex-shrink-0">{inlineTemplate.icon}</span>
+          <span className="text-xs text-gray-400 flex-shrink-0">{inlineTemplate.nameKo}</span>
+          <input
+            ref={inlineInputRef}
+            className="flex-1 bg-surface-800 border border-surface-700 rounded-md px-2.5 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-600"
+            placeholder={inlineTemplate.description}
+            value={inlinePrompt}
+            onChange={(e) => setInlinePrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleInlineRun();
+              if (e.key === 'Escape') { setInlineTemplate(null); setInlinePrompt(''); }
+            }}
           />
+          <button
+            onClick={handleInlineRun}
+            disabled={!inlinePrompt.trim()}
+            className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors disabled:opacity-40 flex-shrink-0"
+          >
+            {t('runNow')}
+          </button>
+          <button
+            onClick={() => { setInlineTemplate(null); setInlinePrompt(''); }}
+            className="text-gray-500 hover:text-gray-300 p-1 flex-shrink-0"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* ── Content ── */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-gray-500 text-sm">{t('loading')}</div>
+        ) : automations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-sm gap-2">
+            <span className="text-2xl opacity-30">⚡</span>
+            <p>{t('empty')}</p>
+            <p className="text-xs text-gray-600">{t('emptyHint')}</p>
+          </div>
         ) : (
-          <KanbanView columns={kanbanColumns} t={t} />
+          <>
+            {/* ── Running ── */}
+            {runningItems.length > 0 && (
+              <div className="mb-3">
+                {runningItems.map(a => (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-surface-700 bg-surface-850 hover:bg-surface-800 transition-colors cursor-pointer mb-1.5"
+                    onClick={() => handleCardClick(a)}
+                  >
+                    {/* Pulse dot */}
+                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
+                    {/* Name */}
+                    <span className="text-sm text-gray-200 flex-1 truncate">{a.name}</span>
+                    {/* Progress hint */}
+                    {a.progressSummary?.length > 0 && (
+                      <span className="text-[10px] text-gray-500 max-w-[150px] truncate flex-shrink-0">
+                        {a.progressSummary[a.progressSummary.length - 1]}
+                      </span>
+                    )}
+                    {/* Elapsed */}
+                    <span className="text-[11px] text-gray-500 flex-shrink-0 tabular-nums">
+                      {elapsedStr(a.updatedAt)}
+                    </span>
+                    {/* Abort */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleAbort(a.id); }}
+                      className="text-[11px] px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors flex-shrink-0"
+                    >
+                      Stop
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Flat List ── */}
+            <div>
+              {listItems.map(a => (
+                <AutomationRow
+                  key={a.id}
+                  automation={a}
+                  expanded={expandedId === a.id}
+                  runs={expandedId === a.id ? runs : []}
+                  onCardClick={() => handleCardClick(a)}
+                  onExpand={() => handleExpand(a.id)}
+                  onRun={() => handleRun(a.id)}
+                  onToggle={() => handleToggle(a.id, a.enabled)}
+                  onEdit={() => { setEditingId(a.id); setShowCreate(true); }}
+                  onDelete={() => handleDelete(a.id)}
+                  t={t}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 
-      {/* Modals */}
-      {showTemplates && (
-        <TemplateGallery
-          templates={templates}
-          onSelect={handleCreateFromTemplate}
-          onClose={() => setShowTemplates(false)}
-          t={t}
-        />
-      )}
-
+      {/* ── Create/Edit Modal ── */}
       {showCreate && (
         <AutomationFormModal
           editingId={editingId}
           onClose={() => { setShowCreate(false); setEditingId(null); }}
-          onSaved={() => { setShowCreate(false); setEditingId(null); loadAutomations(); }}
+          onSaved={() => { setShowCreate(false); setEditingId(null); load(); }}
           t={t}
         />
       )}
@@ -311,265 +423,183 @@ export function AutomationPanel() {
   );
 }
 
-// ── Empty State ──
 
-function EmptyState({ t, onShowTemplates }: { t: (k: string) => string; onShowTemplates: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-60 gap-4 text-[var(--text-tertiary)]">
-      <div className="text-4xl opacity-40">{'\u{2699}\uFE0F'}</div>
-      <p className="text-sm">{t('empty')}</p>
-      <button
-        onClick={onShowTemplates}
-        className="px-4 py-2 text-sm rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90"
-      >
-        {t('browseTemplates')}
-      </button>
-    </div>
-  );
-}
+// ── Automation Row ──
 
-// ── List View ──
-
-function ListView({
-  automations, expandedId, runs,
-  onToggle, onDelete, onExpand, onEdit, t,
-}: {
-  automations: Automation[];
-  expandedId: string | null;
+function AutomationRow({ automation: a, expanded, runs, onCardClick, onExpand, onRun, onToggle, onEdit, onDelete, t }: {
+  automation: Automation;
+  expanded: boolean;
   runs: AutomationRun[];
-  onToggle: (id: string, enabled: boolean) => void;
-  onDelete: (id: string) => void;
-  onExpand: (id: string) => void;
-  onEdit: (id: string) => void;
+  onCardClick: () => void;
+  onExpand: () => void;
+  onRun: () => void;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   t: (k: string) => string;
 }) {
+  const schedule = triggerLabel(a);
+  const isScheduled = a.triggerType !== 'manual' && a.enabled;
+  const isDisabled = a.triggerType !== 'manual' && !a.enabled;
+  const isDone = a.status === 'done';
+  const isFailed = a.status === 'failed';
+  const canRun = a.status === 'idle' || a.status === 'failed';
+
+  const dotClass = isFailed ? 'bg-red-400/70'
+    : isDone ? 'bg-green-400/50'
+    : isScheduled ? 'bg-amber-400'
+    : 'bg-gray-500';
+
+  // Status tag text & style
+  const statusTag = isFailed
+    ? { text: t('status_failed'), cls: 'text-red-400 bg-red-500/10 border-red-500/20' }
+    : isDone
+    ? { text: t('status_done'), cls: 'text-green-400/60 bg-green-500/5 border-green-500/10' }
+    : isScheduled && schedule
+    ? { text: schedule, cls: 'text-amber-400/80 bg-amber-500/10 border-amber-500/15' }
+    : isDisabled && schedule
+    ? { text: `${schedule} (off)`, cls: 'text-gray-500 bg-surface-700/50 border-surface-600 line-through' }
+    : a.triggerType === 'manual'
+    ? { text: t('manual'), cls: 'text-gray-500 bg-surface-700/30 border-surface-700' }
+    : null;
+
+  const handleRowClick = () => {
+    if (a.sessionId && (isDone || a.status === 'running')) {
+      onCardClick();
+    } else {
+      onExpand();
+    }
+  };
+
   return (
-    <div className="space-y-2">
-      {automations.map((a) => {
-        const badge = statusBadge(a.status);
-        const isExpanded = expandedId === a.id;
+    <div className={isDisabled ? 'opacity-50' : ''}>
+      {/* Main row */}
+      <div
+        className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-surface-850 transition-colors cursor-pointer ${expanded ? 'bg-surface-850' : ''}`}
+        onClick={handleRowClick}
+      >
+        {/* Status dot */}
+        <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${dotClass}`} />
 
-        return (
-          <div key={a.id} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] overflow-hidden">
-            <div className="flex items-center gap-3 px-4 py-3">
-              {/* Mode icon */}
-              <span className="text-lg" title={a.mode}>{modeIcon(a.mode)}</span>
+        {/* Name */}
+        <span className="text-[13px] text-gray-200 flex-1 truncate">{a.name}</span>
 
-              {/* Name + trigger */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm text-[var(--text-primary)] truncate">{a.name}</span>
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${badge.bg} ${badge.text}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-                    {t(`status_${a.status}`)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 mt-0.5 text-xs text-[var(--text-tertiary)]">
-                  <span>{triggerLabel(a, t)}</span>
-                  {a.nextRunAt && <span>next: {relativeTime(a.nextRunAt)}</span>}
-                  {a.runCount > 0 && <span>{a.runCount} {t('runs')}</span>}
-                </div>
-              </div>
+        {/* Status tag — always visible */}
+        {statusTag && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${statusTag.cls}`}>
+            {statusTag.text}
+          </span>
+        )}
 
-              {/* Actions */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => onToggle(a.id, a.enabled)}
-                  className={`w-8 h-5 rounded-full relative transition-colors ${
-                    a.enabled ? 'bg-[var(--accent-primary)]' : 'bg-gray-600'
-                  }`}
-                  title={a.enabled ? t('disable') : t('enable')}
-                >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                    a.enabled ? 'left-3.5' : 'left-0.5'
-                  }`} />
-                </button>
+        {/* Run button — always visible for runnable items */}
+        {canRun && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRun(); }}
+            className="w-7 h-7 rounded-md flex items-center justify-center border border-blue-500/30 bg-blue-500/10 text-blue-400 hover:bg-blue-600 hover:border-blue-500 hover:text-white transition-all text-[11px] flex-shrink-0"
+            title={t('runNow')}
+          >
+            ▶
+          </button>
+        )}
 
-                <button
-                  onClick={() => onExpand(a.id)}
-                  className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] text-xs"
-                  title={t('viewRuns')}
-                >
-                  {isExpanded ? '\u25B2' : '\u25BC'}
-                </button>
+        {/* "View session" button for done items */}
+        {a.sessionId && isDone && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCardClick(); }}
+            className="text-[10px] px-2 py-1 rounded border border-surface-600 bg-surface-800 text-gray-400 hover:text-gray-200 hover:bg-surface-700 transition-colors flex-shrink-0"
+          >
+            View
+          </button>
+        )}
 
-                <button
-                  onClick={() => onEdit(a.id)}
-                  className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] text-xs"
-                  title={t('edit')}
-                >
-                  \u270E
-                </button>
+        {/* Toggle (for scheduled items) */}
+        {a.triggerType !== 'manual' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 ${a.enabled ? 'bg-green-500' : 'bg-surface-600'}`}
+          >
+            <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${a.enabled ? 'left-[16px]' : 'left-[2px]'}`} />
+          </button>
+        )}
 
-                <button
-                  onClick={() => onDelete(a.id)}
-                  className="p-1.5 rounded hover:bg-red-500/20 text-red-400/60 hover:text-red-400 text-xs"
-                  title={t('delete')}
-                >
-                  \u2715
-                </button>
-              </div>
+        {/* Expand indicator */}
+        <svg className={`w-3.5 h-3.5 text-gray-600 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="mx-3 mb-2 px-3 py-3 rounded-lg bg-surface-800/50 border border-surface-700/50">
+          {/* Prompt — prominent */}
+          {a.prompt && (
+            <div className="mb-3">
+              <p className="text-[11px] text-gray-500 mb-1">Prompt</p>
+              <p className="text-xs text-gray-300 leading-relaxed bg-surface-850 rounded-md px-3 py-2 border border-surface-700/30">
+                {a.prompt}
+              </p>
             </div>
+          )}
 
-            {/* Expanded runs */}
-            {isExpanded && (
-              <div className="border-t border-[var(--border-primary)] px-4 py-2 bg-[var(--bg-primary)]">
-                {runs.length === 0 ? (
-                  <p className="text-xs text-[var(--text-tertiary)] py-2">{t('noRuns')}</p>
-                ) : (
-                  <div className="space-y-1">
-                    {runs.map((r) => (
-                      <div key={r.id} className="flex items-center gap-3 text-xs py-1">
-                        <span className={`w-1.5 h-1.5 rounded-full ${r.status === 'success' ? 'bg-green-400' : 'bg-red-400'}`} />
-                        <span className="text-[var(--text-tertiary)]">{new Date(r.ranAt).toLocaleString()}</span>
-                        <span className="text-[var(--text-secondary)]">{r.mode}</span>
-                        {r.durationMs != null && <span className="text-[var(--text-tertiary)]">{(r.durationMs / 1000).toFixed(1)}s</span>}
-                        {r.error && <span className="text-red-400 truncate max-w-[200px]">{r.error}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+          {/* Meta row */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500 mb-3">
+            {a.mode !== 'spawn' && (
+              <span>Mode: <span className="text-gray-400">{a.mode === 'inject' ? 'Session' : 'Channel'}</span></span>
+            )}
+            {a.lastRunAt && (
+              <span>Last run: <span className="text-gray-400">{new Date(a.lastRunAt).toLocaleString()}</span></span>
+            )}
+            {a.runCount > 0 && (
+              <span>{a.runCount} {t('runs')}</span>
+            )}
+            {a.lastStatus === 'error' && a.lastError && (
+              <span className="text-red-400 truncate max-w-[200px]">{a.lastError}</span>
             )}
           </div>
-        );
-      })}
-    </div>
-  );
-}
 
-// ── Kanban View ──
+          {/* Recent runs */}
+          {runs.length > 0 && (
+            <div className="mb-3 space-y-0.5">
+              <p className="text-[11px] text-gray-500 mb-1">{t('runLog')}</p>
+              {runs.map(r => (
+                <div key={r.id} className="flex items-center gap-2 text-[10px]">
+                  <span className={`w-1.5 h-1.5 rounded-full ${r.status === 'success' ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <span className="text-gray-500">{new Date(r.ranAt).toLocaleString()}</span>
+                  {r.durationMs != null && <span className="text-gray-600">{(r.durationMs / 1000).toFixed(1)}s</span>}
+                  {r.error && <span className="text-red-400 truncate max-w-[180px]">{r.error}</span>}
+                </div>
+              ))}
+            </div>
+          )}
 
-function KanbanView({ columns, t }: {
-  columns: { idle: Automation[]; running: Automation[]; done: Automation[] };
-  t: (k: string) => string;
-}) {
-  const colDefs = [
-    { key: 'idle' as const, label: t('status_idle'), color: 'border-gray-500/30', items: columns.idle },
-    { key: 'running' as const, label: t('status_running'), color: 'border-blue-500/30', items: columns.running },
-    { key: 'done' as const, label: t('status_done'), color: 'border-green-500/30', items: columns.done },
-  ];
-
-  return (
-    <div className="grid grid-cols-3 gap-4 h-full">
-      {colDefs.map((col) => (
-        <div key={col.key} className={`flex flex-col rounded-xl border ${col.color} bg-[var(--bg-secondary)] overflow-hidden`}>
-          <div className="px-4 py-3 border-b border-[var(--border-primary)]">
-            <span className="text-sm font-medium text-[var(--text-primary)]">{col.label}</span>
-            <span className="ml-2 text-xs text-[var(--text-tertiary)]">{col.items.length}</span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {col.items.map((a) => (
-              <KanbanCard key={a.id} automation={a} t={t} />
-            ))}
-            {col.items.length === 0 && (
-              <div className="text-center text-xs text-[var(--text-tertiary)] py-8 opacity-50">{t('empty')}</div>
+          {/* Action buttons — prominent Run + secondary edit/delete */}
+          <div className="flex items-center gap-2">
+            {canRun && (
+              <button
+                onClick={onRun}
+                className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors font-medium"
+              >
+                ▶ {t('runNow')}
+              </button>
             )}
+            <button onClick={onEdit} className="text-[11px] px-2.5 py-1.5 rounded-md border border-surface-600 bg-surface-800 text-gray-300 hover:bg-surface-700 transition-colors">
+              {t('edit')}
+            </button>
+            <button onClick={onDelete} className="text-[11px] px-2.5 py-1.5 rounded-md border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-colors">
+              {t('delete')}
+            </button>
           </div>
         </div>
-      ))}
-    </div>
-  );
-}
-
-function KanbanCard({ automation: a, t }: { automation: Automation; t: (k: string) => string }) {
-  return (
-    <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 hover:border-[var(--accent-primary)]/50 transition-colors cursor-default">
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{modeIcon(a.mode)}</span>
-        <span className="text-sm font-medium text-[var(--text-primary)] truncate flex-1">{a.name}</span>
-      </div>
-      <div className="flex items-center gap-2 mt-2 text-[10px] text-[var(--text-tertiary)]">
-        <span className="px-1.5 py-0.5 rounded bg-[var(--bg-secondary)]">{triggerLabel(a, t)}</span>
-        {a.runCount > 0 && <span>{a.runCount} {t('runs')}</span>}
-      </div>
-      {a.progressSummary && a.progressSummary.length > 0 && (
-        <p className="mt-2 text-xs text-[var(--text-secondary)] truncate">
-          {a.progressSummary[a.progressSummary.length - 1]}
-        </p>
       )}
     </div>
   );
 }
 
-// ── Template Gallery ──
-
-function TemplateGallery({
-  templates, onSelect, onClose, t,
-}: {
-  templates: WorkflowTemplate[];
-  onSelect: (id: string) => void;
-  onClose: () => void;
-  t: (k: string) => string;
-}) {
-  const categories = useMemo(() => {
-    const cats = new Map<string, WorkflowTemplate[]>();
-    for (const tpl of templates) {
-      const list = cats.get(tpl.category) || [];
-      list.push(tpl);
-      cats.set(tpl.category, list);
-    }
-    return cats;
-  }, [templates]);
-
-  const catLabels: Record<string, string> = {
-    research: t('catResearch'),
-    development: t('catDevelopment'),
-    operations: t('catOperations'),
-    communication: t('catCommunication'),
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-[var(--bg-primary)] rounded-2xl border border-[var(--border-primary)] w-full max-w-2xl max-h-[80vh] overflow-y-auto shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-primary)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t('templateGallery')}</h2>
-          <button onClick={onClose} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">&times;</button>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {[...categories.entries()].map(([cat, tpls]) => (
-            <div key={cat}>
-              <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">{catLabels[cat] || cat}</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {tpls.map((tpl) => (
-                  <div
-                    key={tpl.id}
-                    className="group rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 hover:border-[var(--accent-primary)]/50 transition-colors cursor-pointer"
-                    onClick={() => onSelect(tpl.id)}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-2xl">{tpl.icon}</span>
-                      <span className="text-sm font-medium text-[var(--text-primary)]">{tpl.nameKo}</span>
-                    </div>
-                    <p className="text-xs text-[var(--text-tertiary)] line-clamp-2">{tpl.descriptionKo}</p>
-                    <div className="flex items-center gap-2 mt-3 text-[10px] text-[var(--text-tertiary)]">
-                      <span className="px-1.5 py-0.5 rounded bg-[var(--bg-primary)]">{tpl.defaultTrigger}</span>
-                      <span className="px-1.5 py-0.5 rounded bg-[var(--bg-primary)]">{tpl.defaultMode}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Create/Edit Form Modal ──
 
-function AutomationFormModal({
-  editingId, onClose, onSaved, t,
-}: {
-  editingId: string | null;
-  onClose: () => void;
-  onSaved: () => void;
-  t: (k: string) => string;
+function AutomationFormModal({ editingId, onClose, onSaved, t }: {
+  editingId: string | null; onClose: () => void; onSaved: () => void; t: (k: string) => string;
 }) {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -583,21 +613,15 @@ function AutomationFormModal({
   const [cronIntervalHours, setCronIntervalHours] = useState(1);
   const [saving, setSaving] = useState(false);
 
-  // Load existing data for edit
   useEffect(() => {
     if (!editingId) return;
     fetchJson<Automation>(`${API}/${editingId}`).then((a) => {
-      setName(a.name);
-      setPrompt(a.prompt);
-      setModel(a.model);
-      setMode(a.mode);
+      setName(a.name); setPrompt(a.prompt); setModel(a.model); setMode(a.mode);
       setTriggerType(a.triggerType === 'event' ? 'manual' : a.triggerType);
       if (a.cronConfig) {
         setCronType(a.cronConfig.type);
-        setCronHour(a.cronConfig.hour ?? 9);
-        setCronMinute(a.cronConfig.minute ?? 0);
-        setCronDay(a.cronConfig.day ?? 1);
-        setCronIntervalHours(a.cronConfig.hours ?? 1);
+        setCronHour(a.cronConfig.hour ?? 9); setCronMinute(a.cronConfig.minute ?? 0);
+        setCronDay(a.cronConfig.day ?? 1); setCronIntervalHours(a.cronConfig.hours ?? 1);
       }
     }).catch(() => {});
   }, [editingId]);
@@ -608,76 +632,58 @@ function AutomationFormModal({
     try {
       const cronConfig = triggerType === 'cron' ? {
         type: cronType,
-        hour: cronType !== 'interval' ? cronHour : undefined,
-        minute: cronType !== 'interval' ? cronMinute : undefined,
-        day: cronType === 'weekly' ? cronDay : undefined,
-        hours: cronType === 'interval' ? cronIntervalHours : undefined,
+        ...(cronType !== 'interval' ? { hour: cronHour, minute: cronMinute } : {}),
+        ...(cronType === 'weekly' ? { day: cronDay } : {}),
+        ...(cronType === 'interval' ? { hours: cronIntervalHours } : {}),
       } : undefined;
-
       const body = { name, prompt, model, mode, triggerType, cronConfig };
-
       if (editingId) {
         await fetchJson(`${API}/${editingId}`, { method: 'PATCH', body: JSON.stringify(body) });
       } else {
         await fetchJson(API, { method: 'POST', body: JSON.stringify(body) });
       }
       onSaved();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch (err: any) { alert(err.message); } finally { setSaving(false); }
   };
 
-  const inputCls = 'w-full px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-primary)] text-sm focus:outline-none focus:border-[var(--accent-primary)]';
-  const labelCls = 'block text-xs font-medium text-[var(--text-secondary)] mb-1';
+  const inputCls = 'w-full px-3 py-2 text-sm rounded-md bg-surface-800 border border-surface-700 text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500';
+  const labelCls = 'block text-xs font-medium text-gray-400 mb-1';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-[var(--bg-primary)] rounded-2xl border border-[var(--border-primary)] w-full max-w-lg shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-primary)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-surface-900 rounded-xl border border-surface-700 w-full max-w-md shadow-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-surface-700">
+          <h3 className="text-sm font-semibold text-gray-200">
             {editingId ? t('editAutomation') : t('createAutomation')}
-          </h2>
-          <button onClick={onClose} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">&times;</button>
+          </h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
-        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-          {/* Name */}
+        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
           <div>
             <label className={labelCls}>{t('name')}</label>
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('namePlaceholder')} />
           </div>
-
-          {/* Prompt */}
           <div>
             <label className={labelCls}>{t('prompt')}</label>
-            <textarea
-              className={`${inputCls} h-24 resize-none`}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder={t('promptPlaceholder')}
-            />
+            <textarea className={`${inputCls} h-20 resize-none`} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('promptPlaceholder')} />
           </div>
 
           {/* Mode */}
           <div>
             <label className={labelCls}>{t('mode')}</label>
-            <div className="flex gap-2">
-              {(['spawn', 'inject', 'channel'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`flex-1 px-3 py-2 rounded-lg text-sm border transition-colors ${
-                    mode === m
-                      ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]'
-                      : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
-                  }`}
-                >
-                  {modeIcon(m)} {t(`mode_${m}`)}
+            <div className="flex gap-1.5">
+              {(['spawn', 'inject', 'channel'] as const).map(m => (
+                <button key={m} onClick={() => setMode(m)}
+                  className={`flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors ${
+                    mode === m ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-surface-700 bg-surface-800 text-gray-400 hover:bg-surface-700'
+                  }`}>
+                  {t(`mode_${m}`)}
                 </button>
               ))}
             </div>
@@ -686,17 +692,12 @@ function AutomationFormModal({
           {/* Trigger */}
           <div>
             <label className={labelCls}>{t('trigger')}</label>
-            <div className="flex gap-2">
-              {(['manual', 'cron', 'once'] as const).map((tr) => (
-                <button
-                  key={tr}
-                  onClick={() => setTriggerType(tr)}
-                  className={`flex-1 px-3 py-2 rounded-lg text-sm border transition-colors ${
-                    triggerType === tr
-                      ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]'
-                      : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
-                  }`}
-                >
+            <div className="flex gap-1.5">
+              {(['manual', 'cron', 'once'] as const).map(tr => (
+                <button key={tr} onClick={() => setTriggerType(tr)}
+                  className={`flex-1 px-2 py-1.5 text-xs rounded-md border transition-colors ${
+                    triggerType === tr ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-surface-700 bg-surface-800 text-gray-400 hover:bg-surface-700'
+                  }`}>
                   {t(`trigger_${tr}`)}
                 </button>
               ))}
@@ -705,39 +706,35 @@ function AutomationFormModal({
 
           {/* Cron config */}
           {triggerType === 'cron' && (
-            <div className="space-y-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
-              <div>
-                <label className={labelCls}>{t('cronType')}</label>
-                <select className={inputCls} value={cronType} onChange={(e) => setCronType(e.target.value as any)}>
-                  <option value="daily">{t('daily')}</option>
-                  <option value="weekdays">{t('weekdays')}</option>
-                  <option value="weekly">{t('weekly')}</option>
-                  <option value="interval">{t('interval')}</option>
-                </select>
-              </div>
-              {cronType !== 'interval' && (
+            <div className="space-y-2 p-3 rounded-lg bg-surface-800 border border-surface-700">
+              <select className={inputCls} value={cronType} onChange={(e) => setCronType(e.target.value as any)}>
+                <option value="daily">{t('daily')}</option>
+                <option value="weekdays">{t('weekdays')}</option>
+                <option value="weekly">{t('weekly')}</option>
+                <option value="interval">{t('everyNHours')}</option>
+              </select>
+              {cronType !== 'interval' ? (
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <label className={labelCls}>{t('hour')}</label>
-                    <input type="number" min={0} max={23} className={inputCls} value={cronHour} onChange={(e) => setCronHour(+e.target.value)} />
+                    <label className={labelCls}>{t('at')}</label>
+                    <div className="flex gap-1">
+                      <input type="number" min={0} max={23} className={`${inputCls} w-16`} value={cronHour} onChange={(e) => setCronHour(+e.target.value)} />
+                      <span className="text-gray-500 self-center">:</span>
+                      <input type="number" min={0} max={59} className={`${inputCls} w-16`} value={cronMinute} onChange={(e) => setCronMinute(+e.target.value)} />
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <label className={labelCls}>{t('minute')}</label>
-                    <input type="number" min={0} max={59} className={inputCls} value={cronMinute} onChange={(e) => setCronMinute(+e.target.value)} />
-                  </div>
+                  {cronType === 'weekly' && (
+                    <div className="flex-1">
+                      <label className={labelCls}>{t('dayOfWeek')}</label>
+                      <select className={inputCls} value={cronDay} onChange={(e) => setCronDay(+e.target.value)}>
+                        {[t('sun'),t('mon'),t('tue'),t('wed'),t('thu'),t('fri'),t('sat')].map((d,i) => (
+                          <option key={i} value={i}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
-              )}
-              {cronType === 'weekly' && (
-                <div>
-                  <label className={labelCls}>{t('dayOfWeek')}</label>
-                  <select className={inputCls} value={cronDay} onChange={(e) => setCronDay(+e.target.value)}>
-                    {[t('sun'), t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat')].map((d, i) => (
-                      <option key={i} value={i}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {cronType === 'interval' && (
+              ) : (
                 <div>
                   <label className={labelCls}>{t('intervalHours')}</label>
                   <input type="number" min={1} max={72} className={inputCls} value={cronIntervalHours} onChange={(e) => setCronIntervalHours(+e.target.value)} />
@@ -757,19 +754,12 @@ function AutomationFormModal({
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-[var(--border-primary)]">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-          >
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-surface-700">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm bg-surface-800 hover:bg-surface-700 text-gray-300 rounded-lg transition-colors">
             {t('cancel')}
           </button>
-          <button
-            onClick={handleSave}
-            disabled={!name.trim() || saving}
-            className="px-4 py-2 text-sm rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 disabled:opacity-50"
-          >
+          <button onClick={handleSave} disabled={!name.trim() || saving}
+            className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50">
             {saving ? t('saving') : editingId ? t('save') : t('create')}
           </button>
         </div>

@@ -20,11 +20,16 @@ import { KanbanCard } from './KanbanCard';
 import { NewTaskModal } from './NewTaskModal';
 import { SchedulePopover } from './SchedulePopover';
 
-const COLUMN_DEFS: { id: TaskMeta['status']; titleKey: string; color: string }[] = [
-  { id: 'todo', titleKey: 'todo', color: 'text-gray-400' },
-  { id: 'in_progress', titleKey: 'inProgress', color: 'text-blue-400' },
-  { id: 'done', titleKey: 'done', color: 'text-green-400' },
-];
+/**
+ * 2-column layout:
+ *   Left:  할 일 (top) + 스케줄 (bottom)
+ *   Right: 진행 중 (top) + 완료 (bottom)
+ */
+/**
+ * 2-column layout:
+ *   Left:  할 일 (top) + 스케줄 (bottom)
+ *   Right: 진행 중 (top) + 완료 (bottom)
+ */
 
 export function KanbanBoard() {
   const { t } = useTranslation('kanban');
@@ -37,6 +42,8 @@ export function KanbanBoard() {
   const [showNewTask, setShowNewTask] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskMeta | null>(null);
   const [scheduleTaskId, setScheduleTaskId] = useState<string | null>(null);
+  /** When true, opening SchedulePopover right after creating a new task */
+  const [openScheduleAfterCreate, setOpenScheduleAfterCreate] = useState(false);
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -75,36 +82,71 @@ export function KanbanBoard() {
     return tasks.filter(t => t.projectId === filterProjectId);
   }, [tasks, filterProjectId]);
 
-  const getTasksByStatus = (status: TaskMeta['status']) => {
-    const statusTasks = filteredTasks.filter((t) =>
-      status === 'done' ? t.status === 'done' || t.status === 'failed' : t.status === status
-    );
-    if (status === 'done') {
-      // Done column: most recent first (by completedAt, then updatedAt)
-      return statusTasks.sort((a, b) => {
+  // ── Split tasks into 4 groups ──
+
+  /** Manual todos (no schedule or schedule disabled) */
+  const todoTasks = useMemo(() => {
+    return filteredTasks
+      .filter(t => t.status === 'todo' && !(t.scheduleEnabled && t.scheduleCron))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }, [filteredTasks]);
+
+  /** Scheduled (recurring cron, regardless of status=todo) */
+  const scheduledTasks = useMemo(() => {
+    return filteredTasks
+      .filter(t => t.scheduleCron && t.status === 'todo')
+      .sort((a, b) => {
+        // Enabled first, then by sortOrder
+        if (a.scheduleEnabled !== b.scheduleEnabled) return a.scheduleEnabled ? -1 : 1;
+        return a.sortOrder - b.sortOrder;
+      });
+  }, [filteredTasks]);
+
+  /** Running */
+  const runningTasks = useMemo(() => {
+    return filteredTasks
+      .filter(t => t.status === 'in_progress')
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }, [filteredTasks]);
+
+  /** Done + Failed */
+  const doneTasks = useMemo(() => {
+    return filteredTasks
+      .filter(t => t.status === 'done' || t.status === 'failed')
+      .sort((a, b) => {
         const aTime = a.completedAt || a.updatedAt;
         const bTime = b.completedAt || b.updatedAt;
         return bTime.localeCompare(aTime);
       });
+  }, [filteredTasks]);
+
+  // ── Drag & Drop (keep existing logic, resolve to correct column) ──
+
+  const [overColumnId, setOverColumnId] = useState<string | null>(null);
+
+  /** Returns [status, isScheduleSection] */
+  const resolveTarget = (overId: string | number): [TaskMeta['status'] | null, boolean] => {
+    const id = String(overId);
+    if (id === 'scheduled') return ['todo', true];
+    if (id === 'todo') return ['todo', false];
+    if (id === 'in_progress' || id === 'running') return ['in_progress', false];
+    if (id === 'done') return ['done', false];
+    // Check if overId is a task in the scheduled section
+    const overTask = tasks.find((t) => t.id === id);
+    if (overTask) {
+      const isInScheduled = overTask.scheduleCron && overTask.status === 'todo';
+      return [overTask.status, !!isInScheduled];
     }
-    return statusTasks.sort((a, b) => a.sortOrder - b.sortOrder);
+    return [null, false];
+  };
+
+  const resolveTargetColumn = (overId: string | number): TaskMeta['status'] | null => {
+    return resolveTarget(overId)[0];
   };
 
   const handleDragStart = (event: DragStartEvent) => {
     const task = tasks.find((t) => t.id === event.active.id);
     if (task) setActiveTask(task);
-  };
-
-  // Track which column the drag is currently over (fallback for dragEnd)
-  const [overColumnId, setOverColumnId] = useState<string | null>(null);
-
-  const resolveTargetColumn = (overId: string | number): TaskMeta['status'] | null => {
-    const columnIds = new Set<string>(COLUMN_DEFS.map((c) => c.id));
-    const id = String(overId);
-    if (columnIds.has(id)) return id as TaskMeta['status'];
-    const overTask = tasks.find((t) => t.id === id);
-    if (overTask) return overTask.status;
-    return null;
   };
 
   const handleDragOver = (event: DragOverEvent) => {
@@ -115,45 +157,32 @@ export function KanbanBoard() {
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveTask(null);
     const { active, over } = event;
-
     const taskId = active.id as string;
     const task = tasks.find((t) => t.id === taskId);
     if (!task) { setOverColumnId(null); return; }
 
-    // Determine target: from over element, or fallback to tracked column
-    const targetStatus = over ? resolveTargetColumn(over.id) : overColumnId as TaskMeta['status'] | null;
+    const [targetStatus, isScheduleTarget] = over ? resolveTarget(over.id) : [overColumnId as TaskMeta['status'] | null, false];
     setOverColumnId(null);
 
-    console.log('[kanban:dragEnd]', {
-      taskId: taskId.slice(0, 8),
-      from: task.status,
-      overId: over?.id,
-      overColumnFallback: overColumnId,
-      targetStatus,
-    });
+    // Dropped on schedule section → open schedule popover
+    if (isScheduleTarget && task.status === 'todo') {
+      setScheduleTaskId(taskId);
+      return;
+    }
 
     if (!targetStatus || task.status === targetStatus) return;
 
-    // Trigger spawn or abort via WS
     if (targetStatus === 'in_progress' && (task.status === 'todo' || task.status === 'failed')) {
-      console.log('[kanban] → onSpawnTask', taskId.slice(0, 8));
       onSpawnTask(taskId);
     } else if (targetStatus === 'todo' && task.status === 'in_progress') {
-      console.log('[kanban] → onAbortTask', taskId.slice(0, 8));
       onAbortTask(taskId);
-    } else {
-      console.log('[kanban] → no action (status transition not handled)', task.status, '→', targetStatus);
     }
   };
 
   const onSpawnTask = (taskId: string) => {
     const ws = (window as any).__claudeWs;
-    console.log('[kanban:spawn] ws state:', ws?.readyState, 'OPEN=', WebSocket.OPEN);
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'task_spawn', taskId }));
-      console.log('[kanban:spawn] sent task_spawn for', taskId.slice(0, 8));
-    } else {
-      console.warn('[kanban:spawn] WS not open! Cannot send task_spawn');
     }
   };
 
@@ -166,12 +195,10 @@ export function KanbanBoard() {
 
   const handleCardClick = (task: TaskMeta) => {
     if (task.sessionId) {
-      // Switch to chat view and select this session
       const { setActiveView } = useSessionStore.getState();
       setActiveView('chat');
       window.dispatchEvent(new CustomEvent('kanban-select-session', { detail: { sessionId: task.sessionId } }));
     } else if (task.status === 'todo' || task.status === 'failed') {
-      // Open edit modal for tasks without a session
       setEditingTask(task);
     }
   };
@@ -231,13 +258,22 @@ export function KanbanBoard() {
 
   const scheduleTask = scheduleTaskId ? tasks.find((t) => t.id === scheduleTaskId) : null;
 
+  // Shared column props
+  const columnProps = {
+    onCardClick: handleCardClick,
+    onDeleteTask: handleDeleteTask,
+    onSpawnTask,
+    onAbortTask,
+    onScheduleTask: (taskId: string) => setScheduleTaskId(taskId),
+    onCleanupWorktree: handleCleanupWorktree,
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
       {/* Board header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-gray-200">{t('layout:task')}</h2>
-          {/* Project filter */}
           <div className="flex items-center gap-1.5">
             <select
               value={filterProjectId ?? ''}
@@ -249,7 +285,6 @@ export function KanbanBoard() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            {/* Clear filter button */}
             {filterProjectId && (
               <button
                 onClick={() => setFilterProjectId(null)}
@@ -271,7 +306,7 @@ export function KanbanBoard() {
         </button>
       </div>
 
-      {/* Columns */}
+      {/* 2-column layout */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -279,22 +314,50 @@ export function KanbanBoard() {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex-1 flex gap-4 overflow-x-auto">
-          {COLUMN_DEFS.map((col) => (
+        <div className="flex-1 flex flex-col sm:flex-row gap-4 min-h-0">
+          {/* ── Left column: 할 일 + 스케줄 ── */}
+          <div className="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col gap-3">
+            {/* 할 일 */}
             <KanbanColumn
-              key={col.id}
-              id={col.id}
-              title={t(col.titleKey)}
-              color={col.color}
-              tasks={getTasksByStatus(col.id)}
-              onCardClick={handleCardClick}
-              onDeleteTask={handleDeleteTask}
-              onSpawnTask={onSpawnTask}
-              onAbortTask={onAbortTask}
-              onScheduleTask={(taskId) => setScheduleTaskId(taskId)}
-              onCleanupWorktree={handleCleanupWorktree}
+              id="todo"
+              title={t('todo')}
+              color="text-gray-400"
+              tasks={todoTasks}
+              {...columnProps}
+              onAdd={() => setShowNewTask(true)}
             />
-          ))}
+
+            {/* 스케줄 */}
+            <KanbanColumn
+              id="scheduled"
+              title={t('schedule')}
+              color="text-amber-400"
+              tasks={scheduledTasks}
+              {...columnProps}
+              onAdd={() => { setOpenScheduleAfterCreate(true); setShowNewTask(true); }}
+            />
+          </div>
+
+          {/* ── Right column: 진행 중 + 완료 ── */}
+          <div className="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col gap-3">
+            {/* 진행 중 */}
+            <KanbanColumn
+              id="in_progress"
+              title={t('inProgress')}
+              color="text-blue-400"
+              tasks={runningTasks}
+              {...columnProps}
+            />
+
+            {/* 완료 */}
+            <KanbanColumn
+              id="done"
+              title={t('done')}
+              color="text-green-400"
+              tasks={doneTasks}
+              {...columnProps}
+            />
+          </div>
         </div>
 
         <DragOverlay>
@@ -320,10 +383,15 @@ export function KanbanBoard() {
 
       {showNewTask && (
         <NewTaskModal
-          onClose={() => setShowNewTask(false)}
+          onClose={() => { setShowNewTask(false); setOpenScheduleAfterCreate(false); }}
           onCreated={(task) => {
             useKanbanStore.getState().addTask(task);
             setShowNewTask(false);
+            if (openScheduleAfterCreate) {
+              setOpenScheduleAfterCreate(false);
+              // Open schedule popover right after task creation
+              setScheduleTaskId(task.id);
+            }
           }}
           projectId={filterProjectId || activeProjectId}
           filterProjectId={filterProjectId}

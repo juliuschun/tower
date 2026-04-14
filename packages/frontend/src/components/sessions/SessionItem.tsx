@@ -57,7 +57,7 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
   const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
 
   return (
-    <div ref={ref} className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[160px]"
+    <div ref={ref} role="menu" aria-label="Session actions" className="fixed z-50 bg-surface-800 border border-surface-700 rounded-lg shadow-xl py-1 min-w-[160px]"
       style={adjustedPos}>
       {/* Rename */}
       <button className={itemClass} onClick={() => { onRename(); onClose(); }}>
@@ -87,7 +87,7 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
             if (res.ok) {
               useSessionStore.getState().updateSessionMeta(session.id, { visibility: newVis });
             }
-          }).catch(() => {});
+          }).catch(() => { console.warn('[session] visibility update failed'); });
           onClose();
         }}>
           {session.visibility === 'project' ? (
@@ -240,7 +240,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             className="flex-1 min-w-0 h-[20px] bg-surface-700 text-gray-100 text-[13px] px-1.5 py-0 rounded border border-surface-600 outline-none focus:border-primary-500"
           />
         ) : (
-          <span className={`flex-1 min-w-0 truncate leading-[20px] ${isOwnUnread ? 'font-bold text-gray-100' : 'font-medium'}`}>
+          <span className={`flex-1 min-w-0 truncate leading-[20px] ${isOwnUnread ? 'font-bold text-gray-100' : 'font-medium'}`} title={session.name}>
             {/* Private lock icon (prefix) — only shown for private sessions in a project */}
             {session.projectId && session.visibility === 'private' && (
               <svg className="inline-block w-3 h-3 mr-1 text-surface-600 align-middle" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -310,7 +310,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); startEditing(); }}
-                className="p-0.5 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
+                className="p-1.5 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"
                 title="Rename"
                 aria-label="Rename session"
               >
@@ -321,7 +321,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
-                className="p-0.5 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
+                className="p-1.5 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
                 title="Delete"
                 aria-label="Delete session"
               >

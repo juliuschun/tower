@@ -22,6 +22,7 @@
   "clearFilter": "Clear filter",
   "addTaskToStart": "Add a task to get started",
   "dropCardsHere": "Drop cards here",
+  "noScheduleYet": "No scheduled tasks yet",
   "run": "Run",
   "cancelTask": "Cancel task",
   "cleanWorktree": "Clean worktree",

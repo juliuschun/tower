@@ -15,9 +15,11 @@ interface KanbanColumnProps {
   onAbortTask: (taskId: string) => void;
   onScheduleTask: (taskId: string) => void;
   onCleanupWorktree: (taskId: string) => void;
+  /** Optional "+" button in column header */
+  onAdd?: () => void;
 }
 
-export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTask, onSpawnTask, onAbortTask, onScheduleTask, onCleanupWorktree }: KanbanColumnProps) {
+export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTask, onSpawnTask, onAbortTask, onScheduleTask, onCleanupWorktree, onAdd }: KanbanColumnProps) {
   const { t } = useTranslation('kanban');
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -55,7 +57,7 @@ export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTas
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 min-w-[280px] max-w-[400px] flex flex-col rounded-xl transition-colors ${
+      className={`flex-1 min-w-0 flex flex-col rounded-xl transition-colors ${
         isOver ? 'bg-surface-800/80 ring-1 ring-blue-500/30' : 'bg-surface-900/50'
       }`}
     >
@@ -65,6 +67,20 @@ export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTas
         <span className="text-xs text-gray-500 bg-surface-800 rounded-full px-2 py-0.5">
           {tasks.length}
         </span>
+        {/* Spacer */}
+        <span className="flex-1" />
+        {/* Add button */}
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            className="text-gray-500 hover:text-gray-200 transition-colors p-0.5 rounded hover:bg-surface-700/50"
+            title={t('newTask')}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Cards */}
@@ -78,7 +94,7 @@ export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTas
                 onDelete={() => onDeleteTask(task.id)}
                 onSpawn={(task.status === 'todo' || task.status === 'failed') ? () => onSpawnTask(task.id) : undefined}
                 onAbort={task.status === 'in_progress' ? () => onAbortTask(task.id) : undefined}
-                onSchedule={(task.status === 'todo' || task.status === 'done' || task.status === 'failed') ? () => onScheduleTask(task.id) : undefined}
+                onSchedule={id === 'scheduled' ? () => onScheduleTask(task.id) : undefined}
                 onCleanupWorktree={task.worktreePath && task.status !== 'in_progress' ? () => onCleanupWorktree(task.id) : undefined}
               />
             </div>
@@ -87,7 +103,7 @@ export function KanbanColumn({ id, title, color, tasks, onCardClick, onDeleteTas
 
         {tasks.length === 0 && (
           <div className="text-center text-gray-600 text-xs py-8">
-            {id === 'todo' ? t('addTaskToStart') : t('dropCardsHere')}
+            {id === 'todo' ? t('addTaskToStart') : id === 'scheduled' ? t('noScheduleYet') : t('dropCardsHere')}
           </div>
         )}
       </div>

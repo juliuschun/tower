@@ -182,18 +182,22 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   // then followOutput stops auto-scrolling → stuck in the middle.
   const settleUntil = useRef(0);
 
-  // On session switch: force bottom with a couple of retries (items need time to measure).
-  // Reduced from 4 retries to 2 — heavy blocks now lazy-render during streaming, so
-  // late layout shifts are much smaller and don't need a 1.2s tail of forced scrolls.
+  // On session switch: force bottom with retries (items need time to measure).
+  // 3-second settle window covers both initial height drift AND background refresh
+  // that typically arrives 2-3s after cache hit.
+  const switchSettleUntil = useRef(0); // Extended settle for session switch (covers bg refresh)
   useEffect(() => {
     if (!activeSessionId || mergedMessages.length === 0) return;
     isAtBottom.current = true;
     userScrolledUp.current = false;
-    settleUntil.current = Date.now() + 1500;
+    const now = Date.now();
+    settleUntil.current = now + 1500;
+    switchSettleUntil.current = now + 3500; // Covers background refresh timing
     scrollToBottom();
     const t1 = setTimeout(() => scrollToBottomRef.current(), 120);
     const t2 = setTimeout(() => scrollToBottomRef.current(), 500);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const t3 = setTimeout(() => scrollToBottomRef.current(), 1200); // Catch late layout shifts
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cache-miss: messages arrive after empty mount → scroll to bottom
@@ -238,13 +242,21 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     prevCompacting.current = isCompacting;
   }, [isCompacting, scrollToBottom]);
 
-  // Background refresh: only scroll if user was already at bottom
+  // Background refresh: scroll if user was at bottom OR still within switch settle period.
+  // The switch settle is longer (3.5s) to cover background refresh that arrives after
+  // the initial 1.5s height-drift settle period.
   const scrollGen = useChatStore((s) => s.scrollGeneration);
   const prevScrollGen = useRef(scrollGen);
   useEffect(() => {
     if (scrollGen !== prevScrollGen.current) {
       prevScrollGen.current = scrollGen;
-      if (isAtBottom.current) scrollToBottom();
+      if (isAtBottom.current || Date.now() < switchSettleUntil.current) {
+        isAtBottom.current = true; // Re-assert bottom state after bg refresh
+        settleUntil.current = Math.max(settleUntil.current, Date.now() + 800); // Brief re-settle for new heights
+        scrollToBottom();
+        // Retry after new items measure
+        setTimeout(() => scrollToBottomRef.current(), 150);
+      }
     }
   }, [scrollGen, scrollToBottom]);
 
@@ -379,7 +391,10 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
           onFileClick={onFileClick}
           onRetry={onSend}
           onCancelQueued={(messageId) => {
-            useChatStore.getState().cancelQueuedMessage(messageId);
+            const text = useChatStore.getState().cancelQueuedMessage(messageId);
+            if (text) {
+              window.dispatchEvent(new CustomEvent('restore-input-text', { detail: text }));
+            }
           }}
           showMetrics={msg.role === 'assistant' && (msg.durationMs != null || (index === lastAssistantIndex && !isWaitingForAssistant))}
           isLastAssistant={index === lastAssistantIndex}
@@ -477,7 +492,9 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
               // Instead of ignoring them, actively re-scroll — this is the key fix for
               // "lands in the middle" after session switch. Height drift is detected here
               // and immediately corrected.
-              if (!atBottom && Date.now() < settleUntil.current) {
+              // switchSettleUntil covers the extended window for background refresh arrivals.
+              const now = Date.now();
+              if (!atBottom && (now < settleUntil.current || now < switchSettleUntil.current)) {
                 scrollToBottom();
                 return;
               }
@@ -567,7 +584,7 @@ function phaseLabel(phase: TurnPhase): string {
     case 'compacting': return '컨텍스트 정리 중…';
     case 'done': return '완료됨';
     case 'stopped': return '사용자가 중단함';
-    case 'error': return '오류가 발생했습니다';
+    case 'error': return '오류가 발생했습니다 — 메시지를 다시 보내보세요';
     default: return '작업 중…';
   }
 }

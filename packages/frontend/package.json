@@ -17,7 +17,6 @@
     "docx-preview": "^0.3.7",
     "i18next": "^26.0.4",
     "katex": "^0.16.38",
-    "lodash-es": "^4.17.21",
     "mermaid": "11.12.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

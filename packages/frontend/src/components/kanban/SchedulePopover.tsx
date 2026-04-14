@@ -247,16 +247,56 @@ export function SchedulePopover({
           ) : (
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-gray-500 w-10">{t('at')}</span>
-              <input
-                type="time"
-                value={`${String(cronHour).padStart(2, '0')}:${String(cronMinute).padStart(2, '0')}`}
+              {/* Hour (1-12) */}
+              <select
+                value={cronHour % 12 || 12}
                 onChange={(e) => {
-                  const [h, m] = e.target.value.split(':').map(Number);
-                  setCronHour(h);
-                  setCronMinute(m);
+                  const h12 = parseInt(e.target.value);
+                  const isPM = cronHour >= 12;
+                  setCronHour(isPM ? (h12 === 12 ? 12 : h12 + 12) : (h12 === 12 ? 0 : h12));
                 }}
-                className="flex-1 px-2 py-0.5 text-xs bg-surface-800 border border-surface-600 rounded text-gray-200 focus:outline-none"
-              />
+                className="w-14 px-1.5 py-0.5 text-xs bg-surface-800 border border-surface-600 rounded text-gray-200 focus:outline-none"
+              >
+                {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((h) => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+              <span className="text-gray-500 text-xs">:</span>
+              {/* Minute */}
+              <select
+                value={cronMinute}
+                onChange={(e) => setCronMinute(parseInt(e.target.value))}
+                className="w-14 px-1.5 py-0.5 text-xs bg-surface-800 border border-surface-600 rounded text-gray-200 focus:outline-none"
+              >
+                {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
+                  <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+                ))}
+              </select>
+              {/* AM / PM toggle */}
+              <div className="flex rounded overflow-hidden border border-surface-600">
+                <button
+                  type="button"
+                  onClick={() => { if (cronHour >= 12) setCronHour(cronHour - 12); }}
+                  className={`px-1.5 py-0.5 text-[10px] transition-colors ${
+                    cronHour < 12
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-surface-800 text-gray-400 hover:bg-surface-700'
+                  }`}
+                >
+                  AM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { if (cronHour < 12) setCronHour(cronHour + 12); }}
+                  className={`px-1.5 py-0.5 text-[10px] transition-colors ${
+                    cronHour >= 12
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-surface-800 text-gray-400 hover:bg-surface-700'
+                  }`}
+                >
+                  PM
+                </button>
+              </div>
             </div>
           )}
         </div>

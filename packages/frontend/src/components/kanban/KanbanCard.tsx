@@ -61,9 +61,8 @@ const STATUS_STYLES: Record<string, { badge: string; border: string }> = {
   failed: { badge: 'bg-red-900/50 text-red-300', border: 'border-red-500/30' },
 };
 
-function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, isScheduled, isRecurring, t }: {
+function CardMoreMenu({ task, onSchedule, onCleanupWorktree, onDelete, isScheduled, isRecurring, t }: {
   task: TaskMeta;
-  onSpawn?: () => void;
   onSchedule?: () => void;
   onCleanupWorktree?: () => void;
   onDelete?: () => void;
@@ -83,7 +82,7 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const hasActions = onSpawn || onSchedule || (onCleanupWorktree && task.worktreePath && task.status !== 'in_progress') || (onDelete && task.status !== 'in_progress');
+  const hasActions = onSchedule || (onCleanupWorktree && task.worktreePath && task.status !== 'in_progress') || (onDelete && task.status !== 'in_progress');
   if (!hasActions) return null;
 
   const itemClass = "w-full flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-surface-700 transition-colors text-left";
@@ -105,21 +104,6 @@ function CardMoreMenu({ task, onSpawn, onSchedule, onCleanupWorktree, onDelete, 
       {open && (
         <div className="absolute right-0 top-full mt-1 w-40 bg-surface-800 border border-surface-700 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
           onClick={(e) => e.stopPropagation()}>
-          {onSpawn && (
-            <button className={`${itemClass} text-blue-400`} onClick={() => { onSpawn(); setOpen(false); }}>
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                {task.status === 'failed' ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                ) : (
-                  <>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </>
-                )}
-              </svg>
-              {task.status === 'failed' ? t('common:retry') : t('run')}
-            </button>
-          )}
           {onSchedule && (
             <button className={`${itemClass} ${isScheduled ? (isRecurring ? 'text-purple-400' : 'text-amber-400') : 'text-gray-300'}`}
               onClick={() => { onSchedule(); setOpen(false); }}>
@@ -268,6 +252,25 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
         </div>
         <div className="flex items-center gap-2">
           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
+          {/* Run button — always visible for todo/failed */}
+          {onSpawn && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onSpawn(); }}
+              className="text-blue-400 hover:text-blue-300 transition-all p-0.5 rounded hover:bg-blue-500/10"
+              title={task.status === 'failed' ? t('common:retry') : t('run')}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {task.status === 'failed' ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                ) : (
+                  <>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </>
+                )}
+              </svg>
+            </button>
+          )}
           {/* Abort button — always visible when running */}
           {onAbort && (
             <button
@@ -284,7 +287,6 @@ export function KanbanCard({ task, onClick, isDragOverlay, onDelete, onSpawn, on
           {/* More menu — touch accessible */}
           <CardMoreMenu
             task={task}
-            onSpawn={onSpawn}
             onSchedule={onSchedule}
             onCleanupWorktree={onCleanupWorktree}
             onDelete={onDelete}

@@ -99,6 +99,16 @@
   "deleteDeck": "Delete deck",
   "deleteAll": "Delete all",
   "archiveWarning": "{{count}} sessions will be archived. Continue?",
+  "manageDecks": "Manage Decks",
+  "hideDeck": "Hide deck",
+  "showDeck": "Show deck",
+  "renameDeck": "Rename deck",
+  "deckNewName": "New name...",
+  "noDecksYet": "No decks yet",
+  "hiddenDecks": "Hidden",
+  "deckRenamed": "Deck renamed",
+  "deckHidden": "Deck hidden",
+  "deckShown": "Deck shown",
   "schedule": "Schedule",
   "automation": "Automations"
 }

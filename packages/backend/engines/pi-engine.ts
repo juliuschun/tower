@@ -465,17 +465,32 @@ export class PiEngine implements Engine {
 
     // Build additional skill paths for 3-tier skill registry
     const additionalSkillPaths: string[] = [];
+    let activeSkillNames: Set<string> | null = null;
     try {
-      const { getCompanySkillsDir, getPersonalSkillPaths, getProjectSkillPaths } = await import('../services/skill-registry.js');
+      const { getCompanySkillsDir, getPersonalSkillPaths, getProjectSkillPaths, getSkillsForSession } = await import('../services/skill-registry.js');
       additionalSkillPaths.push(getCompanySkillsDir());
       additionalSkillPaths.push(...getPersonalSkillPaths(opts.userId));
       additionalSkillPaths.push(...getProjectSkillPaths(opts.cwd));
+      // Query only active skills for this user/project (lazy loading)
+      const activeSkills = await getSkillsForSession(opts.userId, opts.projectId);
+      activeSkillNames = new Set(activeSkills.map((s: any) => s.name));
     } catch {}
 
+    const MAX_PI_SKILLS = 20; // Cap to prevent prompt bloat (71 skills = 284KB)
     const resourceLoader = new DefaultResourceLoader({
       cwd: opts.cwd,
       appendSystemPrompt: towerPrompt,
       additionalSkillPaths,
+      skillsOverride: activeSkillNames ? (base) => {
+        // Filter to only user-active skills, then cap at MAX_PI_SKILLS
+        const filtered = base.skills.filter(s => activeSkillNames!.has(s.name));
+        const capped = filtered.slice(0, MAX_PI_SKILLS);
+        if (filtered.length > MAX_PI_SKILLS) {
+          console.log(`[Pi] Skill cap: ${filtered.length} loaded → ${MAX_PI_SKILLS} (saved ${filtered.length - MAX_PI_SKILLS} skills from prompt)`);
+        }
+        console.log(`[Pi] Skills loaded: ${capped.length}/${base.skills.length} (filtered from ${base.skills.length} available)`);
+        return { skills: capped, diagnostics: base.diagnostics };
+      } : undefined,
     });
     await resourceLoader.reload();
 
@@ -551,7 +566,7 @@ export class PiEngine implements Engine {
       sessionManager: sessionMgr,
       settingsManager: SettingsManager.inMemory({
         compaction: { enabled: true },
-        retry: { enabled: true, maxRetries: 2 },
+        retry: { enabled: true, maxRetries: 5 }, // Increased from 2 for Azure 429 throttling resilience
       }),
     });
 

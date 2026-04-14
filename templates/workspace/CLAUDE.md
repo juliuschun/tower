@@ -95,6 +95,14 @@ When explaining technical decisions or architecture:
 - "대시보드 색상 바꿔줘" → 해당 파일 수정
 - "배포된 사이트 목록" → `published/sites/` 폴더 목록 조회
 
+## 링크 규칙
+
+URL이나 파일 경로를 사용자에게 안내할 때 **반드시 클릭 가능한 전체 URL**로 제공한다.
+- ✅ `https://도메인/sites/my-report/` (클릭 가능)
+- ❌ `published/sites/my-report/` (파일 경로만)
+
+Published 사이트 → `https://서버도메인/sites/<사이트이름>/`
+
 ## Warnings
 
 - **Never commit `.env`, credentials, or secret files** (check `.gitignore`)

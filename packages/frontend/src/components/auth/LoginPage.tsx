@@ -15,8 +15,11 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState<string | null>(null);
 
+  const [submitted, setSubmitted] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitted(true);
     if (!username || !password) return;
     setLoading(true);
     try {
@@ -204,7 +207,14 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
               }}
               autoFocus
               autoComplete="username"
+              required
+              aria-invalid={submitted && !username}
             />
+            {submitted && !username && (
+              <p className="text-[11px] mt-1.5" style={{ color: '#f87171' }}>
+                {t('username')}을(를) 입력해주세요
+              </p>
+            )}
           </div>
 
           {/* Password */}
@@ -234,7 +244,14 @@ export function LoginPage({ isSetup, onLogin, error }: LoginPageProps) {
                   : 'none',
               }}
               autoComplete={isSetup ? 'new-password' : 'current-password'}
+              required
+              aria-invalid={submitted && !password}
             />
+            {submitted && !password && (
+              <p className="text-[11px] mt-1.5" style={{ color: '#f87171' }}>
+                {t('password')}을(를) 입력해주세요
+              </p>
+            )}
           </div>
 
           {/* Error */}

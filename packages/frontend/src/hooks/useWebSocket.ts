@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { toastError } from '../utils/toast';
+import { toastError, toastWarning } from '../utils/toast';
 import { useChatStore } from '../stores/chat-store';
 
 type MessageHandler = (data: any) => void;
@@ -63,7 +63,11 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
     ws.onclose = () => {
       setConnected(false);
       if (wasConnected.current) {
-        // Silently reconnect — no toast distraction
+        // Notify user if streaming when disconnected
+        const { isStreaming } = useChatStore.getState();
+        if (isStreaming) {
+          toastWarning('연결이 끊어졌습니다. 재연결 중…');
+        }
       }
 
       // Start safety timer if streaming — force reset after 15s without reconnect

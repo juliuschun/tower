@@ -99,6 +99,16 @@
   "deleteDeck": "덱 삭제",
   "deleteAll": "전체 삭제",
   "archiveWarning": "{{count}}개 세션이 모두 아카이브됩니다. 계속할까요?",
+  "manageDecks": "덱 관리",
+  "hideDeck": "덱 감추기",
+  "showDeck": "덱 보이기",
+  "renameDeck": "덱 이름 바꾸기",
+  "deckNewName": "새 이름...",
+  "noDecksYet": "덱이 없습니다",
+  "hiddenDecks": "숨김",
+  "deckRenamed": "덱 이름이 변경되었습니다",
+  "deckHidden": "덱이 숨겨졌습니다",
+  "deckShown": "덱이 다시 표시됩니다",
   "schedule": "스케줄",
   "automation": "자동화"
 }

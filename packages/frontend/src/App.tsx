@@ -5,18 +5,19 @@ import { Sidebar } from './components/layout/Sidebar';
 import { ChatPanel } from './components/chat/ChatPanel';
 import { ContextPanel } from './components/layout/ContextPanel';
 import { LoginPage } from './components/auth/LoginPage';
-import { SettingsPanel } from './components/settings/SettingsPanel';
-import { AdminPanel } from './components/admin/AdminPanel';
-import { SkillsBrowser } from './components/skills/SkillsBrowser';
-import { HelpPanel } from './components/help/HelpPanel';
-import { BrowserPanel } from './components/browser/BrowserPanel';
-import { PublishPanel } from './components/publish/PublishPanel';
+// Lazy-loaded modal panels — only fetched when first opened
+const SettingsPanel = React.lazy(() => import('./components/settings/SettingsPanel').then(m => ({ default: m.SettingsPanel })));
+const AdminPanel = React.lazy(() => import('./components/admin/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const SkillsBrowser = React.lazy(() => import('./components/skills/SkillsBrowser').then(m => ({ default: m.SkillsBrowser })));
+const HelpPanel = React.lazy(() => import('./components/help/HelpPanel').then(m => ({ default: m.HelpPanel })));
+const BrowserPanel = React.lazy(() => import('./components/browser/BrowserPanel').then(m => ({ default: m.BrowserPanel })));
+const PublishPanel = React.lazy(() => import('./components/publish/PublishPanel').then(m => ({ default: m.PublishPanel })));
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OfflineBanner } from './components/common/OfflineBanner';
 import { UpdateBanner } from './components/common/UpdateBanner';
 import { clearReloadOnceFlag } from './utils/app-version';
 import { useAppUpdateCoordinator } from './hooks/useAppUpdateCoordinator';
-import { PromptEditor } from './components/prompts/PromptEditor';
+const PromptEditor = React.lazy(() => import('./components/prompts/PromptEditor').then(m => ({ default: m.PromptEditor })));
 import { ResizeHandle, SidebarResizeHandle, DEFAULT_WIDTH, SIDEBAR_DEFAULT_WIDTH } from './components/layout/ResizeHandle';
 import { HorizontalResizeHandle } from './components/layout/HorizontalResizeHandle';
 import { MobileTabBar } from './components/layout/MobileTabBar';
@@ -286,11 +287,26 @@ function App() {
   // Create a session in DB and return it (reusable)
   const createSessionInDb = useCallback(async (name?: string, projectId?: string): Promise<SessionMeta | null> => {
     try {
+      // Resolve projectId: explicit > active session > most recent session with project
+      let resolvedProjectId = projectId;
+      if (!resolvedProjectId) {
+        const { sessions: allSessions, activeSessionId } = useSessionStore.getState();
+        const activeSess = allSessions.find((s) => s.id === activeSessionId);
+        resolvedProjectId = activeSess?.projectId || undefined;
+        if (!resolvedProjectId) {
+          // Fallback: most recently created session that has a projectId
+          const recent = [...allSessions]
+            .filter((s) => s.projectId && !s.roomId)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          if (recent.length > 0) resolvedProjectId = recent[0].projectId!;
+        }
+      }
+
       // If creating in a project with rootPath, use that as cwd
       // Otherwise inherit cwd from current active session
       let cwd: string | undefined;
-      if (projectId) {
-        const project = useProjectStore.getState().projects.find((p) => p.id === projectId);
+      if (resolvedProjectId) {
+        const project = useProjectStore.getState().projects.find((p) => p.id === resolvedProjectId);
         if (project?.rootPath) cwd = project.rootPath;
       }
       if (!cwd) {
@@ -305,7 +321,7 @@ function App() {
       const selectedModel = useModelStore.getState().selectedModel;
       const engine = getEngineFromModel(selectedModel);
       const body: Record<string, any> = { name: name || `Session ${new Date().toLocaleString('en-US')}`, cwd, engine };
-      if (projectId) body.projectId = projectId;
+      if (resolvedProjectId) body.projectId = resolvedProjectId;
       const res = await fetch(`${API_BASE}/sessions`, {
         method: 'POST',
         headers,
@@ -529,6 +545,8 @@ function App() {
   }, [token, authStatus, setSessions, handleSelectSession]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
+    // Confirm before destructive action
+    if (!window.confirm('이 세션을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
     try {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -537,7 +555,10 @@ function App() {
       // Clear any orphaned queue for the deleted session
       useChatStore.getState().clearSessionQueue(id);
       toastSuccess('Session deleted');
-    } catch (err) { console.warn('[app] handleDeleteSession failed:', err); }
+    } catch (err) {
+      console.warn('[app] handleDeleteSession failed:', err);
+      toastError('세션 삭제에 실패했습니다');
+    }
   }, [token, removeSession]);
 
   const handleFileClick = useCallback((path: string) => {
@@ -1266,21 +1287,23 @@ function App() {
       {/* Bottom bar / Mobile tab bar */}
       {isMobile ? <MobileTabBar /> : <BottomBar requestFileTree={requestFileTree} />}
 
-      {/* Settings modal */}
-      <SettingsPanel />
-      <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
-      <SkillsBrowser />
-      <ErrorBoundary fallbackLabel="Help panel error"><HelpPanel /></ErrorBoundary>
-      <BrowserPanel open={browserOpen} onClose={() => setBrowserOpen(false)} />
-      <PublishPanel open={publishOpen} onClose={() => setPublishOpen(false)} />
+      {/* Settings modal — lazy-loaded */}
+      <React.Suspense fallback={null}>
+        <SettingsPanel />
+        <AdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} token={token} />
+        <SkillsBrowser />
+        <ErrorBoundary fallbackLabel="Help panel error"><HelpPanel /></ErrorBoundary>
+        <BrowserPanel open={browserOpen} onClose={() => setBrowserOpen(false)} />
+        <PublishPanel open={publishOpen} onClose={() => setPublishOpen(false)} />
 
-      {/* Prompt editor modal */}
-      <PromptEditor
-        open={promptEditorOpen}
-        onClose={() => { setPromptEditorOpen(false); setEditingPrompt(null); }}
-        onSave={handlePromptSave}
-        initial={editingPrompt ? { title: editingPrompt.title, content: editingPrompt.content } : undefined}
-      />
+        {/* Prompt editor modal */}
+        <PromptEditor
+          open={promptEditorOpen}
+          onClose={() => { setPromptEditorOpen(false); setEditingPrompt(null); }}
+          onSave={handlePromptSave}
+          initial={editingPrompt ? { title: editingPrompt.title, content: editingPrompt.content } : undefined}
+        />
+      </React.Suspense>
     </div>
   );
 }
