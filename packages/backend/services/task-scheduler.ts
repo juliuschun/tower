@@ -4,61 +4,18 @@
  * Design: see ~/workspace/decisions/2026-03-03-kanban-scheduled-tasks-design.md
  */
 import { query } from '../db/pg-repo.js';
-import { getTask, updateTask, type TaskMeta, type ScheduleCron } from './task-manager.js';
+import { updateTask } from './task-manager.js';
 import { spawnTask } from './task-runner.js';
 
 const SCHEDULER_INTERVAL = 30_000; // 30 seconds
-const MAX_CONCURRENT_TASKS = 10;   // mirrors task-runner.ts
 
 type BroadcastFn = (type: string, data: any) => void;
 
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 
-/**
- * Calculate the next run time from a ScheduleCron pattern.
- * All calculations in local time (server timezone).
- */
-export function calculateNextRun(cron: ScheduleCron, from: Date = new Date()): Date {
-  const next = new Date(from);
-
-  switch (cron.type) {
-    case 'daily': {
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      if (next <= from) next.setDate(next.getDate() + 1);
-      return next;
-    }
-
-    case 'weekdays': {
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      if (next <= from) next.setDate(next.getDate() + 1);
-      // Skip weekends (0=Sun, 6=Sat)
-      while (next.getDay() === 0 || next.getDay() === 6) {
-        next.setDate(next.getDate() + 1);
-      }
-      return next;
-    }
-
-    case 'weekly': {
-      const targetDay = cron.day ?? 1; // default Monday
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      // Advance to next occurrence of target day
-      let daysUntil = targetDay - next.getDay();
-      if (daysUntil < 0) daysUntil += 7;
-      if (daysUntil === 0 && next <= from) daysUntil = 7;
-      next.setDate(next.getDate() + daysUntil);
-      return next;
-    }
-
-    case 'interval': {
-      const intervalMs = (cron.hours ?? 1) * 60 * 60 * 1000;
-      return new Date(from.getTime() + intervalMs);
-    }
-
-    default:
-      // Fallback: 1 hour from now
-      return new Date(from.getTime() + 3600_000);
-  }
-}
+// calculateNextRun consolidated in schedule-utils.ts
+import { calculateNextRun } from './schedule-utils.js';
+export { calculateNextRun };
 
 /**
  * Single tick — find due tasks and spawn them.

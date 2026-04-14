@@ -84,35 +84,45 @@ export function KanbanBoard() {
 
   // ── Split tasks into 4 groups ──
 
-  /** Manual todos (no schedule or schedule disabled) */
+  /** Recurring schedule = always in schedule section regardless of status */
+  const isRecurringScheduled = (t: TaskMeta) => t.scheduleEnabled && !!t.scheduleCron;
+
+  /** Manual todos (no schedule) */
   const todoTasks = useMemo(() => {
     return filteredTasks
-      .filter(t => t.status === 'todo' && !(t.scheduleEnabled && t.scheduleCron))
+      .filter(t => t.status === 'todo' && !t.scheduleEnabled)
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }, [filteredTasks]);
 
-  /** Scheduled (recurring cron, regardless of status=todo) */
+  /** Scheduled: one-time (todo only) + recurring (any status, always visible) */
   const scheduledTasks = useMemo(() => {
     return filteredTasks
-      .filter(t => t.scheduleCron && t.status === 'todo')
+      .filter(t => {
+        // Recurring with schedule enabled → always show (done, running, todo)
+        if (isRecurringScheduled(t)) return true;
+        // One-time scheduled → only when still todo
+        return t.scheduleEnabled && t.status === 'todo';
+      })
       .sort((a, b) => {
-        // Enabled first, then by sortOrder
-        if (a.scheduleEnabled !== b.scheduleEnabled) return a.scheduleEnabled ? -1 : 1;
+        // Recurring first, then one-time, then by sortOrder
+        const aRecurring = !!a.scheduleCron;
+        const bRecurring = !!b.scheduleCron;
+        if (aRecurring !== bRecurring) return aRecurring ? -1 : 1;
         return a.sortOrder - b.sortOrder;
       });
   }, [filteredTasks]);
 
-  /** Running */
+  /** Running (exclude recurring scheduled — they stay in schedule section) */
   const runningTasks = useMemo(() => {
     return filteredTasks
-      .filter(t => t.status === 'in_progress')
+      .filter(t => t.status === 'in_progress' && !isRecurringScheduled(t))
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }, [filteredTasks]);
 
-  /** Done + Failed */
+  /** Done + Failed (exclude recurring scheduled — they stay in schedule section) */
   const doneTasks = useMemo(() => {
     return filteredTasks
-      .filter(t => t.status === 'done' || t.status === 'failed')
+      .filter(t => (t.status === 'done' || t.status === 'failed') && !isRecurringScheduled(t))
       .sort((a, b) => {
         const aTime = a.completedAt || a.updatedAt;
         const bTime = b.completedAt || b.updatedAt;
@@ -134,7 +144,7 @@ export function KanbanBoard() {
     // Check if overId is a task in the scheduled section
     const overTask = tasks.find((t) => t.id === id);
     if (overTask) {
-      const isInScheduled = overTask.scheduleCron && overTask.status === 'todo';
+      const isInScheduled = overTask.scheduleEnabled && overTask.status === 'todo';
       return [overTask.status, !!isInScheduled];
     }
     return [null, false];
@@ -165,8 +175,14 @@ export function KanbanBoard() {
     setOverColumnId(null);
 
     // Dropped on schedule section → open schedule popover
-    if (isScheduleTarget && task.status === 'todo') {
+    if (isScheduleTarget && task.status === 'todo' && !task.scheduleEnabled) {
       setScheduleTaskId(taskId);
+      return;
+    }
+
+    // Dropped on todo section from schedule → clear schedule
+    if (targetStatus === 'todo' && !isScheduleTarget && task.scheduleEnabled && task.status === 'todo') {
+      handleScheduleClear(taskId);
       return;
     }
 
@@ -239,6 +255,23 @@ export function KanbanBoard() {
       console.error('Failed to save schedule:', err);
     }
     setScheduleTaskId(null);
+  };
+
+  const handleScheduleClear = async (taskId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduledAt: null, scheduleCron: null, scheduleEnabled: false }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        useKanbanStore.getState().updateTask(taskId, updated);
+      }
+    } catch (err) {
+      console.error('Failed to clear schedule:', err);
+    }
   };
 
   const handleCleanupWorktree = async (taskId: string) => {

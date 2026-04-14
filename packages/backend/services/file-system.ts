@@ -32,6 +32,31 @@ export function invalidateTreeCache(dirPath?: string): void {
   }
 }
 
+/**
+ * Resolve shorthand paths that AI outputs (e.g. `/workspace/...`) to the
+ * actual filesystem path (`WORKSPACE_ROOT/...`).  Also handles `~/...`.
+ * If the path doesn't match any shorthand, it's returned unchanged.
+ */
+export function resolveWorkspacePath(inputPath: string): string {
+  const wsRoot = config.workspaceRoot; // e.g. /home/enterpriseai/workspace
+
+  // Already fully-qualified — no change
+  if (inputPath.startsWith(wsRoot)) return inputPath;
+
+  // ~/workspace/... or ~/... → resolve from homedir
+  if (inputPath.startsWith('~/')) {
+    const home = process.env.HOME || '/tmp';
+    return path.join(home, inputPath.slice(2));
+  }
+
+  // /workspace/... → WORKSPACE_ROOT/...  (strip leading "/workspace")
+  if (inputPath.startsWith('/workspace/')) {
+    return path.join(wsRoot, inputPath.slice('/workspace'.length));
+  }
+
+  return inputPath;
+}
+
 export function isPathSafe(targetPath: string, root?: string): boolean {
   const resolvedTarget = path.resolve(targetPath);
   const resolvedRoot = path.resolve(root || '/');

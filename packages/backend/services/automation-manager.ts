@@ -19,13 +19,9 @@ export type AutomationMode = 'spawn' | 'inject' | 'channel';
 export type AutomationTrigger = 'manual' | 'cron' | 'once' | 'event';
 export type AutomationStatus = 'idle' | 'running' | 'done' | 'failed' | 'archived';
 
-export interface CronConfig {
-  type: 'daily' | 'weekdays' | 'weekly' | 'interval';
-  hour?: number;
-  minute?: number;
-  day?: number;   // 0=Sun..6=Sat
-  hours?: number; // interval mode
-}
+// CronConfig and calculateNextRun consolidated in schedule-utils.ts
+import { type CronConfig, calculateNextRun as _calculateNextRun } from './schedule-utils.js';
+export type { CronConfig };
 
 export interface Automation {
   id: string;
@@ -170,42 +166,8 @@ function mapRunRow(row: any): AutomationRun {
   };
 }
 
-// ── Next run calculation ──
-
-export function calculateNextRun(cron: CronConfig, from: Date = new Date()): Date {
-  const next = new Date(from);
-
-  switch (cron.type) {
-    case 'daily': {
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      if (next <= from) next.setDate(next.getDate() + 1);
-      return next;
-    }
-    case 'weekdays': {
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      if (next <= from) next.setDate(next.getDate() + 1);
-      while (next.getDay() === 0 || next.getDay() === 6) {
-        next.setDate(next.getDate() + 1);
-      }
-      return next;
-    }
-    case 'weekly': {
-      const targetDay = cron.day ?? 1;
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      let daysUntil = targetDay - next.getDay();
-      if (daysUntil < 0) daysUntil += 7;
-      if (daysUntil === 0 && next <= from) daysUntil = 7;
-      next.setDate(next.getDate() + daysUntil);
-      return next;
-    }
-    case 'interval': {
-      const intervalMs = (cron.hours ?? 1) * 60 * 60 * 1000;
-      return new Date(from.getTime() + intervalMs);
-    }
-    default:
-      return new Date(from.getTime() + 3600_000);
-  }
-}
+// Re-export for backward compat
+export const calculateNextRun = _calculateNextRun;
 
 // ── CRUD ──
 

@@ -40,13 +40,14 @@ import { useSpaceStore } from './stores/space-store'; // used via .getState()
 // normalizeContentBlocks moved to ChatPanel — lazy, only for visible ~20 messages
 import { generateUUID } from './utils/uuid';
 import { toastSuccess, toastError } from './utils/toast';
-import { KanbanBoard } from './components/kanban/KanbanBoard';
-import { SchedulePanel } from './components/schedule/SchedulePanel';
-import { AutomationPanel } from './components/automation/AutomationPanel';
-import { HistoryPanel } from './components/history/HistoryPanel';
+// Lazy-loaded view panels — only fetched when the user switches to that view
+const KanbanBoard = React.lazy(() => import('./components/kanban/KanbanBoard').then(m => ({ default: m.KanbanBoard })));
+const SchedulePanel = React.lazy(() => import('./components/schedule/SchedulePanel').then(m => ({ default: m.SchedulePanel })));
+const AutomationPanel = React.lazy(() => import('./components/automation/AutomationPanel').then(m => ({ default: m.AutomationPanel })));
+const HistoryPanel = React.lazy(() => import('./components/history/HistoryPanel').then(m => ({ default: m.HistoryPanel })));
 import { RoomPanel } from './components/rooms/RoomPanel';
-import { InboxPanel } from './components/inbox/InboxPanel';
-import { UsagePanel } from './components/usage/UsagePanel';
+const InboxPanel = React.lazy(() => import('./components/inbox/InboxPanel').then(m => ({ default: m.InboxPanel })));
+const UsagePanel = React.lazy(() => import('./components/usage/UsagePanel').then(m => ({ default: m.UsagePanel })));
 import { getTokenUserId, lastViewedKey } from './utils/session-restore';
 import { SharedViewer } from './components/shared/SharedViewer';
 import { FileViewerPage } from './components/files/FileViewerPage';
@@ -550,7 +551,12 @@ function App() {
     try {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE', headers });
+      const res = await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE', headers });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: 'Unknown error' }));
+        toastError(body.error || `삭제 실패 (${res.status})`);
+        return;
+      }
       removeSession(id);
       // Clear any orphaned queue for the deleted session
       useChatStore.getState().clearSessionQueue(id);
@@ -1166,17 +1172,17 @@ function App() {
                 )}
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
-                    <KanbanBoard />
+                    <React.Suspense fallback={null}><KanbanBoard /></React.Suspense>
                   ) : activeView === 'schedules' ? (
-                    <SchedulePanel />
+                    <React.Suspense fallback={null}><SchedulePanel /></React.Suspense>
                   ) : activeView === 'automations' ? (
-                    <AutomationPanel />
+                    <React.Suspense fallback={null}><AutomationPanel /></React.Suspense>
                   ) : activeView === 'history' ? (
-                    <HistoryPanel />
+                    <React.Suspense fallback={null}><HistoryPanel /></React.Suspense>
                   ) : activeView === 'inbox' ? (
-                    <InboxPanel onSelectSession={handleSelectSession} />
+                    <React.Suspense fallback={null}><InboxPanel onSelectSession={handleSelectSession} /></React.Suspense>
                   ) : activeView === 'usage' ? (
-                    <UsagePanel />
+                    <React.Suspense fallback={null}><UsagePanel /></React.Suspense>
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1202,17 +1208,17 @@ function App() {
                 )}
                 <ErrorBoundary fallbackLabel="Chat error">
                   {activeView === 'kanban' ? (
-                    <KanbanBoard />
+                    <React.Suspense fallback={null}><KanbanBoard /></React.Suspense>
                   ) : activeView === 'schedules' ? (
-                    <SchedulePanel />
+                    <React.Suspense fallback={null}><SchedulePanel /></React.Suspense>
                   ) : activeView === 'automations' ? (
-                    <AutomationPanel />
+                    <React.Suspense fallback={null}><AutomationPanel /></React.Suspense>
                   ) : activeView === 'history' ? (
-                    <HistoryPanel />
+                    <React.Suspense fallback={null}><HistoryPanel /></React.Suspense>
                   ) : activeView === 'inbox' ? (
-                    <InboxPanel onSelectSession={handleSelectSession} />
+                    <React.Suspense fallback={null}><InboxPanel onSelectSession={handleSelectSession} /></React.Suspense>
                   ) : activeView === 'usage' ? (
-                    <UsagePanel />
+                    <React.Suspense fallback={null}><UsagePanel /></React.Suspense>
                   ) : activeView === 'rooms' ? (
                     <RoomPanel />
                   ) : (
@@ -1261,13 +1267,13 @@ function App() {
               )}
               <ErrorBoundary fallbackLabel="Chat error">
                 {activeView === 'kanban' ? (
-                  <KanbanBoard />
+                  <React.Suspense fallback={null}><KanbanBoard /></React.Suspense>
                 ) : activeView === 'history' ? (
-                  <HistoryPanel />
+                  <React.Suspense fallback={null}><HistoryPanel /></React.Suspense>
                 ) : activeView === 'inbox' ? (
-                  <InboxPanel onSelectSession={handleSelectSession} />
+                  <React.Suspense fallback={null}><InboxPanel onSelectSession={handleSelectSession} /></React.Suspense>
                 ) : activeView === 'usage' ? (
-                  <UsagePanel />
+                  <React.Suspense fallback={null}><UsagePanel /></React.Suspense>
                 ) : activeView === 'rooms' ? (
                   <RoomPanel />
                 ) : (

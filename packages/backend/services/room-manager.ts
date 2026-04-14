@@ -1,56 +1,19 @@
 /**
- * Room Manager — PostgreSQL-backed room CRUD + PgAdapter implementation.
+ * Room Manager — Business logic for rooms, members, messages, notifications.
  *
- * All room data (chat_rooms, room_members, room_messages, room_ai_context,
- * notifications, attachments) lives in PG.  User data lives in SQLite.
- * This module bridges the two.
+ * All raw SQL queries have been extracted to room-repo.ts.
+ * This module handles: validation, authorization, caching, broadcasting,
+ * cross-service orchestration, and domain mapping.
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { getPgPool } from '../db/pg.js';
-import { queryOne, query as pgRepoQuery } from '../db/pg-repo.js';
+import { queryOne } from '../db/pg-repo.js';
 import { getAccessibleProjectIds } from './group-manager.js';
+import * as roomRepo from './room-repo.js';
 import type { PgAdapter } from './cross-db.js';
+import type { Room, RoomMember, RoomMessage } from '@tower/shared';
 
-// ── Types ────────────────────────────────────────────────────────────
-
-export interface Room {
-  id: string;
-  name: string;
-  description: string | null;
-  roomType: 'team' | 'project' | 'dashboard';
-  projectId: string | null;
-  avatarUrl: string | null;
-  archived: boolean;
-  createdBy: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface RoomMember {
-  roomId: string;
-  userId: number;
-  username: string;
-  role: 'owner' | 'admin' | 'member' | 'readonly';
-  joinedAt: string;
-  lastReadAt: string;
-}
-
-export interface RoomMessage {
-  id: string;
-  roomId: string;
-  senderId: number | null;
-  senderName: string | null;
-  seq: number;
-  msgType: 'human' | 'ai_summary' | 'ai_task_ref' | 'ai_error' | 'ai_reply' | 'system';
-  content: string;
-  metadata: Record<string, unknown>;
-  taskId: string | null;
-  replyTo: string | null;
-  editedAt: string | null;
-  deletedAt: string | null;
-  createdAt: string;
-}
+export type { Room, RoomMember, RoomMessage };
 
 // ── Validation Helpers ───────────────────────────────────────────────
 
@@ -175,21 +138,12 @@ export async function createRoom(
   projectId?: string,
 ): Promise<Room> {
   assertRoomType(roomType);
-  const pool = getPgPool();
 
-  const { rows } = await pool.query(
-    `INSERT INTO chat_rooms (name, description, room_type, project_id, created_by)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING *`,
-    [name, description, roomType, projectId ?? null, createdBy],
-  );
-  const room = rowToRoom(rows[0]);
+  const row = await roomRepo.insertRoom(name, description, roomType, projectId ?? null, createdBy);
+  const room = rowToRoom(row);
 
   // Auto-add creator as owner
-  await pool.query(
-    `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'owner')`,
-    [room.id, createdBy],
-  );
+  await roomRepo.insertMemberIfNotExists(room.id, createdBy, 'owner');
   invalidateMemberCache(room.id);
 
   // Auto-add fellow group members (from SQLite groups)
@@ -198,20 +152,10 @@ export async function createRoom(
     const creatorGroups = await getUserGroups(createdBy);
     if (creatorGroups.length > 0) {
       const groupIds = creatorGroups.map((g: any) => g.id);
-      const placeholders = groupIds.map((_: any, i: number) => `$${i + 1}`).join(',');
-      const fellowMembers = await pgRepoQuery<{ id: number }>(
-        `SELECT DISTINCT u.id FROM users u
-         JOIN user_groups ug ON ug.user_id = u.id
-         WHERE ug.group_id IN (${placeholders}) AND u.id != $${groupIds.length + 1} AND u.disabled = 0`,
-        [...groupIds, createdBy]
-      );
+      const fellowMembers = await roomRepo.findFellowGroupMembers(groupIds, createdBy);
 
       for (const member of fellowMembers) {
-        await pool.query(
-          `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')
-           ON CONFLICT (room_id, user_id) DO NOTHING`,
-          [room.id, member.id],
-        );
+        await roomRepo.insertMemberIfNotExists(room.id, member.id, 'member');
       }
       if (fellowMembers.length > 0) {
         console.log(`[room-manager] Auto-added ${fellowMembers.length} group member(s) to room "${name}"`);
@@ -228,11 +172,7 @@ export async function createRoom(
       const members = await getProjectMembers(projectId);
       for (const m of members) {
         if (m.userId === createdBy) continue; // already owner
-        await pool.query(
-          `INSERT INTO room_members (room_id, user_id, role) VALUES ($1, $2, 'member')
-           ON CONFLICT (room_id, user_id) DO NOTHING`,
-          [room.id, m.userId],
-        );
+        await roomRepo.insertMemberIfNotExists(room.id, m.userId, 'member');
       }
     } catch (err: any) {
       console.error(`[room-manager] Failed to auto-add project members:`, err.message);
@@ -246,63 +186,40 @@ export async function createRoom(
 }
 
 export async function getRoom(roomId: string): Promise<Room | null> {
-  const { rows } = await getPgPool().query(
-    'SELECT * FROM chat_rooms WHERE id = $1',
-    [roomId],
-  );
-  return rows.length > 0 ? rowToRoom(rows[0]) : null;
+  const row = await roomRepo.findRoomById(roomId);
+  return row ? rowToRoom(row) : null;
 }
 
 export async function listRooms(userId: number, role?: string): Promise<Room[]> {
-  const pool = getPgPool();
-  const userRole = role || (await queryOne<{ role: string }>('SELECT role FROM users WHERE id = $1', [userId]))?.role || 'member';
+  const userRole = role || (await roomRepo.findUserRole(userId)) || 'member';
   const isAdmin = userRole === 'admin';
 
   // 2026-04-10 (100-user scale): this function used to do N+1 queries per
   // sidebar load (one INSERT per room for auto-join, plus one SELECT per
-  // non-project room for membership). For 100 users × 50 rooms that was
-  // ~5000 sequential round-trips. Rewritten to use batched multi-row
+  // non-project room for membership). Rewritten to use batched multi-row
   // INSERT + single batched SELECT below.
+
+  const allRooms = await roomRepo.findAllActiveRooms();
 
   // Admin: see all rooms, auto-join as admin
   if (isAdmin) {
-    const { rows } = await pool.query(
-      `SELECT * FROM chat_rooms WHERE (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
-    );
-    if (rows.length === 0) return [];
+    if (allRooms.length === 0) return [];
 
     // Batch INSERT — one round-trip for all rooms.
-    const placeholders: string[] = [];
-    const values: any[] = [];
-    rows.forEach((room, i) => {
-      const base = i * 2;
-      placeholders.push(`($${base + 1}, $${base + 2}, 'admin')`);
-      values.push(room.id, userId);
-    });
-
-    const r = await pool.query(
-      `INSERT INTO room_members (room_id, user_id, role)
-       VALUES ${placeholders.join(', ')}
-       ON CONFLICT DO NOTHING
-       RETURNING room_id`,
-      values,
-    );
+    const entries = allRooms.map(room => ({ roomId: room.id, userId, role: 'admin' }));
+    const insertedRoomIds = await roomRepo.batchInsertMembersIfNotExists(entries);
     // Invalidate cache only for rooms we actually inserted into.
-    for (const row of r.rows) {
-      invalidateMemberCache(row.room_id);
+    for (const roomId of insertedRoomIds) {
+      invalidateMemberCache(roomId);
     }
 
-    return rows.map(rowToRoom);
+    return allRooms.map(rowToRoom);
   }
 
   // Non-admin: rooms where user is a member OR room belongs to an accessible project
   const accessibleIds = await getAccessibleProjectIds(userId, userRole);
 
-  const { rows } = await pool.query(
-    `SELECT * FROM chat_rooms WHERE (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`,
-  );
-
-  const visible = rows.filter(r => {
+  const visible = allRooms.filter(r => {
     // Room without project: must be explicit member (checked below)
     if (!r.project_id) return true;
     // Room with project: visible if user has project access
@@ -315,36 +232,16 @@ export async function listRooms(userId: number, role?: string): Promise<Room[]> 
   // Auto-join all project rooms the user can see — single batched INSERT.
   const projectRooms = visible.filter(r => !!r.project_id);
   if (projectRooms.length > 0) {
-    const placeholders: string[] = [];
-    const values: any[] = [];
-    projectRooms.forEach((room, i) => {
-      const base = i * 2;
-      placeholders.push(`($${base + 1}, $${base + 2}, 'member')`);
-      values.push(room.id, userId);
-    });
-
-    const r = await pool.query(
-      `INSERT INTO room_members (room_id, user_id, role)
-       VALUES ${placeholders.join(', ')}
-       ON CONFLICT DO NOTHING
-       RETURNING room_id`,
-      values,
-    );
-    for (const row of r.rows) {
-      invalidateMemberCache(row.room_id);
+    const entries = projectRooms.map(room => ({ roomId: room.id, userId, role: 'member' }));
+    const insertedRoomIds = await roomRepo.batchInsertMembersIfNotExists(entries);
+    for (const roomId of insertedRoomIds) {
+      invalidateMemberCache(roomId);
     }
   }
 
   // For non-project rooms, check membership for ALL of them in a single query.
   const nonProjectRoomIds = visible.filter(r => !r.project_id).map(r => r.id);
-  let memberSet = new Set<string>();
-  if (nonProjectRoomIds.length > 0) {
-    const { rows: memberRows } = await pool.query(
-      `SELECT room_id FROM room_members WHERE user_id = $1 AND room_id = ANY($2::text[])`,
-      [userId, nonProjectRoomIds],
-    );
-    memberSet = new Set(memberRows.map((row: { room_id: string }) => row.room_id));
-  }
+  const memberSet = await roomRepo.findMemberRoomIds(userId, nonProjectRoomIds);
 
   // Preserve original updated_at DESC order from the initial SELECT.
   const result: Room[] = [];
@@ -384,23 +281,14 @@ export async function updateRoom(
 
   if (sets.length === 0) return getRoom(roomId);
 
-  sets.push(`updated_at = NOW()`);
-  vals.push(roomId);
-
-  const { rows } = await getPgPool().query(
-    `UPDATE chat_rooms SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
-    vals,
-  );
-  return rows.length > 0 ? rowToRoom(rows[0]) : null;
+  const row = await roomRepo.updateRoomFields(roomId, sets, vals, idx);
+  return row ? rowToRoom(row) : null;
 }
 
 export async function deleteRoom(roomId: string): Promise<boolean> {
-  const { rowCount } = await getPgPool().query(
-    'DELETE FROM chat_rooms WHERE id = $1',
-    [roomId],
-  );
+  const changes = await roomRepo.deleteRoomById(roomId);
   invalidateMemberCache(roomId);
-  return (rowCount ?? 0) > 0;
+  return changes > 0;
 }
 
 // ── Members ──────────────────────────────────────────────────────────
@@ -411,24 +299,15 @@ export async function addMember(
   role: string = 'member',
 ): Promise<RoomMember> {
   assertMemberRole(role);
-  const { rows } = await getPgPool().query(
-    `INSERT INTO room_members (room_id, user_id, role)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (room_id, user_id) DO UPDATE SET role = EXCLUDED.role
-     RETURNING *`,
-    [roomId, userId, role],
-  );
+  const row = await roomRepo.upsertMember(roomId, userId, role);
   invalidateMemberCache(roomId);
-  return await rowToMember(rows[0]);
+  return await rowToMember(row);
 }
 
 export async function removeMember(roomId: string, userId: number): Promise<boolean> {
-  const { rowCount } = await getPgPool().query(
-    'DELETE FROM room_members WHERE room_id = $1 AND user_id = $2',
-    [roomId, userId],
-  );
+  const changes = await roomRepo.deleteMember(roomId, userId);
   invalidateMemberCache(roomId);
-  return (rowCount ?? 0) > 0;
+  return changes > 0;
 }
 
 export async function getMembers(roomId: string): Promise<RoomMember[]> {
@@ -438,10 +317,7 @@ export async function getMembers(roomId: string): Promise<RoomMember[]> {
     return cached.members;
   }
 
-  const { rows } = await getPgPool().query(
-    'SELECT * FROM room_members WHERE room_id = $1 ORDER BY joined_at ASC',
-    [roomId],
-  );
+  const rows = await roomRepo.findMembersByRoom(roomId);
   const members = await Promise.all(rows.map(rowToMember));
   memberCache.set(roomId, { expires: now + MEMBER_CACHE_TTL_MS, members });
   return members;
@@ -453,35 +329,22 @@ export async function updateMemberRole(
   role: string,
 ): Promise<boolean> {
   assertMemberRole(role);
-  const { rowCount } = await getPgPool().query(
-    'UPDATE room_members SET role = $1 WHERE room_id = $2 AND user_id = $3',
-    [role, roomId, userId],
-  );
+  const changes = await roomRepo.updateMemberRoleRow(roomId, userId, role);
   invalidateMemberCache(roomId);
-  return (rowCount ?? 0) > 0;
+  return changes > 0;
 }
 
 export async function updateLastRead(roomId: string, userId: number): Promise<void> {
-  await getPgPool().query(
-    'UPDATE room_members SET last_read_at = NOW() WHERE room_id = $1 AND user_id = $2',
-    [roomId, userId],
-  );
+  await roomRepo.updateLastReadAt(roomId, userId);
 }
 
 export async function isMember(roomId: string, userId: number): Promise<boolean> {
-  const { rows } = await getPgPool().query(
-    'SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2',
-    [roomId, userId],
-  );
-  return rows.length > 0;
+  const { exists } = await roomRepo.findMembership(roomId, userId);
+  return exists;
 }
 
 export async function getMemberRole(roomId: string, userId: number): Promise<string | null> {
-  const { rows } = await getPgPool().query(
-    'SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2',
-    [roomId, userId],
-  );
-  return rows.length > 0 ? rows[0].role : null;
+  return roomRepo.findMemberRole(roomId, userId);
 }
 
 // ── Messages ─────────────────────────────────────────────────────────
@@ -496,13 +359,11 @@ export async function sendMessage(
   replyTo?: string,
 ): Promise<RoomMessage> {
   assertMsgType(msgType);
-  const { rows } = await getPgPool().query(
-    `INSERT INTO room_messages (room_id, sender_id, msg_type, content, metadata, task_id, reply_to)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-     RETURNING *`,
-    [roomId, senderId, msgType, content, JSON.stringify(metadata), taskId ?? null, replyTo ?? null],
+  const row = await roomRepo.insertMessage(
+    roomId, senderId, msgType, content,
+    JSON.stringify(metadata), taskId ?? null, replyTo ?? null,
   );
-  return await rowToMessage(rows[0]);
+  return await rowToMessage(row);
 }
 
 export async function getMessages(
@@ -515,7 +376,6 @@ export async function getMessages(
   let idx = 2;
 
   if (options.before) {
-    // before = seq cursor
     conditions.push(`seq < $${idx++}`);
     vals.push(options.before);
   }
@@ -526,57 +386,29 @@ export async function getMessages(
 
   vals.push(limit);
 
-  const { rows } = await getPgPool().query(
-    `SELECT * FROM room_messages
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY seq ASC
-     LIMIT $${idx}`,
-    vals,
-  );
+  const rows = await roomRepo.findMessages(roomId, conditions, vals, idx);
   return await Promise.all(rows.map(rowToMessage));
 }
 
 export async function editMessage(messageId: string, content: string): Promise<RoomMessage | null> {
-  const { rows } = await getPgPool().query(
-    `UPDATE room_messages SET content = $1, edited_at = NOW()
-     WHERE id = $2 AND deleted_at IS NULL
-     RETURNING *`,
-    [content, messageId],
-  );
-  return rows.length > 0 ? await rowToMessage(rows[0]) : null;
+  const row = await roomRepo.updateMessageContent(messageId, content);
+  return row ? await rowToMessage(row) : null;
 }
 
 export async function deleteMessage(messageId: string): Promise<boolean> {
-  const { rowCount } = await getPgPool().query(
-    'UPDATE room_messages SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL',
-    [messageId],
-  );
-  return (rowCount ?? 0) > 0;
+  const changes = await roomRepo.softDeleteMessage(messageId);
+  return changes > 0;
 }
 
 export async function getMessage(messageId: string): Promise<RoomMessage | null> {
-  const { rows } = await getPgPool().query(
-    'SELECT * FROM room_messages WHERE id = $1',
-    [messageId],
-  );
-  return rows.length > 0 ? await rowToMessage(rows[0]) : null;
+  const row = await roomRepo.findMessageById(messageId);
+  return row ? await rowToMessage(row) : null;
 }
 
 // ── Unread Counts ────────────────────────────────────────────────────
 
 export async function getUnreadCounts(userId: number): Promise<Map<string, number>> {
-  const { rows } = await getPgPool().query(
-    `SELECT m.room_id, COUNT(msg.id)::INTEGER AS unread
-     FROM room_members m
-     JOIN room_messages msg
-       ON msg.room_id = m.room_id
-       AND msg.created_at > m.last_read_at
-       AND msg.deleted_at IS NULL
-     WHERE m.user_id = $1
-     GROUP BY m.room_id`,
-    [userId],
-  );
-
+  const rows = await roomRepo.findUnreadCounts(userId);
   const counts = new Map<string, number>();
   for (const row of rows) {
     counts.set(row.room_id, row.unread);
@@ -605,22 +437,14 @@ export async function getOrCreateChannelAiSession(
   projectId: string | null,
   engine: string,
 ): Promise<ChannelAiSession> {
-  const pool = getPgPool();
-
   // 1. Look up existing channel_ai session in sessions table
-  const { rows } = await pool.query(
-    `SELECT id, claude_session_id, turn_count
-     FROM sessions
-     WHERE room_id = $1 AND label = 'channel_ai' AND (archived IS NULL OR archived = 0)
-     ORDER BY updated_at DESC LIMIT 1`,
-    [roomId],
-  );
+  const existing = await roomRepo.findChannelAiSession(roomId);
 
-  if (rows.length > 0) {
+  if (existing) {
     return {
-      sessionId: rows[0].id,
-      engineSessionId: rows[0].claude_session_id ?? null,
-      messageCount: rows[0].turn_count ?? 0,
+      sessionId: existing.id,
+      engineSessionId: existing.claude_session_id ?? null,
+      messageCount: existing.turn_count ?? 0,
     };
   }
 
@@ -654,8 +478,6 @@ export async function updateChannelAiSession(
   sessionId: string,
   engineSessionId: string,
 ): Promise<void> {
-  const pool = getPgPool();
-
   // Update sessions table
   const { updateSession } = await import('./session-manager.js');
   await updateSession(sessionId, {
@@ -664,20 +486,10 @@ export async function updateChannelAiSession(
   });
 
   // Increment turn count
-  await pool.query(
-    `UPDATE sessions SET turn_count = COALESCE(turn_count, 0) + 1, updated_at = NOW() WHERE id = $1`,
-    [sessionId],
-  );
+  await roomRepo.incrementSessionTurnCount(sessionId);
 
   // Sync chat_rooms cache
-  await pool.query(
-    `UPDATE chat_rooms
-     SET ai_engine_session_id = $2,
-         ai_session_created_at = COALESCE(ai_session_created_at, NOW()),
-         ai_session_message_count = COALESCE(ai_session_message_count, 0) + 1
-     WHERE id = $1`,
-    [roomId, engineSessionId],
-  );
+  await roomRepo.syncRoomAiSession(roomId, engineSessionId);
 }
 
 /**
@@ -685,24 +497,11 @@ export async function updateChannelAiSession(
  * Archives the session and clears the room cache.
  */
 export async function clearChannelAiSession(roomId: string): Promise<void> {
-  const pool = getPgPool();
-
   // Archive existing channel_ai session(s)
-  await pool.query(
-    `UPDATE sessions SET archived = 1, updated_at = NOW()
-     WHERE room_id = $1 AND label = 'channel_ai' AND (archived IS NULL OR archived = 0)`,
-    [roomId],
-  );
+  await roomRepo.archiveChannelAiSessions(roomId);
 
   // Clear room cache
-  await pool.query(
-    `UPDATE chat_rooms
-     SET ai_engine_session_id = NULL,
-         ai_session_created_at = NULL,
-         ai_session_message_count = 0
-     WHERE id = $1`,
-    [roomId],
-  );
+  await roomRepo.clearRoomAiSessionCache(roomId);
 }
 
 // ── AI Context ───────────────────────────────────────────────────────
@@ -713,27 +512,14 @@ export async function saveAiContext(
   tokenCount: number,
   sourceTaskId: string,
 ): Promise<string> {
-  const { rows } = await getPgPool().query(
-    `INSERT INTO room_ai_context (room_id, context_type, content, token_count, source_task_id)
-     VALUES ($1, 'task_summary', $2, $3, $4)
-     RETURNING id`,
-    [roomId, content, tokenCount, sourceTaskId],
-  );
-  return rows[0].id;
+  return roomRepo.insertAiContext(roomId, content, tokenCount, sourceTaskId);
 }
 
 export async function getAiContexts(
   roomId: string,
   limit: number = 10,
 ): Promise<{ id: string; content: string; tokenCount: number; sourceTaskId: string | null; createdAt: string; expiresAt: string | null }[]> {
-  const { rows } = await getPgPool().query(
-    `SELECT id, content, token_count, source_task_id, created_at, expires_at
-     FROM room_ai_context
-     WHERE room_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
-     ORDER BY created_at DESC
-     LIMIT $2`,
-    [roomId, limit],
-  );
+  const rows = await roomRepo.findAiContexts(roomId, limit);
   return rows.map((r: any) => ({
     id: r.id,
     content: r.content,
@@ -745,10 +531,7 @@ export async function getAiContexts(
 }
 
 export async function cleanupExpiredContexts(): Promise<number> {
-  const { rowCount } = await getPgPool().query(
-    'DELETE FROM room_ai_context WHERE expires_at IS NOT NULL AND expires_at <= NOW()',
-  );
-  return rowCount ?? 0;
+  return roomRepo.deleteExpiredContexts();
 }
 
 // ── Notifications ────────────────────────────────────────────────────
@@ -762,10 +545,9 @@ export async function createNotification(
   metadata?: Record<string, unknown>,
 ): Promise<string> {
   const id = uuidv4();
-  await getPgPool().query(
-    `INSERT INTO notifications (id, user_id, room_id, notif_type, title, body, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-    [id, userId, roomId, type, title, body ?? null, JSON.stringify(metadata ?? {})],
+  await roomRepo.insertNotification(
+    id, userId, roomId, type, title,
+    body ?? null, JSON.stringify(metadata ?? {}),
   );
   return id;
 }
@@ -789,14 +571,14 @@ export async function createNotificationsBatch(
 ): Promise<Array<{ userId: number; notifId: string }>> {
   if (recipients.length === 0) return [];
 
-  const rows: string[] = [];
+  const sqlRows: string[] = [];
   const vals: any[] = [];
   const result: Array<{ userId: number; notifId: string }> = [];
   let i = 1;
   for (const r of recipients) {
     const id = uuidv4();
     result.push({ userId: r.userId, notifId: id });
-    rows.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}::jsonb)`);
+    sqlRows.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}::jsonb)`);
     vals.push(
       id,
       r.userId,
@@ -808,11 +590,7 @@ export async function createNotificationsBatch(
     );
   }
 
-  await getPgPool().query(
-    `INSERT INTO notifications (id, user_id, room_id, notif_type, title, body, metadata)
-     VALUES ${rows.join(', ')}`,
-    vals,
-  );
+  await roomRepo.batchInsertNotifications(sqlRows, vals);
   return result;
 }
 
@@ -821,22 +599,7 @@ export async function getNotifications(
   options: { unreadOnly?: boolean; limit?: number } = {},
 ): Promise<any[]> {
   const limit = options.limit ?? 50;
-  const conditions = ['user_id = $1'];
-  const vals: any[] = [userId];
-
-  if (options.unreadOnly) {
-    conditions.push('read = 0');
-  }
-
-  vals.push(limit);
-
-  const { rows } = await getPgPool().query(
-    `SELECT * FROM notifications
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY created_at DESC
-     LIMIT $${vals.length}`,
-    vals,
-  );
+  const rows = await roomRepo.findNotifications(userId, !!options.unreadOnly, limit);
   return rows.map((r: any) => ({
     id: r.id,
     userId: r.user_id,
@@ -851,74 +614,44 @@ export async function getNotifications(
 }
 
 export async function markNotificationRead(notifId: string, userId?: number): Promise<boolean> {
-  const sql = userId
-    ? 'UPDATE notifications SET read = 1 WHERE id = $1 AND user_id = $2'
-    : 'UPDATE notifications SET read = 1 WHERE id = $1';
-  const params: any[] = userId ? [notifId, userId] : [notifId];
-  const { rowCount } = await getPgPool().query(sql, params);
-  return (rowCount ?? 0) > 0;
+  const changes = await roomRepo.markNotificationReadById(notifId, userId);
+  return changes > 0;
 }
 
 export async function markAllNotificationsRead(userId: number): Promise<number> {
-  const { rowCount } = await getPgPool().query(
-    'UPDATE notifications SET read = 1 WHERE user_id = $1 AND read = 0',
-    [userId],
-  );
-  return rowCount ?? 0;
+  return roomRepo.markAllNotificationsReadForUser(userId);
 }
 
 export async function getUnreadCount(userId: number): Promise<number> {
-  const { rows } = await getPgPool().query(
-    'SELECT COUNT(*)::int AS cnt FROM notifications WHERE user_id = $1 AND read = 0',
-    [userId],
-  );
-  return rows[0].cnt;
+  return roomRepo.countUnreadNotifications(userId);
 }
 
 // ── PgAdapter Implementation (for cross-db.ts) ──────────────────────
 
 export function createPgAdapter(): PgAdapter {
-  const pool = getPgPool();
-
   return {
     async getRoomMemberUserIds(roomId: string): Promise<number[]> {
-      const { rows } = await pool.query(
-        'SELECT user_id FROM room_members WHERE room_id = $1',
-        [roomId],
-      );
-      return rows.map((r: any) => r.user_id);
+      return roomRepo.findUserIdsByRoom(roomId);
     },
 
     async getAllMemberUserIds(): Promise<number[]> {
-      const { rows } = await pool.query('SELECT DISTINCT user_id FROM room_members');
-      return rows.map((r: any) => r.user_id);
+      return roomRepo.findAllDistinctMemberUserIds();
     },
 
     async removeRoomMember(roomId: string, userId: number): Promise<void> {
-      await pool.query(
-        'DELETE FROM room_members WHERE room_id = $1 AND user_id = $2',
-        [roomId, userId],
-      );
+      await roomRepo.deleteMember(roomId, userId);
     },
 
     async removeUserFromAllRooms(userId: number): Promise<void> {
-      await pool.query(
-        'DELETE FROM room_members WHERE user_id = $1',
-        [userId],
-      );
+      await roomRepo.deleteAllMembershipsForUser(userId);
     },
 
     async roomExists(roomId: string): Promise<boolean> {
-      const { rows } = await pool.query(
-        'SELECT 1 FROM chat_rooms WHERE id = $1',
-        [roomId],
-      );
-      return rows.length > 0;
+      return roomRepo.roomExistsById(roomId);
     },
 
     async getAllRoomIds(): Promise<string[]> {
-      const { rows } = await pool.query('SELECT id FROM chat_rooms');
-      return rows.map((r: any) => r.id);
+      return roomRepo.findAllRoomIds();
     },
 
     async insertRoomMessage(
@@ -927,13 +660,9 @@ export function createPgAdapter(): PgAdapter {
       content: string,
       metadata?: Record<string, unknown>,
     ): Promise<string> {
-      const { rows } = await pool.query(
-        `INSERT INTO room_messages (room_id, sender_id, msg_type, content, metadata)
-         VALUES ($1, NULL, $2, $3, $4::jsonb)
-         RETURNING id`,
-        [roomId, msgType, content, JSON.stringify(metadata ?? {})],
+      return roomRepo.insertSystemMessage(
+        roomId, msgType, content, JSON.stringify(metadata ?? {}),
       );
-      return rows[0].id;
     },
 
     async insertRoomAiContext(
@@ -942,30 +671,17 @@ export function createPgAdapter(): PgAdapter {
       tokenCount: number,
       sourceTaskId: string,
     ): Promise<string> {
-      const { rows } = await pool.query(
-        `INSERT INTO room_ai_context (room_id, context_type, content, token_count, source_task_id)
-         VALUES ($1, 'task_summary', $2, $3, $4)
-         RETURNING id`,
-        [roomId, content, tokenCount, sourceTaskId],
-      );
-      return rows[0].id;
+      return roomRepo.insertAiContext(roomId, content, tokenCount, sourceTaskId);
     },
 
     async getMessageById(messageId: string): Promise<{ id: string; roomId: string } | null> {
-      const { rows } = await pool.query(
-        'SELECT id, room_id FROM room_messages WHERE id = $1',
-        [messageId],
-      );
-      if (rows.length === 0) return null;
-      return { id: rows[0].id, roomId: rows[0].room_id };
+      const row = await roomRepo.findMessageRef(messageId);
+      if (!row) return null;
+      return { id: row.id, roomId: row.room_id };
     },
 
     async getTaskRefMessageIds(): Promise<{ messageId: string; taskId: string }[]> {
-      const { rows } = await pool.query(
-        `SELECT id AS message_id, task_id FROM room_messages
-         WHERE msg_type = 'ai_task_ref' AND task_id IS NOT NULL AND deleted_at IS NULL`,
-      );
-      return rows.map((r: any) => ({ messageId: r.message_id, taskId: r.task_id }));
+      return roomRepo.findTaskRefMessageIds();
     },
   };
 }

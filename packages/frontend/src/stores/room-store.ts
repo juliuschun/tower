@@ -1,43 +1,12 @@
 import { create } from 'zustand';
+import type { Room, RoomMember, RoomMessage as RoomMessageBase, RoomNotification } from '@tower/shared';
+
+export type { Room, RoomMember, RoomNotification };
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export interface Room {
-  id: string;
-  name: string;
-  description: string | null;
-  roomType: 'team' | 'project' | 'dashboard';
-  projectId: string | null;
-  avatarUrl: string | null;
-  archived: boolean;
-  createdBy: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface RoomMember {
-  roomId: string;
-  userId: number;
-  username: string;
-  role: 'owner' | 'admin' | 'member' | 'readonly';
-  joinedAt: string;
-  lastReadAt: string;
-}
-
-export interface RoomMessage {
-  id: string;
-  roomId: string;
-  senderId: number | null;
-  senderName: string | null;
-  seq: number;
-  msgType: 'human' | 'ai_summary' | 'ai_task_ref' | 'ai_error' | 'ai_reply' | 'system';
-  content: string;
-  metadata: Record<string, unknown>;
-  taskId: string | null;
-  replyTo: string | null;
-  editedAt: string | null;
-  deletedAt: string | null;
-  createdAt: string;
+/** Extends shared RoomMessage with client-only optimistic send fields */
+export interface RoomMessage extends RoomMessageBase {
   // Optimistic send fields (client-only, not persisted)
   pending?: boolean;
   failed?: boolean;
@@ -48,18 +17,6 @@ export interface TypingUser {
   userId: number;
   username: string;
   timestamp: number; // Date.now() when typing started
-}
-
-export interface RoomNotification {
-  id: string;
-  userId: number;
-  roomId: string | null;
-  type: string;
-  title: string;
-  body: string | null;
-  metadata: Record<string, unknown>;
-  read: boolean;
-  createdAt: string;
 }
 
 // ── Typing timeout tracking (outside zustand to avoid serialization issues) ──

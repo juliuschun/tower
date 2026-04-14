@@ -40,13 +40,10 @@ export interface ScheduleEntry {
   updatedAt: string;
 }
 
-export interface CronConfig {
-  type: 'daily' | 'weekdays' | 'weekly' | 'interval';
-  hour?: number;
-  minute?: number;
-  day?: number;   // 0=Sun..6=Sat (for 'weekly')
-  hours?: number; // for 'interval'
-}
+// CronConfig and calculateNextRun moved to schedule-utils.ts to break circular dep
+import { type CronConfig, calculateNextRun } from './schedule-utils.js';
+export type { CronConfig };
+export { calculateNextRun };
 
 export interface ScheduleRun {
   id: string;
@@ -94,43 +91,6 @@ function mapRow(row: any): ScheduleEntry {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-// ── Next run calculation (reused from task-scheduler) ──
-
-export function calculateNextRun(cron: CronConfig, from: Date = new Date()): Date {
-  const next = new Date(from);
-
-  switch (cron.type) {
-    case 'daily': {
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      if (next <= from) next.setDate(next.getDate() + 1);
-      return next;
-    }
-    case 'weekdays': {
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      if (next <= from) next.setDate(next.getDate() + 1);
-      while (next.getDay() === 0 || next.getDay() === 6) {
-        next.setDate(next.getDate() + 1);
-      }
-      return next;
-    }
-    case 'weekly': {
-      const targetDay = cron.day ?? 1;
-      next.setHours(cron.hour ?? 9, cron.minute ?? 0, 0, 0);
-      let daysUntil = targetDay - next.getDay();
-      if (daysUntil < 0) daysUntil += 7;
-      if (daysUntil === 0 && next <= from) daysUntil = 7;
-      next.setDate(next.getDate() + daysUntil);
-      return next;
-    }
-    case 'interval': {
-      const intervalMs = (cron.hours ?? 1) * 60 * 60 * 1000;
-      return new Date(from.getTime() + intervalMs);
-    }
-    default:
-      return new Date(from.getTime() + 3600_000);
-  }
 }
 
 // ── Tick ──

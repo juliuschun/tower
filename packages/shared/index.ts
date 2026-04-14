@@ -306,6 +306,130 @@ export interface SkillReadiness {
   providers: Array<SkillProvider & { connected: boolean }>;
 }
 
+// ── Room ─────────────────────────────────────────────────────────
+
+export interface Room {
+  id: string;
+  name: string;
+  description: string | null;
+  roomType: 'team' | 'project' | 'dashboard';
+  projectId: string | null;
+  avatarUrl: string | null;
+  archived: boolean;
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoomMember {
+  roomId: string;
+  userId: number;
+  username: string;
+  role: 'owner' | 'admin' | 'member' | 'readonly';
+  joinedAt: string;
+  lastReadAt: string;
+}
+
+export type RoomMessageType = 'human' | 'ai_summary' | 'ai_task_ref' | 'ai_error' | 'ai_reply' | 'system';
+
+export interface RoomMessage {
+  id: string;
+  roomId: string;
+  senderId: number | null;
+  senderName: string | null;
+  seq: number;
+  msgType: RoomMessageType;
+  content: string;
+  metadata: Record<string, unknown>;
+  taskId: string | null;
+  replyTo: string | null;
+  editedAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+}
+
+export interface RoomNotification {
+  id: string;
+  userId: number;
+  roomId: string | null;
+  type: string;
+  title: string;
+  body: string | null;
+  metadata: Record<string, unknown>;
+  read: boolean;
+  createdAt: string;
+}
+
+// ── Chat Message ────────────────────────────────────────────────
+
+export type MessageRole = 'user' | 'assistant' | 'system';
+
+export interface ToolUse {
+  id: string;
+  name: string;
+  input: Record<string, any>;
+  result?: string;
+}
+
+export interface ThinkingBlock {
+  text: string;
+  title?: string;
+}
+
+export interface ContentBlock {
+  type: 'text' | 'tool_use' | 'tool_result' | 'thinking';
+  text?: string;
+  toolUse?: ToolUse;
+  thinking?: ThinkingBlock;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: MessageRole;
+  content: ContentBlock[];
+  timestamp: number;
+  username?: string;
+  parentToolUseId?: string | null;
+  sendStatus?: 'pending' | 'queued' | 'delivered' | 'failed';
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
+}
+
+export interface CostInfo {
+  totalCost: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
+  duration?: number;
+  cumulativeInputTokens: number;
+  cumulativeOutputTokens: number;
+  turnCount: number;
+  contextInputTokens: number;
+  contextOutputTokens: number;
+  contextWindowSize: number;
+}
+
+export interface TurnMetrics {
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
+}
+
+export interface PendingQuestion {
+  questionId: string;
+  sessionId: string;
+  questions: Array<{
+    question: string;
+    header?: string;
+    options: Array<{ label: string; description?: string }>;
+    multiSelect?: boolean;
+  }>;
+}
+
 // ── Git ──────────────────────────────────────────────────────────
 
 export interface GitCommitInfo {

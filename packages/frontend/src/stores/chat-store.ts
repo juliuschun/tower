@@ -25,64 +25,14 @@ function loadQueueFromStorage(): Record<string, string[]> {
   }
 }
 
-export type MessageRole = 'user' | 'assistant' | 'system';
+import type {
+  MessageRole, ToolUse, ThinkingBlock, ContentBlock,
+  ChatMessage, CostInfo, TurnMetrics, PendingQuestion,
+} from '@tower/shared';
 
-export interface ToolUse {
-  id: string;
-  name: string;
-  input: Record<string, any>;
-  result?: string;
-}
+export type { MessageRole, ToolUse, ThinkingBlock, ContentBlock, ChatMessage, CostInfo, TurnMetrics, PendingQuestion };
 
-export interface ThinkingBlock {
-  text: string;
-  title?: string;
-}
-
-export interface ContentBlock {
-  type: 'text' | 'tool_use' | 'tool_result' | 'thinking';
-  text?: string;
-  toolUse?: ToolUse;
-  thinking?: ThinkingBlock;
-}
-
-export interface ChatMessage {
-  id: string;
-  role: MessageRole;
-  content: ContentBlock[];
-  timestamp: number;
-  username?: string;
-  parentToolUseId?: string | null;
-  sendStatus?: 'pending' | 'queued' | 'delivered' | 'failed';
-  durationMs?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
-}
-
-export interface CostInfo {
-  totalCost: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens?: number;
-  cacheReadTokens?: number;
-  duration?: number;
-  // Cumulative across turns
-  cumulativeInputTokens: number;
-  cumulativeOutputTokens: number;
-  turnCount: number;
-  // Context window tracking (from SDK last iteration)
-  contextInputTokens: number;   // last iteration input (= real context size)
-  contextOutputTokens: number;  // last iteration output
-  contextWindowSize: number;    // model's context window (e.g. 200000)
-}
-
-export interface TurnMetrics {
-  inputTokens: number;
-  outputTokens: number;
-  durationMs: number;
-  stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted';
-}
+// ── Chat-specific types (frontend only) ─────────────────────────
 
 export interface RateLimitInfo {
   status: string;
@@ -102,17 +52,6 @@ export interface Attachment {
   type: 'prompt' | 'command' | 'file' | 'upload';
   label: string;
   content: string;
-}
-
-export interface PendingQuestion {
-  questionId: string;
-  sessionId: string;
-  questions: Array<{
-    question: string;
-    header?: string;
-    options: Array<{ label: string; description?: string }>;
-    multiSelect?: boolean;
-  }>;
 }
 
 export type TurnPhase =
