@@ -79,7 +79,24 @@ export async function createUser(username: string, password: string, role = 'mem
     'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id',
     [username, encrypted, role]
   );
-  return { id: row!.id, username, role };
+  const userId = row!.id;
+
+  // Auto-join default projects (general, test-project)
+  try {
+    const { getDefaultProjectIds } = await import('./project-manager.js');
+    const { addProjectMember } = await import('./group-manager.js');
+    const defaultIds = await getDefaultProjectIds();
+    for (const pid of defaultIds) {
+      await addProjectMember(pid, userId, 'member');
+    }
+    if (defaultIds.length > 0) {
+      console.log(`[auth] Auto-joined user ${username} to ${defaultIds.length} default project(s)`);
+    }
+  } catch (err) {
+    console.warn('[auth] Failed to auto-join default projects:', err);
+  }
+
+  return { id: userId, username, role };
 }
 
 export async function authenticateUser(username: string, password: string): Promise<JwtPayload | null> {

@@ -111,6 +111,14 @@ server.listen(config.port, config.host, async () => {
     try {
       await initPg();
       console.log('[pg] PostgreSQL initialized — chat rooms enabled');
+      // Seed default projects (general, test-project) — idempotent
+      try {
+        const { seedDefaultProjects } = await import('./services/project-manager.js');
+        const ids = await seedDefaultProjects();
+        if (ids.length > 0) console.log(`[projects] Default projects ready (${ids.length})`);
+      } catch (err) {
+        console.warn('[projects] Failed to seed default projects:', err);
+      }
       // Backfill project_id for orphaned tasks (cwd → project root_path matching)
       backfillTaskProjects().then(({ updated, total }) => {
         if (updated > 0) console.log(`[tasks] Backfilled project_id for ${updated}/${total} orphaned tasks`);

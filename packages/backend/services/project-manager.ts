@@ -236,6 +236,63 @@ export async function createProject(
   return (await getProject(id))!;
 }
 
+// ── Default projects: auto-created on first boot, new users auto-join ──
+
+const DEFAULT_PROJECTS = [
+  { slug: 'general', name: 'General', color: '#3b82f6', description: 'Team-wide shared project for general work' },
+  { slug: 'test-project', name: 'Test Project', color: '#8b5cf6', description: 'Sandbox for testing and experiments' },
+];
+
+/**
+ * Ensure default projects exist. Called once on server startup.
+ * Returns the IDs of default projects (for new-user auto-join).
+ */
+export async function seedDefaultProjects(): Promise<string[]> {
+  const ids: string[] = [];
+  for (const def of DEFAULT_PROJECTS) {
+    const rootPath = path.join(WORKSPACE_ROOT, 'projects', def.slug);
+    const existing = await queryOne<{ id: string }>(
+      `SELECT id FROM projects WHERE root_path = $1 AND (archived IS NULL OR archived = 0)`,
+      [rootPath]
+    );
+    if (existing) {
+      ids.push(existing.id);
+      continue;
+    }
+    // Create the project (no userId — system-owned)
+    const project = await createProject(def.name, undefined, {
+      description: def.description,
+      rootPath: undefined, // let createProject auto-scaffold
+      color: def.color,
+    });
+    // Fix slug: createProject may append uuid suffix if slug collision — update if needed
+    if (project.rootPath !== rootPath && fs.existsSync(project.rootPath!)) {
+      // Rename to clean slug if possible
+      if (!fs.existsSync(rootPath)) {
+        fs.renameSync(project.rootPath!, rootPath);
+        await execute(`UPDATE projects SET root_path = $1 WHERE id = $2`, [rootPath, project.id]);
+      }
+    }
+    ids.push(project.id);
+    console.log(`[projects] Created default project: ${def.name} (${def.slug})`);
+  }
+  return ids;
+}
+
+/** Get IDs of default projects (for new-user auto-join) */
+export async function getDefaultProjectIds(): Promise<string[]> {
+  const ids: string[] = [];
+  for (const def of DEFAULT_PROJECTS) {
+    const rootPath = path.join(WORKSPACE_ROOT, 'projects', def.slug);
+    const row = await queryOne<{ id: string }>(
+      `SELECT id FROM projects WHERE root_path = $1 AND (archived IS NULL OR archived = 0)`,
+      [rootPath]
+    );
+    if (row) ids.push(row.id);
+  }
+  return ids;
+}
+
 export async function updateProject(id: string, updates: Partial<{
   name: string;
   description: string | null;
