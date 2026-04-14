@@ -556,28 +556,228 @@ function collapseMessages(messages: any[]): { role: string; text: string; userna
   return result;
 }
 
-/** Simple markdown-to-HTML (code blocks, inline code, bold, headers, lists) */
+/**
+ * Convert markdown text to HTML with rich block support.
+ * Handles: mermaid, chart, datatable, timeline, code blocks with syntax highlight,
+ * headers, lists, bold, inline code, horizontal rules, tables.
+ */
 function mdToHtml(text: string): string {
-  let html = esc(text);
-  // Code blocks (must be before line-level transforms)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) =>
-    `<pre${lang ? ` data-lang="${lang}"` : ''}><code>${code}</code></pre>`);
-  // Headers (## and ###)
-  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
-  // Bullet lists (- item)
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
-  // Numbered lists (1. item)
-  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // First, split by code blocks to handle them separately
+  const parts: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    const cbMatch = remaining.match(/```(\w*)\n([\s\S]*?)```/);
+    if (!cbMatch || cbMatch.index === undefined) {
+      parts.push(renderMarkdownInline(remaining));
+      break;
+    }
+    // Text before the code block
+    if (cbMatch.index > 0) {
+      parts.push(renderMarkdownInline(remaining.slice(0, cbMatch.index)));
+    }
+    const lang = cbMatch[1].toLowerCase();
+    const code = cbMatch[2];
+
+    if (lang === 'mermaid') {
+      // Mermaid needs raw text — esc() would break --> into --&gt;
+      parts.push(`<div class="mermaid">${code}</div>`);
+    } else if (lang === 'chart') {
+      parts.push(renderChartBlock(code));
+    } else if (lang === 'datatable') {
+      parts.push(renderDatatableBlock(code));
+    } else if (lang === 'timeline') {
+      parts.push(renderTimelineBlock(code));
+    } else {
+      // Regular code block with syntax highlighting
+      parts.push(`<pre><code class="${lang ? `language-${esc(lang)}` : ''}">${esc(code)}</code></pre>`);
+    }
+
+    remaining = remaining.slice(cbMatch.index + cbMatch[0].length);
+  }
+
+  return parts.join('');
+}
+
+/** Apply inline formatting (bold, code, links) to already-escaped text */
+function inlineFmt(text: string): string {
+  let s = esc(text);
+  // Links [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   // Bold
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  // Line breaks (but not inside <pre>)
-  html = html.replace(/(?<!\n)\n(?!\n)/g, '<br>');
-  html = html.replace(/\n{2,}/g, '</p><p>');
-  return `<p>${html}</p>`;
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return s;
+}
+
+/** Render inline markdown (everything except code blocks) — line-by-line, no nesting block in p */
+function renderMarkdownInline(text: string): string {
+  const lines = text.split('\n');
+  const blocks: string[] = [];
+  let paraLines: string[] = [];
+  let listLines: string[] = [];
+  let listType: 'ul' | 'ol' | '' = '';
+  let tableLines: string[] = [];
+
+  const flushPara = () => {
+    if (paraLines.length === 0) return;
+    const content = paraLines.join('<br>');
+    if (content.trim()) blocks.push(`<p>${inlineFmt(content)}</p>`);
+    paraLines = [];
+  };
+  const flushList = () => {
+    if (listLines.length === 0) return;
+    const tag = listType || 'ul';
+    blocks.push(`<${tag}>${listLines.map(l => `<li>${inlineFmt(l)}</li>`).join('')}</${tag}>`);
+    listLines = [];
+    listType = '';
+  };
+  const flushTable = () => {
+    if (tableLines.length < 2) { tableLines = []; return; }
+    const rows = tableLines.filter(r => r.trim());
+    const dataRows = rows.filter(r => !/^\|[\s\-:|]+\|$/.test(r));
+    if (dataRows.length === 0) { tableLines = []; return; }
+    const parseRow = (r: string) => r.split('|').slice(1, -1).map(c => c.trim());
+    const headerCells = parseRow(dataRows[0]);
+    const bodyRows = dataRows.slice(1);
+    let table = '<div class="table-wrap"><table><thead><tr>';
+    headerCells.forEach(c => { table += `<th>${inlineFmt(c)}</th>`; });
+    table += '</tr></thead><tbody>';
+    bodyRows.forEach(r => {
+      const cells = parseRow(r);
+      table += '<tr>';
+      cells.forEach(c => { table += `<td>${inlineFmt(c)}</td>`; });
+      table += '</tr>';
+    });
+    table += '</tbody></table></div>';
+    blocks.push(table);
+    tableLines = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Table rows (| col | col |)
+    if (/^\|.+\|$/.test(trimmed)) {
+      flushPara();
+      flushList();
+      tableLines.push(trimmed);
+      continue;
+    }
+    if (tableLines.length > 0) flushTable();
+
+    // Horizontal rule
+    if (/^---+$/.test(trimmed)) {
+      flushPara(); flushList();
+      blocks.push('<hr>');
+      continue;
+    }
+
+    // Headers
+    const hMatch = trimmed.match(/^(#{1,5})\s+(.+)$/);
+    if (hMatch) {
+      flushPara(); flushList();
+      const level = Math.min(hMatch[1].length + 1, 6); // # → h2, ## → h3, etc.
+      blocks.push(`<h${level}>${inlineFmt(hMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    // Bullet list
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bulletMatch) {
+      flushPara();
+      if (listType === 'ol') flushList();
+      listType = 'ul';
+      listLines.push(bulletMatch[1]);
+      continue;
+    }
+
+    // Numbered list
+    const numMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (numMatch) {
+      flushPara();
+      if (listType === 'ul') flushList();
+      listType = 'ol';
+      listLines.push(numMatch[1]);
+      continue;
+    }
+
+    // Non-list line ends any list
+    if (listLines.length > 0) flushList();
+
+    // Empty line = paragraph break
+    if (!trimmed) {
+      flushPara();
+      continue;
+    }
+
+    // Regular text line → accumulate into paragraph
+    paraLines.push(line);
+  }
+
+  // Flush remaining
+  if (tableLines.length > 0) flushTable();
+  flushList();
+  flushPara();
+
+  return blocks.join('\n');
+}
+
+/** Render ```chart block as a canvas chart */
+function renderChartBlock(jsonStr: string): string {
+  try {
+    const config = JSON.parse(jsonStr);
+    const id = `chart-${Math.random().toString(36).slice(2, 8)}`;
+    // Pass config as data attribute for client-side rendering
+    return `<div class="dynamic-chart"><canvas id="${id}" data-chart='${esc(JSON.stringify(config))}'></canvas></div>`;
+  } catch {
+    return `<pre><code>${esc(jsonStr)}</code></pre>`;
+  }
+}
+
+/** Render ```datatable block as an HTML table */
+function renderDatatableBlock(jsonStr: string): string {
+  try {
+    const config = JSON.parse(jsonStr);
+    const cols: string[] = config.columns || [];
+    const rows: any[][] = config.data || [];
+    let html = '<div class="table-wrap"><table><thead><tr>';
+    cols.forEach((c: string) => { html += `<th>${esc(String(c))}</th>`; });
+    html += '</tr></thead><tbody>';
+    rows.forEach((row: any[]) => {
+      html += '<tr>';
+      row.forEach((cell: any) => { html += `<td>${esc(String(cell ?? ''))}</td>`; });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  } catch {
+    return `<pre><code>${esc(jsonStr)}</code></pre>`;
+  }
+}
+
+/** Render ```timeline block */
+function renderTimelineBlock(jsonStr: string): string {
+  try {
+    const config = JSON.parse(jsonStr);
+    const items: any[] = config.items || [];
+    let html = '<div class="timeline">';
+    items.forEach((item: any) => {
+      const statusClass = item.status === 'done' ? 'tl-done' : item.status === 'in-progress' ? 'tl-active' : 'tl-pending';
+      html += `<div class="tl-item ${statusClass}">`;
+      html += `<div class="tl-dot"></div>`;
+      html += `<div class="tl-content">`;
+      html += `<div class="tl-date">${esc(String(item.date || ''))}</div>`;
+      html += `<div class="tl-title">${esc(String(item.title || ''))}</div>`;
+      if (item.description) html += `<div class="tl-desc">${esc(String(item.description))}</div>`;
+      html += `</div></div>`;
+    });
+    html += '</div>';
+    return html;
+  } catch {
+    return `<pre><code>${esc(jsonStr)}</code></pre>`;
+  }
 }
 
 /** Render shared session as a readable HTML document */
@@ -591,7 +791,8 @@ function renderSharedSessionHtml(title: string, messages: any[], sharedAt: strin
       const isUser = m.role === 'user';
       const label = isUser ? (m.username || 'User') : 'AI';
       const labelClass = isUser ? 'msg-user' : 'msg-ai';
-      return `<div class="msg ${labelClass}"><div class="msg-label">${esc(label)}</div><div class="msg-body">${mdToHtml(m.text)}</div></div>`;
+      const initial = isUser ? label.charAt(0).toUpperCase() : 'AI';
+      return `<div class="msg ${labelClass}"><div class="msg-label"><span class="avatar">${esc(initial)}</span>${esc(label)}</div><div class="msg-body">${mdToHtml(m.text)}</div></div>`;
     })
     .join('\n');
 
@@ -601,34 +802,96 @@ function renderSharedSessionHtml(title: string, messages: any[], sharedAt: strin
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} — Tower</title>
+<!-- Mermaid for diagrams -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/script>
+<!-- Highlight.js for code syntax highlighting -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/javascript.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/typescript.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/python.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/bash.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/json.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/sql.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/css.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/xml.min.js"><\/script>
+<!-- Chart.js for charts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"><\/script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0a0a0b; color: #d1d5db; line-height: 1.7; }
-  .container { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
-  .header { border-bottom: 1px solid #1f2937; padding-bottom: 1.5rem; margin-bottom: 2rem; }
-  .header h1 { font-size: 1.25rem; color: #f3f4f6; font-weight: 600; margin-bottom: 0.5rem; }
-  .header .meta { font-size: 0.75rem; color: #6b7280; }
-  .header .meta span { margin-right: 1.5rem; }
-  .msg { margin-bottom: 1.5rem; }
-  .msg-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
-  .msg-user .msg-label { color: #60a5fa; }
-  .msg-ai .msg-label { color: #a78bfa; }
-  .msg-body { font-size: 0.9rem; color: #d1d5db; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1a1a1a; line-height: 1.7; }
+  .container { max-width: 780px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  /* Header */
+  .header { background: #fff; border-radius: 16px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .header h1 { font-size: 1.1rem; color: #1a1a1a; font-weight: 600; margin-bottom: 0.3rem; }
+  .header .meta { font-size: 0.72rem; color: #8b8b8b; display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+  .badge { display: inline-block; font-size: 0.6rem; background: #e8f4fd; color: #2d7dd2; padding: 0.2em 0.6em; border-radius: 10px; font-weight: 500; }
+  /* Chat thread */
+  .chat-thread { display: flex; flex-direction: column; gap: 0.5rem; }
+  /* Messages — chat bubble style */
+  .msg { display: flex; flex-direction: column; }
+  .msg-user { align-self: flex-end; align-items: flex-end; max-width: 85%; }
+  .msg-ai { align-self: flex-start; align-items: flex-start; max-width: 100%; }
+  .msg-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.02em; margin-bottom: 0.2rem; padding: 0 0.5rem; display: flex; align-items: center; gap: 0.35rem; }
+  .msg-user .msg-label { color: #2d7dd2; }
+  .msg-ai .msg-label { color: #7c3aed; }
+  .msg-label .avatar { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.55rem; font-weight: 700; color: #fff; }
+  .msg-user .avatar { background: #2d7dd2; }
+  .msg-ai .avatar { background: #7c3aed; }
+  .msg-body { font-size: 0.88rem; color: #1a1a1a; padding: 0.85rem 1.1rem; border-radius: 18px; line-height: 1.65; }
+  .msg-user .msg-body { background: #2d7dd2; color: #fff; border-bottom-right-radius: 6px; }
+  .msg-user .msg-body strong { color: #fff; }
+  .msg-user .msg-body code { background: rgba(255,255,255,0.2); color: #fff; }
+  .msg-ai .msg-body { background: #fff; border-bottom-left-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
   .msg-body p { margin-bottom: 0.5rem; }
   .msg-body p:last-child { margin-bottom: 0; }
-  .msg-body h3 { font-size: 1rem; color: #f3f4f6; font-weight: 600; margin: 1rem 0 0.4rem; }
-  .msg-body h4 { font-size: 0.9rem; color: #e5e7eb; font-weight: 600; margin: 0.75rem 0 0.3rem; }
-  .msg-body ul { padding-left: 1.5rem; margin: 0.4rem 0; }
+  .msg-body p:empty { display: none; }
+  /* Typography */
+  .msg-body h2 { font-size: 1.05rem; color: #111; font-weight: 700; margin: 1.2rem 0 0.4rem; }
+  .msg-body h3 { font-size: 0.95rem; color: #111; font-weight: 700; margin: 1rem 0 0.35rem; }
+  .msg-body h4 { font-size: 0.88rem; color: #333; font-weight: 600; margin: 0.8rem 0 0.25rem; }
+  .msg-body h5 { font-size: 0.82rem; color: #444; font-weight: 600; margin: 0.6rem 0 0.2rem; }
+  .msg-body ul, .msg-body ol { padding-left: 1.4rem; margin: 0.4rem 0; }
   .msg-body li { margin-bottom: 0.2rem; }
-  .msg-user .msg-body { color: #e5e7eb; }
-  pre { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 0.75rem 0; font-size: 0.8rem; line-height: 1.5; }
-  code { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.85em; }
-  :not(pre) > code { background: #1f2937; padding: 0.15em 0.4em; border-radius: 4px; color: #e5e7eb; }
-  strong { color: #f3f4f6; }
-  .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #1f2937; text-align: center; }
-  .footer p { font-size: 0.7rem; color: #4b5563; }
-  .badge { display: inline-block; font-size: 0.65rem; background: #1f2937; color: #9ca3af; padding: 0.2em 0.6em; border-radius: 4px; }
-  @media (max-width: 640px) { .container { padding: 1rem; } .msg-body { font-size: 0.85rem; } }
+  .msg-body hr { border: none; border-top: 1px solid #e5e7eb; margin: 1rem 0; }
+  .msg-body a { color: #2d7dd2; text-decoration: underline; }
+  .msg-user .msg-body a { color: #bfdbfe; }
+  strong { color: #111; }
+  .msg-user strong { color: #fff; }
+  /* Code */
+  pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 10px; padding: 0.85rem 1rem; overflow-x: auto; margin: 0.6rem 0; font-size: 0.78rem; line-height: 1.55; }
+  .msg-user pre { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.2); color: #fff; }
+  pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }
+  code { font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; font-size: 0.84em; }
+  :not(pre) > code { background: #eff1f3; padding: 0.15em 0.4em; border-radius: 5px; color: #d63384; }
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin: 0.6rem 0; border-radius: 10px; border: 1px solid #e1e4e8; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  th { background: #f6f8fa; color: #24292e; font-weight: 600; text-align: left; padding: 0.55rem 0.75rem; border-bottom: 2px solid #e1e4e8; }
+  td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #eaecef; color: #24292e; }
+  tr:nth-child(even) { background: #fafbfc; }
+  /* Mermaid */
+  .mermaid { margin: 0.75rem 0; text-align: center; background: #fafbfc; border-radius: 10px; padding: 0.75rem; border: 1px solid #e1e4e8; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  /* Charts */
+  .dynamic-chart { margin: 0.75rem 0; background: #fafbfc; border: 1px solid #e1e4e8; border-radius: 10px; padding: 0.85rem; }
+  .dynamic-chart canvas { max-height: 320px; }
+  /* Timeline */
+  .timeline { margin: 0.75rem 0; padding-left: 1.5rem; border-left: 2px solid #d1d5db; }
+  .tl-item { position: relative; padding: 0.4rem 0 0.8rem 1rem; }
+  .tl-dot { position: absolute; left: -1.75rem; top: 0.65rem; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #d1d5db; background: #f0f2f5; }
+  .tl-done .tl-dot { background: #22c55e; border-color: #22c55e; }
+  .tl-active .tl-dot { background: #f59e0b; border-color: #f59e0b; }
+  .tl-pending .tl-dot { background: #d1d5db; border-color: #d1d5db; }
+  .tl-date { font-size: 0.68rem; color: #8b8b8b; }
+  .tl-title { font-size: 0.82rem; color: #1a1a1a; font-weight: 500; }
+  .tl-desc { font-size: 0.78rem; color: #6b7280; margin-top: 0.15rem; }
+  /* Footer */
+  .footer { margin-top: 2rem; padding-top: 1rem; text-align: center; }
+  .footer p { font-size: 0.68rem; color: #aaa; }
+  .footer a { color: #888; text-decoration: none; }
+  .footer a:hover { color: #555; }
+  @media (max-width: 640px) { .container { padding: 0.75rem 0.5rem; } .msg-user { max-width: 92%; } .msg-body { font-size: 0.84rem; padding: 0.7rem 0.9rem; } }
 </style>
 </head>
 <body>
@@ -641,11 +904,96 @@ function renderSharedSessionHtml(title: string, messages: any[], sharedAt: strin
       <span class="badge">읽기 전용 스냅샷</span>
     </div>
   </div>
+  <div class="chat-thread">
   ${messagesHtml}
+  </div>
   <div class="footer">
-    <p>Powered by Tower</p>
+    <p>Powered by <a href="https://tower.moatai.app" target="_blank">Tower</a></p>
   </div>
 </div>
+<script>
+  // Initialize Mermaid — manual render using textContent
+  // because the HTML parser converts --> to --&gt; in innerHTML,
+  // which breaks mermaid's arrow syntax.
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    themeVariables: {
+      primaryColor: '#dbeafe',
+      primaryTextColor: '#1e3a5f',
+      primaryBorderColor: '#93c5fd',
+      lineColor: '#6b7280',
+      secondaryColor: '#ede9fe',
+      tertiaryColor: '#f0fdf4',
+      background: '#ffffff',
+      mainBkg: '#dbeafe',
+      nodeBorder: '#93c5fd',
+      clusterBkg: '#f8fafc',
+      clusterBorder: '#cbd5e1',
+      titleColor: '#1a1a1a',
+      edgeLabelBackground: '#ffffff',
+    },
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true },
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  });
+
+  // Syntax highlighting + Mermaid manual render
+  document.addEventListener('DOMContentLoaded', async () => {
+    // Mermaid: use textContent (not innerHTML) to avoid HTML parser mangling --> to --&gt;
+    const mermaidDivs = document.querySelectorAll('.mermaid');
+    for (let i = 0; i < mermaidDivs.length; i++) {
+      const div = mermaidDivs[i];
+      const code = div.textContent || '';
+      const id = 'mermaid-render-' + i;
+      try {
+        const { svg } = await mermaid.render(id, code);
+        div.innerHTML = svg;
+      } catch (e) {
+        div.innerHTML = '<pre style="color:#dc2626;font-size:0.78rem;background:#fef2f2;padding:0.5rem;border-radius:6px;">' + code + '</pre>';
+      }
+    }
+
+    document.querySelectorAll('pre code[class*="language-"]').forEach(el => {
+      try { hljs.highlightElement(el); } catch {}
+    });
+
+    // Render Chart.js charts
+    document.querySelectorAll('.dynamic-chart canvas[data-chart]').forEach(el => {
+      try {
+        const config = JSON.parse(el.getAttribute('data-chart'));
+        const type = config.type === 'area' ? 'line' : config.type || 'bar';
+        const xKey = config.xKey || 'name';
+        const yKeys = config.yKey ? [config.yKey] : Object.keys(config.data?.[0] || {}).filter(k => k !== xKey);
+        const colors = ['#60a5fa', '#a78bfa', '#34d399', '#fbbf24', '#f87171', '#fb923c'];
+        new Chart(el, {
+          type,
+          data: {
+            labels: (config.data || []).map(d => d[xKey]),
+            datasets: yKeys.map((key, i) => ({
+              label: key,
+              data: (config.data || []).map(d => d[key]),
+              backgroundColor: type === 'pie' ? colors : colors[i % colors.length] + '33',
+              borderColor: colors[i % colors.length],
+              borderWidth: type === 'pie' ? 1 : 2,
+              fill: config.type === 'area',
+              tension: 0.3,
+            })),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { labels: { color: '#4b5563' } } },
+            scales: type === 'pie' ? {} : {
+              x: { ticks: { color: '#6b7280' }, grid: { color: '#e5e7eb' } },
+              y: { ticks: { color: '#6b7280' }, grid: { color: '#e5e7eb' } },
+            },
+          },
+        });
+      } catch (e) { console.warn('Chart render failed:', e); }
+    });
+  });
+<\/script>
 </body>
 </html>`;
 }
