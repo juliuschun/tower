@@ -46,11 +46,12 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
   }, [x, y]);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handler = (e: MouseEvent | TouchEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
   }, [onClose]);
 
   const itemClass = "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-primary-600/30 hover:text-white transition-colors";
@@ -176,6 +177,9 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  // On touch devices, hover makes no sense — use long-press → context menu instead.
+  // Detect touch capability once (stable across session lifetime).
+  const isTouchDevice = useRef(typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
@@ -238,10 +242,20 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           e.dataTransfer.effectAllowed = 'move';
         }}
         onClick={() => { markSessionRead(session.id); markTurnRead(session.id); onSelect(session); }}
-        onMouseEnter={() => { setIsHovered(true); if (!isActive) prefetchSessionMessages(session.id); }}
-        onMouseLeave={() => setIsHovered(false)}
+        onMouseEnter={() => { if (!isTouchDevice.current) { setIsHovered(true); if (!isActive) prefetchSessionMessages(session.id); } }}
+        onMouseLeave={() => { if (!isTouchDevice.current) setIsHovered(false); }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
+        onTouchStart={(e) => {
+          // Long-press on mobile → open context menu (same as right-click)
+          const timer = setTimeout(() => {
+            const touch = e.touches[0];
+            if (touch) handleContextMenu({ preventDefault: () => {}, clientX: touch.clientX, clientY: touch.clientY } as any);
+          }, 500);
+          const cancel = () => clearTimeout(timer);
+          e.currentTarget.addEventListener('touchend', cancel, { once: true });
+          e.currentTarget.addEventListener('touchmove', cancel, { once: true });
+        }}
       >
         {/* Favorite star (prefix) — always visible when favorited */}
         {session.favorite && (
