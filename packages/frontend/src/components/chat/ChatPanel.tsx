@@ -118,6 +118,9 @@ function PlainMessageList({
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
     isAtBottomRef.current = atBottom;
+    if (!atBottom && !userScrolledUpRef.current) {
+      userScrolledUpRef.current = true;   // user scrolled up — stop auto-scroll
+    }
     if (atBottom && userScrolledUpRef.current) {
       userScrolledUpRef.current = false;
     }
