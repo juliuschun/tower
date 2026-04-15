@@ -677,7 +677,11 @@ export function useClaudeChat() {
           if (towerMsg.type === 'assistant') {
             const text = extractAssistantText(towerMsg.content);
             if (text) {
-              useSessionStore.getState().setLastTurnText(data.sessionId, text, false);
+              // Pass msgId so multi-turn tool cycles accumulate text across
+              // different assistant messages instead of replacing.
+              useSessionStore.getState().setLastTurnText(
+                data.sessionId, text, false, towerMsg.msgId || undefined
+              );
             }
           } else if (towerMsg.type === 'turn_done' || towerMsg.type === 'engine_done') {
             // Mark current cache entry as finalized (if it exists).

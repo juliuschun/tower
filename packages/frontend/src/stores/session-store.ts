@@ -22,6 +22,13 @@ export interface LastTurnCacheEntry {
   updatedAt: number;
   /** Set when turn_done/engine_done has been observed; text is final. */
   finalized: boolean;
+  /**
+   * Per-msgId text accumulator for multi-turn tool cycles.
+   * Each assistant message in a turn has a different msgId.
+   * We track each msgId's text separately, then join them for the final `text`.
+   * This prevents the "replace" problem where only the last assistant msg shows.
+   */
+  msgTexts?: Record<string, string>;
 }
 
 interface SessionState {
@@ -53,8 +60,12 @@ interface SessionState {
   updateSessionMeta: (id: string, updates: Partial<SessionMeta>) => void;
   setSessionStreaming: (id: string, streaming: boolean) => void;
   markSessionRead: (id: string) => void;
-  /** Write/update the cached last-turn text for a session. */
-  setLastTurnText: (sessionId: string, text: string, finalized?: boolean) => void;
+  /**
+   * Write/update the cached last-turn text for a session.
+   * When msgId is provided, accumulates text across multiple assistant messages
+   * in a single turn (multi-turn tool cycles). Without msgId, replaces the entire text.
+   */
+  setLastTurnText: (sessionId: string, text: string, finalized?: boolean, msgId?: string) => void;
   /** Clear the cached last-turn text (e.g. when a session is deleted). */
   clearLastTurnText: (sessionId: string) => void;
   setSidebarOpen: (open: boolean) => void;
@@ -168,11 +179,32 @@ export const useSessionStore = create<SessionState>((set) => ({
       unread.delete(id);
       return { unreadSessions: unread };
     }),
-  setLastTurnText: (sessionId, text, finalized = false) =>
+  setLastTurnText: (sessionId, text, finalized = false, msgId?: string) =>
     set((s) => {
+      const prev = s.lastTurnTextBySession[sessionId];
+
+      // When msgId is provided, accumulate text across multiple assistant messages
+      // in a single turn (multi-turn tool cycles). Each msgId's text is tracked
+      // separately and joined for the composite `text` field.
+      if (msgId) {
+        // If the previous entry was finalized (turn_done), this is a new turn —
+        // reset the accumulator so old turn's text doesn't leak into the new one.
+        const prevMsgTexts = (prev?.finalized ? {} : prev?.msgTexts) ?? {};
+        // Skip no-op: same msgId with identical text
+        if (prevMsgTexts[msgId] === text && prev?.finalized === finalized) return s;
+        const msgTexts = { ...prevMsgTexts, [msgId]: text };
+        const compositeText = Object.values(msgTexts).filter(Boolean).join('\n\n');
+        return {
+          lastTurnTextBySession: {
+            ...s.lastTurnTextBySession,
+            [sessionId]: { text: compositeText, updatedAt: Date.now(), finalized, msgTexts },
+          },
+        };
+      }
+
+      // Legacy path (no msgId) — simple replace.
       // Skip no-op updates (same text, same finalized flag) to avoid rerendering
       // every subscriber on each streaming token.
-      const prev = s.lastTurnTextBySession[sessionId];
       if (prev && prev.text === text && prev.finalized === finalized) return s;
       return {
         lastTurnTextBySession: {
