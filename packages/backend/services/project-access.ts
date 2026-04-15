@@ -91,7 +91,8 @@ export async function canAccessSession(
 }
 
 /**
- * Check if a user can DELETE a session. Only the session owner or admin can delete.
+ * Check if a user can DELETE a session.
+ * Allowed: admin, session owner, or project owner.
  * Project members can view but NOT delete other users' sessions.
  */
 export async function canDeleteSession(
@@ -101,13 +102,22 @@ export async function canDeleteSession(
 ): Promise<{ allowed: true } | { allowed: false; status: number; message: string }> {
   if (role === 'admin') return { allowed: true };
 
-  const row = await queryOne<{ user_id: number }>(
-    'SELECT user_id FROM sessions WHERE id = $1',
+  const row = await queryOne<{ user_id: number; project_id: string | null }>(
+    'SELECT user_id, project_id FROM sessions WHERE id = $1',
     [sessionId],
   );
   if (!row) return { allowed: false, status: 404, message: 'Session not found' };
 
   if (row.user_id === userId) return { allowed: true };
+
+  // Project owners can delete any session within their project
+  if (row.project_id) {
+    const membership = await queryOne<{ role: string }>(
+      'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
+      [row.project_id, userId],
+    );
+    if (membership?.role === 'owner') return { allowed: true };
+  }
 
   return { allowed: false, status: 403, message: 'Access denied: only the session owner can delete' };
 }

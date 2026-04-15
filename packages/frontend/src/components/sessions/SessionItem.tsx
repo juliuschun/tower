@@ -175,6 +175,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [isHovered, setIsHovered] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useSessionStore((s) => s.streamingSessions.has(session.id));
   const isUnread = useSessionStore((s) => s.unreadSessions.has(session.id));
@@ -237,7 +238,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           e.dataTransfer.effectAllowed = 'move';
         }}
         onClick={() => { markSessionRead(session.id); markTurnRead(session.id); onSelect(session); }}
-        onMouseEnter={() => { if (!isActive) prefetchSessionMessages(session.id); }}
+        onMouseEnter={() => { setIsHovered(true); if (!isActive) prefetchSessionMessages(session.id); }}
+        onMouseLeave={() => setIsHovered(false)}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       >
@@ -298,10 +300,12 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           </span>
         )}
 
-        {/* Time (default) → action buttons (on hover) — use opacity/visibility to avoid layout shift */}
+        {/* Time (default) → action buttons (on hover) — both always rendered,
+            toggle via opacity only to prevent layout shift / jitter.
+            Uses JS isHovered (not CSS group-hover) for touch/remote-desktop compat. */}
         {!editing && (
           <div className="relative shrink-0 flex items-center">
-            <span className="text-[10px] text-surface-700 flex items-center gap-1 transition-opacity duration-150 group-hover:opacity-0">
+            <span className={`text-[10px] text-surface-700 flex items-center gap-1 transition-opacity duration-150 ${isHovered ? 'opacity-0' : 'opacity-100'}`}>
               {isStreaming ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
                   {turnPhase === 'awaiting_user' ? 'ask' : turnPhase === 'compacting' ? 'pack' : 'run'}{queueCount > 0 ? ` +${queueCount}` : ''}
@@ -336,7 +340,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 </span>
               ) : null}
             </span>
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 invisible transition-opacity duration-150 group-hover:opacity-100 group-hover:visible">
+            <div className={`absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity duration-150 ${isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
               <button
                 onClick={(e) => { e.stopPropagation(); startEditing(); }}
                 className="p-1.5 hover:text-primary-400 hover:bg-primary-950/30 rounded transition-all text-surface-700"

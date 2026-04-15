@@ -148,6 +148,8 @@ function FolderDropRow({ entry, children, onRefreshTree }: { entry: FileEntry; c
         // Already in same location
         if (srcPath === destPath) return;
 
+        if (!confirm(`"${srcName}"을(를) "${entry.name}/" 폴더로 이동하시겠습니까?`)) return;
+
         await apiPost('/api/files/rename', { oldPath: srcPath, newPath: destPath });
         toastSuccess(`Moved "${srcName}" to ${entry.name}/`);
         onRefreshTree?.();

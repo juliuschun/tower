@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { toastError, toastWarning } from '../utils/toast';
+import { toastError } from '../utils/toast';
 import { useChatStore } from '../stores/chat-store';
 
 type MessageHandler = (data: any) => void;
@@ -63,11 +63,8 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
     ws.onclose = () => {
       setConnected(false);
       if (wasConnected.current) {
-        // Notify user if streaming when disconnected
-        const { isStreaming } = useChatStore.getState();
-        if (isStreaming) {
-          toastWarning('연결이 끊어졌습니다. 재연결 중…');
-        }
+        // Silently reconnect — mobile backgrounding causes frequent disconnects.
+        // Reconnect logic handles recovery; toasts are noisy and cause false alarm.
       }
 
       // Start safety timer if streaming — force reset after 15s without reconnect
@@ -140,12 +137,10 @@ export function useWebSocket(url: string, onMessage: MessageHandler, onReconnect
                 ponged = true;
                 clearTimeout(zombieTimer);
                 ws.onmessage = origOnMessage;
-                // 연결이 살아있음 → 스트리밍 중일 때만 세션 재동기화
-                // (idle 상태에서는 불필요한 state 업데이트 방지 → 깜빡임 방지)
-                const { isStreaming } = useChatStore.getState();
-                if (isStreaming) {
-                  onReconnectRef.current?.();
-                }
+                // 연결이 살아있음 → 항상 세션 재동기화 수행.
+                // 모바일 백그라운드 동안 메시지가 도착했을 수 있으므로
+                // idle 상태에서도 동기화해야 신규 메시지가 보인다.
+                onReconnectRef.current?.();
               }
               if (data.type === 'pong') return; // pong은 앱으로 전달 불필요
             } catch { /* ignore */ }

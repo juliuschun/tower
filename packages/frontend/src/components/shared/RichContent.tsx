@@ -13,6 +13,8 @@ import { useActiveSessionStreaming } from '../../hooks/useActiveSessionStreaming
 const remarkMathOptions = { singleDollarTextMath: false };
 
 // Lazy-loaded visual blocks
+// Frequently-used blocks are preloaded after initial render (see bottom of file)
+// so they're available instantly when scrolling into view.
 const ChartBlock = React.lazy(() => import('../chat/ChartBlock'));
 const SecureInputBlock = React.lazy(() => import('../chat/SecureInputBlock'));
 const DataTableBlock = React.lazy(() => import('../chat/DataTableBlock'));
@@ -41,6 +43,17 @@ function BlockSkeleton({ type }: { type: string }) {
       <div className="h-32 bg-surface-700/30 rounded" />
       <span className="text-[10px] text-gray-600 mt-1 block">{type} loading…</span>
     </div>
+  );
+}
+
+/** Wrapper for lazy-loaded blocks: Suspense + fade-in on mount to smooth skeleton→content swap */
+function LazyBlock({ type, children }: { type: string; children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<BlockSkeleton type={type} />}>
+      <div style={{ animation: 'fade-in-block 0.25s ease-out' }}>
+        {children}
+      </div>
+    </Suspense>
   );
 }
 
@@ -334,132 +347,86 @@ function RichSegmentInner({ seg, mdComponents }: { seg: DynamicBlock; mdComponen
     return <MermaidBlock code={seg.content} />;
   }
   if (seg.type === 'chart') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="chart" />}>
-        <ChartBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="chart"><ChartBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'secure-input') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="secure-input" />}>
-        <SecureInputBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="secure-input"><SecureInputBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'datatable') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="datatable" />}>
-        <DataTableBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="datatable"><DataTableBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'html-sandbox') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="html-sandbox" />}>
-        <HtmlSandboxBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="html-sandbox"><HtmlSandboxBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'timeline') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="timeline" />}>
-        <TimelineBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="timeline"><TimelineBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'map') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="map" />}>
-        <MapBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="map"><MapBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'steps') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="steps" />}>
-        <StepsBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="steps"><StepsBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'diff') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="diff" />}>
-        <DiffBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="diff"><DiffBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'form') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="form" />}>
-        <FormBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="form"><FormBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'kanban') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="kanban" />}>
-        <KanbanBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="kanban"><KanbanBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'terminal') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="terminal" />}>
-        <TerminalBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="terminal"><TerminalBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'comparison') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="comparison" />}>
-        <ComparisonBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="comparison"><ComparisonBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'approval') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="approval" />}>
-        <ApprovalBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="approval"><ApprovalBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'treemap') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="treemap" />}>
-        <TreemapBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="treemap"><TreemapBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'gallery') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="gallery" />}>
-        <GalleryBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="gallery"><GalleryBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'audio') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="audio" />}>
-        <AudioBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="audio"><AudioBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'browser-popup') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="browser-popup" />}>
-        <BrowserPopupBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="browser-popup"><BrowserPopupBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'browser-live') {
-    return (
-      <Suspense fallback={<BlockSkeleton type="browser-live" />}>
-        <BrowserLiveBlock raw={seg.content} fallbackCode={seg.raw} />
-      </Suspense>
-    );
+    return <LazyBlock type="browser-live"><BrowserLiveBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   return <BlockFallback raw={seg.raw} error={`${seg.type} renderer not yet available`} />;
 }
 
 export { BlockSkeleton };
+
+// ── Preload frequently-used chunks after initial page render ──
+// These blocks appear in most AI conversations. Loading them eagerly in background
+// eliminates the Suspense flash when scrolling into messages that contain them.
+// Rare blocks (map, gallery, browser-*) remain fully lazy.
+if (typeof window !== 'undefined') {
+  requestIdleCallback?.(() => {
+    import('../chat/ChartBlock');
+    import('../chat/DataTableBlock');
+    import('../chat/TimelineBlock');
+    import('../chat/StepsBlock');
+    import('../chat/DiffBlock');
+    import('../chat/ComparisonBlock');
+    import('../chat/TerminalBlock');
+    import('../chat/KanbanBlock');
+  }) ?? setTimeout(() => {
+    import('../chat/ChartBlock');
+    import('../chat/DataTableBlock');
+    import('../chat/TimelineBlock');
+    import('../chat/StepsBlock');
+    import('../chat/DiffBlock');
+    import('../chat/ComparisonBlock');
+    import('../chat/TerminalBlock');
+    import('../chat/KanbanBlock');
+  }, 2000);
+}

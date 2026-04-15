@@ -358,9 +358,15 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBl
 
   if (!svgContent) {
     return (
-      <pre className="bg-surface-900/60 border border-surface-700/40 rounded-lg p-4 overflow-x-auto text-sm opacity-50">
-        <code>{code}</code>
-      </pre>
+      <div className="my-2 rounded-lg border border-surface-700/40 bg-surface-900/60 p-4 min-h-[120px] flex items-center justify-center">
+        <div className="flex items-center gap-2 text-gray-500 text-sm">
+          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          Rendering diagram…
+        </div>
+      </div>
     );
   }
 
@@ -400,9 +406,10 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBl
           </button>
         </div>
 
-        {/* Diagram — full width, horizontal scroll on mobile for wide diagrams */}
+        {/* Diagram — full width, horizontal scroll on mobile, fade-in on first render */}
         <div
           className="w-full overflow-x-auto [&_svg]:max-w-none [&_svg]:overflow-visible"
+          style={{ animation: 'fade-in-block 0.3s ease-out' }}
           dangerouslySetInnerHTML={{ __html: svgContent }}
         />
       </div>

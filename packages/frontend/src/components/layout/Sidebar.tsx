@@ -2661,6 +2661,7 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
   const headerInputRef = useRef<HTMLInputElement>(null);
   const headerUploadRef = useRef<HTMLInputElement>(null);
   const [headerDragOver, setHeaderDragOver] = useState(false);
+  const [headerDropType, setHeaderDropType] = useState<'move' | 'upload' | null>(null);
 
   const rootPath = project.rootPath;
 
@@ -2830,6 +2831,47 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
     e.preventDefault();
     e.stopPropagation();
     setHeaderDragOver(false);
+    setHeaderDropType(null);
+
+    // 1) Internal item move (file/folder → project root)
+    const moveData = e.dataTransfer.getData('application/x-filetree-move');
+    if (moveData && rootPath) {
+      try {
+        const parsed = JSON.parse(moveData);
+        const srcPath: string = parsed.path;
+        const srcName: string = parsed.name;
+        const destPath = `${rootPath}/${srcName}`;
+
+        // Already at root
+        if (srcPath === destPath) return;
+        // Prevent circular move
+        if (rootPath.startsWith(srcPath + '/')) {
+          toastError('Cannot move a folder into its own subfolder');
+          return;
+        }
+
+        if (!confirm(`"${srcName}"을(를) "${project.name}/" 루트로 이동하시겠습니까?`)) return;
+
+        const token = localStorage.getItem('token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/files/rename', {
+          method: 'POST', headers,
+          body: JSON.stringify({ oldPath: srcPath, newPath: destPath }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Move failed');
+        toastSuccess(`Moved "${srcName}" to ${project.name}/`);
+        bumpRefreshTrigger();
+        if (!isExpanded) { toggleProjectExpanded(project.id); loadTree(true); }
+        else { loaded.current = false; loadTree(); }
+      } catch (err: any) {
+        toastError(err.message || 'Move failed');
+      }
+      return;
+    }
+
+    // 2) External file upload
     if (e.dataTransfer.getData('application/x-attachment')) return;
     const files = e.dataTransfer.files;
     if (files.length === 0 || !rootPath) return;
@@ -2867,11 +2909,22 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
   return (
     <div className="mb-1">
       <div
-        className={`flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj hover:bg-surface-850 ${headerDragOver ? 'bg-primary-900/20 ring-1 ring-primary-500/40' : ''}`}
+        className={`flex items-center gap-1.5 px-1 py-1.5 rounded-md cursor-pointer transition-colors group/proj hover:bg-surface-850 ${
+          headerDragOver
+            ? headerDropType === 'move'
+              ? 'bg-blue-900/30 ring-1 ring-blue-500/40'
+              : 'bg-primary-900/20 ring-1 ring-primary-500/40'
+            : ''
+        }`}
         onClick={handleToggle}
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setHeaderDragOver(true); }}
-        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setHeaderDragOver(false); }}
+        onDragEnter={(e) => {
+          e.preventDefault(); e.stopPropagation();
+          const isMove = e.dataTransfer.types.includes('application/x-filetree-move');
+          setHeaderDropType(isMove ? 'move' : 'upload');
+          setHeaderDragOver(true);
+        }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) { setHeaderDragOver(false); setHeaderDropType(null); } }}
         onDrop={handleHeaderDrop}
       >
         <svg className={`w-3.5 h-3.5 text-surface-600 transition-transform shrink-0 ${!isExpanded ? '-rotate-90' : ''}`}

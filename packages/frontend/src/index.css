@@ -804,6 +804,12 @@ code, pre, .font-mono {
   }
 }
 
+/* ─── Mermaid / dynamic block fade-in (avoids flash when async render completes) ─── */
+@keyframes fade-in-block {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ─── KaTeX dark mode overrides ─── */
 .katex { color: var(--th-text-primary); }
 .katex .mord, .katex .mrel, .katex .mop, .katex .mbin { color: inherit; }
