@@ -81,9 +81,18 @@ function PlainMessageList({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'auto' });
   }, []);
 
-  // On mount: jump to bottom
+  // On mount: jump to bottom. Retry via rAF because messages may not be fully
+  // painted yet — scrollHeight grows as React renders child components.
   useEffect(() => {
     scrollToEnd();
+    let frame = 0;
+    const retry = () => {
+      scrollToEnd();
+      frame++;
+      if (frame < 10) requestAnimationFrame(retry); // ~160ms of retries
+    };
+    const raf = requestAnimationFrame(retry);
+    return () => cancelAnimationFrame(raf);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On new messages: scroll to bottom if user is at bottom
