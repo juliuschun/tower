@@ -24,11 +24,12 @@ function relativeTime(dateStr: string): string {
 
 /* ── Context Menu (fixed positioning, outside-click close) ── */
 
-function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose, onMoveToProject, projects }: {
+function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelete, onClose, onMoveToProject, projects, canDelete }: {
   x: number; y: number; session: SessionMeta;
   onRename: () => void; onToggleFavorite: () => void; onDelete: () => void; onClose: () => void;
   onMoveToProject?: (sessionId: string, projectId: string | null) => void;
   projects?: Project[];
+  canDelete?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState({ left: x, top: y });
@@ -147,13 +148,15 @@ function SessionContextMenu({ x, y, session, onRename, onToggleFavorite, onDelet
         </svg>
         Web share
       </button>
-      {/* Archive (soft-delete) */}
-      <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => { onDelete(); onClose(); }}>
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-        </svg>
-        Archive
-      </button>
+      {/* Archive (soft-delete) — only visible to admin or session owner */}
+      {canDelete !== false && (
+        <button className={`${itemClass} !text-red-400 hover:!bg-red-950/30`} onClick={() => { onDelete(); onClose(); }}>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+          </svg>
+          Archive
+        </button>
+      )}
     </div>
   );
 }
@@ -177,6 +180,9 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   const [editName, setEditName] = useState(session.name);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  // Permission: only admin or session owner can delete
+  const userRole = useMemo(() => localStorage.getItem('userRole') || '', []);
+  const canDelete = userRole === 'admin' || !session.ownerUsername || session.ownerUsername === currentUsername;
   // On touch devices, hover makes no sense — use long-press → context menu instead.
   // Detect touch capability once (stable across session lifetime).
   const isTouchDevice = useRef(typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
@@ -366,16 +372,18 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                     d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
-                className="p-1.5 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
-                title="Delete"
-                aria-label="Delete session"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              {canDelete && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
+                  className="p-1.5 hover:text-red-400 hover:bg-red-950/30 rounded transition-all text-surface-700"
+                  title="Delete"
+                  aria-label="Delete session"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -391,6 +399,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
           onClose={() => setCtxMenu(null)}
           onMoveToProject={onMoveToProject}
           projects={projects}
+          canDelete={canDelete}
         />
       )}
     </>
