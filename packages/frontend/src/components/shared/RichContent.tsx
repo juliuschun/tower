@@ -410,7 +410,8 @@ export { BlockSkeleton };
 // eliminates the Suspense flash when scrolling into messages that contain them.
 // Rare blocks (map, gallery, browser-*) remain fully lazy.
 if (typeof window !== 'undefined') {
-  requestIdleCallback?.(() => {
+  const scheduleIdle = typeof requestIdleCallback === 'function' ? requestIdleCallback : (cb: () => void) => setTimeout(cb, 2000);
+  scheduleIdle(() => {
     import('../chat/ChartBlock');
     import('../chat/DataTableBlock');
     import('../chat/TimelineBlock');
@@ -419,14 +420,5 @@ if (typeof window !== 'undefined') {
     import('../chat/ComparisonBlock');
     import('../chat/TerminalBlock');
     import('../chat/KanbanBlock');
-  }) ?? setTimeout(() => {
-    import('../chat/ChartBlock');
-    import('../chat/DataTableBlock');
-    import('../chat/TimelineBlock');
-    import('../chat/StepsBlock');
-    import('../chat/DiffBlock');
-    import('../chat/ComparisonBlock');
-    import('../chat/TerminalBlock');
-    import('../chat/KanbanBlock');
-  }, 2000);
+  });
 }
