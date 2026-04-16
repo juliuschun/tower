@@ -116,7 +116,7 @@ function PlainMessageList({
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     isAtBottomRef.current = atBottom;
     if (!atBottom && !userScrolledUpRef.current) {
       userScrolledUpRef.current = true;   // user scrolled up — stop auto-scroll
@@ -375,10 +375,10 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
     hadMessages.current = has;
   }, [mergedMessages.length, scrollToBottom, startSettleLoop]);
 
-  // When streaming starts → always scroll to bottom
+  // When streaming starts → scroll to bottom only if user hasn't scrolled up
   const prevStreaming = useRef(isStreaming);
   useEffect(() => {
-    if (isStreaming && !prevStreaming.current) {
+    if (isStreaming && !prevStreaming.current && !userScrolledUp.current) {
       isAtBottom.current = true;
       scrollToBottom();
     }
@@ -690,7 +690,7 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
               }
               isAtBottom.current = atBottom;
             }}
-            atBottomThreshold={150}
+            atBottomThreshold={80}
             startReached={handleStartReached}
             increaseViewportBy={{ top: 800, bottom: 200 }}
             defaultItemHeight={estimatedItemHeight}
