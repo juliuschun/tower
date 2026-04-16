@@ -226,6 +226,8 @@ interface FileState {
   toggleSelectPath: (path: string) => void;
   /** Range select from lastClickedPath to given path (Shift+Click) */
   rangeSelectTo: (path: string, flatPaths: string[]) => void;
+  /** Bulk add or remove paths (for folder select/deselect) */
+  bulkTogglePaths: (paths: string[], selected: boolean) => void;
   /** Clear all selections */
   clearSelection: () => void;
   /** Set last clicked path (for Shift range base) */
@@ -588,6 +590,15 @@ export const useFileStore = create<FileState>((set, get) => ({
       const next = new Set(s.selectedPaths);
       for (let i = lo; i <= hi; i++) {
         next.add(flatPaths[i]);
+      }
+      return { selectedPaths: next };
+    }),
+
+  bulkTogglePaths: (paths, selected) =>
+    set((s) => {
+      const next = new Set(s.selectedPaths);
+      for (const p of paths) {
+        if (selected) next.add(p); else next.delete(p);
       }
       return { selectedPaths: next };
     }),

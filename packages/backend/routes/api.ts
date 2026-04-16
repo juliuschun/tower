@@ -14,6 +14,7 @@ import {
 } from '../services/session-manager.js';
 import { getFileTree, getFileTreeAsync, invalidateTreeCache, readFile, writeFile, writeFileBinary, isPathSafe, isPathWritable, createDirectory, deleteEntry, renameEntry } from '../services/file-system.js';
 import fs from 'fs';
+import archiver from 'archiver';
 import { loadCommands } from '../services/command-loader.js';
 import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref } from '../services/skill-registry.js';
 import { getMessages, getMessagesPaginated } from '../services/message-store.js';
@@ -2333,6 +2334,79 @@ router.post('/files/rename', async (req, res) => {
     res.json({ ok: true, path: newPath });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ───── ZIP Download ─────
+
+// Single directory → ZIP
+router.get('/files/download-zip', async (req, res) => {
+  try {
+    const dirPath = req.query.path as string;
+    if (!dirPath) return res.status(400).json({ error: 'path required' });
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
+    if (!isPathSafe(dirPath, userRoot)) return res.status(403).json({ error: 'Access denied' });
+    if (userId && !(await isPathAccessible(dirPath, userId, role))) return res.status(403).json({ error: 'Access denied' });
+
+    const resolved = path.resolve(dirPath);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      return res.status(404).json({ error: 'Directory not found' });
+    }
+
+    const dirName = path.basename(resolved);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${dirName}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err: Error) => res.status(500).json({ error: err.message }));
+    archive.pipe(res);
+    archive.directory(resolved, dirName);
+    await archive.finalize();
+  } catch (error: any) {
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
+// Multiple selected paths → ZIP
+router.get('/files/download-zip-selected', async (req, res) => {
+  try {
+    const rawPaths = req.query.paths as string;
+    if (!rawPaths) return res.status(400).json({ error: 'paths required' });
+    let paths: string[];
+    try { paths = JSON.parse(rawPaths); } catch { return res.status(400).json({ error: 'Invalid paths JSON' }); }
+    if (!Array.isArray(paths) || paths.length === 0) return res.status(400).json({ error: 'Empty paths' });
+
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    const userRoot = userId ? await getUserAllowedPath(userId) : config.workspaceRoot;
+
+    for (const p of paths) {
+      if (!isPathSafe(p, userRoot)) return res.status(403).json({ error: `Access denied: ${p}` });
+      if (userId && !(await isPathAccessible(p, userId, role))) return res.status(403).json({ error: `Access denied: ${p}` });
+    }
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="selected-files.zip"');
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err: Error) => res.status(500).json({ error: err.message }));
+    archive.pipe(res);
+
+    for (const p of paths) {
+      const resolved = path.resolve(p);
+      if (!fs.existsSync(resolved)) continue;
+      const stat = fs.statSync(resolved);
+      if (stat.isDirectory()) {
+        archive.directory(resolved, path.basename(resolved));
+      } else {
+        archive.file(resolved, { name: path.basename(resolved) });
+      }
+    }
+    await archive.finalize();
+  } catch (error: any) {
+    if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });
 

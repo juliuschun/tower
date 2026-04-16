@@ -8,8 +8,8 @@ export function toastError(message: string) {
   toast.error(message);
 }
 
-export function toastInfo(message: string) {
-  toast.info(message);
+export function toastInfo(message: string, opts?: { description?: string }) {
+  toast.info(message, opts);
 }
 
 export function toastWarning(message: string) {

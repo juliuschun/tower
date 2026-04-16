@@ -64,6 +64,27 @@ export function SelectionToolbar({ onRefresh }: { onRefresh: () => void }) {
 
           <div className="flex-1" />
 
+          {/* Download ZIP */}
+          <button
+            onClick={() => {
+              const paths = [...selectedPaths];
+              const token = localStorage.getItem('token');
+              const params = new URLSearchParams();
+              params.set('paths', JSON.stringify(paths));
+              if (token) params.set('token', token);
+              window.open(`/api/files/download-zip-selected?${params.toString()}`, '_blank');
+            }}
+            disabled={count === 0}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Download selected as ZIP"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Download
+          </button>
+
           {/* Move to folder */}
           <button
             onClick={() => setShowMoveModal(true)}

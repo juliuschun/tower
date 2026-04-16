@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { useChatStore, type ChatMessage, type SlashCommandInfo } from '../stores/chat-store';
+import { useChatStore, type ChatMessage, type SlashCommandInfo, type TurnMetrics } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
 import { useModelStore, getModelIdForBackend, resolveEffectiveModel } from '../stores/model-store';
@@ -281,11 +281,11 @@ export function useClaudeChat() {
       inputTokens: payload.contextInputTokens || payload.inputTokens || 0,
       outputTokens: payload.contextOutputTokens || payload.outputTokens || 0,
       durationMs: payload.duration || 0,
-      stopReason: payload.stopReason,
+      stopReason: payload.stopReason as TurnMetrics['stopReason'],
     };
     useChatStore.getState().setLastTurnMetrics(turnMetrics);
     if (currentAssistantMsg.current) {
-      useChatStore.getState().updateMessageMetrics(currentAssistantMsg.current.id, turnMetrics);
+      useChatStore.getState().updateMessageMetrics(currentAssistantMsg.current.id, turnMetrics as any);
     }
   }, [setCost]);
 
@@ -700,8 +700,9 @@ export function useClaudeChat() {
 
         if (towerMsg.type === 'assistant') {
           setSessionId(data.sessionId);
-          const existingBlocks = currentAssistantMsg.current?.id === (towerMsg.msgId || '')
-            ? currentAssistantMsg.current.content
+          const cur = currentAssistantMsg.current;
+          const existingBlocks = cur && cur.id === (towerMsg.msgId || '')
+            ? cur.content
             : useChatStore.getState().messages.find((m) => m.id === (towerMsg.msgId || ''))?.content || [];
           const parsed = normalizeContentBlocks(towerMsg.content || [], existingBlocks);
           const toolBlocks = parsed.filter((b) => b.type === 'tool_use' && b.toolUse);
@@ -905,8 +906,9 @@ export function useClaudeChat() {
         // Assistant message — each new UUID gets its own message bubble
         if (sdkMsg.type === 'assistant') {
           const msgId = sdkMsg.uuid || generateUUID();
-          const existingBlocks = currentAssistantMsg.current?.id === msgId
-            ? currentAssistantMsg.current.content
+          const cur = currentAssistantMsg.current;
+          const existingBlocks = cur && cur.id === msgId
+            ? cur.content
             : useChatStore.getState().messages.find((m) => m.id === msgId)?.content || [];
           const parsed = normalizeContentBlocks(parseSDKMessage(sdkMsg), existingBlocks);
 

@@ -2904,7 +2904,7 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
 
   if (!rootPath) return null;
 
-  const headerActionBtnClass = 'opacity-0 group-hover/proj:opacity-100 p-0.5 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-700/50 transition-all';
+  const headerActionBtnClass = 'opacity-0 max-[768px]:opacity-100 group-hover/proj:opacity-100 p-0.5 rounded text-surface-600 hover:text-primary-400 hover:bg-surface-700/50 transition-all';
 
   return (
     <div className="mb-1">
@@ -2962,6 +2962,21 @@ function ProjectFileSection({ project, onFileClick, onPinFile, onNewSessionInFol
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+        </button>
+        <button
+          className={`${headerActionBtnClass} hover:!text-blue-400`}
+          title="Download project as ZIP"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!rootPath) return;
+            const token = localStorage.getItem('token');
+            const url = `/api/files/download-zip?path=${encodeURIComponent(rootPath)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+            window.open(url, '_blank');
+          }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
         </button>
         <input ref={headerUploadRef} type="file" multiple hidden onChange={handleHeaderUpload} />

@@ -401,7 +401,7 @@ function ToolChipGroup({ blocks, onFileClick, stateKey }: { blocks: ContentBlock
     <div className="rounded-lg border border-surface-700/30 bg-surface-800/10 overflow-hidden">
       {/* Header bar — click to collapse */}
       <button
-        onClick={() => { setExpanded(false); setActiveIndex(null); }}
+        onClick={() => { setExpanded(false); setActiveToolId(null); }}
         className="group/tool-bar flex items-center gap-2 px-3 py-1.5 w-full hover:bg-surface-800/30 transition-colors"
       >
         <svg className="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

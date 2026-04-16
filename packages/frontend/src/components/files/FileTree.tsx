@@ -4,6 +4,20 @@ import { useFileStore } from '../../stores/file-store';
 import { toastSuccess, toastError } from '../../utils/toast';
 import { ShareModal } from './ShareModal';
 
+/** Recursively collect all descendant paths from a FileEntry tree */
+function collectDescendantPaths(entry: FileEntry): string[] {
+  const paths: string[] = [];
+  if (entry.children) {
+    for (const child of entry.children) {
+      paths.push(child.path);
+      if (child.isDirectory && child.children) {
+        paths.push(...collectDescendantPaths(child));
+      }
+    }
+  }
+  return paths;
+}
+
 interface FileTreeProps {
   entries: FileEntry[];
   onFileClick: (path: string) => void;
@@ -229,7 +243,7 @@ async function uploadFilesToDir(targetDir: string, e: React.DragEvent, onRefresh
 }
 
 // ─── Context Menu ───
-type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession' | 'shareFile' | 'download' | 'copyPath' | 'openNewWindow';
+type MenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'newSession' | 'shareFile' | 'download' | 'downloadZip' | 'copyPath' | 'openNewWindow';
 
 function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
   x: number; y: number; entry: FileEntry;
@@ -289,6 +303,17 @@ function ContextMenu({ x, y, entry, showNewSession, onAction, onClose }: {
       action: 'download' as MenuAction,
       label: 'Download',
       show: !entry.isDirectory,
+      icon: (
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+      ),
+    },
+    {
+      action: 'downloadZip' as MenuAction,
+      label: 'Download as ZIP',
+      show: entry.isDirectory,
       icon: (
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -381,6 +406,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
   const selectMode = useFileStore((s) => s.selectMode);
   const selectedPaths = useFileStore((s) => s.selectedPaths);
   const toggleSelectPath = useFileStore((s) => s.toggleSelectPath);
+  const bulkTogglePaths = useFileStore((s) => s.bulkTogglePaths);
   const rangeSelectTo = useFileStore((s) => s.rangeSelectTo);
   const setLastClickedPath = useFileStore((s) => s.setLastClickedPath);
 
@@ -501,6 +527,14 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
       return;
     }
 
+    if (action === 'downloadZip') {
+      // Use window.open for native browser download — handles large files without fetch buffering
+      const token = localStorage.getItem('token');
+      const url = `/api/files/download-zip?path=${encodeURIComponent(entry.path)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+      window.open(url, '_blank');
+      return;
+    }
+
     if (action === 'delete') {
       const displayName = entry.name;
       const isDir = entry.isDirectory;
@@ -547,7 +581,10 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
         const isSelected = selectedPaths.has(entry.path);
 
         return (
-          <div key={entry.path}>
+          <div key={entry.path} onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, entry });
+          }}>
             {/* Rename inline input */}
             {inlineInput?.type === 'rename' && inlineInput.entry?.path === entry.path ? (
               <div className="px-2 py-0.5">
@@ -568,6 +605,11 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
                       e.stopPropagation();
                       if (e.shiftKey) {
                         rangeSelectTo(entry.path, flatPaths);
+                      } else if (entry.isDirectory) {
+                        // Toggle folder + all descendants
+                        const willSelect = !isSelected;
+                        const allPaths = [entry.path, ...collectDescendantPaths(entry)];
+                        bulkTogglePaths(allPaths, willSelect);
                       } else {
                         toggleSelectPath(entry.path);
                       }
@@ -576,8 +618,9 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
                     <CheckIcon checked={isSelected} />
                   </button>
                 )}
-                <button
-                  className={`flex-1 flex items-center gap-1.5 px-2 py-1 text-xs text-gray-300 rounded transition-colors ${
+                <div
+                  role="button"
+                  className={`flex-1 flex items-center gap-1.5 px-2 py-1 text-xs text-gray-300 rounded transition-colors cursor-default select-none ${
                     draggingPath === entry.path
                       ? 'opacity-40'
                       : isSelected && selectMode
@@ -587,6 +630,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
                   onClick={(e) => handleEntryClick(entry, e)}
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     setContextMenu({ x: e.clientX, y: e.clientY, entry });
                   }}
                   draggable
@@ -640,7 +684,7 @@ export function FileTree({ entries, onFileClick, onDirectoryClick, onPinFile, on
                       {entry.size < 1024 ? `${entry.size}B` : `${(entry.size / 1024).toFixed(1)}K`}
                     </span>
                   )}
-                </button>
+                </div>
                 {!selectMode && !entry.isDirectory && onPinFile && pinnableExtensions.has(entry.extension || '') && (
                   <button
                     onClick={(e) => {
