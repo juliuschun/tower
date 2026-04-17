@@ -117,7 +117,7 @@ function loadLocalModels(): ModelInfo[] {
 export let availableModels: ModelInfo[] = loadClaudeModels();
 
 const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
-  session: 'claude-opus-4-6',
+  session: 'claude-opus-4-7',
   ai_reply: 'claude-haiku-4-5-20251001',
   ai_task: 'claude-sonnet-4-6',
 };

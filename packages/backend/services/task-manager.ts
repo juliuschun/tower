@@ -22,7 +22,7 @@ function mapRow(row: any): TaskMeta {
     title: row.title,
     description: row.description || '',
     cwd: row.cwd,
-    model: row.model || 'claude-opus-4-6',
+    model: row.model || 'claude-opus-4-7',
     status: row.status,
     sessionId: row.session_id,
     sortOrder: row.sort_order,

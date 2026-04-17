@@ -520,7 +520,7 @@ async function runTaskAgent(
     const generator = executeQuery(sessionId, prompt, {
       cwd: agentCwd,
       permissionMode: taskPermission,
-      model: model || 'claude-opus-4-6',
+      model: model || 'claude-opus-4-7',
       canUseTool: taskCanUseTool,
       systemPrompt,
       userRole: effectiveRole,

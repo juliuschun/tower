@@ -97,6 +97,7 @@ export class ClaudeEngine implements Engine {
         resumeSessionId: opts.engineSessionId,
         permissionMode,
         model: opts.model,
+        effort: opts.effort,
         canUseTool,
         systemPrompt,
         userRole: opts.userRole,

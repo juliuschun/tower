@@ -751,7 +751,7 @@ async function handleSetActiveSession(client: WsClient, data: { sessionId: strin
   });
 }
 
-async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string; panelChat?: boolean }) {
+async function handleChat(client: WsClient, data: { message: string; messageId?: string; sessionId?: string; claudeSessionId?: string; cwd?: string; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; panelChat?: boolean }) {
   const sessionId = data.sessionId || client.sessionId;
   if (!sessionId) {
     console.error(`[ws] handleChat REJECTED: no sessionId from client=${client.id.slice(0, 8)} — frontend must create session first`);
@@ -1037,6 +1037,7 @@ async function handleChat(client: WsClient, data: { message: string; messageId?:
     for await (const towerMsg of engine.run(sessionId, finalMessage, {
       cwd: data.cwd || dbSession?.cwd || client.allowedPath || config.defaultCwd,
       model: resolvedModel,
+      effort: data.effort,
       userId: client.userId,
       username: client.username,
       userRole: client.userRole,

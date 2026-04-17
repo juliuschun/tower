@@ -462,8 +462,9 @@ function ScheduleFormModal({
               className="w-full px-3 py-2 text-xs bg-surface-800 border border-surface-700 rounded-lg text-gray-200 focus:outline-none"
             >
               <option value="claude-sonnet-4-6">Sonnet</option>
-              <option value="claude-opus-4-6">Opus</option>
-              <option value="claude-haiku-3-5">Haiku</option>
+              <option value="claude-opus-4-7">Opus 4.7</option>
+              <option value="claude-opus-4-6">Opus 4.6</option>
+              <option value="claude-haiku-4-5-20251001">Haiku</option>
             </select>
           </div>
 

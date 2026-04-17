@@ -5,6 +5,7 @@ import { useProjectStore } from '../../stores/project-store';
 import type { TaskMeta } from '../../stores/kanban-store';
 
 const AVAILABLE_MODELS = [
+  { id: 'claude-opus-4-7', name: 'Opus 4.7' },
   { id: 'claude-opus-4-6', name: 'Opus 4.6' },
   { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5' },

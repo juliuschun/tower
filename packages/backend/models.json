@@ -1,6 +1,6 @@
 {
   "claude": [
-    { "id": "claude-opus-4-6", "name": "Opus 4.6", "badge": "MAX", "enabled": true },
+    { "id": "claude-opus-4-7", "name": "Opus 4.7", "badge": "MAX", "enabled": true },
     { "id": "claude-sonnet-4-6", "name": "Sonnet 4.6", "badge": "MAX", "enabled": true },
     { "id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "badge": "MAX", "enabled": true }
   ],
@@ -12,7 +12,7 @@
     { "id": "local-default", "name": "Local Default", "badge": "LOCAL", "enabled": true }
   ],
   "defaults": {
-    "session": "claude-opus-4-6",
+    "session": "claude-opus-4-7",
     "ai_reply": "claude-haiku-4-5-20251001",
     "ai_task": "claude-sonnet-4-6"
   }

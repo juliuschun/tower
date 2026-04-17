@@ -293,6 +293,7 @@ export async function* executeQuery(
     resumeSessionId?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
     model?: string;
+    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     canUseTool?: CanUseTool;
     systemPrompt?: string;
     userRole?: string;
@@ -353,6 +354,7 @@ export async function* executeQuery(
       env: { ...process.env, CLAUDE_CONFIG_DIR: options.configDir },
     } : {}),
     ...(options.model ? { model: options.model } : {}),
+    ...(options.effort ? { effort: options.effort } : {}),
     ...(options.canUseTool ? { canUseTool: options.canUseTool } : {}),
     ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
     ...(options.maxTurns ? { maxTurns: options.maxTurns } : {}),

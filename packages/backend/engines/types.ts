@@ -127,9 +127,12 @@ export interface TowerUsage {
 // Engine interface
 // ═══════════════════════════════════════════════════════════════════
 
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 export interface RunOpts {
   cwd: string;
   model?: string;
+  effort?: EffortLevel;
   userId?: number;
   username?: string;
   userRole?: string;
