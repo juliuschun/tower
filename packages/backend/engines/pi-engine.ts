@@ -199,7 +199,9 @@ export class PiEngine implements Engine {
     let assistantSaved = false;
 
     // 3. Subscribe to Pi events
+    console.log(`[Pi] run() starting: session=${sessionId.slice(0, 8)} model=${entry.session.model?.provider}/${entry.session.model?.id} prompt=${prompt.slice(0, 80)}`);
     const unsub = entry.session.subscribe((event: any) => {
+      console.log(`[Pi] event: session=${sessionId.slice(0, 8)} type=${event.type} subtype=${event.assistantMessageEvent?.type || event.message?.role || '-'}`);
       switch (event.type) {
         case 'message_update': {
           const evt = event.assistantMessageEvent;
@@ -320,12 +322,15 @@ export class PiEngine implements Engine {
       });
     };
 
+    console.log(`[Pi] prompt() calling: session=${sessionId.slice(0, 8)}`);
     const promptPromise = entry.session.prompt(prompt)
       .then(() => {
+        console.log(`[Pi] prompt() resolved: session=${sessionId.slice(0, 8)} iterations=${iterationCount} tokens=${cumulativeInput}+${cumulativeOutput}`);
         emitTurnDone();
       })
       .catch((err: any) => {
         const message = err?.message || 'Pi prompt failed';
+        console.error(`[Pi] prompt() rejected: session=${sessionId.slice(0, 8)} error=${message}`);
         const isAbortError = entry.abortRequested && /abort|cancel/i.test(message);
         if (!isAbortError) {
           eventQueue.push({
@@ -378,7 +383,11 @@ export class PiEngine implements Engine {
         engineSessionId: piSessionFile,
         editedFiles: [...editedFiles],
       };
+    } catch (runErr: any) {
+      console.error(`[Pi] run() loop error: session=${sessionId.slice(0, 8)} error=${runErr.message}`);
+      throw runErr;
     } finally {
+      console.log(`[Pi] run() finished: session=${sessionId.slice(0, 8)} done=${done} queueLen=${eventQueue.length}`);
       unsub();
       entry.activePrompt = null;
       entry.abortRequested = false;
