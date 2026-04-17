@@ -255,17 +255,32 @@ export class PiEngine implements Engine {
           const msg = event.message;
           const usage = msg?.usage;
           if (msg?.stopReason) {
-            console.log(`[Pi] message_end stopReason: session=${sessionId.slice(0, 8)} reason=${msg.stopReason} role=${msg?.role} contentLen=${Array.isArray(msg?.content) ? msg.content.length : 'n/a'}`);
+            const errMsgLog = msg.stopReason === 'error' ? ` errorMessage=${JSON.stringify(msg.errorMessage || '')}` : '';
+            console.log(`[Pi] message_end stopReason: session=${sessionId.slice(0, 8)} reason=${msg.stopReason} role=${msg?.role} contentLen=${Array.isArray(msg?.content) ? msg.content.length : 'n/a'}${errMsgLog}`);
           }
           // Don't let an empty error message overwrite a previous valid stopReason.
           // GPT models sometimes emit an empty final assistant message with stopReason=error
           // after successful tool-use iterations (e.g. context limit reached). Preserving the
           // prior stopReason (typically 'toolUse') gives a more accurate UX.
           const msgStopReason = msg?.stopReason;
-          const isEmptyErrorMsg = msgStopReason === 'error'
-            && Array.isArray(msg?.content) && msg.content.length === 0;
+          const msgContentLen = Array.isArray(msg?.content) ? msg.content.length : 0;
+          const isEmptyErrorMsg = msgStopReason === 'error' && msgContentLen === 0;
           if (msgStopReason && !(isEmptyErrorMsg && stopReason)) {
             stopReason = msgStopReason;
+          }
+
+          // Surface Pi SDK / provider error messages to the user.
+          // Without this, errors like Azure rate limits or context overflow appear
+          // as silent "empty response" — user sees nothing actionable.
+          if (msgStopReason === 'error' && msg?.errorMessage) {
+            const errText = String(msg.errorMessage).slice(0, 500);
+            console.warn(`[Pi] Provider error: session=${sessionId.slice(0, 8)} error=${errText}`);
+            eventQueue.push({
+              type: 'engine_error',
+              sessionId,
+              message: `Pi 모델 응답 오류: ${errText}`,
+              recoverable: true,
+            });
           }
 
           if (msg?.role === 'assistant' && Array.isArray(msg.content)) {
@@ -277,13 +292,17 @@ export class PiEngine implements Engine {
               accumulator.replaceAll(finalContent);
             }
             const contentToSave = finalContent.length > 0 ? finalContent : accumulator.toTowerBlocks();
-            if (!assistantSaved) {
-              callbacks.saveMessage({ id: msgId, role: 'assistant', content: contentToSave });
-              assistantSaved = true;
-            } else {
-              callbacks.updateMessageContent(msgId, contentToSave);
+            // Skip saving an empty assistant message — avoids the "empty bubble with stopReason footer"
+            // UX where the turn ends silently. Usage accounting still runs below.
+            if (contentToSave.length > 0) {
+              if (!assistantSaved) {
+                callbacks.saveMessage({ id: msgId, role: 'assistant', content: contentToSave });
+                assistantSaved = true;
+              } else {
+                callbacks.updateMessageContent(msgId, contentToSave);
+              }
+              eventQueue.push({ type: 'assistant', sessionId, msgId, content: contentToSave });
             }
-            eventQueue.push({ type: 'assistant', sessionId, msgId, content: contentToSave });
           }
 
           if (usage) {
