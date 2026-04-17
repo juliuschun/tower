@@ -539,7 +539,11 @@ export class PiEngine implements Engine {
       activeSkillNames = new Set(activeSkills.map((s: any) => s.name));
     } catch {}
 
-    const MAX_PI_SKILLS = 20; // Cap to prevent prompt bloat (71 skills = 284KB)
+    // Cap to prevent prompt bloat. Raised from 20 → 50 (2026-04-17) after
+    // AGENTS.md / CLAUDE.md slimming + skill description cleanup reduced per-skill size.
+    // See docs/plans/... and templates/workspace/docs/pi-skill-loading-policy.md
+    // for the policy rationale. Revisit if prompt size regressions appear.
+    const MAX_PI_SKILLS = 50;
     const resourceLoader = new DefaultResourceLoader({
       cwd: opts.cwd,
       appendSystemPrompt: towerPrompt,
