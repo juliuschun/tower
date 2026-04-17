@@ -136,6 +136,12 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   // Track the last sent message for SESSION_BUSY re-queuing
   const lastSentRef = useRef<string | null>(null);
 
+  // Re-entry guard for handleSubmit. setInput('') is async (React state),
+  // so on a fast double-Enter the textarea still holds the old value when
+  // the second handler fires — without this guard, two identical messages
+  // would be sent (especially during the awaited finalize-uploads call).
+  const isSubmittingRef = useRef(false);
+
   // Cascade guard: prevents queue.length change from re-triggering dequeue
   // before the server confirms streaming for this session.
   const drainGuardRef = useRef(false);
@@ -277,76 +283,83 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   };
 
   const handleSubmit = async () => {
+    // Reject re-entry while the previous submit is still awaiting finalize-uploads
+    if (isSubmittingRef.current) return;
     const trimmed = input.trim();
     const hasContent = trimmed || attachments.length > 0;
     if (!hasContent) return;
 
-    // Clear UI immediately to prevent double-submit
-    const currentAttachments = [...attachments];
-    setInput('');
-    saveDraft(currentSessionId, '');
-    setShowCommands(false);
-    useChatStore.getState().clearAttachments();
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
+    isSubmittingRef.current = true;
+    try {
+      // Clear UI immediately to prevent double-submit
+      const currentAttachments = [...attachments];
+      setInput('');
+      saveDraft(currentSessionId, '');
+      setShowCommands(false);
+      useChatStore.getState().clearAttachments();
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
 
-    // Finalize temp uploads → move to permanent uploads/
-    const fileAtts = currentAttachments.filter(a => a.type === 'file' && a.tempPath);
-    if (fileAtts.length > 0) {
-      try {
-        const token = localStorage.getItem('token');
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const activeSession = useSessionStore.getState().sessions.find(
-          s => s.id === useSessionStore.getState().activeSessionId
-        );
-        const res = await fetch('/api/files/finalize-uploads', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            tempPaths: fileAtts.map(a => a.tempPath),
-            projectId: activeSession?.projectId || '',
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          for (const r of data.results) {
-            if (r.newPath) {
-              const att = fileAtts.find(a => a.tempPath === r.tempPath);
-              if (att) att.content = r.newPath;
+      // Finalize temp uploads → move to permanent uploads/
+      const fileAtts = currentAttachments.filter(a => a.type === 'file' && a.tempPath);
+      if (fileAtts.length > 0) {
+        try {
+          const token = localStorage.getItem('token');
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const activeSession = useSessionStore.getState().sessions.find(
+            s => s.id === useSessionStore.getState().activeSessionId
+          );
+          const res = await fetch('/api/files/finalize-uploads', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              tempPaths: fileAtts.map(a => a.tempPath),
+              projectId: activeSession?.projectId || '',
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            for (const r of data.results) {
+              if (r.newPath) {
+                const att = fileAtts.find(a => a.tempPath === r.tempPath);
+                if (att) att.content = r.newPath;
+              }
             }
           }
+        } catch (err) {
+          console.warn('[chat] finalize-uploads failed, using temp paths:', err);
         }
-      } catch (err) {
-        console.warn('[chat] finalize-uploads failed, using temp paths:', err);
       }
-    }
 
-    // Build message with (now finalized) attachment paths
-    const message = buildMessageFrom(trimmed, currentAttachments);
+      // Build message with (now finalized) attachment paths
+      const message = buildMessageFrom(trimmed, currentAttachments);
 
-    // Read from the authoritative per-session streaming store synchronously.
-    // This avoids double-sends on fast Enter presses and keeps queue behavior
-    // aligned with the sidebar/tool chips.
-    const sid = useChatStore.getState().sessionId || '';
-    const isCurrentSessionStreaming = sid
-      ? useSessionStore.getState().streamingSessions.has(sid)
-      : useChatStore.getState().isStreaming;
+      // Read from the authoritative per-session streaming store synchronously.
+      // This avoids double-sends on fast Enter presses and keeps queue behavior
+      // aligned with the sidebar/tool chips.
+      const sid = useChatStore.getState().sessionId || '';
+      const isCurrentSessionStreaming = sid
+        ? useSessionStore.getState().streamingSessions.has(sid)
+        : useChatStore.getState().isStreaming;
 
-    if (isCurrentSessionStreaming) {
-      useChatStore.getState().markLatestUserQueued(message);
-      useChatStore.getState().enqueueMessage(sid, message);
-      // Immediately ask server to confirm streaming state — if it's stale,
-      // server will send session_status:idle and the queue will auto-drain.
-      // This is much faster than the 2-minute stale guard.
-      const ws = (window as any).__claudeWs as WebSocket | undefined;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'check_session_status', sessionId: sid }));
+      if (isCurrentSessionStreaming) {
+        useChatStore.getState().markLatestUserQueued(message);
+        useChatStore.getState().enqueueMessage(sid, message);
+        // Immediately ask server to confirm streaming state — if it's stale,
+        // server will send session_status:idle and the queue will auto-drain.
+        // This is much faster than the 2-minute stale guard.
+        const ws = (window as any).__claudeWs as WebSocket | undefined;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'check_session_status', sessionId: sid }));
+        }
+      } else {
+        lastSentRef.current = message;   // track for SESSION_BUSY re-queuing
+        onSend(message);
       }
-    } else {
-      lastSentRef.current = message;   // track for SESSION_BUSY re-queuing
-      onSend(message);
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 

@@ -53,6 +53,13 @@ export class PiEngine implements Engine {
   private modelRegistry: ModelRegistry | null = null;
   private interruptedSessionIds = new Set<string>();
   /**
+   * Sessions whose run() is currently in the "starting" phase
+   * (createSession / switchModelIfNeeded await window) — entry.isRunning
+   * isn't true yet, but isRunning() must report true so the ws-handler's
+   * SESSION_BUSY guard doesn't let a second concurrent prompt slip in.
+   */
+  private startingSessions = new Set<string>();
+  /**
    * Custom models loaded from pi-models.json, in file order.
    * Used as the fallback when no model is specified — we prefer these over
    * Pi SDK's built-in models because the built-in first-available is usually
@@ -144,12 +151,28 @@ export class PiEngine implements Engine {
     opts: RunOpts,
     callbacks: EngineCallbacks,
   ): AsyncGenerator<TowerMessage> {
+    // Reject re-entry. Without this, a second concurrent run() against the
+    // same session would slip past the ws-handler SESSION_BUSY check during
+    // the createSession/switchModel await window (entry.isRunning is set
+    // later, after both awaits). startingSessions covers that window;
+    // entry.isRunning covers the rest of the turn.
+    if (this.isRunning(sessionId)) {
+      yield {
+        type: 'engine_error',
+        sessionId,
+        message: 'Pi session is already running. Wait for the current turn to finish.',
+      };
+      return;
+    }
+    this.startingSessions.add(sessionId);
+
     // 1. Get or create AgentSession (cached per Tower session, persisted to disk)
     let entry = this.sessions.get(sessionId);
     if (!entry) {
       try {
         entry = await this.createSession(sessionId, opts, callbacks);
       } catch (err: any) {
+        this.startingSessions.delete(sessionId);
         yield { type: 'engine_error', sessionId, message: `Pi session creation failed: ${err.message}` };
         return;
       }
@@ -177,6 +200,8 @@ export class PiEngine implements Engine {
 
     entry.isRunning = true;
     entry.abortRequested = false;
+    // Hand off from the starting-window guard to the entry-level guard.
+    this.startingSessions.delete(sessionId);
 
     // 2. ContentAccumulator + event queue
     const accumulator = new ContentAccumulator();
@@ -447,6 +472,9 @@ export class PiEngine implements Engine {
       entry.abortRequested = false;
       entry._abortResolve = null;
       entry.isRunning = false;
+      // Defensive — should already be deleted at handoff, but cover any
+      // path that exits before the handoff (e.g. early throws).
+      this.startingSessions.delete(sessionId);
     }
   }
 
@@ -815,6 +843,9 @@ export class PiEngine implements Engine {
   }
 
   isRunning(sessionId: string): boolean {
+    // startingSessions covers the createSession/switchModel await window
+    // before entry.isRunning gets set; both must report busy.
+    if (this.startingSessions.has(sessionId)) return true;
     return this.sessions.get(sessionId)?.isRunning || false;
   }
 
