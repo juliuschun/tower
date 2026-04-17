@@ -747,9 +747,8 @@ function AutomationFormModal({ editingId, onClose, onSaved, t }: {
           <div>
             <label className={labelCls}>{t('model')}</label>
             <select className={inputCls} value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="claude-sonnet-4-6">Sonnet</option>
               <option value="claude-opus-4-7">Opus 4.7</option>
-              <option value="claude-opus-4-6">Opus 4.6</option>
+              <option value="claude-sonnet-4-6">Sonnet</option>
               <option value="claude-haiku-4-5-20251001">Haiku</option>
             </select>
           </div>

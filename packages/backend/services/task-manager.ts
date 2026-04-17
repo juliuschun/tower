@@ -81,7 +81,7 @@ export async function createTask(
   const id = uuidv4();
   const maxOrder = await queryOne<any>('SELECT MAX(sort_order) as max_order FROM tasks WHERE status = $1', ['todo']);
   const sortOrder = (maxOrder?.max_order ?? -1) + 1;
-  const resolvedModel = model || 'claude-opus-4-6';
+  const resolvedModel = model || 'claude-opus-4-7';
 
   // Auto-resolve project from cwd if not explicitly provided
   const resolvedProjectId = projectId ?? await resolveProjectFromCwd(cwd);

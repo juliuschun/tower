@@ -6,7 +6,6 @@ import type { TaskMeta } from '../../stores/kanban-store';
 
 const AVAILABLE_MODELS = [
   { id: 'claude-opus-4-7', name: 'Opus 4.7' },
-  { id: 'claude-opus-4-6', name: 'Opus 4.6' },
   { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5' },
 ];
@@ -118,7 +117,7 @@ export function NewTaskModal({ onClose, onCreated, editTask, projectId, filterPr
   const [description, setDescription] = useState(editTask?.description || '');
   const [selectedProjectId, setSelectedProjectId] = useState<string>(resolveInitialProject());
   const [cwd, setCwd] = useState(editTask?.cwd || '');
-  const [model, setModel] = useState<string>(editTask?.model || 'claude-opus-4-6');
+  const [model, setModel] = useState<string>(editTask?.model || 'claude-opus-4-7');
   const [workflow, setWorkflow] = useState<string>(editTask?.workflow || 'auto');
   const [submitting, setSubmitting] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; path: string }[]>([]);

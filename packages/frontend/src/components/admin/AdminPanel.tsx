@@ -1137,7 +1137,7 @@ function ModelManagement({ token }: { token?: string | null }) {
 
   const enabledClaude = models.claude.filter(m => m.enabled);
   const enabledPi = models.pi.filter(m => m.enabled);
-  const currentDefaults: ModelDefaults = models.defaults ?? { session: 'claude-opus-4-6', ai_reply: 'claude-haiku-4-5-20251001', ai_task: 'claude-sonnet-4-6' };
+  const currentDefaults: ModelDefaults = models.defaults ?? { session: 'claude-opus-4-7', ai_reply: 'claude-haiku-4-5-20251001', ai_task: 'claude-sonnet-4-6' };
 
   const saveDefaults = (key: keyof ModelDefaults, value: string) => {
     const updated = { ...models, defaults: { ...currentDefaults, [key]: value } };
