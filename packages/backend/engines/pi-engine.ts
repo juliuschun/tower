@@ -254,7 +254,19 @@ export class PiEngine implements Engine {
         case 'message_end': {
           const msg = event.message;
           const usage = msg?.usage;
-          stopReason = msg?.stopReason || stopReason;
+          if (msg?.stopReason) {
+            console.log(`[Pi] message_end stopReason: session=${sessionId.slice(0, 8)} reason=${msg.stopReason} role=${msg?.role} contentLen=${Array.isArray(msg?.content) ? msg.content.length : 'n/a'}`);
+          }
+          // Don't let an empty error message overwrite a previous valid stopReason.
+          // GPT models sometimes emit an empty final assistant message with stopReason=error
+          // after successful tool-use iterations (e.g. context limit reached). Preserving the
+          // prior stopReason (typically 'toolUse') gives a more accurate UX.
+          const msgStopReason = msg?.stopReason;
+          const isEmptyErrorMsg = msgStopReason === 'error'
+            && Array.isArray(msg?.content) && msg.content.length === 0;
+          if (msgStopReason && !(isEmptyErrorMsg && stopReason)) {
+            stopReason = msgStopReason;
+          }
 
           if (msg?.role === 'assistant' && Array.isArray(msg.content)) {
             const finalContent = agentMessageToTowerBlocks(msg);
@@ -331,7 +343,14 @@ export class PiEngine implements Engine {
     console.log(`[Pi] prompt() calling: session=${sessionId.slice(0, 8)}`);
     const promptPromise = entry.session.prompt(prompt)
       .then(() => {
-        console.log(`[Pi] prompt() resolved: session=${sessionId.slice(0, 8)} iterations=${iterationCount} tokens=${cumulativeInput}+${cumulativeOutput}`);
+        console.log(`[Pi] prompt() resolved: session=${sessionId.slice(0, 8)} iterations=${iterationCount} tokens=${cumulativeInput}+${cumulativeOutput} stopReason=${stopReason}`);
+        // prompt() resolved successfully — if the last stopReason was 'error' from an
+        // empty trailing message (GPT context exhaustion), downgrade to 'stop' so the
+        // frontend doesn't show "오류로 종료" for what was really a normal completion.
+        if (stopReason === 'error') {
+          console.log(`[Pi] Downgrading stopReason from error→stop (prompt resolved OK): session=${sessionId.slice(0, 8)}`);
+          stopReason = 'stop';
+        }
         emitTurnDone();
       })
       .catch((err: any) => {
