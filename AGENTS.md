@@ -33,6 +33,25 @@ AI command center for your team. Stack your own tower of AI and systems.
 - 프로세스/가이드: `workspace/docs/title.md`
 - 프로젝트별 규칙은 `AGENTS.md` / `CLAUDE.md`를 우선합니다.
 
+## Publishing (managed 고객 VM — okusystem 등)
+
+managed 고객 VM에는 publishing hub가 켜져 있습니다.
+사이트 한 개 = `~/workspace/published/sites/<name>/` 폴더 + `index.html`.
+
+**접근 URL — 서브도메인이 정답:**
+- ✅ `https://<name>.okusystem.moatai.app/` — 와일드카드 nginx가 폴더를 직접 서빙합니다.
+- ❌ `https://okusystem.moatai.app/sites/<name>/` — 이 경로는 Tower 백엔드(SPA)로 프록시됩니다.
+  현재 okusystem nginx에는 `/sites/*` location이 없어 사이트 파일이 노출되지 않습니다.
+  사용자에게 절대 이 형태의 URL을 안내하지 마세요.
+
+**사이트 만들기 / 수정 / 삭제:**
+- 폴더만 만들면 즉시 서빙. nginx 재시작·DNS 변경 불필요.
+- 이름 규칙: 소문자 영문 + 숫자 + 하이픈만 (`a-z`, `0-9`, `-`), 영문/숫자로 시작.
+- 파일을 고치면 즉시 반영. 별도 배포 절차 없음.
+- 삭제는 폴더 삭제 (사용자 확인 후).
+- 외부 공개·동적 앱은 `~/workspace/scripts/deploy.sh` 사용 (Cloudflare Pages / Azure Container Apps).
+- 상세: `docs/publishing-guide.md`
+
 ## 필요 시 추가 참고
 상세 참고는 필요할 때만 아래 문서를 읽습니다.
 - 에이전트 참고서: `docs/agents-reference.md`
