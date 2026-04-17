@@ -122,7 +122,7 @@ ssh toweradmin@<IP> "pm2 restart tower-prod --update-env"
 
 1. [ ] `docs/azure-customer-deployment-runbook.md` 따라 VM 생성 + 프로비저닝
 2. [ ] 이 문서 **서버 레지스트리**에 행 추가
-3. [ ] `claude-skills/skills/library/library.yaml` → `customers:` 섹션에 등록
+3. [ ] `~/.claude/skills/library/library.yaml` → `customers:` 섹션에 등록
 4. [ ] 스킬 배포: `deploy-profile.sh --customer <name>`
 5. [ ] SSL 인증서 만료일 확인 & 캘린더 등록
 6. [ ] 첫 배포 이력을 **배포 이력** 섹션에 기록
@@ -133,7 +133,7 @@ ssh toweradmin@<IP> "pm2 restart tower-prod --update-env"
 
 - 신규 배포 런북: `docs/azure-customer-deployment-runbook.md`
 - 배포 아키텍처: `docs/azure-prod-deployment.md`
-- 스킬 프로필 관리: `claude-skills/skills/library/library.yaml`
+- 스킬 프로필 관리: `~/.claude/skills/library/library.yaml`
 - 배포 스크립트: `scripts/azure/create-vm.sh`, `bootstrap-prod.sh`, `deploy-e2e.sh`
 - okusystem 설치 계획: `docs/plans/2026-04-03-azure-okusystem-prod-install.md`
 - Dev/Prod 운영 가이드: `devserver.md`

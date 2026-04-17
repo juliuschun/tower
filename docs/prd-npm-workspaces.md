@@ -71,7 +71,6 @@ tower/
 │       │   └── index.ts      ← barrel export
 │       └── tsconfig.json
 │
-├── claude-skills/             ← 위치 유지 (패키지화 불필요)
 ├── data/                      ← SQLite DB (변경 없음)
 ├── dist/                      ← 빌드 출력 (변경 없음)
 ├── start.sh                   ← 프로덕션 스크립트 (경로 업데이트 필요)

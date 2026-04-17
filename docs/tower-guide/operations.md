@@ -45,7 +45,7 @@ bash ~/.claude/skills/library/deploy-profile.sh --customer <name>
 - `npm run dev` 다중 실행 금지 (tsx watch 좀비 → 포트 충돌)
 - 작업 중 백엔드 재시작 금지 (실행 중 태스크 죽음)
 - Prod 재시작은 Dev 세션에서만 (Prod 세션에서 하면 무한 루프)
-- `install-skills.sh` 직접 실행 금지 (CPU 폭주 이력)
+- 스킬 배포는 `~/.claude/skills/library/deploy-profile.sh` 만 사용 (레거시 `install-skills.sh` 제거됨)
 
 ## 관련 문서
 

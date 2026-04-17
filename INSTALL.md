@@ -173,20 +173,17 @@ mkdir -p ~/workspace
 cp -r templates/workspace/* ~/workspace/
 ```
 
-### 7. Install Skills & Hooks (optional, requires Claude CLI)
+### 7. Install Hooks (optional, requires Claude CLI)
 
 ```bash
-# Bundled skills (library 스킬) 설치
-./install-skills.sh
-
 # Memory hooks (session tracking with SQLite FTS5)
 bash memory-hooks/install.sh
 ```
 
-> **스킬 추가 설치**: `install-skills.sh`는 library 스킬만 번들 설치합니다.
-> 나머지 스킬(brainstorming, research, debugging 등)은 Tower에서
-> `/library sync`를 실행하면 GitHub 카탈로그에서 자동으로 설치됩니다.
-> 상세: [`docs/skill-distribution.md`](docs/skill-distribution.md)
+> **스킬 설치**: 스킬은 `~/.claude/skills/library/` 카탈로그로 관리됩니다.
+> Tower 채팅에서 `/library sync`를 실행하거나, 관리형 고객 VM이라면
+> `deploy-profile.sh --customer <name>`으로 배포합니다.
+> (레거시 `install-skills.sh`는 2026-04-17 제거되었습니다.)
 
 ### 8. Start
 
@@ -562,14 +559,12 @@ npm run dev
 # Check skills are installed
 ls ~/.claude/skills/*/SKILL.md
 
-# Re-install bundled skills (library)
-./install-skills.sh
-
-# Pull all skills from catalog
+# Pull skills from catalog
 # Tower 채팅에서: /library sync
-```
 
-> 스킬 배포 구조 상세: [`docs/skill-distribution.md`](docs/skill-distribution.md)
+# 관리형 고객 VM인 경우 중앙 서버에서:
+bash ~/.claude/skills/library/deploy-profile.sh --customer <name>
+```
 
 ### PM2 not found (production mode)
 
@@ -710,7 +705,6 @@ Before going live, verify:
 tower/
 ├── backend/          # Express + WebSocket server
 ├── frontend/src/     # React + Vite
-├── claude-skills/    # Bundled skills (library) + catalog
 ├── memory-hooks/     # 3-layer memory system
 ├── templates/        # Workspace templates
 ├── setup.sh          # One-step setup wizard

@@ -251,7 +251,7 @@ ssh $VM_USER@$VM_IP 'claude auth login'
 ### Phase 10: 스킬 배포 (Library Profile)
 
 스킬은 `~/.claude/skills/library/` 의 프로필 시스템으로 관리한다.
-**절대 `install-skills.sh`를 직접 실행하지 말 것** (CPU 폭주 사고 이력).
+(레거시 `install-skills.sh`는 2026-04-17 제거되었다. 항상 `deploy-profile.sh` 사용.)
 
 ```bash
 # 1) 프로필 미리보기

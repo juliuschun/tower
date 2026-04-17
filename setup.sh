@@ -962,9 +962,9 @@ if command -v claude &>/dev/null && [ ! -d "$CLAUDE_DIR" ]; then
 fi
 
 if [ -d "$CLAUDE_DIR" ]; then
-  # Install bundled skills
-  echo "  Installing bundled skills..."
-  bash "$SCRIPT_DIR/install-skills.sh"
+  # Skills are managed separately via ~/.claude/skills/library/deploy-profile.sh
+  # (legacy install-skills.sh removed 2026-04-17)
+  info "Skills: manage via /library sync or deploy-profile.sh (see docs/skill-distribution.md)"
   echo ""
 
   # Memory hooks
@@ -989,9 +989,9 @@ if [ -d "$CLAUDE_DIR" ]; then
   fi
 else
   warn "~/.claude not found — install Claude Code CLI first"
-  echo "  Skills and hooks can be installed later:"
-  echo "    ./install-skills.sh"
+  echo "  Hooks can be installed later:"
   echo "    bash memory-hooks/install.sh"
+  echo "  Skills: /library sync (from Tower) or deploy-profile.sh"
 fi
 
 # ───────────────────────────────────
