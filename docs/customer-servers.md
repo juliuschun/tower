@@ -31,7 +31,9 @@
 - **Claude 인증**: Max subscription (credentials 복사)
 - **기본 모델**: sonnet
 - **Pi 엔진**: 비활성 (PI_ENABLED=false)
-- **스킬 프로필**: customer-basic (core + business + docs, 26개)
+- **스킬 프로필**: managed (standalone + browser + presentation, 33개)
+- **스킬 거버넌스**: `.managed-manifest.json` + `reconcileManagedSkills` — Tower 시작 시 DB를 manifest 기준으로 자동 정합. 고객 커스텀 스킬(`source='custom'`)은 건드리지 않음.
+- **Neko 원격 브라우저**: ✅ `neko-browser` 컨테이너 :32800 → nginx `/neko/` (Tower JWT 인증 뒤). 비밀번호: `~/.tower/neko-password` (VM 고유 랜덤). 60분 idle auto-stop. `browser-live` 스킬에서 사용.
 - **PM2 프로세스**: `tower-prod` (:32364)
 - **배포 방식**: git pull origin main (GitHub SSH key 설정됨)
 - **참고 문서**: `docs/plans/2026-04-03-azure-okusystem-prod-install.md`
@@ -46,6 +48,8 @@
 
 | 날짜 | 커밋 | 주요 변경 | 비고 |
 |------|------|----------|------|
+| 2026-04-17 | *(인프라)* | Neko 원격 브라우저 인프라 자동 설치 | `setup-neko.sh` 실행 → Docker + neko-browser 컨테이너 + nginx `/neko/` + `/internal/auth` 주입. `browser-live` 스킬 정상 동작 가능 |
+| 2026-04-17 | `70be3c69` | `reconcileManagedSkills` 첫 적용 (80→33 정합) | managed 모드 정식 진입. DB 레거시 47개 자동 삭제. `.managed-manifest.json` 기준 DB↔disk 동기화 자동화 |
 | 2026-04-13 | `3529b7fa` | Publishing Hub 제거→Backend 통합, TOWER_ROLE config, customer-servers.md, prefetch 최적화, font size, Proactive Agent/Inbox UX | Hub 의존성 완전 제거. "Hub not reachable" 에러 해소 |
 | 2026-04-13 | `9fdca6bb` | UI polish, turn badge read system, font size 설정, 스트리밍 스크롤 개선, Proactive Agent/Inbox UX | npm install + build + PM2 restart 정상 |
 | 2026-04-12 | `b3795f58` | Proactive Inbox UX, Proactive Agent, 스트리밍 스크롤 개선, turn-phase 모델, i18n 인프라, Usage 패널, local-engine, update coordinator | 대규모 업데이트. 126 files changed (+9422 -1511). DB 마이그레이션 2개 (021, 022) 포함 |
@@ -120,12 +124,18 @@ ssh toweradmin@<IP> "pm2 restart tower-prod --update-env"
 
 ## 신규 고객 추가 체크리스트
 
-1. [ ] `docs/azure-customer-deployment-runbook.md` 따라 VM 생성 + 프로비저닝
+1. [ ] `docs/azure-customer-deployment-runbook.md` 따라 VM 생성 + 프로비저닝 (`bootstrap-prod.sh --tier managed` 권장 → Neko까지 자동 설치)
 2. [ ] 이 문서 **서버 레지스트리**에 행 추가
-3. [ ] `~/.claude/skills/library/library.yaml` → `customers:` 섹션에 등록
-4. [ ] 스킬 배포: `deploy-profile.sh --customer <name>`
+3. [ ] `~/.claude/skills/library/library.yaml` → `customers:` 섹션에 등록 (`profile: managed`)
+4. [ ] 스킬 배포: `deploy-profile.sh --customer <name>` (배포 끝에 Neko 헬스체크 자동 실행)
 5. [ ] SSL 인증서 만료일 확인 & 캘린더 등록
 6. [ ] 첫 배포 이력을 **배포 이력** 섹션에 기록
+
+**기존 managed VM에 Neko만 덧붙이기 (뒤늦은 업그레이드):**
+```bash
+rsync -az tower/scripts/azure/setup-neko.sh toweradmin@<IP>:/tmp/
+ssh toweradmin@<IP> 'bash /tmp/setup-neko.sh --domain <FQDN>'
+```
 
 ---
 

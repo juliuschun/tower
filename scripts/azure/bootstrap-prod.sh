@@ -72,7 +72,7 @@ SSL_MODE="cloudflare"
 CERTBOT_EMAIL=""
 SKIP_NGINX="false"
 SKIP_BUILD="false"
-TIER="recommended"  # essential | recommended | full
+TIER="recommended"  # essential | recommended | full | managed
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -100,7 +100,7 @@ Optional:
   --port <port>                  Default: 32364
   --ssl-mode <cloudflare|certbot|none>  Default: cloudflare
   --certbot-email <email>        Required when --ssl-mode certbot
-  --tier <essential|recommended|full>   Default: recommended
+  --tier <essential|recommended|full|managed>   Default: recommended
   --skip-nginx                   Skip nginx configuration
   --skip-build                   Skip npm build + prod-start
 
@@ -108,6 +108,7 @@ Tiers:
   essential    — Node, PM2, Claude CLI, nginx (minimum to run Tower)
   recommended  — + Chromium, Playwright, Python3 pip, cron jobs (default)
   full         — + Docker, yq, htop, all monitoring tools
+  managed      — = full + Neko remote browser (our-operated customer VMs)
 
 Secrets / optional env vars:
   ANTHROPIC_API_KEY
@@ -407,7 +408,7 @@ fi
 # =========================================================================
 # Tier 3: Full — Docker, extra tooling
 # =========================================================================
-if [[ "$TIER" == "full" ]]; then
+if [[ "$TIER" == "full" || "$TIER" == "managed" ]]; then
   info "=== Tier 3: Full extras ==="
 
   # --- Docker ---
@@ -437,6 +438,21 @@ if [[ "$TIER" == "full" ]]; then
   if ! command -v htop >/dev/null 2>&1; then
     info "Installing htop"
     sudo apt install -y htop
+  fi
+fi
+
+# =========================================================================
+# Tier 4: Managed — Neko remote browser (for our-operated customer VMs)
+# Runs after nginx + Docker are in place. Idempotent.
+# =========================================================================
+if [[ "$TIER" == "managed" ]]; then
+  info "=== Tier 4: Managed extras (Neko) ==="
+  SETUP_NEKO="$APP_DIR/scripts/azure/setup-neko.sh"
+  if [[ -x "$SETUP_NEKO" ]]; then
+    bash "$SETUP_NEKO" --domain "$DOMAIN" --tower-port "$PORT" \
+      || warn "setup-neko.sh exited non-zero — check logs and re-run manually"
+  else
+    warn "setup-neko.sh missing at $SETUP_NEKO — skipping. Run manually after repo update."
   fi
 fi
 

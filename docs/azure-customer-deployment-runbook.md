@@ -267,27 +267,56 @@ bash ~/.claude/skills/library/deploy-profile.sh customer-basic $VM_USER@$VM_IP
 ssh $VM_USER@$VM_IP 'cd ~/tower && pm2 restart tower-prod --update-env'
 ```
 
-**프로필 선택 기준:**
+**프로필 선택 기준 (2026-04-17 재설계):**
 
-| 프로필 | 스킬 수 | 대상 | 포함 태그 |
-|--------|---------|------|-----------|
-| core | 9 | 모든 고객 | 기획, 검색, 메모리 |
-| customer-basic | 26 | 비개발 고객 (건설, 제조 등) | core + 비즈니스 + 문서 |
-| customer-full | 33 | 기술력 있는 고객 | basic + 개발 도구 |
-| internal | 40 | Moat AI 내부 | 전체 |
+| 프로필 | 스킬 수 | 대상 | 설명 |
+|--------|---------|------|------|
+| standalone | 31 | 고객 자체 운영 | core + business + docs, 인프라 의존 없음 |
+| managed | 33 | **우리가 운영하는 고객 VM** | standalone + browser + presentation (Neko 전제) |
+| full | 63 | Moat AI 내부 | 전체 |
 
 **새 고객 등록:**
 `~/.claude/skills/library/library.yaml` → `customers:` 섹션에 추가:
 ```yaml
 customers:
   new-customer:
-    profile: customer-basic
+    profile: managed        # 우리 관리 VM이면 managed
     ssh: toweradmin@<IP>
     domain: new-customer.moatai.app
+    team_name: 새고객사
 ```
 
 **스킬 업데이트 시:**
-소스 서버(moatai.app)에서 스킬을 수정한 후, `deploy-profile.sh --customer <name>`을 다시 실행하면 rsync로 변경분만 동기화된다.
+소스 서버(moatai.app)에서 스킬을 수정한 후, `deploy-profile.sh --customer <name>`을 다시 실행하면 rsync로 변경분만 동기화된다. 배포 후 자동으로 pm2 재시작 → `reconcileManagedSkills` 가 DB를 manifest 기준으로 정합한다.
+
+### Phase 10b: Neko 원격 브라우저 인프라 (managed 프로필 전용)
+
+`managed` 프로필에는 `browser-live` 스킬이 포함되어 있다. 이 스킬은 VM에 Docker + Neko 컨테이너 + nginx `/neko/` location이 있어야 동작한다.
+
+**자동 설치 — `bootstrap-prod.sh --tier managed` 로 신규 배포하면 이 단계는 자동 실행된다.** 기존 VM에 뒤늦게 추가하려면 수동 실행:
+
+```bash
+# 저장소에서 스크립트 전송
+rsync -az tower/scripts/azure/setup-neko.sh $VM_USER@$VM_IP:/tmp/setup-neko.sh
+
+# 실행 (Docker 설치 + Neko 이미지 pull + nginx 수정, 첫 실행 2~3분)
+ssh $VM_USER@$VM_IP 'bash /tmp/setup-neko.sh --domain <FQDN>'
+```
+
+**설치 결과:**
+- Docker + `neko-browser` 컨테이너 (:32800 로컬 바인딩, 60분 idle 후 자동 정지)
+- `~/.tower/neko-password` — VM별 랜덤 16자 관리자 비밀번호 (chmod 600)
+- `~/.claude/scripts/neko-start.sh`, `neko-stop.sh` — managed 변형(비밀번호 파일 읽음)
+- nginx 사이트 conf에 `/internal/auth` + `/neko/` location 자동 주입 (Tower JWT 뒤로 보호)
+- 기존 conf는 `<site>.pre-neko.bak` 로 백업
+
+**검증:**
+```bash
+ssh $VM_USER@$VM_IP 'docker ps --filter name=neko-browser --format "{{.Status}}"'
+curl -s -o /dev/null -w "%{http_code}" https://<FQDN>/neko/     # 200 또는 302(로그인 필요)
+```
+
+`deploy-profile.sh --customer <name>` 은 managed 프로필 배포 후 자동으로 Neko 상태를 점검하고, 컨테이너가 없으면 경고한다.
 
 ### Phase 11: 초기 데이터 정돈
 
