@@ -291,7 +291,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             className="flex-1 min-w-0 h-[20px] bg-surface-700 text-gray-100 text-[13px] px-1.5 py-0 rounded border border-surface-600 outline-none focus:border-primary-500"
           />
         ) : (
-          <span className={`flex-1 min-w-0 truncate leading-[20px] ${isOwnUnread ? 'font-bold text-gray-100' : 'font-medium'}`} title={session.name}>
+          <span className={`flex-auto min-w-0 truncate leading-[20px] ${isOwnUnread ? 'font-bold text-gray-100' : 'font-medium'}`} title={session.name}>
             {/* Private lock icon (prefix) — only shown for private sessions in a project */}
             {session.projectId && session.visibility === 'private' && (
               <svg className="inline-block w-3 h-3 mr-1 text-surface-600 align-middle" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -324,8 +324,8 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
             toggle via opacity only to prevent layout shift / jitter.
             Uses JS isHovered (not CSS group-hover) for touch/remote-desktop compat. */}
         {!editing && (
-          <div className="relative shrink-0 flex items-center">
-            <span className={`text-[10px] text-surface-700 flex items-center gap-1 transition-opacity duration-150 ${isHovered ? 'opacity-0' : 'opacity-100'}`}>
+          <div className="relative shrink min-w-0 flex items-center" style={{ flex: '0 10 auto' }}>
+            <span className={`text-[10px] text-surface-700 flex items-center gap-1 min-w-0 transition-opacity duration-150 ${isHovered ? 'opacity-0' : 'opacity-100'}`}>
               {isStreaming ? (
                 <span className="text-[9px] font-semibold text-green-400 bg-green-400/10 border border-green-400/20 rounded px-1 py-0.5 leading-none animate-pulse">
                   {turnPhase === 'awaiting_user' ? 'ask' : turnPhase === 'compacting' ? 'pack' : 'run'}{queueCount > 0 ? ` +${queueCount}` : ''}
@@ -348,7 +348,7 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
                 </span>
               ) : null}
               {session.projectId && session.ownerUsername && currentUsername && session.ownerUsername !== currentUsername
-                ? <>{session.ownerUsername} · {relativeTime(session.updatedAt)}</>
+                ? <><span className="truncate min-w-[2ch]" title={session.ownerUsername}>{session.ownerUsername.split('@')[0]}</span><span className="shrink-0 whitespace-nowrap"> · {relativeTime(session.updatedAt)}</span></>
                 : <>{relativeTime(session.updatedAt)}</>
               }
               {session.userTurnCount && session.userTurnCount > 0 ? (
