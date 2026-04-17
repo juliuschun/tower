@@ -39,6 +39,116 @@ export interface GatewayPublishResult {
  *   2. POST multipart/form-data to PUBLISH_GATEWAY_URL
  *   3. Return the gateway's response (deploy result)
  */
+// ── Gateway Status Check (with cache) ──
+
+export interface GatewayStatus {
+  connected: boolean;
+  customer?: string;
+  profile?: string;
+  quotas?: {
+    sites: { used: number; limit: number };
+    apps: { used: number; limit: number };
+  };
+  lastDeploy?: {
+    name: string;
+    type: string;
+    url?: string;
+    at: string;
+    durationMs?: number;
+  } | null;
+  deploys?: Array<{
+    name: string;
+    type: string;
+    target?: string;
+    url?: string;
+    at: string;
+    durationMs?: number;
+  }>;
+  gatewayVersion?: string;
+  checkedAt: string;
+  error?: string;
+  latencyMs?: number;
+}
+
+let _statusCache: GatewayStatus | null = null;
+let _statusCacheTime = 0;
+const STATUS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Check gateway connectivity and fetch this customer's status.
+ * Results are cached for 5 minutes unless force=true.
+ */
+export async function checkGatewayStatus(force = false): Promise<GatewayStatus> {
+  const now = Date.now();
+  if (!force && _statusCache && (now - _statusCacheTime) < STATUS_CACHE_TTL) {
+    return _statusCache;
+  }
+
+  const { publishGatewayUrl, publishApiKey } = config;
+
+  if (!publishGatewayUrl || !publishApiKey) {
+    const result: GatewayStatus = {
+      connected: false,
+      checkedAt: new Date().toISOString(),
+      error: !publishGatewayUrl ? 'PUBLISH_GATEWAY_URL not configured' : 'PUBLISH_API_KEY not configured',
+    };
+    _statusCache = result;
+    _statusCacheTime = now;
+    return result;
+  }
+
+  // Derive /status URL from the publish URL (replace /publish with /status)
+  const statusUrl = publishGatewayUrl.replace(/\/publish$/, '/status');
+
+  const start = Date.now();
+  try {
+    const response = await fetch(statusUrl, {
+      method: 'GET',
+      headers: { 'X-Customer-Key': publishApiKey },
+      signal: AbortSignal.timeout(5000), // 5s timeout
+    });
+
+    const latencyMs = Date.now() - start;
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      const result: GatewayStatus = {
+        connected: false,
+        checkedAt: new Date().toISOString(),
+        latencyMs,
+        error: response.status === 401 || response.status === 403
+          ? 'API key invalid or revoked'
+          : `Gateway returned ${response.status}: ${errText.slice(0, 200)}`,
+      };
+      _statusCache = result;
+      _statusCacheTime = now;
+      return result;
+    }
+
+    const data = await response.json();
+    const result: GatewayStatus = { ...data, latencyMs };
+    _statusCache = result;
+    _statusCacheTime = now;
+    return result;
+
+  } catch (err: any) {
+    const latencyMs = Date.now() - start;
+    const result: GatewayStatus = {
+      connected: false,
+      checkedAt: new Date().toISOString(),
+      latencyMs,
+      error: err.name === 'TimeoutError' || err.name === 'AbortError'
+        ? 'Gateway unreachable (timeout 5s)'
+        : `Connection failed: ${err.message}`,
+    };
+    _statusCache = result;
+    _statusCacheTime = now;
+    return result;
+  }
+}
+
+// ── Gateway Publish ──
+
 export async function publishViaGateway(opts: GatewayPublishOptions): Promise<GatewayPublishResult> {
   const { publishGatewayUrl, publishApiKey } = config;
 

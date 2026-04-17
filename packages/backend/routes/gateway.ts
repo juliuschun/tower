@@ -186,6 +186,79 @@ router.post('/publish', gatewayUpload.single('file'), gatewayKeyAuth, async (req
   }
 });
 
+/**
+ * GET /api/gateway/status
+ *
+ * Customer-facing status check. Returns this customer's quota usage,
+ * last deploy info, and gateway version. Used by managed VMs to show
+ * real-time gateway connectivity in their UI.
+ *
+ * Auth: X-Customer-Key header (same as /publish)
+ */
+router.get('/status', gatewayKeyAuth, async (req: Request, res: Response) => {
+  const customer: GatewayCustomer = (req as any).gatewayCustomer;
+
+  try {
+    // Count deployments by type
+    const siteDeploys = await queryOne<{ count: string }>(
+      `SELECT COUNT(DISTINCT deploy_name) as count FROM gateway_deploy_log
+       WHERE customer_id = $1 AND success = true AND deploy_type = 'static'`,
+      [customer.id],
+    );
+    const appDeploys = await queryOne<{ count: string }>(
+      `SELECT COUNT(DISTINCT deploy_name) as count FROM gateway_deploy_log
+       WHERE customer_id = $1 AND success = true AND deploy_type != 'static'`,
+      [customer.id],
+    );
+
+    // Fetch all successful deploys (latest record per deploy_name)
+    const deploys = await query<{
+      deploy_name: string;
+      deploy_type: string;
+      deploy_target: string;
+      result_url: string;
+      created_at: string;
+      duration_ms: number;
+    }>(
+      `SELECT DISTINCT ON (deploy_name)
+         deploy_name, deploy_type, deploy_target, result_url, created_at, duration_ms
+       FROM gateway_deploy_log
+       WHERE customer_id = $1 AND success = true
+       ORDER BY deploy_name, created_at DESC`,
+      [customer.id],
+    );
+
+    const deployList = (deploys || []).map(d => ({
+      name: d.deploy_name,
+      type: d.deploy_type,
+      target: d.deploy_target,
+      url: d.result_url,
+      at: d.created_at,
+      durationMs: d.duration_ms,
+    }));
+    // Sort by most recent
+    deployList.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    const lastDeploy = deployList[0] || null;
+
+    res.json({
+      connected: true,
+      customer: customer.customer_name,
+      profile: customer.profile,
+      quotas: {
+        sites: { used: parseInt(siteDeploys?.count || '0'), limit: customer.quota_sites },
+        apps: { used: parseInt(appDeploys?.count || '0'), limit: customer.quota_apps },
+      },
+      lastDeploy,
+      deploys: deployList,
+      gatewayVersion: '1.0.0',
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[gateway] Status check error:', err);
+    res.status(500).json({ error: 'Failed to fetch gateway status' });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // Admin endpoints (Tower admin auth)
 // ══════════════════════════════════════════════════════

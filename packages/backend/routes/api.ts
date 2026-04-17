@@ -3916,7 +3916,7 @@ router.get('/help/:slug', async (req, res) => {
 
 // ───── Publishing & Deploy Engine ─────
 import { deploy, listDeployments, deleteDeployment, detectCodeType, getPublishStatus, getTrafficStats } from '../services/deploy-engine.js';
-import { publishViaGateway } from '../services/publish-client.js';
+import { publishViaGateway, checkGatewayStatus } from '../services/publish-client.js';
 
 // Publish status (replaces Hub /health) — returns sites/apps with live status checks
 router.get('/publish/status', authMiddleware, async (_req, res) => {
@@ -3949,6 +3949,20 @@ router.get('/publish/info', authMiddleware, async (_req, res) => {
     info.gatewayEnabled = true;
   }
   res.json(info);
+});
+
+// Gateway status for managed VMs — pings the central gateway and returns connectivity + quota info
+router.get('/publish/gateway-status', authMiddleware, async (req, res) => {
+  if (config.towerRole !== 'managed') {
+    return res.json({ connected: false, error: 'Not a managed server', checkedAt: new Date().toISOString() });
+  }
+  try {
+    const force = req.query.force === 'true';
+    const status = await checkGatewayStatus(force);
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ connected: false, error: err.message, checkedAt: new Date().toISOString() });
+  }
 });
 
 // Detect code type for a directory

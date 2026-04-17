@@ -36,6 +36,35 @@ interface PublishInfo {
   gatewayEnabled?: boolean;
 }
 
+interface GatewayStatus {
+  connected: boolean;
+  customer?: string;
+  profile?: string;
+  quotas?: {
+    sites: { used: number; limit: number };
+    apps: { used: number; limit: number };
+  };
+  lastDeploy?: {
+    name: string;
+    type: string;
+    url?: string;
+    at: string;
+    durationMs?: number;
+  } | null;
+  deploys?: Array<{
+    name: string;
+    type: string;
+    target?: string;
+    url?: string;
+    at: string;
+    durationMs?: number;
+  }>;
+  gatewayVersion?: string;
+  checkedAt: string;
+  error?: string;
+  latencyMs?: number;
+}
+
 interface PublishPanelProps {
   open: boolean;
   onClose: () => void;
@@ -52,6 +81,8 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'overview' | 'traffic'>('overview');
   const [publishInfo, setPublishInfo] = useState<PublishInfo | null>(null);
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus | null>(null);
+  const [gwLoading, setGwLoading] = useState(false);
 
   const authHeaders = (): Record<string, string> => {
     const token = localStorage.getItem('token');
@@ -76,7 +107,16 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
       setSites(health.sites || []);
       setApps(health.apps || []);
       setTraffic(stats || []);
-      if (info) setPublishInfo(info);
+      if (info) {
+        setPublishInfo(info);
+        // Fetch gateway status for managed servers
+        if (info.role === 'managed') {
+          fetch('/api/publish/gateway-status', { headers })
+            .then(r => r.ok ? r.json() : null)
+            .then(gs => { if (gs) setGatewayStatus(gs); })
+            .catch(() => {});
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load publish status');
     } finally {
@@ -97,9 +137,39 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
 
   if (!open) return null;
 
-  const totalSites = sites.length;
-  const totalApps = apps.length;
-  const appsUp = apps.filter(a => a.status === 'up').length;
+  // Merge gateway deploys into local sites/apps lists (managed mode only)
+  // Gateway deploys are prefixed with "<customer>--" on the gateway side; strip for display
+  const customerPrefix = gatewayStatus?.customer ? `${gatewayStatus.customer}--` : '';
+  const gatewaySites = (gatewayStatus?.deploys || [])
+    .filter(d => d.type === 'static')
+    .filter(d => !sites.some(s => s.name === d.name || s.name === d.name.replace(customerPrefix, '')))
+    .map<Site>(d => ({
+      name: d.name.replace(customerPrefix, ''),
+      description: `Gateway 배포 · ${d.target || 'cloudflare-pages'}`,
+      access: 'public',
+      created_at: d.at,
+      status: 'live',
+      deploy_target: d.target,
+      external_url: d.url,
+    }));
+  const gatewayApps = (gatewayStatus?.deploys || [])
+    .filter(d => d.type !== 'static')
+    .filter(d => !apps.some(a => a.name === d.name || a.name === d.name.replace(customerPrefix, '')))
+    .map<App>(d => ({
+      name: d.name.replace(customerPrefix, ''),
+      description: `Gateway 배포 · ${d.target || 'azure-container-apps'}`,
+      access: 'public',
+      created_at: d.at,
+      status: 'external',
+      deploy_target: d.target,
+      external_url: d.url,
+    }));
+
+  const allSites = [...sites, ...gatewaySites];
+  const allApps = [...apps, ...gatewayApps];
+  const totalSites = allSites.length;
+  const totalApps = allApps.length;
+  const appsUp = allApps.filter(a => a.status === 'up' || a.status === 'external').length;
 
   const statusDot = (status?: string) => {
     const colors: Record<string, string> = {
@@ -190,22 +260,98 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
           </div>
         </div>
 
-        {/* Role banner */}
+        {/* Role banner — managed mode with live gateway status */}
         {publishInfo?.role === 'managed' && (
-          <div className="mx-5 mt-3 px-3 py-2 bg-sky-500/10 border border-sky-500/20 rounded-lg flex items-center gap-2">
-            <svg className="w-4 h-4 text-sky-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-            </svg>
-            <div className="flex-1">
-              <p className="text-[11px] text-sky-300">Managed Service</p>
-              <p className="text-[10px] text-sky-400/60">
-                {publishInfo.gatewayConfigured
-                  ? '외부 배포는 Moat AI Gateway를 통해 처리됩니다.'
-                  : 'Gateway 연결이 설정되지 않았습니다. 관리자에게 문의하세요.'}
-              </p>
+          <div className={`mx-5 mt-3 px-3 py-2.5 rounded-lg border ${
+            gatewayStatus?.connected
+              ? 'bg-sky-500/10 border-sky-500/20'
+              : gatewayStatus?.error
+                ? 'bg-red-500/10 border-red-500/20'
+                : 'bg-neutral-800/50 border-neutral-700'
+          }`}>
+            <div className="flex items-center gap-2">
+              <svg className={`w-4 h-4 shrink-0 ${gatewayStatus?.connected ? 'text-sky-400' : gatewayStatus?.error ? 'text-red-400' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className={`text-[11px] font-medium ${gatewayStatus?.connected ? 'text-sky-300' : gatewayStatus?.error ? 'text-red-300' : 'text-gray-400'}`}>
+                    Managed Service
+                  </p>
+                  {gatewayStatus ? (
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                      gatewayStatus.connected
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-red-500/15 text-red-400 border border-red-500/30'
+                    }`}>
+                      {gatewayStatus.connected ? '연결됨' : '연결 끊김'}
+                    </span>
+                  ) : !publishInfo.gatewayConfigured ? (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">미설정</span>
+                  ) : null}
+                  {gatewayStatus?.latencyMs !== undefined && gatewayStatus.connected && (
+                    <span className="text-[9px] text-gray-600">{gatewayStatus.latencyMs}ms</span>
+                  )}
+                </div>
+                {gatewayStatus?.error && (
+                  <p className="text-[10px] text-red-400/70 mt-0.5 truncate">{gatewayStatus.error}</p>
+                )}
+                {!gatewayStatus && !publishInfo.gatewayConfigured && (
+                  <p className="text-[10px] text-amber-400/60 mt-0.5">Gateway 연결이 설정되지 않았습니다. 관리자에게 문의하세요.</p>
+                )}
+              </div>
+              {publishInfo.gatewayConfigured && (
+                <button
+                  onClick={async () => {
+                    setGwLoading(true);
+                    try {
+                      const headers = authHeaders();
+                      const r = await fetch('/api/publish/gateway-status?force=true', { headers });
+                      if (r.ok) setGatewayStatus(await r.json());
+                    } catch {}
+                    setGwLoading(false);
+                  }}
+                  disabled={gwLoading}
+                  className="p-1 text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40"
+                  title="Gateway 상태 확인"
+                >
+                  <svg className={`w-3.5 h-3.5 ${gwLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              )}
             </div>
-            {publishInfo.gatewayConfigured && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">연결됨</span>
+
+            {/* Quota & last deploy details — only when connected */}
+            {gatewayStatus?.connected && gatewayStatus.quotas && (
+              <div className="flex items-center gap-3 mt-2 pt-2 border-t border-sky-500/10">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-gray-500">Sites</span>
+                  <span className="text-[11px] font-medium text-sky-300">
+                    {gatewayStatus.quotas.sites.used}/{gatewayStatus.quotas.sites.limit}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-gray-500">Apps</span>
+                  <span className="text-[11px] font-medium text-sky-300">
+                    {gatewayStatus.quotas.apps.used}/{gatewayStatus.quotas.apps.limit}
+                  </span>
+                </div>
+                {gatewayStatus.lastDeploy && (
+                  <>
+                    <div className="w-px h-3 bg-sky-500/20" />
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[10px] text-gray-500">최근 배포</span>
+                      <span className="text-[10px] text-sky-400/80 truncate">
+                        {gatewayStatus.lastDeploy.name}
+                      </span>
+                      <span className="text-[9px] text-gray-600 shrink-0">
+                        {new Date(gatewayStatus.lastDeploy.at).toLocaleDateString('ko-KR')}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -243,14 +389,15 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                   <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Sites</span>
                   <span className="text-[10px] text-gray-600">Static HTML / Files</span>
                 </div>
-                {sites.length === 0 ? (
+                {allSites.length === 0 ? (
                   <div className="text-center py-8 text-[12px] text-gray-600 border border-dashed border-neutral-800 rounded-lg">
                     No sites published yet. Ask Tower to create one!
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {sites.map(s => {
+                    {allSites.map(s => {
                       const siteUrl = s.external_url || `http://${PUBLIC_HOST}/sites/${s.name}/`;
+                      const isGateway = s.description?.startsWith('Gateway 배포');
                       return (
                       <a
                         key={s.name}
@@ -264,10 +411,17 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                           <div className="flex items-center gap-2">
                             <span className="text-[13px] font-medium text-gray-200 group-hover:text-white truncate">{s.name}</span>
                             {accessBadge(s.access)}
+                            {isGateway && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30">GW</span>
+                            )}
                           </div>
                           <p className="text-[11px] text-gray-500 truncate mt-0.5">{s.description || 'No description'}</p>
                           <div className="flex gap-3 mt-1.5 text-[10px] text-gray-600">
-                            <span>{s.files ?? '?'} files</span>
+                            {isGateway ? (
+                              <span className="text-sky-500">☁️ {s.deploy_target === 'azure-container-apps' ? 'Azure' : 'CF Pages'}</span>
+                            ) : (
+                              <span>{s.files ?? '?'} files</span>
+                            )}
                             {s.created_at && <span>{new Date(s.created_at).toLocaleDateString('ko-KR')}</span>}
                           </div>
                         </div>
@@ -287,15 +441,16 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                   <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Apps</span>
                   <span className="text-[10px] text-gray-600">Dynamic Services</span>
                 </div>
-                {apps.length === 0 ? (
+                {allApps.length === 0 ? (
                   <div className="text-center py-8 text-[12px] text-gray-600 border border-dashed border-neutral-800 rounded-lg">
                     No apps running yet.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {apps.map(a => {
+                    {allApps.map(a => {
                       const appUrl = a.external_url || `http://${PUBLIC_HOST}${a.path || '/apps/' + a.name + '/'}`;
                       const isExternal = !!a.external_url;
+                      const isGateway = a.description?.startsWith('Gateway 배포');
                       return (
                       <a
                         key={a.name}
@@ -309,6 +464,9 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                           <div className="flex items-center gap-2">
                             <span className="text-[13px] font-medium text-gray-200 group-hover:text-white truncate">{a.name}</span>
                             {accessBadge(a.access)}
+                            {isGateway && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30">GW</span>
+                            )}
                           </div>
                           <p className="text-[11px] text-gray-500 truncate mt-0.5">{a.description || 'No description'}</p>
                           <div className="flex gap-3 mt-1.5 text-[10px] text-gray-600">
@@ -317,7 +475,7 @@ export function PublishPanel({ open, onClose }: PublishPanelProps) {
                             ) : (
                               <span>port {a.port}</span>
                             )}
-                            <span className={a.status === 'up' ? 'text-emerald-500' : 'text-red-400'}>{a.status}</span>
+                            <span className={a.status === 'up' ? 'text-emerald-500' : a.status === 'external' ? 'text-sky-400' : 'text-red-400'}>{a.status}</span>
                             {a.statusCode && <span>HTTP {a.statusCode}</span>}
                           </div>
                         </div>
