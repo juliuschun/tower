@@ -234,7 +234,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
             ws.send(JSON.stringify({ type: 'check_session_status', sessionId: sid }));
           }
         }
-      }, 120_000); // 2 minutes
+      }, 10_000); // 10 seconds — fast recovery from stale streaming state
     }
 
     return () => {
@@ -337,6 +337,13 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     if (isCurrentSessionStreaming) {
       useChatStore.getState().markLatestUserQueued(message);
       useChatStore.getState().enqueueMessage(sid, message);
+      // Immediately ask server to confirm streaming state — if it's stale,
+      // server will send session_status:idle and the queue will auto-drain.
+      // This is much faster than the 2-minute stale guard.
+      const ws = (window as any).__claudeWs as WebSocket | undefined;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'check_session_status', sessionId: sid }));
+      }
     } else {
       lastSentRef.current = message;   // track for SESSION_BUSY re-queuing
       onSend(message);

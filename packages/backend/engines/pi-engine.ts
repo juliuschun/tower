@@ -258,14 +258,20 @@ export class PiEngine implements Engine {
 
           if (msg?.role === 'assistant' && Array.isArray(msg.content)) {
             const finalContent = agentMessageToTowerBlocks(msg);
-            accumulator.replaceAll(finalContent);
+            // Only replace if the new content is non-empty.
+            // GPT models sometimes emit an empty final assistant message after tool use,
+            // and replaceAll([]) would wipe the previous tool-use blocks from the accumulator.
+            if (finalContent.length > 0) {
+              accumulator.replaceAll(finalContent);
+            }
+            const contentToSave = finalContent.length > 0 ? finalContent : accumulator.toTowerBlocks();
             if (!assistantSaved) {
-              callbacks.saveMessage({ id: msgId, role: 'assistant', content: finalContent });
+              callbacks.saveMessage({ id: msgId, role: 'assistant', content: contentToSave });
               assistantSaved = true;
             } else {
-              callbacks.updateMessageContent(msgId, finalContent);
+              callbacks.updateMessageContent(msgId, contentToSave);
             }
-            eventQueue.push({ type: 'assistant', sessionId, msgId, content: finalContent });
+            eventQueue.push({ type: 'assistant', sessionId, msgId, content: contentToSave });
           }
 
           if (usage) {
