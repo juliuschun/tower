@@ -537,20 +537,21 @@ export function useClaudeChat() {
             mergeMessagesFromDb(data.sessionId);
           }
         } else {
-          // Switching to a non-streaming session — reset streaming state
-          // so InputBox doesn't show queue mode / stop button for this session.
-          // Guard: only reset if we haven't already started streaming from a queue drain.
-          // The ack reflects server state at request time which may be stale — our local
-          // state (from messages sent after the request) takes precedence.
-          if (!useChatStore.getState().isStreaming) {
-            useChatStore.getState().setTurnStartTime(null);
-            if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
-          }
-          // Fix stuck "running" indicator: if the server confirms this session is idle,
-          // clear it from streamingSessions so the sidebar and InputBox agree.
-          // This handles cases where session_status:idle was missed (WS hiccup).
-          // Guard: only clear if we haven't started a new streaming turn since the request.
-          if (data.sessionId && !useChatStore.getState().isStreaming) {
+          // Switching to a non-streaming session — force-clear streaming state.
+          // The server is authoritative: if it says this session is idle, trust it.
+          // Previous guard (`!isStreaming`) caused a permanent stuck-streaming bug:
+          //   1. Session A streams → isStreaming=true → user switches away
+          //   2. Session A finishes → session_status:idle ignored (different currentSid)
+          //   3. User returns to A → ack says idle, but guard sees isStreaming=true → skips reset
+          //   4. isStreaming stuck forever — user can't send messages.
+          // Fix: always reset when switching TO an idle session. If a queue-drain
+          // started streaming between the switch request and this ack, the streaming
+          // session_status event will re-set isStreaming=true immediately.
+          useChatStore.getState().setStreaming(false);
+          useChatStore.getState().setTurnStartTime(null);
+          if (data.sessionId) useChatStore.getState().setTurnPhase(data.sessionId, 'idle', { pendingMessageCount: 0 });
+          // Fix stuck sidebar indicator too
+          if (data.sessionId) {
             useSessionStore.getState().setSessionStreaming(data.sessionId, false);
           }
         }
@@ -1012,7 +1013,12 @@ export function useClaudeChat() {
           }
         }
 
-        // Ignore done signals for sessions we're not currently viewing
+        // For background sessions: still clear sidebar streaming indicator
+        // even if we don't process the full finishTurn for the chat panel.
+        if (data.sessionId) {
+          useSessionStore.getState().setSessionStreaming(data.sessionId, false);
+        }
+
         const _doneSid = useChatStore.getState().sessionId;
         if (shouldDropSessionMessage(_doneSid, data.sessionId)) return;
 
