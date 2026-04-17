@@ -117,8 +117,10 @@ describe('Pi engine — source contracts', () => {
     const src = readSource(PI_ENGINE_PATH);
     expect(src).toMatch(/agentMessageToTowerBlocks/);
     expect(src).toMatch(/message_end[\s\S]*?accumulator\.replaceAll\(finalContent\)/);
-    expect(src).toMatch(/message_end[\s\S]*?updateMessageContent\(msgId, finalContent\)/);
-    expect(src).toMatch(/message_end[\s\S]*?type: 'assistant'[\s\S]*?content: finalContent/);
+    // We use `contentToSave` (fallback to accumulator when finalContent is empty)
+    // to preserve tool-use blocks when GPT models emit an empty trailing message.
+    expect(src).toMatch(/message_end[\s\S]*?updateMessageContent\(msgId, contentToSave\)/);
+    expect(src).toMatch(/message_end[\s\S]*?type: 'assistant'[\s\S]*?content: contentToSave/);
   });
 });
 
