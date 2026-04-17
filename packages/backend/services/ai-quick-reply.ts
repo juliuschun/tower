@@ -247,42 +247,73 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
 
       // 5b. Try persistent channelReply (with resume), fall back to quickReply
       if (engine.channelReply) {
-        const result = await engine.channelReply(fullPrompt, {
-          model: modelId,
-          systemPrompt,
-          cwd: projectRootPath,  // SDK loads CLAUDE.md/AGENTS.md from project folder
-          resumeSessionId: resumeSessionId || undefined,
-          // maxTurns intentionally unset — @ai is a persistent channel partner.
-          // SDK auto-compacts when the context window fills, so long sessions survive.
-          onChunk: (chunk, content) => {
-            streamedContent = content;
-            broadcastToRoom(roomId, {
-              type: 'room_ai_stream',
-              roomId,
-              messageId: replyId,
-              chunk,
-              content,
-            });
-          },
-          onToolUse: (toolName) => {
+        // Shared streaming callbacks — reused on retry
+        const onChunk = (chunk: string, content: string) => {
+          streamedContent = content;
+          broadcastToRoom(roomId, {
+            type: 'room_ai_stream',
+            roomId,
+            messageId: replyId,
+            chunk,
+            content,
+          });
+        };
+        const onToolUse = (toolName: string) => {
+          broadcastToRoom(roomId, {
+            type: 'room_ai_status',
+            roomId,
+            messageId: replyId,
+            status: toolDisplayName(toolName),
+          });
+        };
+        const onCompact = (phase: 'boundary' | 'compacting' | 'done') => {
+          if (phase === 'compacting') {
             broadcastToRoom(roomId, {
               type: 'room_ai_status',
               roomId,
               messageId: replyId,
-              status: toolDisplayName(toolName),
+              status: '🔄 컨텍스트 정리 중...',
             });
-          },
-          onCompact: (phase) => {
-            if (phase === 'compacting') {
-              broadcastToRoom(roomId, {
-                type: 'room_ai_status',
-                roomId,
-                messageId: replyId,
-                status: '🔄 컨텍스트 정리 중...',
-              });
-            }
-          },
+          }
+        };
+
+        const callChannel = (useResume: boolean) => engine.channelReply!(fullPrompt, {
+          model: modelId,
+          systemPrompt,
+          cwd: projectRootPath,  // SDK loads CLAUDE.md/AGENTS.md from project folder
+          resumeSessionId: useResume ? (resumeSessionId || undefined) : undefined,
+          // maxTurns intentionally unset — @ai is a persistent channel partner.
+          // SDK auto-compacts when the context window fills, so long sessions survive.
+          onChunk,
+          onToolUse,
+          onCompact,
         });
+
+        // Resume failure patterns — SDK couldn't find .jsonl for the saved session ID.
+        // Common causes: cwd changed between calls, .jsonl deleted, session expired.
+        const isResumeFailure = (msg: string) =>
+          /No conversation found|session.*not found|resume|exited with code/i.test(msg || '');
+
+        let result;
+        try {
+          result = await callChannel(true);
+        } catch (resumeErr: any) {
+          if (resumeSessionId && isResumeFailure(resumeErr.message || '')) {
+            console.log(`[ai-quick-reply] Resume failed (${resumeErr.message}) — clearing session and retrying fresh`);
+            const { clearChannelAiSession } = await import('./room-manager.js');
+            await clearChannelAiSession(roomId);
+            streamedContent = '';  // reset streamed content for fresh attempt
+            broadcastToRoom(roomId, {
+              type: 'room_ai_status',
+              roomId,
+              messageId: replyId,
+              status: '🔄 세션 재초기화 중...',
+            });
+            result = await callChannel(false);  // retry without resume
+          } else {
+            throw resumeErr;
+          }
+        }
 
         // 6. Save new session ID to DB for next resume
         if (result.engineSessionId) {
@@ -351,12 +382,12 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
     } catch (err: any) {
       console.error('[ai-quick-reply] Error:', err.message);
 
-      // If resume failed, try clearing session and retrying once
-      if (resumeSessionId && /resume|session.*not found|exited with code/i.test(err.message || '')) {
-        console.log(`[ai-quick-reply] Resume failed, clearing session and retrying fresh`);
+      // Defensive: if resume failure bubbled past the inner retry (shouldn't normally
+      // happen now), still clear the session so the NEXT @ai call starts fresh.
+      if (resumeSessionId && /No conversation found|resume|session.*not found|exited with code/i.test(err.message || '')) {
+        console.log(`[ai-quick-reply] Resume failure reached outer catch — clearing session for next call`);
         const { clearChannelAiSession } = await import('./room-manager.js');
         await clearChannelAiSession(roomId);
-        // Don't retry here — let the error fall through. The next @ai call will start fresh.
       }
 
       // Preserve partial content if any was streamed
