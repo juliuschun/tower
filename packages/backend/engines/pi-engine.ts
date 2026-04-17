@@ -649,6 +649,8 @@ export class PiEngine implements Engine {
     extraHeaders: Record<string, string>,
     modelId: string,
   ): Promise<string> {
+    const CHUNK_TIMEOUT_MS = 30_000; // 30s — no chunk for this long = dead stream
+
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...extraHeaders },
@@ -665,7 +667,7 @@ export class PiEngine implements Engine {
 
     if (!response.ok) {
       const errBody = await response.text();
-      throw new Error(`API error ${response.status}: ${errBody.slice(0, 200)}`);
+      throw new Error(`API error ${response.status}: ${errBody.slice(0, 500)}`);
     }
 
     const reader = response.body?.getReader();
@@ -675,28 +677,52 @@ export class PiEngine implements Engine {
     let buffer = '';
     let fullContent = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        // Race between next chunk and timeout — prevents infinite hang
+        const readPromise = reader.read();
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Pi stream timeout: no data for ${CHUNK_TIMEOUT_MS / 1000}s`)), CHUNK_TIMEOUT_MS),
+        );
+        const { done, value } = await Promise.race([readPromise, timeoutPromise]);
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === '[DONE]') continue;
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === '[DONE]') continue;
 
-        try {
-          const event = JSON.parse(jsonStr);
-          const delta = event.choices?.[0]?.delta?.content;
-          if (delta) {
-            fullContent += delta;
-            opts.onChunk(delta, fullContent);
-          }
-        } catch { /* skip */ }
+          try {
+            const event = JSON.parse(jsonStr);
+            const delta = event.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullContent += delta;
+              // Protect callback — broadcast failure must not kill the stream
+              try {
+                opts.onChunk(delta, fullContent);
+              } catch (cbErr) {
+                console.warn('[Pi] onChunk callback error (stream continues):', (cbErr as Error).message);
+              }
+            }
+          } catch { /* skip malformed SSE line */ }
+        }
       }
+    } catch (err) {
+      // Stream interrupted — log and return whatever we got so far
+      const msg = (err as Error).message || 'unknown stream error';
+      if (fullContent.length > 0) {
+        console.warn(`[Pi] Stream interrupted after ${fullContent.length} chars: ${msg}`);
+      } else {
+        // No content at all — rethrow so caller can handle (e.g. show error in channel)
+        throw new Error(`Pi stream failed: ${msg}`);
+      }
+    } finally {
+      // Always release the reader — prevents resource leaks
+      try { reader.cancel(); } catch { /* already closed */ }
     }
 
     return fullContent;
