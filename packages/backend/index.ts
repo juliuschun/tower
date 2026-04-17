@@ -15,6 +15,7 @@ import { stopFileWatcher } from './services/file-system.js';
 import { initWorkspaceRepo } from './services/git-manager.js';
 import { resumeOrphanedTaskMonitoring, hasMonitoredTasks, stopAllMonitors } from './services/task-runner.js';
 import { cleanupOrphanedSdkProcesses, stopOrphanMonitor, gracefulShutdown, consumeInterruptedSessions, type InterruptedSession } from './services/claude-sdk.js';
+import { consumeInterruptedPiSessions } from './services/pi-session-runtime.js';
 import { startUnifiedScheduler, stopUnifiedScheduler } from './services/unified-scheduler.js';
 import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/heartbeat.js';
 import { initNotificationHub } from './services/notification-hub.js';
@@ -129,7 +130,18 @@ server.listen(config.port, config.host, async () => {
   await syncCompanySkillsToFs();
 
   // Load interrupted sessions from previous shutdown (before stale cleanup)
-  const interruptedSessions = consumeInterruptedSessions();
+  // Combine Claude + Pi interrupted sessions for unified auto-resume.
+  const interruptedSessions: InterruptedSession[] = consumeInterruptedSessions();
+  const piInterruptedIds = consumeInterruptedPiSessions();
+  if (piInterruptedIds.length > 0) {
+    console.log(`[startup] Recovered ${piInterruptedIds.length} interrupted Pi session(s)`);
+    // Pi sessions store their engine session file path as claudeSessionId in DB,
+    // so we only need the Tower session ID here — serverSideResumeInterrupted()
+    // reads claudeSessionId from DB via getSession().
+    for (const id of piInterruptedIds) {
+      interruptedSessions.push({ id });
+    }
+  }
   if (interruptedSessions.length > 0) {
     // Store globally so ws-handler can check during reconnect (client-side fallback)
     (globalThis as any).__interruptedSessions = new Set(interruptedSessions.map(s => s.id));
