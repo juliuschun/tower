@@ -458,19 +458,22 @@ async function runTaskAgent(
       ? 'bypassPermissions' as const
       : 'acceptEdits' as const;
 
-    // Build system prompt for task agent (Layer 2)
-    let systemPrompt = await buildSystemPrompt({
+    // Build stable system prompt for task agent (Layer 2)
+    const systemPrompt = await buildSystemPrompt({
       username: 'task-agent',
       role: effectiveRole,
       allowedPath,
     });
 
-    // Inject room context if this is a room-triggered task
+    // Room context is dynamic and should live in the user prompt prefix,
+    // not in the system prompt, to preserve prompt-prefix caching.
+    let contextualPrompt = prompt;
+
     const currentTask = await getTask(taskId);
     if (currentTask?.roomId) {
       try {
         const { getMessages: getRoomMessages, getAiContexts, getRoom: fetchRoom } = await import('./room-manager.js');
-        const { assembleRoomContext } = await import('./room-context.js');
+        const { assembleRoomBackgroundContext } = await import('./room-context.js');
 
         const room = await fetchRoom(currentTask.roomId);
         const recentMsgs = await getRoomMessages(currentTask.roomId, { limit: 20 });
@@ -501,7 +504,7 @@ async function runTaskAgent(
             timestamp: m.createdAt,
           }));
 
-        const roomContext = assembleRoomContext({
+        const roomContext = assembleRoomBackgroundContext({
           roomName: room?.name || 'Unknown Room',
           roomDescription: room?.description || '',
           aiContextEntries: aiEntries,
@@ -510,14 +513,16 @@ async function runTaskAgent(
           config,
         });
 
-        systemPrompt = roomContext + '\n\n---\n\n' + systemPrompt;
-        console.log(`[task-runner] Room context injected for task "${title}" (room: ${room?.name})`);
+        if (roomContext) {
+          contextualPrompt = `${roomContext}\n\n[현재 요청]\n${prompt}`;
+        }
+        console.log(`[task-runner] Room context moved to prompt prefix for task "${title}" (room: ${room?.name})`);
       } catch (err: any) {
         console.error(`[task-runner] Failed to build room context for task ${taskId.slice(0, 8)}:`, err.message);
       }
     }
 
-    const generator = executeQuery(sessionId, prompt, {
+    const generator = executeQuery(sessionId, contextualPrompt, {
       cwd: agentCwd,
       permissionMode: taskPermission,
       model: model || 'claude-opus-4-7',

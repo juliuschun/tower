@@ -128,7 +128,7 @@ export function filterExpiredContexts(
 
 // ── Full Context Assembly ─────────────────────────────────────────
 
-export function assembleRoomContext(input: AssembleInput): string {
+export function assembleRoomBackgroundContext(input: AssembleInput): string {
   const { roomName, roomDescription, aiContextEntries, recentMessages, userPrompt, config } = input;
   const parts: string[] = [];
 
@@ -184,10 +184,10 @@ export function assembleRoomContext(input: AssembleInput): string {
     }
   }
 
-  // User prompt
-  parts.push('');
-  parts.push('[질문]');
-  parts.push(userPrompt);
-
   return parts.join('\n');
+}
+
+export function assembleRoomContext(input: AssembleInput): string {
+  const background = assembleRoomBackgroundContext(input);
+  return [background, '', '[질문]', input.userPrompt].filter(Boolean).join('\n');
 }

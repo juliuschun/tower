@@ -224,6 +224,22 @@ describe('assembleRoomContext', () => {
     expect(result).not.toContain('이전 태스크 요약');
   });
 
+  it('builds background-only context without duplicating the current question', async () => {
+    const { assembleRoomBackgroundContext } = await import('./room-context.js');
+    const result = assembleRoomBackgroundContext({
+      roomName: '리서치팀',
+      roomDescription: 'AI 분석 채팅방',
+      aiContextEntries: [],
+      recentMessages: [],
+      userPrompt: '삼성전자 분석해줘',
+      config: defaultConfig,
+    });
+
+    expect(result).toContain('리서치팀');
+    expect(result).not.toContain('[질문]');
+    expect(result).not.toContain('삼성전자 분석해줘');
+  });
+
   it('includes Tier 1 summaries when history exists', () => {
     const result = assembleRoomContext({
       roomName: '리서치팀',
