@@ -46,3 +46,18 @@ Tower 채팅에서 코드블록으로 출력하면 자동 렌더링되는 18종 
 ## 새 포맷 추가 절차
 
 → `update-map.md` "시각화 포맷 추가 체크리스트" 참조
+
+### ⚠️ 함께 수정해야 하는 위치 (drift 방지)
+
+새 포맷을 추가하거나 기존 포맷의 필드명을 바꿀 때, 아래 위치들은 **반드시 같은 PR에서 함께** 갱신합니다. 한쪽만 고치면 AI가 새 포맷을 모르거나(프롬프트 누락) 렌더링이 실패(파서/컴포넌트 누락)합니다.
+
+1. `packages/backend/services/system-prompt.ts` → `buildCoreSystemPrompt()`의 Visualization 섹션에 스키마 + 예시 추가
+2. `packages/frontend/src/components/shared/split-dynamic-blocks.ts` → 파서에 블록 타입 감지 추가
+3. `packages/frontend/src/components/shared/RichContent.tsx` → 타입 → 컴포넌트 매핑 (React.lazy)
+4. `packages/frontend/src/components/chat/*Block.tsx` → 렌더러 구현
+5. 이 문서(`docs/tower-guide/visual-formats.md`) → 상단 카탈로그 표 갱신
+
+**자주 실수하는 지점**
+- 시스템 프롬프트(1번)만 추가하면 AI가 출력은 하지만 렌더가 안 됨 → 원본 코드블록으로 노출.
+- 렌더러(2~4번)만 추가하면 AI가 새 포맷을 알지 못해 거의 사용하지 않음.
+- 필드명 변경(예: `rows` → `data`) 시 1번과 2번을 동시에 바꿔야 기존 세션 호환이 유지됨.

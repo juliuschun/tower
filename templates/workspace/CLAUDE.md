@@ -48,15 +48,8 @@ It is *not* a code project. For code-specific rules, see each repo's own CLAUDE.
 - 동적(Python/Node): `deploy.sh <name> <폴더> --type dynamic --port 8000`
 - 로컬만: `deploy.sh <name> <폴더> --local`
 
-## Tower 제품/기능 안내
-사용자가 Tower 사용법, 기능, 시각화, 권한, 도움말 등을 물으면 필요 시 아래 문서를 읽습니다.
-- `docs/agents-reference.md`
-- `guide/tower-knowledge.md`
-- `guide/getting-started.md`
-- `guide/tips.md`
-
 ## 필요 시 추가 참고
-상세한 운영/구조/절차는 필요할 때만 아래 문서를 읽습니다.
+Tower 사용법·기능·시각화·권한 등 질문이나 상세한 운영/구조/절차가 필요할 때만 아래 문서를 읽습니다.
 - 에이전트 참고서: `docs/agents-reference.md`
 - 프로젝트별 진행/결정: `.project/progress.md`, `.project/decisions/`
 - 팀 공통 문서: `decisions/`, `docs/`
