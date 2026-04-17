@@ -391,12 +391,13 @@ export class ClaudeEngine implements Engine {
 
     try {
       for await (const message of executeQuery(internalSessionId, prompt, {
-        cwd: config.defaultCwd,
+        cwd: opts.cwd || config.defaultCwd,
         resumeSessionId: opts.resumeSessionId,
         permissionMode: 'bypassPermissions',
         model: opts.model,
         systemPrompt: opts.systemPrompt,
-        maxTurns: opts.maxTurns ?? 10,
+        // Only forward maxTurns if caller set it — otherwise unlimited (like regular sessions)
+        ...(opts.maxTurns ? { maxTurns: opts.maxTurns } : {}),
       })) {
         // Track session ID for resume
         if ('session_id' in message && (message as any).session_id) {

@@ -11,6 +11,8 @@
 import { getEngine } from '../engines/index.js';
 import { getModelDefaults } from '../config.js';
 import { engineFromModel } from './utility-agent.js';
+import { buildSystemPrompt } from './system-prompt.js';
+import { getProject } from './project-manager.js';
 
 interface QuickReplyOptions {
   roomId: string;
@@ -51,41 +53,40 @@ async function withRoomAiLock<T>(roomId: string, fn: () => Promise<T>): Promise<
 
 // ── Channel AI System Prompt ─────────────────────────────────────────
 
-function buildChannelAiSystemPrompt(roomName: string): string {
-  return `You are a dedicated AI team member assigned to the channel "${roomName}".
+/**
+ * Channel-specific behavior overlay — appended to the full team system prompt.
+ * Regular session prompt provides: core identity, org policy, role, visualization.
+ * This overlay adds: channel context, project awareness, response style for team chat.
+ */
+function channelBehaviorOverlay(roomName: string, projectName?: string, projectDesc?: string): string {
+  const projectCtx = projectName
+    ? `\nYou are working in the project "${projectName}"${projectDesc ? ` — ${projectDesc}` : ''}.\nProject context (AGENTS.md / CLAUDE.md) at your cwd describes the project's goals, conventions, and rules. Read and apply them.`
+    : '\nThis channel is not linked to a specific project.';
+
+  return `
+## Channel AI Context
+You are a dedicated AI team member assigned to the channel "${roomName}".${projectCtx}
 You have persistent memory of all previous conversations in this channel.
 
-## Your Role
-- You are the team's ace worker — reliable, precise, proactive.
+## Your Role in Channel
+- You are a persistent AI partner living inside this channel — not a one-shot responder.
 - Answer questions directly and accurately. No hedging when you know the answer.
-- When asked to do something, do it and report back concisely.
+- When asked to do something, do it end-to-end. You are not turn-limited; take as many tool calls as the task honestly needs.
 - If you notice something relevant from previous conversations, bring it up.
-- Keep responses focused — this is a team chat, not an essay contest.
+- Long investigations, refactors, and multi-file work are all fair game — don't bail out early.
 
-## Response Style
-- Default to concise answers (2-5 sentences) unless depth is clearly needed.
+## Response Style in Channel
+- Match depth to the question: quick chat → short answer, real work → full execution + report.
 - Use bullet points for multi-item answers.
 - When executing tasks, report results like a status update:
   "✅ Done. [what you did]. [key finding/result]."
 - Ask clarifying questions only when truly ambiguous — prefer making reasonable assumptions and stating them.
 
 ## Context Awareness
-- You remember previous conversations in this channel.
+- You remember previous conversations in this channel across sessions (auto-compact keeps context alive long-term).
 - Reference past discussions naturally when relevant.
 - Track ongoing topics and provide continuity.
-
-## Tools & Capabilities
-- You can read files, search code, and execute commands when needed.
-- Use tools to give accurate answers rather than guessing.
-
-## Visualization
-When your answer involves data or processes, proactively use visualization code blocks:
-- Numeric comparisons → \`\`\`chart with JSON: { "type": "bar|line|pie|...", "data": [...], "xKey": "...", "yKey": "..." }
-- Processes/workflows → \`\`\`mermaid (flowchart, sequence, etc.)
-- Structured comparisons → \`\`\`datatable with JSON: { "columns": [...], "data": [[...]] }
-- Timelines/roadmaps → \`\`\`timeline with JSON: { "items": [{ "date", "title", "status" }] }
-- Math formulas → $$LaTeX$$ (no single $ for inline)
-Use these automatically when helpful — don't wait for the user to ask.
+- Your working directory (cwd) is the project root. Use it to read project files.
 
 Respond in the same language as the user's message.`;
 }
@@ -177,14 +178,35 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
     const defaults = getModelDefaults();
     const modelId = defaults.ai_reply;
     const engineName = engineFromModel(modelId);
-    const systemPrompt = buildChannelAiSystemPrompt(roomName);
 
-    // 4. Get or create persistent channel AI session
+    // 4. Load room + project context (Level 2: full parity with regular sessions)
     const { getRoom: fetchRoom2 } = await import('./room-manager.js');
     const roomData = await fetchRoom2(roomId);
+    const projectId = roomData?.projectId ?? null;
+    let projectRootPath: string | undefined;
+    let projectName: string | undefined;
+    let projectDesc: string | undefined;
+    if (projectId) {
+      const project = await getProject(projectId);
+      if (project) {
+        projectRootPath = project.rootPath || undefined;
+        projectName = project.name;
+        projectDesc = project.description || undefined;
+      }
+    }
+
+    // Build system prompt: team base (buildSystemPrompt) + channel behavior overlay
+    // SDK will auto-load CLAUDE.md/AGENTS.md from cwd (project rootPath) via settingSources
+    const baseSystemPrompt = await buildSystemPrompt({
+      username: username || 'channel-ai',
+      role: 'member',  // channel AI operates as member
+    });
+    const systemPrompt = baseSystemPrompt + '\n' + channelBehaviorOverlay(roomName, projectName, projectDesc);
+
+    // 5. Get or create persistent channel AI session
     const { getOrCreateChannelAiSession } = await import('./room-manager.js');
     const channelSession = await getOrCreateChannelAiSession(
-      roomId, roomName, userId, roomData?.projectId ?? null, engineName,
+      roomId, roomName, userId, projectId, engineName,
     );
     const resumeSessionId = channelSession.engineSessionId;
 
@@ -228,8 +250,10 @@ export async function handleAiQuickReply(opts: QuickReplyOptions): Promise<void>
         const result = await engine.channelReply(fullPrompt, {
           model: modelId,
           systemPrompt,
+          cwd: projectRootPath,  // SDK loads CLAUDE.md/AGENTS.md from project folder
           resumeSessionId: resumeSessionId || undefined,
-          maxTurns: 10,
+          // maxTurns intentionally unset — @ai is a persistent channel partner.
+          // SDK auto-compacts when the context window fills, so long sessions survive.
           onChunk: (chunk, content) => {
             streamedContent = content;
             broadcastToRoom(roomId, {

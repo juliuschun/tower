@@ -208,6 +208,7 @@ export interface ChannelReplyOpts {
   model?: string;
   systemPrompt: string;
   resumeSessionId?: string;  // for persistent channel AI
+  cwd?: string;              // project root path (enables SDK to load CLAUDE.md/AGENTS.md)
   onChunk: (chunk: string, fullContent: string) => void;
   onToolUse?: (toolName: string) => void;  // status indicator for channel
   onCompact?: (phase: 'boundary' | 'compacting' | 'done') => void;
