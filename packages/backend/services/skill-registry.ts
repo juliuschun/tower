@@ -21,6 +21,17 @@ const PERSONAL_SKILLS_DIR = path.join(DATA_SKILLS_DIR, 'personal');
 const CLAUDE_SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills');
 const PLUGINS_DIR = path.join(os.homedir(), '.claude', 'plugins');
 
+// Managed-mode manifest dropped by deploy-profile.sh on customer VMs.
+// When present, Tower treats library skills as "managed" and reconciles DB
+// against the manifest — removing legacy rows that are not listed, upserting
+// the listed ones from the filesystem copies that deploy-profile.sh rsync'd.
+const MANAGED_MANIFEST_PATH = path.join(CLAUDE_SKILLS_DIR, '.managed-manifest.json');
+
+/** Returns true if this Tower instance is a managed customer VM (manifest present). */
+export function isManagedMode(): boolean {
+  return fs.existsSync(MANAGED_MANIFEST_PATH);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Seed bundled skills → DB (idempotent)
 // ═══════════════════════════════════════════════════════════════
@@ -143,6 +154,114 @@ export async function seedPluginSkills(): Promise<number> {
 
   if (count > 0) console.log(`[skills] Seeded ${count} plugin skills`);
   return count;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Managed-mode reconcile (manifest → DB)
+// ═══════════════════════════════════════════════════════════════
+
+export interface ReconcileResult {
+  mode: 'managed' | 'standalone';
+  synced: number;
+  removed: number;
+  removedNames: string[];
+  missingOnDisk: string[];
+}
+
+/**
+ * Reconcile the DB against `~/.claude/skills/.managed-manifest.json`.
+ *
+ * Intended for customer VMs where `deploy-profile.sh` places a manifest
+ * enumerating the skills we (Moat AI) officially ship. Ensures:
+ *
+ *  1. Every skill in the manifest exists in DB (company scope, source='managed'),
+ *     content upserted from the on-disk SKILL.md that deploy-profile.sh rsync'd.
+ *  2. Every company-scope row with source in ('bundled', 'managed') that is
+ *     NOT in the manifest is removed — these are legacy leftovers from
+ *     previous profiles/renames.
+ *  3. User-created rows (source='custom' or 'user') are never touched.
+ *
+ * If the manifest is absent, returns early with mode='standalone' and makes
+ * no changes — the caller (startup) should fall back to seedBundledSkills().
+ */
+export async function reconcileManagedSkills(): Promise<ReconcileResult> {
+  if (!isManagedMode()) {
+    return { mode: 'standalone', synced: 0, removed: 0, removedNames: [], missingOnDisk: [] };
+  }
+
+  let manifest: Record<string, string>;
+  try {
+    const raw = fs.readFileSync(MANAGED_MANIFEST_PATH, 'utf-8');
+    manifest = JSON.parse(raw);
+  } catch (err: any) {
+    console.error(`[skills] Failed to parse managed manifest: ${err.message}`);
+    return { mode: 'managed', synced: 0, removed: 0, removedNames: [], missingOnDisk: [] };
+  }
+
+  const managedNames = Object.keys(manifest);
+  const missingOnDisk: string[] = [];
+  let synced = 0;
+  const removedNames: string[] = [];
+
+  await transaction(async (client) => {
+    const db = withClient(client);
+
+    // 1) Upsert each manifest skill from disk (source='managed')
+    for (const name of managedNames) {
+      const skillFile = path.join(CLAUDE_SKILLS_DIR, name, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) {
+        missingOnDisk.push(name);
+        continue;
+      }
+      const content = fs.readFileSync(skillFile, 'utf-8');
+      const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
+
+      const result = await db.queryOne<{ id: string }>(`
+        INSERT INTO skill_registry (id, name, scope, description, category, content, source)
+        VALUES ($1, $2, 'company', $3, 'general', $4, 'managed')
+        ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
+        DO UPDATE SET content = excluded.content,
+                      description = excluded.description,
+                      source = 'managed',
+                      updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `, [uuidv4(), name, description, content]);
+
+      if (result?.id) {
+        await syncSkillProviders(result.id, content);
+      }
+      synced++;
+    }
+
+    // 2) Delete legacy company skills not in the manifest.
+    //    Only affects rows Tower itself seeded (source in bundled/managed).
+    //    Rows with source='custom'/'user' (DB-backed user creations) are kept.
+    const placeholders = managedNames.length > 0
+      ? managedNames.map((_, i) => `$${i + 1}`).join(',')
+      : 'NULL';
+    const deleteSql = `
+      DELETE FROM skill_registry
+      WHERE scope = 'company'
+        AND source IN ('bundled', 'managed')
+        ${managedNames.length > 0 ? `AND name NOT IN (${placeholders})` : ''}
+      RETURNING name
+    `;
+    const res = await client.query<{ name: string }>(deleteSql, managedNames);
+    for (const row of res.rows) removedNames.push(row.name);
+  });
+
+  console.log(
+    `[skills] reconcileManagedSkills: synced=${synced}, removed=${removedNames.length}` +
+    (missingOnDisk.length > 0 ? `, missingOnDisk=${missingOnDisk.join(',')}` : '')
+  );
+
+  return {
+    mode: 'managed',
+    synced,
+    removed: removedNames.length,
+    removedNames,
+    missingOnDisk,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════

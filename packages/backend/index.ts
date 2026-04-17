@@ -21,7 +21,7 @@ import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/hear
 import { initNotificationHub } from './services/notification-hub.js';
 import { auditStaleSessions } from './services/session-manager.js';
 import { stopWsSync } from './services/ws-sync.js';
-import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs } from './services/skill-registry.js';
+import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs, reconcileManagedSkills, isManagedMode } from './services/skill-registry.js';
 import { backfillTaskProjects } from './services/task-manager.js';
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
@@ -123,9 +123,22 @@ server.listen(config.port, config.host, async () => {
     console.log('[pg] DATABASE_URL not set — chat rooms disabled');
   }
 
-  // Seed skills from ~/.claude/skills/ (managed by /library)
+  // Skill seeding strategy depends on whether this Tower is a managed customer VM
+  // (deploy-profile.sh drops ~/.claude/skills/.managed-manifest.json there) or a
+  // standalone/dev instance.
+  //
+  //  - Managed VMs: reconcile DB against the manifest. Upsert listed skills from
+  //    the on-disk SKILL.md that rsync delivered, and delete legacy company-scope
+  //    rows (bundled/managed source) that are no longer in the manifest.
+  //  - Standalone/dev: fall back to the legacy behavior of seeding everything
+  //    already on disk under ~/.claude/skills/ into the DB.
   const bundledDir = path.join(process.env.HOME || '/home/enterpriseai', '.claude', 'skills');
-  await seedBundledSkills(bundledDir);
+  if (isManagedMode()) {
+    const result = await reconcileManagedSkills();
+    console.log(`[startup] Managed mode: synced=${result.synced}, removed=${result.removed}`);
+  } else {
+    await seedBundledSkills(bundledDir);
+  }
   await seedPluginSkills();
   await syncCompanySkillsToFs();
 

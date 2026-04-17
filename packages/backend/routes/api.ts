@@ -16,7 +16,7 @@ import { getFileTree, getFileTreeAsync, invalidateTreeCache, readFile, writeFile
 import fs from 'fs';
 import archiver from 'archiver';
 import { loadCommands } from '../services/command-loader.js';
-import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref } from '../services/skill-registry.js';
+import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref, reconcileManagedSkills, syncCompanySkillsToFs, isManagedMode } from '../services/skill-registry.js';
 import { getMessages, getMessagesPaginated } from '../services/message-store.js';
 import { generateSessionName } from '../services/auto-namer.js';
 import { generateSummary } from '../services/summarizer.js';
@@ -1333,6 +1333,30 @@ router.put('/admin/models', adminMiddleware, (req, res) => {
     broadcast({ type: 'config_update', models: reloaded.claude, piModels: reloaded.pi, localModels: reloaded.local, defaults: reloaded.defaults });
     res.json({ ok: true, ...reloaded });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ───── Admin: Skill reconciliation (managed-mode customer VMs) ─────
+// Triggered after deploy-profile.sh rsyncs new skills + manifest.
+// Reconciles DB against `~/.claude/skills/.managed-manifest.json`:
+//  - upserts listed skills from disk (source='managed')
+//  - deletes legacy company skills not in the manifest (source in bundled/managed)
+//  - user-created rows (source='custom'/'user') are left alone
+// Then re-runs syncCompanySkillsToFs so orphan filesystem directories get cleaned.
+router.post('/admin/skills/reconcile-managed', adminMiddleware, async (_req, res) => {
+  try {
+    if (!isManagedMode()) {
+      return res.status(409).json({
+        error: 'Not a managed instance',
+        hint: '~/.claude/skills/.managed-manifest.json not found. deploy-profile.sh must run first.',
+      });
+    }
+    const result = await reconcileManagedSkills();
+    await syncCompanySkillsToFs();
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    console.error('[reconcile-managed] failed:', err);
     res.status(500).json({ error: err.message });
   }
 });

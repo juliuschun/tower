@@ -34,3 +34,28 @@ describe('skill-registry project skill paths', () => {
     expect(getProjectSkillPaths(root)).toEqual([]);
   });
 });
+
+describe('skill-registry managed-mode detection', () => {
+  it('reports standalone mode when no manifest file exists at ~/.claude/skills/.managed-manifest.json', async () => {
+    const { isManagedMode } = await import('./skill-registry.ts');
+    const manifestPath = path.join(os.homedir(), '.claude', 'skills', '.managed-manifest.json');
+
+    // This test relies on dev machines not having the managed-manifest.json file.
+    // If a test runner somehow has one (e.g. running inside a managed customer VM),
+    // skip rather than fail — the reverse case is covered in integration tests.
+    if (fs.existsSync(manifestPath)) return;
+    expect(isManagedMode()).toBe(false);
+  });
+
+  it('reconcileManagedSkills short-circuits with standalone result when no manifest exists', async () => {
+    const { reconcileManagedSkills, isManagedMode } = await import('./skill-registry.ts');
+    if (isManagedMode()) return; // skip on managed VMs (integration-covered)
+
+    const result = await reconcileManagedSkills();
+    expect(result.mode).toBe('standalone');
+    expect(result.synced).toBe(0);
+    expect(result.removed).toBe(0);
+    expect(result.removedNames).toEqual([]);
+    expect(result.missingOnDisk).toEqual([]);
+  });
+});
