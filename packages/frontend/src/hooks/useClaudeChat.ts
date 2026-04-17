@@ -3,7 +3,7 @@ import { useWebSocket } from './useWebSocket';
 import { useChatStore, type ChatMessage, type SlashCommandInfo, type TurnMetrics } from '../stores/chat-store';
 import { useFileStore } from '../stores/file-store';
 import { useSessionStore } from '../stores/session-store';
-import { useModelStore, getModelIdForBackend, resolveEffectiveModel } from '../stores/model-store';
+import { useModelStore, getModelIdForBackend, resolveEffectiveModel, reconcileSelectedModel } from '../stores/model-store';
 
 /**
  * Effective model for a chat send:
@@ -662,6 +662,8 @@ export function useClaudeChat() {
         if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
         if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
         if (data.defaults) useModelStore.getState().setDefaults(data.defaults);
+        // If admin retired the currently-selected model, reset to default
+        reconcileSelectedModel();
         break;
       }
 

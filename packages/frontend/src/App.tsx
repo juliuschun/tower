@@ -33,7 +33,7 @@ import { useFileStore } from './stores/file-store';
 import { usePinStore, type Pin } from './stores/pin-store';
 import { usePromptStore, type PromptItem } from './stores/prompt-store';
 import { useSettingsStore } from './stores/settings-store';
-import { useModelStore, getEngineFromModel, useSessionAwareModel } from './stores/model-store';
+import { useModelStore, getEngineFromModel, useSessionAwareModel, reconcileSelectedModel } from './stores/model-store';
 import { useGitStore } from './stores/git-store';
 import { useProjectStore } from './stores/project-store';
 import { useSpaceStore } from './stores/space-store'; // used via .getState()
@@ -1000,6 +1000,9 @@ function App() {
         if (data.piModels) useModelStore.getState().setPiModels(data.piModels);
         if (data.localModels) useModelStore.getState().setLocalModels(data.localModels);
         if (data.connectionType) useModelStore.getState().setConnectionType(data.connectionType);
+        if (data.defaults) useModelStore.getState().setDefaults(data.defaults);
+        // Reconcile stale localStorage selectedModel with server registry
+        reconcileSelectedModel();
       })
       .catch(() => {});
   }, [token, authStatus, updateCoordinator]);
@@ -1353,7 +1356,19 @@ function BottomBar({ requestFileTree }: { requestFileTree: (path?: string) => vo
   const { effectiveSelected } = useSessionAwareModel();
   const allModels = useMemo(() => [...availableModels, ...piModels, ...localModels], [availableModels, piModels, localModels]);
   const currentModelInfo = allModels.find((m) => m.id === effectiveSelected);
-  const model = currentModelInfo?.name || effectiveSelected.replace(/^pi:.*\//, '').replace(/^local:/, '').replace(/-/g, ' ');
+  // Fallback pretty-print for models no longer in the registry (e.g. retired
+  // claude-opus-4-6 after upgrade). Capitalize family (Opus/Sonnet/Haiku) and
+  // keep the version readable (4-6 → 4.6).
+  const prettifyLegacy = (id: string): string => {
+    const stripped = id.replace(/^pi:.*\//, '').replace(/^local:/, '');
+    const m = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d+)?$/.exec(stripped);
+    if (m) {
+      const family = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+      return `${family} ${m[2]}.${m[3]} (legacy)`;
+    }
+    return stripped.replace(/-/g, ' ');
+  };
+  const model = currentModelInfo?.name || prettifyLegacy(effectiveSelected);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const activeSession = sessions.find((s) => s.id === activeSessionId);

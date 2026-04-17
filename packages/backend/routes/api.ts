@@ -28,7 +28,7 @@ import {
   getLog, getFileDiff, manualCommit, rollbackToCommit,
   autoCommit,
 } from '../services/git-manager.js';
-import { config, availableModels, loadModelsFile, saveModelsFile, reloadModels } from '../config.js';
+import { config, availableModels, loadModelsFile, saveModelsFile, reloadModels, getModelDefaults } from '../config.js';
 import { oauthManager, messageRouter, telegramLinkManager } from '../services/messaging/index.js';
 import { exchangeKakaoCode, getKakaoProfile } from 'notify-hub';
 import { isGoogleOAuthConfigured, getGoogleAuthUrl, exchangeGoogleCode, getGoogleUserInfo } from '../services/google-oauth.js';
@@ -2859,6 +2859,7 @@ router.get('/config', (_req, res) => {
     piModels: config.piEnabled ? config.piModels : [],
     localEnabled: config.localEnabled,
     localModels: config.localEnabled ? config.localModels : [],
+    defaults: getModelDefaults(),
   });
 });
 

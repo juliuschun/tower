@@ -57,6 +57,36 @@ export const useModelStore = create<ModelState>((set) => ({
   setDefaults: (defaults) => set({ defaults }),
 }));
 
+/**
+ * Reconcile localStorage-persisted `selectedModel` with the server-side model
+ * registry. Called once after `/api/config` loads models + defaults.
+ *
+ * If the persisted model is no longer registered (e.g. an admin retired
+ * `claude-opus-4-6` in models.json), fall back to the admin-configured session
+ * default. This prevents footer badges and new-session creation from using a
+ * stale model ID that the UI can't render as a pretty name.
+ */
+export function reconcileSelectedModel(): void {
+  const s = useModelStore.getState();
+  const ids = new Set<string>([
+    ...s.availableModels.map((m) => m.id),
+    ...s.piModels.map((m) => m.id),
+    ...s.localModels.map((m) => m.id),
+  ]);
+  if (ids.size === 0) return; // registry still loading
+  if (ids.has(s.selectedModel)) return;
+
+  const fallback = ids.has(s.defaults.session)
+    ? s.defaults.session
+    : s.availableModels[0]?.id;
+  if (!fallback) return;
+
+  console.info(
+    `[model-store] selectedModel "${s.selectedModel}" not in registry — resetting to "${fallback}"`,
+  );
+  s.setSelectedModel(fallback);
+}
+
 /** Extract engine from model ID. 'pi:...' → 'pi', 'local:...' → 'local', otherwise 'claude' */
 export function getEngineFromModel(modelId: string): 'claude' | 'pi' | 'local' {
   if (modelId.startsWith('pi:')) return 'pi';
