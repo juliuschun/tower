@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSettingsStore } from '../../stores/settings-store';
 import { parseLooseJson, safeStr } from '../shared/parse-loose-json';
 import { BlockFallback } from '../shared/RichContent';
@@ -17,11 +17,32 @@ interface Props {
   fallbackCode: string;
 }
 
+// Fetch the Neko admin password from Tower backend so the iframe can load
+// `/neko/?pwd=<pw>` — the Neko SPA reads that query param and auto-submits
+// the login form (see app.js → autoPassword). On failure we fall back to the
+// bare `/neko/` URL and the user can paste the password manually.
+// ⚠ Neko is a SINGLE SHARED DESKTOP — auto-login is for convenience only.
+async function fetchNekoPwd(): Promise<string | null> {
+  try {
+    const headers: Record<string, string> = {};
+    const tk = localStorage.getItem('token');
+    if (tk) headers['Authorization'] = `Bearer ${tk}`;
+    const r = await fetch('/api/neko/pwd', { headers });
+    if (!r.ok) return null;
+    const data = await r.json();
+    return typeof data?.pwd === 'string' ? data.pwd : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function NekoBlock({ raw, fallbackCode }: Props) {
   const theme = useSettingsStore((s) => s.theme);
   const isDark = theme !== 'light';
   const [loaded, setLoaded] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [pwd, setPwd] = useState<string | null>(null);
+  const [pwdReady, setPwdReady] = useState(false);
 
   const parsed = useMemo(() => {
     const r = parseLooseJson(raw);
@@ -29,10 +50,29 @@ export default function NekoBlock({ raw, fallbackCode }: Props) {
     return { ok: true as const, spec: r.data as NekoSpec };
   }, [raw]);
 
+  // Fetch auto-login password once per mount. If it fails we still render
+  // the iframe so the user can fall back to manual password entry.
+  useEffect(() => {
+    let cancelled = false;
+    fetchNekoPwd().then((p) => {
+      if (cancelled) return;
+      setPwd(p);
+      setPwdReady(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   if (!parsed.ok) return <BlockFallback raw={fallbackCode} error={parsed.error} />;
   const { spec } = parsed;
 
-  const nekoUrl = spec.path || '/neko/';
+  const basePath = spec.path || '/neko/';
+  // Only append pwd once the fetch attempt has completed — rendering the
+  // iframe earlier would flash the Neko login screen and then re-mount when
+  // the pwd arrives. Neko's SPA strips `?pwd=` from the URL immediately
+  // after login via its own `removeUrlParam("pwd")` call.
+  const nekoUrl = pwdReady && pwd
+    ? `${basePath}${basePath.includes('?') ? '&' : '?'}pwd=${encodeURIComponent(pwd)}`
+    : basePath;
   const height = expanded ? 720 : (spec.height || 560);
 
   return (
@@ -95,13 +135,25 @@ export default function NekoBlock({ raw, fallbackCode }: Props) {
         </div>
       </div>
 
-      {/* iframe */}
-      <iframe
-        src={nekoUrl}
-        style={{ width: '100%', height: `${height}px`, border: 'none' }}
-        allow="clipboard-read; clipboard-write"
-        onLoad={() => setLoaded(true)}
-      />
+      {/* iframe — render only after the pwd fetch has resolved so Neko
+          doesn't show the login screen on first paint and then swap. */}
+      {pwdReady ? (
+        <iframe
+          src={nekoUrl}
+          style={{ width: '100%', height: `${height}px`, border: 'none' }}
+          allow="clipboard-read; clipboard-write"
+          onLoad={() => setLoaded(true)}
+        />
+      ) : (
+        <div
+          style={{ width: '100%', height: `${height}px` }}
+          className={`flex items-center justify-center text-xs ${
+            isDark ? 'bg-surface-900 text-gray-500' : 'bg-gray-50 text-gray-400'
+          }`}
+        >
+          <span className="animate-pulse">Connecting to remote browser...</span>
+        </div>
+      )}
     </div>
   );
 }

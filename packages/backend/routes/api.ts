@@ -1121,6 +1121,43 @@ router.get('/browser/screenshot', async (_req, res) => {
 });
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Neko auto-login password ───────────────────────────────────────────────
+// The Neko SPA reads the admin password from `?pwd=<pw>` URL param and auto-
+// logs in (see app.js → autoPassword mechanism). Exposing the password to a
+// Tower-authenticated browser is acceptable because:
+//   1. The /neko/ route is already JWT-gated at nginx (`auth_request`),
+//      so only Tower-logged-in users can reach it anyway.
+//   2. Neko is a SINGLE SHARED DESKTOP — everyone who enters sees the same
+//      cookies/tabs. The password grants no additional privilege beyond
+//      what anyone passing the nginx gate already has.
+// ⚠ Not suitable for per-user isolation. If you need per-user browsers,
+//    use Tower OAuth Connections or browser-popup instead.
+function readNekoPassword(): string {
+  // 1) Explicit env override (useful for dev / container deployments)
+  if (process.env.NEKO_PASSWORD) return process.env.NEKO_PASSWORD;
+  // 2) Managed-VM password file written by setup-neko.sh
+  try {
+    const pwPath = path.join(os.homedir(), '.tower', 'neko-password');
+    const pw = fs.readFileSync(pwPath, 'utf-8').trim();
+    if (pw) return pw;
+  } catch {
+    // File missing is fine on dev — fall through to default.
+  }
+  // 3) Dev default (matches ~/.claude/scripts/neko-start.sh hardcoded value)
+  return 'tower';
+}
+
+router.get('/neko/pwd', (_req, res) => {
+  try {
+    const pwd = readNekoPassword();
+    res.json({ pwd });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: 'neko_pwd_unavailable', detail: message });
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── OAuth callback (Google) ────────────────────────────────────────────────
 const GWS_CRED_DIR = path.join(os.homedir(), '.config', 'gws');
 
