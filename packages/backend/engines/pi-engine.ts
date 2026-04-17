@@ -108,13 +108,12 @@ export class PiEngine implements Engine {
           reasoning: false,
           input: ['text', 'image'] as ('text' | 'image')[],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 200000,
-          // max_output_tokens for the provider. GPT-5 family burns reasoning
-          // tokens from this same budget, so 16K was too small — a single
-          // complex turn could exhaust it on reasoning and yield an empty
-          // response (response.failed with no details). 64K gives reasoning
-          // plenty of room while keeping cost bounded.
-          maxTokens: m.maxTokens || 65536,
+          // GPT-5 family on Azure officially supports 400K context / 128K output.
+          // Using the full ceiling — GPT-5 burns reasoning tokens from the same
+          // max_output_tokens budget, so a too-low cap causes silent empty
+          // responses (response.failed with no details).
+          contextWindow: m.contextWindow || 400000,
+          maxTokens: m.maxTokens || 128000,
         });
         byProvider.set(m.provider, list);
         orderedKeys.push({ provider: m.provider, id: m.modelId });
