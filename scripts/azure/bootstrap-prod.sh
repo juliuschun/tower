@@ -400,6 +400,9 @@ SELFHEAL
   add_cron "*/30 * * * *" "$CLEANUP_SCRIPT"
   add_cron "*/5 * * * *" "$SELFHEAL_SCRIPT"
 
+  # NOTE: 백업 cron은 Tier 4 (managed) 에서만 등록.
+  # standalone 고객은 자체 백업 정책을 사용하므로 자동 등록하지 않음.
+
   crontab "$CRON_TMP"
   rm -f "$CRON_TMP"
   info "Cron jobs registered"
@@ -446,7 +449,7 @@ fi
 # Runs after nginx + Docker are in place. Idempotent.
 # =========================================================================
 if [[ "$TIER" == "managed" ]]; then
-  info "=== Tier 4: Managed extras (Neko) ==="
+  info "=== Tier 4: Managed extras (Neko + Backups) ==="
   SETUP_NEKO="$APP_DIR/scripts/azure/setup-neko.sh"
   if [[ -x "$SETUP_NEKO" ]]; then
     bash "$SETUP_NEKO" --domain "$DOMAIN" --tower-port "$PORT" \
@@ -454,6 +457,33 @@ if [[ "$TIER" == "managed" ]]; then
   else
     warn "setup-neko.sh missing at $SETUP_NEKO — skipping. Run manually after repo update."
   fi
+
+  # ── Layer 1 백업 cron (managed 전용) ──
+  # Tower팀이 운영하는 고객 VM에만 자동 등록. standalone 고객은 자체 백업 사용.
+  # 정책: workspace/decisions/2026-04-17-customer-vm-backup-policy.md
+  BACKUP_SCRIPT="$APP_DIR/scripts/backup.sh"
+  if [[ -f "$BACKUP_SCRIPT" ]]; then
+    mkdir -p "$HOME/backups"
+    BK_CRON_TMP=$(mktemp)
+    crontab -l 2>/dev/null > "$BK_CRON_TMP" || true
+    BK_CMD="/bin/bash $BACKUP_SCRIPT >> $HOME/backups/backup.log 2>&1"
+    if ! grep -qF "$BK_CMD" "$BK_CRON_TMP"; then
+      echo "# Tower Layer 1 backup (managed) — daily 03:00 KST" >> "$BK_CRON_TMP"
+      echo "0 3 * * * $BK_CMD" >> "$BK_CRON_TMP"
+      crontab "$BK_CRON_TMP"
+      info "Backup cron registered (0 3 * * *)"
+    else
+      info "Backup cron already exists"
+    fi
+    rm -f "$BK_CRON_TMP"
+  else
+    warn "backup.sh missing at $BACKUP_SCRIPT — register manually"
+  fi
+
+  # Layer 2 (Azure Recovery Services Vault) 등록은 별도 수동 절차.
+  # 가이드: docs/backup-recovery-runbook.md → "신규 고객 VM 추가 절차"
+  info "Reminder: Layer 2 (Azure Vault) — register manually:"
+  info "  az backup protection enable-for-vm --vault-name tower-backup-koreacentral ..."
 fi
 
 echo ""
