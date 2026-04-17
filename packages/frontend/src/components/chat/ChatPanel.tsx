@@ -185,16 +185,34 @@ export function ChatPanel({ onSend, onAbort, onFileClick, onAnswerQuestion, onLo
   const isCompacting = compactingSessionId !== null && compactingSessionId === activeSessionId;
   const _sessions = useSessionStore((s) => s.sessions); // keep subscription for sidebar reactivity
 
-  // Consume pending reply from Inbox (sent before ChatPanel mounted)
+  // Consume pending reply from Inbox (already sent over WS by InboxPanel.sendToSession).
+  // Render an optimistic bubble so the user sees their text immediately on open;
+  // the real message arrives via the server's `user_message` broadcast and is
+  // de-duped by id in mergeMessagesFromDb / addMessage.
+  // ⚠️ DO NOT call onSend(pending) here — that would send the chat a SECOND time.
   useEffect(() => {
     if (!activeSessionId) return;
     const pending = useSessionStore.getState().pendingReplies[activeSessionId];
-    if (pending) {
-      useSessionStore.getState().clearPendingReply(activeSessionId);
-      // Small delay to let Virtuoso mount and messages load
-      const timer = setTimeout(() => onSend(pending), 300);
-      return () => clearTimeout(timer);
-    }
+    if (!pending) return;
+    useSessionStore.getState().clearPendingReply(activeSessionId);
+
+    // Skip optimistic render if a user message with the same body is already in store
+    // (covers the case where user_message broadcast or DB merge already populated it).
+    const already = useChatStore.getState().messages.some((m) => {
+      if (m.role !== 'user') return false;
+      const body = m.content.find((b) => b.type === 'text')?.text?.trim();
+      return body === pending.trim();
+    });
+    if (already) return;
+
+    useChatStore.getState().addMessage({
+      id: `inbox-pending-${activeSessionId}-${Date.now()}`,
+      role: 'user',
+      content: [{ type: 'text', text: pending }],
+      timestamp: Date.now(),
+      username: localStorage.getItem('username') || undefined,
+      sendStatus: 'delivered',
+    });
   }, [activeSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
