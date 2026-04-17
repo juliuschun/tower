@@ -109,7 +109,12 @@ export class PiEngine implements Engine {
           input: ['text', 'image'] as ('text' | 'image')[],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: 200000,
-          maxTokens: 16384,
+          // max_output_tokens for the provider. GPT-5 family burns reasoning
+          // tokens from this same budget, so 16K was too small — a single
+          // complex turn could exhaust it on reasoning and yield an empty
+          // response (response.failed with no details). 64K gives reasoning
+          // plenty of room while keeping cost bounded.
+          maxTokens: m.maxTokens || 65536,
         });
         byProvider.set(m.provider, list);
         orderedKeys.push({ provider: m.provider, id: m.modelId });
@@ -309,6 +314,12 @@ export class PiEngine implements Engine {
             iterationCount++;
             const iterInput = usage.input || 0;
             const iterOutput = usage.output || 0;
+            // Log full usage for GPT-5 reasoning-token diagnosis.
+            // Azure's reasoning_tokens aren't always in usage.output, so we dump
+            // the raw object to catch any provider-specific fields.
+            if (msgStopReason === 'error' || iterOutput > 1000) {
+              console.log(`[Pi] usage detail: session=${sessionId.slice(0, 8)} iter=${iterationCount} usage=${JSON.stringify(usage)}`);
+            }
             cumulativeInput += iterInput;
             cumulativeOutput += iterOutput;
             lastIterationInput = iterInput;
