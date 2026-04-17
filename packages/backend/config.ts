@@ -34,22 +34,39 @@ try {
 function findClaudeExecutable(): string {
   if (process.env.CLAUDE_PATH) return process.env.CLAUDE_PATH;
 
+  let found: string | undefined;
+
   try {
     const result = execSync('which claude', { encoding: 'utf-8', timeout: 5000 }).trim();
-    if (result) return result;
+    if (result) found = result;
   } catch {}
 
-  const home = os.homedir();
-  const candidates = [
-    path.join(home, '.local', 'bin', 'claude'),
-    '/usr/local/bin/claude',
-    '/usr/bin/claude',
-  ];
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch {}
+  if (!found) {
+    const home = os.homedir();
+    const candidates = [
+      path.join(home, '.local', 'bin', 'claude'),
+      '/usr/local/bin/claude',
+      '/usr/bin/claude',
+    ];
+    for (const p of candidates) {
+      try { if (fs.existsSync(p)) { found = p; break; } } catch {}
+    }
   }
 
-  return path.join(home, '.local', 'bin', 'claude');
+  if (!found) {
+    return path.join(os.homedir(), '.local', 'bin', 'claude');
+  }
+
+  // Resolve symlinks so the Claude Agent SDK sees a path ending in .js/.mjs
+  // and spawns it via Node instead of treating it as a native binary.
+  // This is critical for npm-global installs where /usr/bin/claude is a
+  // symlink to .../cli.js — without resolution, SDK fails to spawn.
+  try {
+    const resolved = fs.realpathSync(found);
+    if (resolved.endsWith('.js') || resolved.endsWith('.mjs')) return resolved;
+  } catch {}
+
+  return found;
 }
 
 type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
