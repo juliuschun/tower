@@ -1,5 +1,5 @@
 export const VISUAL_LANGUAGES = [
-  'mermaid', 'chart', 'datatable', 'html-sandbox', 'timeline', 'map', 'secure-input',
+  'mermaid', 'chart', 'datatable', 'html-sandbox', 'svg', 'timeline', 'map', 'secure-input',
   'steps', 'diff', 'form', 'kanban', 'terminal', 'comparison', 'approval',
   'treemap', 'gallery', 'audio', 'browser-popup', 'browser-live',
 ] as const;

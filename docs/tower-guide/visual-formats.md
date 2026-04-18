@@ -1,6 +1,6 @@
 # Dynamic Visual 포맷 전체 목록
 
-Tower 채팅에서 코드블록으로 출력하면 자동 렌더링되는 18종 포맷.
+Tower 채팅에서 코드블록으로 출력하면 자동 렌더링되는 19종 포맷.
 
 ## 기본 포맷 (7종)
 
@@ -9,11 +9,12 @@ Tower 채팅에서 코드블록으로 출력하면 자동 렌더링되는 18종 
 | 포맷 | 코드블록 | 용도 | JSON 스키마 |
 |------|---------|------|------------|
 | 차트 | `chart` | 숫자 데이터 비교 | `{ "type": "bar\|line\|area\|pie\|scatter\|radar\|composed", "data": [...], "xKey", "yKey" }` |
-| 다이어그램 | `mermaid` | 프로세스, 아키텍처, 관계 | Mermaid 문법 (flowchart, sequence, class, ER, gantt, state, pie, mindmap) |
+| 다이어그램 | `mermaid` | 프로세스, 아키텍처, 관계 | Mermaid 문법 (flowchart, sequence, class, ER, gantt, state, pie, mindmap) — 노드 레이블에 `()` `:` `,` `#` `"`가 포함되면 반드시 `"..."`로 감싸기 (e.g. `A["Process (async)"]`). 미감싸면 파서 중단 → `codify.md` 2026-04-18 참고 |
 | 데이터 테이블 | `datatable` | 구조화 비교, 행렬 | `{ "columns": [...], "data": [[...]] }` |
 | 타임라인 | `timeline` | 로드맵, 일정 | `{ "items": [{ "date", "title", "status" }] }` |
 | 수식 | `$$...$$` | LaTeX 블록 수식 | 인라인 `$` 비활성 (달러 충돌 방지) |
 | HTML 샌드박스 | `html-sandbox` | 인터랙티브 데모, 프로토타입 | HTML/CSS/JS 직접 입력 (iframe sandbox) |
+| SVG | `svg` | 정적/애니메이션 인포그래픽, 히어로 이미지, 브랜디드 도식 | Raw SVG (`<svg ...>`). DOMPurify(svg+svgFilters) 통과. iframe 없이 인라인 렌더 — `html-sandbox`보다 가벼움 |
 | 지도 | `map` | 위치, 경로, 영역 | Leaflet 기반 마커/폴리곤 |
 
 ## 확장 포맷 (11종)

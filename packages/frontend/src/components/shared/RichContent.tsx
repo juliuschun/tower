@@ -19,6 +19,7 @@ const ChartBlock = React.lazy(() => import('../chat/ChartBlock'));
 const SecureInputBlock = React.lazy(() => import('../chat/SecureInputBlock'));
 const DataTableBlock = React.lazy(() => import('../chat/DataTableBlock'));
 const HtmlSandboxBlock = React.lazy(() => import('../chat/HtmlSandboxBlock'));
+const SvgBlock = React.lazy(() => import('../chat/SvgBlock'));
 const TimelineBlock = React.lazy(() => import('../chat/TimelineBlock'));
 const MapBlock = React.lazy(() => import('../chat/MapBlock'));
 const StepsBlock = React.lazy(() => import('../chat/StepsBlock'));
@@ -278,7 +279,7 @@ export interface RichContentProps {
  * (= the closing fence has been seen → block is "complete").
  */
 const HEAVY_BLOCKS: ReadonlySet<DynamicBlock['type']> = new Set([
-  'mermaid', 'chart', 'treemap', 'gallery', 'map', 'html-sandbox',
+  'mermaid', 'chart', 'treemap', 'gallery', 'map', 'html-sandbox', 'svg',
   'browser-popup', 'browser-live',
 ]);
 
@@ -357,6 +358,9 @@ function RichSegmentInner({ seg, mdComponents }: { seg: DynamicBlock; mdComponen
   }
   if (seg.type === 'html-sandbox') {
     return <LazyBlock type="html-sandbox"><HtmlSandboxBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
+  }
+  if (seg.type === 'svg') {
+    return <LazyBlock type="svg"><SvgBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
   }
   if (seg.type === 'timeline') {
     return <LazyBlock type="timeline"><TimelineBlock raw={seg.content} fallbackCode={seg.raw} /></LazyBlock>;
