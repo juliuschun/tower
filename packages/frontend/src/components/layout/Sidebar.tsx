@@ -522,7 +522,10 @@ export function Sidebar({
       {/* Tab content */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto overflow-x-hidden"
+        // 모바일에서 대각선 스와이프 시 브라우저가 가로/세로 pan을 동시에 판정해
+        // 리스트가 가로로 살짝 밀리면서 불안정해 보이는 현상을 방지. 세로 스크롤만 명시.
+        style={{ touchAction: 'pan-y' }}
         onDragOver={(e) => {
           // Auto-scroll when dragging near top/bottom edges
           const container = scrollContainerRef.current;
@@ -1607,8 +1610,11 @@ function UngroupedDropZone({ children, onMoveSession, hasGroups, hasUngrouped }:
   return (
     <div
       className={`mt-2 rounded-md transition-colors ${dragOver ? 'bg-surface-800/50 ring-1 ring-surface-700/50' : ''} ${!hasUngrouped && hasGroups ? 'min-h-[40px] flex items-center justify-center' : ''}`}
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
+      // HTML5 dragleave는 자식 요소로 커서가 진입할 때도 부모에 버블되어 flicker를 유발.
+      // dragenter에서만 켜고, contains 체크로 진짜 나갔을 때만 끈다.
+      onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);
@@ -1770,8 +1776,10 @@ function ProjectGroup({
         }}
         onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
         onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setEditName(project.name); }}
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
+        // dragenter + contains-check로 자식 진입 시의 flicker 방지
+        onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
         onDrop={handleDrop}
       >
         {/* Chevron — hidden by default, shown on hover (Slack pattern) */}
@@ -3611,8 +3619,10 @@ function LabelGroup({ label, sessions, projectId, isCollapsed, onToggle, onDropS
       <div
         onClick={onToggle}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
+        // dragenter + contains-check로 자식(SVG/span) 진입 시의 flicker 방지
+        onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
@@ -3679,8 +3689,10 @@ function UnlabeledDropZone({ sessions, expanded, onDropSession, activeSessionId,
   return (
     <div
       className={`rounded transition-colors ${dragOver ? 'bg-surface-800/60 ring-1 ring-surface-600/30' : ''}`}
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
+      // dragenter + contains-check로 SessionItem 자식 진입 시의 flicker 방지
+      onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);
