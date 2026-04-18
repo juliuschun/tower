@@ -4,7 +4,7 @@ import { updateTask, getTask, getTasks, type ScheduleCron, type WorkflowMode } f
 import { saveMessage, attachToolResultInDb } from './message-store.js';
 import { type TowerRole } from './damage-control.js';
 import { buildSystemPrompt } from './system-prompt.js';
-import { getUserAccessiblePaths, buildToolGuard } from './project-access.js';
+import { getUserAccessiblePaths, buildToolGuard, resolveSessionProjectRoot } from './project-access.js';
 import { calculateNextRun } from './unified-scheduler.js';
 import { buildWorkflowPrompt } from './workflow-prompts.js';
 import { createWorktree } from './worktree-manager.js';
@@ -437,13 +437,18 @@ async function runTaskAgent(
     broadcastToAll('session_status', { sessionId, status: 'streaming' });
 
     const effectiveRole = (userRole || 'member') as TowerRole;
+    const sessionProjectRoot = resolveSessionProjectRoot(agentCwd) ?? undefined;
     const guard = buildToolGuard({
       role: effectiveRole,
       allowedPath,
       accessiblePaths,
+      sessionProjectRoot,
     });
+    if (sessionProjectRoot) {
+      console.log(`[task-runner] Session write guard active for task ${taskId}: ${sessionProjectRoot}`);
+    }
     const taskCanUseTool = async (toolName: string, input: Record<string, unknown>, _options: { signal: AbortSignal }) => {
-      // Unified guard: damage control + path enforcement + project ACL + TeamCreate block
+      // Unified guard: damage control + session write guard + path enforcement + project ACL + TeamCreate block
       const check = guard(toolName, input);
       if (!check.allowed) {
         return { behavior: 'deny' as const, message: check.message };
@@ -463,6 +468,7 @@ async function runTaskAgent(
       username: 'task-agent',
       role: effectiveRole,
       allowedPath,
+      sessionProjectRoot,
     });
 
     // Room context is dynamic and should live in the user prompt prefix,

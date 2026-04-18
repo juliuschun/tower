@@ -22,7 +22,7 @@ import {
   readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool,
 } from '@mariozechner/pi-coding-agent';
 import { buildSystemPrompt } from '../services/system-prompt.js';
-import { buildToolGuard, wrapPiTools } from '../services/project-access.js';
+import { buildToolGuard, wrapPiTools, resolveSessionProjectRoot } from '../services/project-access.js';
 import { backupPiSessionFile, consumeInterruptedPiSessions, gracefulPiShutdown, preparePiResumeSession } from '../services/pi-session-runtime.js';
 import { createAgentTool } from './pi-agent-tool.js';
 import { createAskUserQuestionTool } from './pi-ask-user-tool.js';
@@ -552,6 +552,7 @@ export class PiEngine implements Engine {
       username: opts.username || 'anonymous',
       role: opts.userRole || 'member',
       allowedPath: opts.allowedPath,
+      sessionProjectRoot: resolveSessionProjectRoot(opts.cwd) ?? undefined,
     });
 
     // Build additional skill paths for 3-tier skill registry
@@ -622,14 +623,16 @@ export class PiEngine implements Engine {
 
     // Build unified tool guard and wrap Pi tools with it
     let piTools: any[] = [readTool, bashTool, editTool, writeTool, grepTool, findTool, lsTool];
+    const sessionProjectRoot = resolveSessionProjectRoot(opts.cwd) ?? undefined;
     const guard = buildToolGuard({
       role: opts.userRole || 'member',
       allowedPath: opts.allowedPath,
       accessiblePaths: opts.accessiblePaths,
+      sessionProjectRoot,
     });
-    // Always wrap — guard handles damage control + path enforcement + project ACL
+    // Always wrap — guard handles damage control + session write guard + path enforcement + project ACL
     piTools = wrapPiTools(piTools, guard);
-    console.log(`[Pi] ToolGuard active (role=${opts.userRole || 'member'}, accessiblePaths=${opts.accessiblePaths === null ? 'admin' : opts.accessiblePaths?.length ?? 'none'})`);
+    console.log(`[Pi] ToolGuard active (role=${opts.userRole || 'member'}, accessiblePaths=${opts.accessiblePaths === null ? 'admin' : opts.accessiblePaths?.length ?? 'none'}, sessionProjectRoot=${sessionProjectRoot || 'none'})`);
 
     // Pass session file path so fork sub-agents can inherit conversation context
     const parentSessionFile = sessionMgr.getSessionFile();

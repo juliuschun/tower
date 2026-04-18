@@ -24,7 +24,7 @@ import {
 } from '../services/claude-sdk.js';
 import { config, getPermissionMode } from '../config.js';
 import { buildSystemPrompt } from '../services/system-prompt.js';
-import { buildToolGuard, type ToolGuard } from '../services/project-access.js';
+import { buildToolGuard, resolveSessionProjectRoot, type ToolGuard } from '../services/project-access.js';
 import { autoCommit } from '../services/git-manager.js';
 import { getConfigDir } from '../services/credential-store.js';
 
@@ -65,12 +65,17 @@ export class ClaudeEngine implements Engine {
   ): AsyncGenerator<TowerMessage> {
     const permissionMode = getPermissionMode(opts.userRole);
 
-    // Build unified tool guard (damage control + path enforcement + project ACL)
+    // Build unified tool guard (damage control + session write guard + path enforcement + project ACL)
+    const sessionProjectRoot = resolveSessionProjectRoot(opts.cwd) ?? undefined;
     const guard = buildToolGuard({
       role: opts.userRole || 'member',
       allowedPath: opts.allowedPath,
       accessiblePaths: opts.accessiblePaths,
+      sessionProjectRoot,
     });
+    if (sessionProjectRoot) {
+      console.log(`[Claude] Session write guard active: ${sessionProjectRoot}`);
+    }
 
     // Build canUseTool interceptor (guard + AskUserQuestion → callbacks.askUser)
     const canUseTool = this.createCanUseTool(sessionId, guard, callbacks);
@@ -81,6 +86,7 @@ export class ClaudeEngine implements Engine {
       username: opts.username || 'anonymous',
       role: opts.userRole || 'member',
       allowedPath: opts.allowedPath,
+      sessionProjectRoot,
     });
 
     // Resolve credential directory for this project (multi-account rotation)

@@ -189,6 +189,7 @@ async function buildRuntimeContextPrompt(user: {
   username: string;
   role: string;
   allowedPath?: string;
+  sessionProjectRoot?: string;
 }): Promise<string> {
   const roleCtx = ROLE_CONTEXT[user.role] || ROLE_CONTEXT.member;
   const groups = user.userId ? await getUserGroups(user.userId) : [];
@@ -198,6 +199,20 @@ async function buildRuntimeContextPrompt(user: {
   const pathInfo = user.allowedPath
     ? `Your workspace is restricted to: ${user.allowedPath}`
     : '';
+  // Session-scope boundary — mirrors the runtime guard so the model understands
+  // *why* writes outside the current project get rejected. See
+  // workspace/decisions/2026-04-18-session-scoped-write-guard.md
+  const sessionScopeBlock = user.sessionProjectRoot
+    ? [
+        '',
+        '## Current project boundary',
+        `This session is scoped to project root: \`${user.sessionProjectRoot}\``,
+        'All file WRITES (Write, Edit, NotebookEdit, and mutating Bash commands like mkdir, touch, mv, cp, tee, rm, and redirects > / >>) MUST stay inside this project root.',
+        'Creating a new `workspace/projects/<name>/` folder from inside this session is blocked — such folders are not registered in the Tower DB and become orphans invisible to every project UI. If the user wants a new project, ask them to create it from the Tower UI first.',
+        'If you need to edit another existing project, ask the user to open a session scoped to that project — do NOT write into another project\'s folder from here.',
+        'Shared cross-project outputs can go under `workspace/published/`, `workspace/decisions/`, `workspace/docs/`, `workspace/uploads/`.',
+      ].join('\n')
+    : '';
 
   return [
     '## Runtime context',
@@ -205,6 +220,7 @@ async function buildRuntimeContextPrompt(user: {
     roleCtx,
     groupInfo,
     pathInfo,
+    sessionScopeBlock,
     '',
     '## Environment',
     'You are running inside Tower — a multi-user web interface for Claude.',
@@ -229,6 +245,7 @@ export async function buildSystemPrompt(user: {
   username: string;
   role: string;
   allowedPath?: string;
+  sessionProjectRoot?: string;
 }): Promise<string> {
   const [corePrompt, orgPolicyPrompt, runtimePrompt] = await Promise.all([
     Promise.resolve(buildCoreSystemPrompt()),

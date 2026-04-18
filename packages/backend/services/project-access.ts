@@ -23,6 +23,16 @@ const PUBLIC_DIRS = [
   path.join(WORKSPACE_ROOT, 'uploads'),
 ];
 
+// Shared WRITE roots — explicit exceptions to the session-scope guard.
+// Sessions are otherwise confined to their own project root for writes.
+// These are the sanctioned cross-project output destinations.
+const SHARED_WRITE_DIRS = [
+  path.join(WORKSPACE_ROOT, 'published'),
+  path.join(WORKSPACE_ROOT, 'decisions'),
+  path.join(WORKSPACE_ROOT, 'docs'),
+  path.join(WORKSPACE_ROOT, 'uploads'),
+];
+
 // ─── Cache: per-user accessible paths (TTL-based) ────────────────────────────
 // Avoids N+1 DB queries on every file read/write API call.
 // Cache key = userId, value = { paths, expiresAt }.
@@ -269,6 +279,138 @@ export function buildProjectPathEnforcement(
   };
 }
 
+// ─── Session-scoped write guard (役割 무관) ──────────────────────────────────
+//
+// The accessible-paths guard above restricts by USER (all projects the user is a
+// member of). This guard restricts by SESSION (the project this session is bound
+// to). Without it, a session rooted in project A can still write into project B
+// just because the user is a member of both — or, worse, create a brand-new
+// `workspace/projects/<invented-name>/` folder that's not registered in the DB
+// and becomes invisible to every project UI.
+//
+// Applies to admin as well — session boundaries are an orthogonal axis to roles.
+// Writes under `workspace/projects/` MUST stay inside the session's project root.
+// Writes into SHARED_WRITE_DIRS (`published/`, `decisions/`, `docs/`, `uploads/`)
+// remain allowed as the sanctioned cross-project output destinations.
+// Writes anywhere outside `workspace/projects/` are delegated to the existing
+// accessible-paths guard below (which handles e.g. `~/tower/` vs `workspace/`).
+
+/**
+ * Resolve a cwd to its enclosing project root under `workspace/projects/<slug>/`.
+ * Returns null if cwd is not under workspace/projects/ (non-project session, etc).
+ * Never escapes the slug boundary — e.g. cwd=`projects/okusystem/strategy/` → `projects/okusystem/`.
+ */
+export function resolveSessionProjectRoot(cwd: string | undefined): string | null {
+  if (!cwd) return null;
+  const resolved = path.resolve(cwd);
+  const projectsDir = path.resolve(WORKSPACE_ROOT, 'projects');
+  if (!resolved.startsWith(projectsDir + path.sep)) return null;
+  const rel = path.relative(projectsDir, resolved);
+  const slug = rel.split(path.sep)[0];
+  if (!slug || slug === '..' || slug === '.') return null;
+  return path.join(projectsDir, slug);
+}
+
+/** Tools that can mutate the filesystem (direct write path). */
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit', 'MultiEdit']);
+
+/** Bash subcommands that mutate the filesystem — used for shallow detection. */
+const BASH_MUTATOR_RE = /\b(mkdir|touch|mv|cp|rm|tee|ln|install|rsync|chmod|chown)\b/;
+const BASH_REDIRECT_RE = /(?:^|[^0-9&])(>>?|\|\s*tee\b)/;
+
+/**
+ * Build a guard that blocks writes outside the current session's project root.
+ * Role-independent: admin is NOT exempt. Sessions ARE their project boundary.
+ *
+ * Allowed write destinations:
+ *   1. Anywhere under `sessionProjectRoot/`
+ *   2. SHARED_WRITE_DIRS (published/decisions/docs/uploads)
+ *   3. Outside `workspace/projects/` entirely — delegated to accessible-paths guard
+ *
+ * Denied:
+ *   - `workspace/projects/<other>/...` (different project)
+ *   - `workspace/projects/<new-invented-name>/...` (never-registered folder)
+ */
+export function buildSessionWriteGuard(
+  sessionProjectRoot: string,
+): (toolName: string, input: Record<string, unknown>) => DamageCheckResult {
+  const projectRoot = path.resolve(sessionProjectRoot);
+  const projectsDir = path.resolve(WORKSPACE_ROOT, 'projects');
+  const sharedRoots = SHARED_WRITE_DIRS.map(d => path.resolve(d));
+
+  const isWriteToolPath = (resolved: string): boolean => {
+    // If the target is NOT under workspace/projects/, this guard is silent —
+    // the accessible-paths guard decides. (We don't want to double-restrict
+    // legitimate shared writes or workspace root files.)
+    if (resolved !== projectsDir && !resolved.startsWith(projectsDir + path.sep)) {
+      return true;
+    }
+    // Under projects/ → must be inside the session's own project root.
+    if (resolved === projectRoot || resolved.startsWith(projectRoot + path.sep)) {
+      return true;
+    }
+    // Shared-write exceptions (belt & suspenders — shared dirs are not under projects/,
+    // so this branch is unreachable in practice, but keeps the rule explicit).
+    if (sharedRoots.some(r => resolved === r || resolved.startsWith(r + path.sep))) {
+      return true;
+    }
+    return false;
+  };
+
+  return (toolName: string, input: Record<string, unknown>): DamageCheckResult => {
+    const isWriteTool = WRITE_TOOLS.has(toolName);
+    const isBash = toolName === 'Bash';
+    if (!isWriteTool && !isBash) return { allowed: true };
+
+    const paths: string[] = [];
+
+    if (isWriteTool) {
+      for (const key of ['file_path', 'path', 'notebook_path']) {
+        if (typeof input[key] === 'string') paths.push(input[key] as string);
+      }
+      // MultiEdit may pass edits with file_path; also handle top-level file_path above.
+      if (Array.isArray(input.files)) {
+        paths.push(...input.files.filter((p): p is string => typeof p === 'string'));
+      }
+    }
+
+    if (isBash && typeof input.command === 'string') {
+      const cmd = input.command as string;
+      const looksMutating = BASH_MUTATOR_RE.test(cmd) || BASH_REDIRECT_RE.test(cmd);
+      if (looksMutating) {
+        // Extract plausible absolute paths from the command (same heuristic as
+        // buildProjectPathEnforcement, but we only care about mutation commands here).
+        const absPaths = cmd.match(
+          /(?:^|\s)(\/(?!dev\/null|dev\/stderr|dev\/stdout|tmp\/|usr\/bin\/|bin\/|proc\/|sys\/)[^\s;&|>"']+)/g,
+        );
+        if (absPaths) paths.push(...absPaths.map(p => p.trim()));
+      }
+    }
+
+    for (const p of paths) {
+      const resolved = path.resolve(p);
+      if (!isWriteToolPath(resolved)) {
+        const slug = path.basename(projectRoot);
+        console.warn(
+          `[Session Write Guard] Denied: "${p}" — session is scoped to ${projectRoot} (tool: ${toolName})`,
+        );
+        return {
+          allowed: false,
+          message:
+            `[Session Boundary] Cannot write "${p}". This session is scoped to project "${slug}" ` +
+            `(${projectRoot}). Writes to other project folders — or creating a brand-new ` +
+            `workspace/projects/<name>/ folder — are not allowed from within this session. ` +
+            `If you need a new project, ask the user to create it from the UI. ` +
+            `If you need to edit another project, open a session there. ` +
+            `Shared outputs can go under workspace/{published,decisions,docs,uploads}/.`,
+        };
+      }
+    }
+
+    return { allowed: true };
+  };
+}
+
 // ─── ToolGuard: unified engine-agnostic tool gate ─────────────────────────────
 // Combines: damage control + legacy path enforcement + project path enforcement.
 // Each engine connects this differently:
@@ -290,11 +432,21 @@ export function buildToolGuard(opts: {
   role: string;
   allowedPath?: string;
   accessiblePaths?: string[] | null;
+  /**
+   * The project root this session is bound to (resolved from cwd).
+   * When present, writes under `workspace/projects/` are confined to this root —
+   * applies to ALL roles including admin. See buildSessionWriteGuard().
+   * Pass undefined for non-project sessions (no session-scope restriction).
+   */
+  sessionProjectRoot?: string;
 }): ToolGuard {
   const damageCheck = buildDamageControl(opts.role);
   const pathCheck = opts.allowedPath ? buildPathEnforcement(opts.allowedPath) : null;
   const projectPathCheck = (opts.accessiblePaths && Array.isArray(opts.accessiblePaths))
     ? buildProjectPathEnforcement(opts.accessiblePaths)
+    : null;
+  const sessionWriteCheck = opts.sessionProjectRoot
+    ? buildSessionWriteGuard(opts.sessionProjectRoot)
     : null;
 
   return (toolName: string, input: Record<string, unknown>): ToolGuardResult => {
@@ -310,13 +462,20 @@ export function buildToolGuard(opts: {
     // 3. Block EnterWorktree in task context (managed by task-runner)
     // Note: callers can add extra checks on top of this guard
 
-    // 4. Legacy per-user path enforcement
+    // 4. Session-scoped WRITE guard (role-independent; blocks cross-project writes
+    //    and creation of new workspace/projects/<x>/ folders from inside a session).
+    if (sessionWriteCheck) {
+      const sw = sessionWriteCheck(toolName, input);
+      if (!sw.allowed) return sw;
+    }
+
+    // 5. Legacy per-user path enforcement
     if (pathCheck) {
       const pc = pathCheck(toolName, input);
       if (!pc.allowed) return pc;
     }
 
-    // 5. Project-based path enforcement
+    // 6. Project-based path enforcement (user-level accessible paths)
     if (projectPathCheck) {
       const ppc = projectPathCheck(toolName, input);
       if (!ppc.allowed) return ppc;
