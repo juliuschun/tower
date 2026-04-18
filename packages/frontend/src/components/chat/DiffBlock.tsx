@@ -57,21 +57,88 @@ function computeDiff(before: string, after: string): DiffLine[] {
   return result;
 }
 
+/**
+ * Detect a unified-diff-style payload. LLMs and users often write ```diff
+ * blocks with raw `+`/`-`/` ` line prefixes (sometimes with @@ hunk headers,
+ * sometimes not), which breaks the JSON parser. Fall back to rendering those
+ * directly so the block doesn't throw "Unexpected token '<'".
+ */
+function isUnifiedDiff(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  if (/^(---\s|\+\+\+\s|@@\s|diff --git |Index: )/m.test(trimmed)) return true;
+  // Fallback: most non-empty lines are +/-/space prefixed
+  const lines = trimmed.split('\n').filter((l) => l.length > 0).slice(0, 20);
+  if (lines.length < 2) return false;
+  const prefixed = lines.filter((l) => /^[+\- ]/.test(l)).length;
+  return prefixed / lines.length > 0.6;
+}
+
+function parseUnifiedDiff(raw: string): DiffLine[] {
+  const result: DiffLine[] = [];
+  let oldNum = 1;
+  let newNum = 1;
+  for (const line of raw.split('\n')) {
+    // File headers / git markers — skip
+    if (/^(---\s|\+\+\+\s|diff --git |index |Index: |new file mode|deleted file mode|similarity index|rename from|rename to)/.test(line)) {
+      continue;
+    }
+    // Hunk header: @@ -1,4 +2,6 @@
+    const hunk = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+    if (hunk) {
+      oldNum = parseInt(hunk[1], 10);
+      newNum = parseInt(hunk[2], 10);
+      continue;
+    }
+    if (line.startsWith('+')) {
+      result.push({ type: 'add', content: line.slice(1), newNum: newNum++ });
+    } else if (line.startsWith('-')) {
+      result.push({ type: 'remove', content: line.slice(1), oldNum: oldNum++ });
+    } else if (line.startsWith(' ')) {
+      result.push({ type: 'same', content: line.slice(1), oldNum: oldNum++, newNum: newNum++ });
+    } else if (line.length === 0 && result.length > 0) {
+      // Blank line inside a hunk — treat as unchanged
+      result.push({ type: 'same', content: '', oldNum: oldNum++, newNum: newNum++ });
+    }
+    // Anything else: ignore (noise line)
+  }
+  return result;
+}
+
 export default function DiffBlock({ raw, fallbackCode }: Props) {
   const theme = useSettingsStore((s) => s.theme);
   const isDark = theme !== 'light';
   const [mode, setMode] = useState<'split' | 'unified'>('unified');
 
   const parsed = useMemo(() => {
+    // Path 1: JSON spec { before, after, ... }
     const r = parseLooseJson(raw);
-    if (!r.ok) return { ok: false as const, error: r.error };
-    const spec = r.data as DiffSpec;
-    if (spec.before == null || spec.after == null) return { ok: false as const, error: 'Missing "before" and/or "after"' };
-    return { ok: true as const, spec };
+    if (r.ok) {
+      const spec = r.data as DiffSpec;
+      if (spec.before != null && spec.after != null) {
+        return { ok: true as const, spec, preDiff: undefined as DiffLine[] | undefined };
+      }
+    }
+    // Path 2: raw unified-diff text — parse directly into DiffLine[]
+    if (isUnifiedDiff(raw)) {
+      const preDiff = parseUnifiedDiff(raw);
+      if (preDiff.length > 0) {
+        return {
+          ok: true as const,
+          spec: { before: '', after: '' } as DiffSpec,
+          preDiff,
+        };
+      }
+    }
+    return {
+      ok: false as const,
+      error: r.ok ? 'Missing "before" and/or "after"' : r.error,
+    };
   }, [raw]);
 
   const diff = useMemo(() => {
     if (!parsed.ok) return [];
+    if (parsed.preDiff) return parsed.preDiff;
     return computeDiff(parsed.spec.before, parsed.spec.after);
   }, [parsed]);
 
