@@ -54,6 +54,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [queueExpanded, setQueueExpanded] = useState(false);
   const dragCounter = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentSessionId = useChatStore((s) => s.sessionId);
@@ -65,6 +66,9 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
     return s.messageQueue[sid] ?? EMPTY_QUEUE;
   });
   const hasQueue = currentQueue.length > 0;
+  useEffect(() => {
+    if (!hasQueue && queueExpanded) setQueueExpanded(false);
+  }, [hasQueue, queueExpanded]);
   const slashCommands = useChatStore((s) => s.slashCommands);
   const attachments = useChatStore((s) => s.attachments);
 
@@ -105,6 +109,7 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
       // Load draft for new session
       const restored = loadDraft(currentSessionId);
       setInput(restored);
+      setQueueExpanded(false);
       prevSessionRef.current = currentSessionId;
       // Restore textarea height
       if (textareaRef.current) {
@@ -601,11 +606,82 @@ export function InputBox({ onSend, onAbort }: InputBoxProps) {
             <div className={`w-2 h-2 rounded-full shrink-0 ${activeTurn.phase === 'error' ? 'bg-red-400' : 'bg-primary-400 thinking-indicator'}`} />
             <span className="truncate flex-1">{turnStatusText(activeTurn.phase, hasQueue)}</span>
             {hasQueue && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary-500/10 border border-primary-500/20 text-primary-300 shrink-0">
-                +{currentQueue.length}
-              </span>
+              <button
+                type="button"
+                onClick={() => setQueueExpanded((v) => !v)}
+                className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-primary-500/10 border border-primary-500/20 text-primary-300 hover:bg-primary-500/20 hover:text-primary-200 transition-colors shrink-0"
+                title={queueExpanded ? '대기열 닫기' : '대기열 열기'}
+                aria-expanded={queueExpanded}
+              >
+                <span>+{currentQueue.length}</span>
+                <svg
+                  className={`w-3 h-3 transition-transform ${queueExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
             )}
           </div>
+          {hasQueue && queueExpanded && (
+            <div className="mt-1.5 rounded-xl border border-surface-700/50 bg-surface-900/40 backdrop-blur-sm overflow-hidden">
+              <ul className="divide-y divide-surface-700/40 max-h-60 overflow-y-auto">
+                {currentQueue.map((text, idx) => (
+                  <li
+                    key={`${idx}-${text.slice(0, 16)}`}
+                    className="flex items-start gap-2 px-3 py-2 group hover:bg-surface-800/40 transition-colors"
+                  >
+                    <span className="shrink-0 text-[10px] font-semibold text-primary-300/70 mt-0.5 tabular-nums">
+                      {idx + 1}
+                    </span>
+                    <span
+                      className="flex-1 text-[12px] text-gray-300 whitespace-pre-wrap line-clamp-2 break-words"
+                      title={text}
+                    >
+                      {text}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!currentSessionId) return;
+                        const popped = useChatStore
+                          .getState()
+                          .cancelQueuedMessageAtIndex(currentSessionId, idx);
+                        if (popped) {
+                          window.dispatchEvent(
+                            new CustomEvent('restore-input-text', { detail: popped }),
+                          );
+                        }
+                      }}
+                      className="shrink-0 p-1 rounded hover:bg-primary-500/20 text-primary-300 hover:text-primary-200 transition-colors opacity-70 group-hover:opacity-100"
+                      title="입력창으로 가져오기"
+                      aria-label="입력창으로 가져오기"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!currentSessionId) return;
+                        useChatStore.getState().cancelQueuedMessageAtIndex(currentSessionId, idx);
+                      }}
+                      className="shrink-0 p-1 rounded hover:bg-red-500/20 text-gray-400 hover:text-red-300 transition-colors opacity-70 group-hover:opacity-100"
+                      title="대기열에서 삭제"
+                      aria-label="대기열에서 삭제"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

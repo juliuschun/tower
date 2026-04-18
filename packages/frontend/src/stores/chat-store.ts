@@ -187,6 +187,7 @@ interface ChatState {
   promoteLatestQueuedUser: (text: string) => void;
   clearQueuedUsersForSession: (sessionId: string) => void;
   cancelQueuedMessage: (messageId: string) => string | null;
+  cancelQueuedMessageAtIndex: (sessionId: string, index: number) => string | null;
   setStreaming: (v: boolean) => void;
   setSessionId: (id: string | null) => void;
   setClaudeSessionId: (id: string | null) => void;
@@ -391,6 +392,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
             startedAt: prev?.startedAt ?? null,
             lastActivityAt: Date.now(),
             pendingMessageCount: nextQueue.length,
+            activeToolName: prev?.activeToolName,
+            activeToolSummary: prev?.activeToolSummary,
+            pendingQuestionId: prev?.pendingQuestionId,
+            errorMessage: prev?.errorMessage,
+          },
+        },
+      };
+    });
+
+    return text;
+  },
+
+  cancelQueuedMessageAtIndex: (sessionId, index) => {
+    const state = get();
+    const queue = state.messageQueue[sessionId] || [];
+    if (index < 0 || index >= queue.length) return null;
+    const text = queue[index];
+    const nextQueue = queue.filter((_, i) => i !== index);
+    const updatedQueue = { ...state.messageQueue, [sessionId]: nextQueue };
+    saveQueueToStorage(updatedQueue);
+
+    set((s) => {
+      // Remove the matching queued user bubble (first match with same text).
+      // Only touch the messages list if the chat is on this session; otherwise
+      // the bubble belongs to another session's cached messages and isn't in view.
+      let nextMessages = s.messages;
+      if (s.sessionId === sessionId) {
+        const normalized = text.trim();
+        const removeAt = s.messages.findIndex(
+          (m) =>
+            m.role === 'user' &&
+            m.sendStatus === 'queued' &&
+            m.content.filter((b) => b.type === 'text' && b.text).map((b) => b.text).join('\n').trim() === normalized,
+        );
+        if (removeAt >= 0) {
+          nextMessages = [...s.messages.slice(0, removeAt), ...s.messages.slice(removeAt + 1)];
+        }
+      }
+      const prev = s.turnStateBySession[sessionId];
+      return {
+        messages: nextMessages,
+        messageQueue: updatedQueue,
+        turnStateBySession: {
+          ...s.turnStateBySession,
+          [sessionId]: {
+            phase: nextQueue.length > 0 ? 'queued' : (prev?.phase === 'queued' ? 'idle' : (prev?.phase || 'idle')),
+            startedAt: prev?.startedAt ?? null,
+            lastActivityAt: Date.now(),
+            pendingMessageCount: nextQueue.length,
+            activeToolUseId: prev?.activeToolUseId,
+            activeToolId: prev?.activeToolId,
             activeToolName: prev?.activeToolName,
             activeToolSummary: prev?.activeToolSummary,
             pendingQuestionId: prev?.pendingQuestionId,
