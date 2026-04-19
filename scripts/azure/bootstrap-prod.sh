@@ -172,6 +172,75 @@ else
   info "Claude Code CLI already installed: $(claude --version)"
 fi
 
+# ─── Claude Code hardening (multi-tenant safe defaults) ───────────────────
+# See workspace/decisions/2026-04-17-disable-claudeai-connectors-multi-tenant.md
+# Tower is multi-tenant. claude.ai account-level MCP connectors (Gmail,
+# Calendar, Slack, Notion) are OAuth-bound to the OS user's claude.ai login,
+# so leaving them enabled exposes the admin's personal accounts to every
+# Tower user. We seed 3 layers of defense because the tengu feature flag
+# may be refreshed from GrowthBook and silently flip back to `true`.
+mkdir -p "$HOME/.claude"
+
+# Layer 1 — flip tengu_claudeai_mcp_connectors to false (best effort)
+python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path.home() / '.claude' / '.claude.json'
+data = {}
+if p.exists():
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        data = {}
+flags = data.setdefault('cachedGrowthBookFeatures', {})
+flags['tengu_claudeai_mcp_connectors'] = False
+p.write_text(json.dumps(data, indent=2))
+PY
+info "Disabled tengu_claudeai_mcp_connectors in ~/.claude/.claude.json"
+
+# Layer 2 — seed permissions.deny in settings.json (user setting, durable)
+python3 - <<'PY'
+import json, pathlib
+p = pathlib.Path.home() / '.claude' / 'settings.json'
+data = {}
+if p.exists():
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        data = {}
+perms = data.setdefault('permissions', {})
+deny = perms.setdefault('deny', [])
+tools = [
+    'mcp__claude_ai_Gmail__authenticate',
+    'mcp__claude_ai_Gmail__complete_authentication',
+    'mcp__claude_ai_Google_Calendar__authenticate',
+    'mcp__claude_ai_Google_Calendar__complete_authentication',
+]
+for t in tools:
+    if t not in deny:
+        deny.append(t)
+p.write_text(json.dumps(data, indent=2))
+PY
+info "Seeded claude.ai connector deny rules in ~/.claude/settings.json"
+
+# Layer 3 — append gws CLI rule to global CLAUDE.md (prompt-level guard)
+CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+if ! grep -q "Google Workspace 규칙" "$CLAUDE_MD" 2>/dev/null; then
+  cat >> "$CLAUDE_MD" <<'MD'
+
+## Gmail / Google Workspace 규칙
+
+Gmail·Calendar·Drive·Sheets·Docs 작업은 **`gws` CLI** (`/gmail`, `/gws` 스킬)만 사용한다.
+
+- ❌ 사용 금지: `mcp__claude_ai_Gmail__*`, `mcp__claude_ai_Google_Calendar__*` (claude.ai 커넥터)
+- ✅ 사용: Bash 도구로 `gws gmail users ...`, `gws calendar ...` 직접 실행
+- 이유: 멀티테넌트 Tower 에서 claude.ai 커넥터는 admin 계정에 묶인 개인 데이터를 전 사용자에게 노출 가능. 팀 공통 인증·로그·스킬 파이프라인은 `gws` CLI 기반.
+- "메일", "gmail", "inbox", "메일 보내" 등이 언급되면 먼저 `/gmail` 또는 `/gws` 스킬을 로드해 해당 SKILL.md 지침을 따른다.
+MD
+  info "Appended gws CLI rule to ~/.claude/CLAUDE.md"
+else
+  info "~/.claude/CLAUDE.md already has Google Workspace rule"
+fi
+
 mkdir -p "$(dirname "$APP_DIR")"
 if [[ ! -d "$APP_DIR/.git" ]]; then
   info "Cloning repository into $APP_DIR"
