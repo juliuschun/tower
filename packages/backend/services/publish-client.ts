@@ -10,6 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { config } from '../config.js';
+import { updateManifestAfterDeploy } from './deploy-engine.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -216,6 +217,38 @@ export async function publishViaGateway(opts: GatewayPublishOptions): Promise<Ga
 
     const result: GatewayPublishResult = await response.json();
     console.log(`[publish-client] Gateway response:`, result);
+
+    // F2 fix (2026-04-19): on success, update local manifest so Publishing Hub UI
+    // reflects the deploy. Without this, managed VMs see an empty local manifest
+    // even though the deploy succeeded centrally — users perceive "sync gap."
+    // Non-fatal: manifest failures must not break the publish result.
+    if (result.success) {
+      try {
+        const detectedType: 'static' | 'dynamic' =
+          result.detectedType === 'dynamic' ? 'dynamic' : 'static';
+        const target = (result.target || (detectedType === 'static' ? 'cloudflare-pages' : 'azure-container-apps')) as any;
+        await updateManifestAfterDeploy(
+          {
+            name: opts.name,
+            sourceDir: opts.sourceDir,
+            target: opts.target as any,
+            port: opts.port,
+            description: opts.description,
+          },
+          {
+            success: true,
+            target,
+            detectedType,
+            url: result.url,
+            duration: result.duration,
+          },
+        );
+        console.log(`[publish-client] Local manifest updated: ${opts.name} → ${result.url}`);
+      } catch (e: any) {
+        console.warn(`[publish-client] Local manifest update failed (non-fatal): ${e?.message || e}`);
+      }
+    }
+
     return result;
 
   } catch (err: any) {

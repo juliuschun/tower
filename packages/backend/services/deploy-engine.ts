@@ -393,7 +393,7 @@ async function writeManifest(manifest: Manifest): Promise<void> {
   await fs.writeFile(MANIFEST_PATH(), JSON.stringify(manifest, null, 2));
 }
 
-async function updateManifestAfterDeploy(opts: DeployOptions, result: DeployResult): Promise<void> {
+export async function updateManifestAfterDeploy(opts: DeployOptions, result: DeployResult): Promise<void> {
   const manifest = await readManifest();
   const now = new Date().toISOString();
 
