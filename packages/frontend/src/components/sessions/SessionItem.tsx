@@ -237,12 +237,17 @@ export function SessionItem({ session, isActive, currentUsername, onSelect, onDe
   return (
     <>
       <div
-        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-[13px] transition-all duration-200 ${
+        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-[13px] transition-colors duration-200 ${
           isActive
             ? 'bg-surface-800 text-gray-200 shadow-sm ring-1 ring-surface-700/50'
             : 'text-gray-500 hover:bg-surface-850 hover:text-gray-300'
         }`}
-        draggable
+        // HTML5 drag-and-drop은 모바일(iOS/Android)에서 동작하지 않으면서도,
+        // draggable 속성이 남아 있으면 브라우저가 세로 스크롤과 드래그 후보를 동시에 판정해
+        // 프레임이 튀는(jitter) 원인이 된다. 터치 기기에서는 draggable을 끄고
+        // touch-action: pan-y로 세로 스크롤을 명시적으로 우선시킨다.
+        draggable={!isTouchDevice.current}
+        style={isTouchDevice.current ? { touchAction: 'pan-y' } : undefined}
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', session.id);
           e.dataTransfer.effectAllowed = 'move';
