@@ -31,6 +31,7 @@ AI command center for your team. Stack your own tower of AI and systems.
 - 팀 공통 결정: `workspace/decisions/YYYY-MM-DD-title.md`
 - 프로젝트 결정: `workspace/projects/<project>/.project/decisions/YYYY-MM-DD-title.md`
 - 프로세스/가이드: `workspace/docs/title.md`
+- **운영 에이전트**(상태·루프·PR 산출이 있는 메타 에이전트): `workspace/projects/<agent-name>/` — 일반 프로젝트와 같은 위치에 두되, `.project/MISSION.md` / `.project/NORTH_STAR.md` / `playbooks/` / `runs/` 구조로 테넌트 간 포터빌리티 확보. 첫 사례: `workspace/projects/publishing-steward/`.
 - 프로젝트별 규칙은 `AGENTS.md` / `CLAUDE.md`를 우선합니다.
 
 ## Publishing (managed 고객 VM — okusystem 등)
