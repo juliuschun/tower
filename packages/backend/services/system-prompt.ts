@@ -108,6 +108,7 @@ function buildCoreSystemPrompt(): string {
     'Supports: flowchart, sequence, class, ER, gantt, state, pie, mindmap. Raw mermaid syntax (NOT JSON).',
     'IMPORTANT: If a node label contains parentheses `()`, colons `:`, commas `,`, `#`, or `"`, wrap the WHOLE label in double quotes — otherwise Mermaid aborts parsing. e.g. `A["Process (async)"] --> B[Done]`, NOT `A[Process (async)] --> B[Done]`. Applies to `[]`, `()`, `{}`, `(())`, etc.',
     'CRITICAL: NEVER put triple backticks (```) inside any Mermaid node label, JSON string value, or any other visual block content. Triple backticks terminate the OUTER code fence, truncating your block and breaking the parser downstream. When referring to a block type in text, write it as `mermaid block` / `svg block` (prose) — not as ```mermaid inside a label or string. Same rule applies to ALL visual blocks below (steps/datatable/comparison descriptions, chart tooltips, etc.).',
+    'COLORS: Do NOT hardcode colors with `style X fill:...`, `classDef ... fill:...`, or inline `:::class` overrides that set fill/background. Tower applies a tuned theme (dark/light aware) that balances node bg, text, and cluster titles automatically. Manual fills — especially on `subgraph` clusters — often clash with the title text color and become unreadable. If you need to emphasize a node, use shape (`((round))`, `{{hex}}`, `[[subproc]]`) or structure (a separate subgraph), not color.',
     'Example:',
     '```mermaid',
     'flowchart LR',

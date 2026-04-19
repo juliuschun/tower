@@ -6,15 +6,17 @@ import { useSettingsStore } from '../../stores/settings-store';
 let currentTheme: string | null = null;
 
 /**
- * Tower Mermaid Theme — beautiful-mermaid 원칙 이식 (절제의 미학)
+ * Tower Mermaid Theme — Linear-inspired minimalism
  *
- * 핵심:
- *   1. 2-color API — bg + fg + accent 3개로 전체 팔레트 자동 유도
- *   2. theme: 'base' — themeVariables 완전 제어
- *   3. 그림자/그라디언트/과한 효과 ❌  (색상 조화 + 선 굵기만)
- *   4. Pretendard + 정교한 spacing
+ * 원칙 (한 비전, 전 다이어그램 공유):
+ *   1. 3색 팔레트 — bg / fg / accent 1개. 끝.
+ *      (crit 빨강만 간트 critical task에 예외)
+ *   2. 아웃라인 우선 — 노드는 투명에 가까운 액센트 틴트 + 테두리가 주인공
+ *   3. 시퀀스만 예외 — inverse-actor (fg 배경 + bg 글씨)로 시각적 포인트
+ *   4. 파이/마인드맵 "무지개 금지" — 단일 accent의 명도 단계만 사용
+ *   5. Pretendard 500 + letter-spacing -0.01em (타이포그래피가 주인공)
  *
- * 참고: github.com/lukilabs/beautiful-mermaid (Craft.do)
+ * 참고 미감: Linear / Stripe docs / Vercel docs
  */
 
 /** hex 두 색을 혼합. bgWeight 1.0 = 전부 bg, 0.0 = 전부 fg */
@@ -35,197 +37,180 @@ function mix(bg: string, fg: string, bgWeight: number): string {
   return '#' + toHex(blend(br, fr)) + toHex(blend(bgG, fgG)) + toHex(blend(bb, fb));
 }
 
-/** 2-color API → 완성된 mermaid 설정 */
+/** Linear-inspired: bg + fg + 1 accent. That's it. */
 function buildMermaidTheme(mode: 'dark' | 'light') {
-  const palette = mode === 'dark'
+  const p = mode === 'dark'
     ? {
-        bg: '#0f172a', fg: '#e2e8f0', accent: '#60a5fa',
-        // 8색 순환 팔레트 — Tailwind 400 시리즈 (동일 채도·명도)
-        // blue, violet, emerald, amber, rose, cyan, pink, lime
-        accents: [
-          '#60a5fa', '#a78bfa', '#34d399', '#fbbf24',
-          '#fb7185', '#22d3ee', '#f472b6', '#a3e635',
-        ],
-        crit: '#fb7185', // rose-400 for critical gantt tasks
+        bg:     '#0a0f1e',  // 채팅 배경보다 살짝 깊은 다크
+        fg:     '#e2e8f0',  // 거의 흰색, 살짝 쿨
+        accent: '#60a5fa',  // blue-400 — Tower 브랜드
+        crit:   '#f87171',  // red-400 — gantt critical만
       }
     : {
-        bg: '#ffffff', fg: '#1e293b', accent: '#2563eb',
-        // Tailwind 600 시리즈 (흰 배경에서 대비 ↑)
-        accents: [
-          '#2563eb', '#7c3aed', '#059669', '#d97706',
-          '#e11d48', '#0891b2', '#db2777', '#65a30d',
-        ],
-        crit: '#e11d48', // rose-600
+        bg:     '#ffffff',
+        fg:     '#0f172a',
+        accent: '#2563eb',  // blue-600
+        crit:   '#dc2626',  // red-600
       };
 
-  const { bg, fg, accent, accents, crit } = palette;
+  const { bg, fg, accent, crit } = p;
 
-  // 파생 토큰 — color-mix 대신 JS hex interpolation (mermaid는 hex를 선호)
-  const surface   = mix(bg, fg, 0.88); // 노드 채우기
-  const surface2  = mix(bg, fg, 0.82); // 보조 노드
-  const surface3  = mix(bg, fg, 0.78); // 3차 노드
-  const cluster   = mix(bg, fg, 0.94); // 클러스터 배경
-  const clusterBr = mix(bg, fg, 0.70); // 클러스터 테두리
-  const line      = mix(bg, fg, 0.55); // 기본 선
+  // 파생 — 모두 accent 또는 fg 한쪽으로만 밀기
+  const nodeFill    = mix(bg, accent, 0.94);  // 아주 옅은 액센트 틴트
+  const nodeFill2   = mix(bg, accent, 0.90);
+  const nodeFill3   = mix(bg, accent, 0.86);
+  const nodeStroke  = mix(bg, accent, 0.45);  // 중간 강도 블루 (테두리 주인공)
+  const subtle      = mix(bg, fg, 0.82);      // 클러스터 테두리 — 거의 안 보일 정도
+  const muted       = mix(bg, fg, 0.60);      // 중간 회색 (sequence 보조)
+  const edge        = mix(bg, fg, 0.70);      // 엣지 — 뚜렷하지만 조용하게
 
   return {
     theme: 'base' as const,
     themeVariables: {
-      // Core
-      primaryColor: surface,
-      primaryBorderColor: accent,
+      // ── Core ──
+      primaryColor: nodeFill,
+      primaryBorderColor: nodeStroke,
       primaryTextColor: fg,
-      secondaryColor: surface2,
-      secondaryBorderColor: mix(bg, fg, 0.68),
+      secondaryColor: nodeFill2,
+      secondaryBorderColor: nodeStroke,
       secondaryTextColor: fg,
-      tertiaryColor: surface3,
-      tertiaryBorderColor: mix(bg, fg, 0.62),
+      tertiaryColor: nodeFill3,
+      tertiaryBorderColor: nodeStroke,
       tertiaryTextColor: fg,
 
-      // Flowchart / general
-      // background는 실제 bg 색을 주입해야 mermaid의 파생 계산(attribute 행 배경 등)이 정상 동작
-      // 'transparent'로 두면 ER diagram attribute 배경이 흰색 fallback으로 터짐
-      // 실제 SVG 바깥 배경 투명 처리는 mermaid-wrapper CSS에서 담당
+      // ── Flowchart / general ──
+      // background는 실제 bg로 (ER attribute 파생 계산 안정화, CSS에서 시각적 투명 처리)
       background: bg,
-      mainBkg: surface,
-      nodeBorder: accent,
+      mainBkg: nodeFill,
+      nodeBorder: nodeStroke,
       nodeTextColor: fg,
-      clusterBkg: cluster,
-      clusterBorder: clusterBr,
-      defaultLinkColor: line,
-      lineColor: line,
+      clusterBkg: bg,          // cluster는 CSS에서 완전 투명 + dashed outline
+      clusterBorder: subtle,
+      defaultLinkColor: edge,
+      lineColor: edge,
       edgeLabelBackground: bg,
       titleColor: fg,
       textColor: fg,
       labelColor: fg,
-      altBackground: cluster,
+      altBackground: bg,
 
-      // Sequence — beautiful-mermaid "inverse actor" 시그니처
-      // actor 박스는 역방향 대비: 다크모드에선 흰 박스 + 검은 글씨 / 라이트에선 반대
+      // ── Sequence — inverse-actor (유일한 시각적 포인트) ──
       actorBkg: fg,
       actorBorder: fg,
       actorTextColor: bg,
-      actorLineColor: mix(bg, fg, 0.45), // lifeline — dashed로 CSS에서 처리
+      actorLineColor: muted,
       signalColor: fg,
       signalTextColor: fg,
-      // alt/opt/loop label — subtle 서피스
-      labelBoxBkgColor: cluster,
-      labelBoxBorderColor: mix(bg, fg, 0.55),
+      labelBoxBkgColor: bg,    // alt/opt/loop — 투명하게 CSS에서 처리
+      labelBoxBorderColor: muted,
       labelTextColor: fg,
       loopTextColor: fg,
-      // note — 노란색 제거, 모노톤
-      noteBkgColor: cluster,
+      noteBkgColor: bg,        // note — 투명 + 뉴트럴 테두리만
       noteTextColor: fg,
-      noteBorderColor: mix(bg, fg, 0.55),
+      noteBorderColor: muted,
 
-      // ER diagram — 기본값이 밝은 배경이라 다크 모드에서 텍스트 안 보이는 문제 해결
-      attributeBackgroundColorOdd: surface,
-      attributeBackgroundColorEven: surface2,
+      // ── ER — 행 배경 통일 (교차 컬러 없음) ──
+      // 최신 mermaid는 rowOdd/rowEven 토큰을 사용. 구 attributeBackgroundColor* 도 호환용으로 유지.
+      rowOdd: bg,
+      rowEven: bg,
+      attributeBackgroundColorOdd: bg,
+      attributeBackgroundColorEven: bg,
 
-      // Gantt — 단정한 팔레트 (과한 채도 금지, 섹션별 톤 다르게)
-      // 섹션 행 배경 — 교차, 거의 안 보일 정도로 subtle
-      sectionBkgColor: mix(bg, fg, 0.97),
+      // ── Gantt — accent 1색 + opacity 단계 (crit만 빨강) ──
+      sectionBkgColor: mix(bg, fg, 0.96),   // 섹션 배경 살짝 가시
       altSectionBkgColor: bg,
-      sectionBkgColor2: mix(bg, fg, 0.97),
-      // 태스크 바 — 기본(pending): accent 40% 틴트
-      taskBkgColor: mix(bg, accent, 0.55),
+      sectionBkgColor2: mix(bg, fg, 0.96),
+      taskBkgColor: mix(bg, accent, 0.70),  // pending — 더 진한 액센트 틴트
       taskBorderColor: accent,
-      // 완료 태스크: 가장 조용하게 — 회색 톤
-      doneTaskBkgColor: mix(bg, fg, 0.85),
+      doneTaskBkgColor: mix(bg, fg, 0.85),  // done — 살짝 대비 있는 회색
       doneTaskBorderColor: mix(bg, fg, 0.65),
-      // 진행 중: accent 풀 강도
-      activeTaskBkgColor: accent,
+      activeTaskBkgColor: accent,           // active — 풀 액센트
       activeTaskBorderColor: accent,
-      // 크리티컬: rose 계열 — 눈에 띄되 과하지 않게
-      critBkgColor: mix(bg, crit, 0.55),
+      critBkgColor: mix(bg, crit, 0.80),    // crit — 유일 예외
       critBorderColor: crit,
-      // 그리드·텍스트 (titleColor는 Flowchart 섹션에서 이미 선언됨)
-      gridColor: mix(bg, fg, 0.85),
+      gridColor: mix(bg, fg, 0.88),
+      todayLineColor: mix(bg, fg, 0.50),    // today 선 — 뉴트럴 중간 회색 (빨강 금지)
       taskTextColor: fg,
       taskTextLightColor: fg,
       taskTextDarkColor: bg,
       taskTextOutsideColor: fg,
 
-      // Pie — 8색 팔레트 + 얇은 bg 갭 (현대적 donut 스타일)
-      pie1: accents[0],
-      pie2: accents[1],
-      pie3: accents[2],
-      pie4: accents[3],
-      pie5: accents[4],
-      pie6: accents[5],
-      pie7: accents[6],
-      pie8: accents[7],
-      pie9: mix(bg, accents[0], 0.5),
-      pie10: mix(bg, accents[1], 0.5),
-      pie11: mix(bg, accents[2], 0.5),
-      pie12: mix(bg, accents[3], 0.5),
-      pieStrokeColor: bg, // 슬라이스 사이 = bg 동색 → 갭 효과
+      // ── Pie — 단일 accent의 명도 단계 + 뉴트럴 보조 (무지개 금지) ──
+      pie1: accent,                         // 100% accent
+      pie2: mix(bg, accent, 0.40),          // 60%
+      pie3: mix(bg, accent, 0.60),          // 40%
+      pie4: mix(bg, accent, 0.78),          // 22%
+      pie5: mix(bg, fg, 0.55),              // 중립 회색 시작
+      pie6: mix(bg, fg, 0.70),
+      pie7: mix(bg, fg, 0.82),
+      pie8: mix(bg, fg, 0.90),
+      pie9: accent,                         // 반복
+      pie10: mix(bg, accent, 0.60),
+      pie11: mix(bg, fg, 0.70),
+      pie12: mix(bg, fg, 0.88),
+      pieStrokeColor: bg,                   // 슬라이스 사이 = bg 동색 → 갭
       pieStrokeWidth: '2px',
-      pieOuterStrokeColor: mix(bg, fg, 0.7),
-      pieOuterStrokeWidth: '1px',
-      pieOpacity: '0.95',
-      pieSectionTextColor: fg,
+      pieOuterStrokeWidth: '0px',           // outer ring 제거
+      pieOpacity: '1',
+      pieSectionTextColor: mode === 'dark' ? bg : fg,  // accent 배경 위 대비
       pieSectionTextSize: '13px',
       pieTitleTextColor: fg,
       pieTitleTextSize: '16px',
       pieLegendTextColor: fg,
       pieLegendTextSize: '12px',
 
-      // Mindmap — 각 계층이 서로 다른 accent 사용
-      // cScale0-11: 각 레벨 배경 (tinted, fg 텍스트가 읽히게)
-      cScale0: mix(bg, accents[0], 0.72),
-      cScale1: mix(bg, accents[1], 0.72),
-      cScale2: mix(bg, accents[2], 0.72),
-      cScale3: mix(bg, accents[3], 0.72),
-      cScale4: mix(bg, accents[4], 0.72),
-      cScale5: mix(bg, accents[5], 0.72),
-      cScale6: mix(bg, accents[6], 0.72),
-      cScale7: mix(bg, accents[7], 0.72),
-      cScale8: mix(bg, accents[0], 0.58),
-      cScale9: mix(bg, accents[1], 0.58),
-      cScale10: mix(bg, accents[2], 0.58),
-      cScale11: mix(bg, accents[3], 0.58),
-      // cScalePeer*: 해당 계층의 강조 border 색
-      cScalePeer0: accents[0],
-      cScalePeer1: accents[1],
-      cScalePeer2: accents[2],
-      cScalePeer3: accents[3],
-      cScalePeer4: accents[4],
-      cScalePeer5: accents[5],
-      cScalePeer6: accents[6],
-      cScalePeer7: accents[7],
-      // Mindmap 텍스트 — 틴트 위에서도 가독성 확보
-      cScaleLabel0: fg, cScaleLabel1: fg, cScaleLabel2: fg, cScaleLabel3: fg,
+      // ── Mindmap — 루트만 accent, 가지는 전부 뉴트럴 ──
+      cScale0: accent,                      // 루트 = 유일한 포인트
+      cScale1: mix(bg, fg, 0.78),
+      cScale2: mix(bg, fg, 0.84),
+      cScale3: mix(bg, fg, 0.90),
+      cScale4: mix(bg, fg, 0.93),
+      cScale5: mix(bg, fg, 0.78),
+      cScale6: mix(bg, fg, 0.84),
+      cScale7: mix(bg, fg, 0.90),
+      cScale8: mix(bg, fg, 0.93),
+      cScale9: mix(bg, fg, 0.84),
+      cScale10: mix(bg, fg, 0.90),
+      cScale11: mix(bg, fg, 0.93),
+      cScalePeer0: accent,
+      cScalePeer1: muted,
+      cScalePeer2: muted,
+      cScalePeer3: muted,
+      cScalePeer4: muted,
+      cScalePeer5: muted,
+      cScalePeer6: muted,
+      cScalePeer7: muted,
+      cScaleLabel0: mode === 'dark' ? bg : '#ffffff',  // 루트는 흰/검 텍스트
+      cScaleLabel1: fg, cScaleLabel2: fg, cScaleLabel3: fg,
       cScaleLabel4: fg, cScaleLabel5: fg, cScaleLabel6: fg, cScaleLabel7: fg,
 
-      // Typography
+      // ── Typography ──
       fontFamily: '"Pretendard Variable", Pretendard, Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       fontSize: '14px',
     },
     flowchart: {
-      padding: 20,
-      nodeSpacing: 48,
-      rankSpacing: 64,
+      padding: 24,
+      nodeSpacing: 54,
+      rankSpacing: 68,
       htmlLabels: true,
-      wrappingWidth: 200,
+      wrappingWidth: 220,
       curve: 'basis' as const,
     },
     sequence: {
-      boxMargin: 12,
+      boxMargin: 14,
       noteMargin: 14,
-      messageMargin: 40,
+      messageMargin: 42,
     },
     gantt: {
-      // 단정한 비율 — 바 얇게, 간격 여유롭게
-      barHeight: 18,
-      barGap: 4,
-      topPadding: 50,
-      leftPadding: 80,
+      barHeight: 28,           // 18 → 28 — 읽기 편한 높이
+      barGap: 8,               // 4 → 8 — 행 사이 숨쉴 여백
+      topPadding: 60,
+      leftPadding: 90,
       sidePadding: 40,
-      fontSize: 12,
-      sectionFontSize: 13,
+      fontSize: 13,            // 12 → 13
+      sectionFontSize: 14,     // 13 → 14
       gridLineStartPadding: 35,
-      titleTopMargin: 20,
+      titleTopMargin: 24,
       numberSectionStyles: 4,
     },
     pie: {
@@ -488,6 +473,12 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: MermaidBl
     async function render() {
       ensureInit(theme);
       try {
+        // 폰트 로딩 대기 — mermaid는 측정(DOM)과 렌더(SVG) 시점의 폰트가 다르면 노드 폭을 잘못 계산해 텍스트가 박스 밖으로 튀어나감.
+        // Pretendard가 늦게 로드되면 시스템 fallback으로 측정 → Pretendard로 렌더 → 오버플로 발생.
+        // 이미 로드됐으면 즉시 resolved 프로미스라 비용 없음.
+        if (typeof document !== 'undefined' && 'fonts' in document) {
+          await document.fonts.ready;
+        }
         const { svg } = await mermaid.render(idRef.current, code);
         if (!cancelled) {
           rawSvgRef.current = svg; // Keep original for downloads
