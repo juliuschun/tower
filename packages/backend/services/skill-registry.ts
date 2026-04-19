@@ -1,287 +1,81 @@
 /**
  * Skill Registry — 3-tier skill management (company / project / personal).
  *
- * DB is the single source of truth. Filesystem is a compatibility cache
- * for Claude SDK (~/.claude/skills/) and Pi SDK (additionalSkillPaths).
+ * 2026-04-17 재설계 (workspace/decisions/2026-04-17-skill-db-simplification.md):
+ *  - company 스킬은 DB에 저장하지 않음. library.yaml + ~/.claude/skills/ 가 단일 소스.
+ *    (library-skills.ts 가 파싱/캐시 담당)
+ *  - DB `skill_registry` 는 scope IN ('project','personal') 만 사용.
+ *  - seed/sync 양방향 동기화 제거 → §21 같은 drift 사고 구조적으로 차단.
+ *  - user_skill_prefs / skill_providers 는 `skill_name` natural key 기반
+ *    (migration 028 참조) → library 스킬에도 동일하게 적용.
  */
-
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import { query, queryOne, execute, transaction, withClient } from '../db/pg-repo.js';
+import { query, queryOne, execute } from '../db/pg-repo.js';
 import { config } from '../config.js';
 import type { SkillMeta, SkillScope } from '@tower/shared';
-import { syncSkillProviders } from './skill-credential.js';
+import {
+  syncSkillProviders,
+  reconcileSkillProviders,
+} from './skill-credential.js';
+import {
+  loadLibrarySkills,
+  getLibrarySkill,
+  getLibrarySkillsDir,
+} from './library-skills.js';
 
 // ── Filesystem layout ──
 const DATA_SKILLS_DIR = path.join(path.dirname(config.dbPath), 'skills');
-const COMPANY_SKILLS_DIR = path.join(DATA_SKILLS_DIR, 'company');
 const PERSONAL_SKILLS_DIR = path.join(DATA_SKILLS_DIR, 'personal');
-const CLAUDE_SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills');
-const PLUGINS_DIR = path.join(os.homedir(), '.claude', 'plugins');
-
-// Managed-mode manifest dropped by deploy-profile.sh on customer VMs.
-// When present, Tower treats library skills as "managed" and reconciles DB
-// against the manifest — removing legacy rows that are not listed, upserting
-// the listed ones from the filesystem copies that deploy-profile.sh rsync'd.
-const MANAGED_MANIFEST_PATH = path.join(CLAUDE_SKILLS_DIR, '.managed-manifest.json');
-
-/** Returns true if this Tower instance is a managed customer VM (manifest present). */
-export function isManagedMode(): boolean {
-  return fs.existsSync(MANAGED_MANIFEST_PATH);
-}
 
 // ═══════════════════════════════════════════════════════════════
-// Seed bundled skills → DB (idempotent)
+// Library (company) skill provider bootstrap
 // ═══════════════════════════════════════════════════════════════
-
-export async function seedBundledSkills(bundledDir: string): Promise<number> {
-  if (!fs.existsSync(bundledDir)) {
-    console.log(`[skills] Bundled skills dir not found: ${bundledDir}`);
-    return 0;
-  }
-
-  const entries = fs.readdirSync(bundledDir, { withFileTypes: true });
-
-  let count = 0;
-  await transaction(async (client) => {
-    const db = withClient(client);
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const skillFile = path.join(bundledDir, entry.name, 'SKILL.md');
-      if (!fs.existsSync(skillFile)) continue;
-
-      const content = fs.readFileSync(skillFile, 'utf-8');
-      const name = parseFrontmatterField(content, 'name') || entry.name;
-      const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
-
-      const skillId = uuidv4();
-      const result = await db.queryOne<{ id: string }>(`
-        INSERT INTO skill_registry (id, name, scope, description, category, content, source)
-        VALUES ($1, $2, 'company', $3, 'general', $4, 'bundled')
-        ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
-        DO UPDATE SET content = excluded.content, description = excluded.description,
-                      updated_at = CURRENT_TIMESTAMP
-        RETURNING id
-      `, [skillId, name, description, content]);
-      // Sync provider requirements from SKILL.md frontmatter
-      if (result?.id) {
-        await syncSkillProviders(result.id, content);
-      }
-      count++;
-    }
-  });
-
-  if (count > 0) console.log(`[skills] Seeded ${count} bundled skills`);
-  return count;
-}
 
 /**
- * Seed skills from ~/.claude/plugins/ (marketplace + installed).
- * Scans cache (versioned) and installed dirs. Stores skill_path for folder reference.
+ * Seed `skill_providers` for library (company) skills on startup.
+ *
+ * library.yaml → parse each SKILL.md frontmatter `providers:` block → upsert
+ * into `skill_providers` keyed by skill_name. Then cleanup orphan rows whose
+ * skill_name no longer exists in library or DB.
+ *
+ * Safe to call on every startup — it only inserts/updates/prunes provider
+ * metadata; the skill content itself is never written back to disk.
  */
-export async function seedPluginSkills(): Promise<number> {
-  // Sources to scan: [dir, source_tag, category_hint]
-  const sources: [string, string, string][] = [
-    [path.join(PLUGINS_DIR, 'cache', 'internal-skills'), 'marketplace', 'general'],
-    [path.join(PLUGINS_DIR, 'installed', 'superpowers', 'skills'), 'marketplace', 'dev'],
-  ];
+export async function bootstrapLibraryProviders(): Promise<{ synced: number; orphansRemoved: number }> {
+  const library = loadLibrarySkills();
 
-  // Also scan official plugins
-  const officialDir = path.join(PLUGINS_DIR, 'marketplaces', 'claude-plugins-official', 'plugins');
-  if (fs.existsSync(officialDir)) {
-    try {
-      for (const plugin of fs.readdirSync(officialDir, { withFileTypes: true })) {
-        if (!plugin.isDirectory()) continue;
-        const skillsDir = path.join(officialDir, plugin.name, 'skills');
-        if (fs.existsSync(skillsDir)) {
-          sources.push([skillsDir, 'official', 'dev']);
-        }
-      }
-    } catch {}
-  }
-
-  let count = 0;
-  await transaction(async (client) => {
-    const db = withClient(client);
-    for (const [dir, sourceTag, categoryHint] of sources) {
-      if (!fs.existsSync(dir)) continue;
-
-      try {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (!entry.isDirectory()) continue;
-          const skillDir = path.join(dir, entry.name);
-
-          // Cache entries have version subdirs: cache/internal-skills/offer-plan/1.0.0/
-          let skillFile = path.join(skillDir, 'SKILL.md');
-          let actualDir = skillDir;
-
-          if (!fs.existsSync(skillFile)) {
-            // Try version subdir
-            try {
-              const versions = fs.readdirSync(skillDir, { withFileTypes: true })
-                .filter(v => v.isDirectory())
-                .map(v => v.name)
-                .sort()
-                .reverse();
-              if (versions.length > 0) {
-                actualDir = path.join(skillDir, versions[0]);
-                skillFile = path.join(actualDir, 'SKILL.md');
-              }
-            } catch {}
-          }
-
-          if (!fs.existsSync(skillFile)) continue;
-
-          const content = fs.readFileSync(skillFile, 'utf-8');
-          const name = parseFrontmatterField(content, 'name') || entry.name;
-          const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
-
-          await db.execute(`
-            INSERT INTO skill_registry (id, name, scope, description, category, content, source, skill_path)
-            VALUES ($1, $2, 'company', $3, $4, $5, $6, $7)
-            ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
-            DO UPDATE SET content = excluded.content, description = excluded.description,
-                          skill_path = excluded.skill_path, source = excluded.source,
-                          updated_at = CURRENT_TIMESTAMP
-          `, [uuidv4(), name, description, categoryHint, content, sourceTag, actualDir]);
-          count++;
-        }
-      } catch {}
-    }
-  });
-
-  if (count > 0) console.log(`[skills] Seeded ${count} plugin skills`);
-  return count;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Managed-mode reconcile (manifest → DB)
-// ═══════════════════════════════════════════════════════════════
-
-export interface ReconcileResult {
-  mode: 'managed' | 'standalone';
-  synced: number;
-  removed: number;
-  removedNames: string[];
-  missingOnDisk: string[];
-}
-
-/**
- * Reconcile the DB against `~/.claude/skills/.managed-manifest.json`.
- *
- * Intended for customer VMs where `deploy-profile.sh` places a manifest
- * enumerating the skills we (Moat AI) officially ship. Ensures:
- *
- *  1. Every skill in the manifest exists in DB (company scope, source='managed'),
- *     content upserted from the on-disk SKILL.md that deploy-profile.sh rsync'd.
- *  2. Every company-scope row with source in ('bundled', 'managed') that is
- *     NOT in the manifest is removed — these are legacy leftovers from
- *     previous profiles/renames.
- *  3. User-created rows (source='custom' or 'user') are never touched.
- *
- * If the manifest is absent, returns early with mode='standalone' and makes
- * no changes — the caller (startup) should fall back to seedBundledSkills().
- */
-export async function reconcileManagedSkills(): Promise<ReconcileResult> {
-  if (!isManagedMode()) {
-    return { mode: 'standalone', synced: 0, removed: 0, removedNames: [], missingOnDisk: [] };
-  }
-
-  let manifest: Record<string, string>;
-  try {
-    const raw = fs.readFileSync(MANAGED_MANIFEST_PATH, 'utf-8');
-    manifest = JSON.parse(raw);
-  } catch (err: any) {
-    console.error(`[skills] Failed to parse managed manifest: ${err.message}`);
-    return { mode: 'managed', synced: 0, removed: 0, removedNames: [], missingOnDisk: [] };
-  }
-
-  const managedNames = Object.keys(manifest);
-  const missingOnDisk: string[] = [];
   let synced = 0;
-  const removedNames: string[] = [];
+  for (const skill of library) {
+    await syncSkillProviders(skill.name, skill.content);
+    synced++;
+  }
 
-  await transaction(async (client) => {
-    const db = withClient(client);
+  // Also consider DB-backed personal/project skills so their providers aren't
+  // treated as orphans. We only collect names — content sync for personal/project
+  // happens during createSkill/updateSkill.
+  const dbNames = await query<{ name: string }>(
+    `SELECT DISTINCT name FROM skill_registry WHERE scope IN ('personal','project')`,
+  );
 
-    // 1) Upsert each manifest skill from disk (source='managed')
-    for (const name of managedNames) {
-      const skillFile = path.join(CLAUDE_SKILLS_DIR, name, 'SKILL.md');
-      if (!fs.existsSync(skillFile)) {
-        missingOnDisk.push(name);
-        continue;
-      }
-      const content = fs.readFileSync(skillFile, 'utf-8');
-      const description = parseFrontmatterField(content, 'description') || `Skill: ${name}`;
+  const active = new Set<string>([
+    ...library.map(s => s.name),
+    ...dbNames.map(r => r.name),
+  ]);
 
-      const result = await db.queryOne<{ id: string }>(`
-        INSERT INTO skill_registry (id, name, scope, description, category, content, source)
-        VALUES ($1, $2, 'company', $3, 'general', $4, 'managed')
-        ON CONFLICT (name, scope, COALESCE(project_id,''), COALESCE(user_id, 0))
-        DO UPDATE SET content = excluded.content,
-                      description = excluded.description,
-                      source = 'managed',
-                      updated_at = CURRENT_TIMESTAMP
-        RETURNING id
-      `, [uuidv4(), name, description, content]);
-
-      if (result?.id) {
-        await syncSkillProviders(result.id, content);
-      }
-      synced++;
-    }
-
-    // 2) Delete legacy company skills not in the manifest.
-    //    Only affects rows Tower itself seeded (source in bundled/managed).
-    //    Rows with source='custom'/'user' (DB-backed user creations) are kept.
-    const placeholders = managedNames.length > 0
-      ? managedNames.map((_, i) => `$${i + 1}`).join(',')
-      : 'NULL';
-    const deleteSql = `
-      DELETE FROM skill_registry
-      WHERE scope = 'company'
-        AND source IN ('bundled', 'managed')
-        ${managedNames.length > 0 ? `AND name NOT IN (${placeholders})` : ''}
-      RETURNING name
-    `;
-    const res = await client.query<{ name: string }>(deleteSql, managedNames);
-    for (const row of res.rows) removedNames.push(row.name);
-  });
+  const orphansRemoved = await reconcileSkillProviders(active);
 
   console.log(
-    `[skills] reconcileManagedSkills: synced=${synced}, removed=${removedNames.length}` +
-    (missingOnDisk.length > 0 ? `, missingOnDisk=${missingOnDisk.join(',')}` : '')
+    `[skills] bootstrapLibraryProviders: library=${library.length}, ` +
+    `providers_synced=${synced}, orphans_removed=${orphansRemoved}`,
   );
-
-  return {
-    mode: 'managed',
-    synced,
-    removed: removedNames.length,
-    removedNames,
-    missingOnDisk,
-  };
+  return { synced, orphansRemoved };
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Filesystem sync (DB → disk)
+// Filesystem sync (project/personal only)
 // ═══════════════════════════════════════════════════════════════
-
-/** Sync company skills: DB → data/skills/company/ + ~/.claude/skills/ */
-export async function syncCompanySkillsToFs(): Promise<void> {
-  const skills = await query<{ name: string; content: string }>(
-    `SELECT name, content FROM skill_registry WHERE scope = 'company' AND enabled = 1`
-  );
-
-  // Write to data/skills/company/ (for Pi additionalSkillPaths)
-  syncSkillsToDir(skills, COMPANY_SKILLS_DIR);
-
-  // Write to ~/.claude/skills/ (for Claude SDK native discovery)
-  syncSkillsToDir(skills, CLAUDE_SKILLS_DIR);
-
-  console.log(`[skills] Company skills synced: ${skills.length} to filesystem`);
-}
 
 /** Sync project skills: DB → {projectRootPath}/.claude/skills/ */
 export async function syncProjectSkillsToFs(projectId: string, projectRootPath: string): Promise<void> {
@@ -307,7 +101,7 @@ export async function syncPersonalSkillsToFs(userId: number): Promise<void> {
   syncSkillsToDir(skills, targetDir);
 }
 
-/** Write skills to a directory, removing orphans */
+/** Write skills to a directory, removing orphans. Used for personal/project only. */
 function syncSkillsToDir(skills: { name: string; content: string }[], targetDir: string): void {
   fs.mkdirSync(targetDir, { recursive: true });
 
@@ -342,38 +136,102 @@ function syncSkillsToDir(skills: { name: string; content: string }[], targetDir:
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CRUD
+// CRUD — project/personal only (company is read-only from library.yaml)
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * List skills visible to a user. Merges:
+ *  - company scope → library.yaml / ~/.claude/skills/
+ *  - project scope → DB row filtered by projectId (if provided)
+ *  - personal scope → DB row filtered by userId (if provided)
+ */
 export async function listSkills(scope?: SkillScope, projectId?: string, userId?: number): Promise<SkillMeta[]> {
-  let sql = 'SELECT * FROM skill_registry WHERE 1=1';
-  const params: any[] = [];
-  let idx = 1;
+  const results: SkillMeta[] = [];
 
-  if (scope) { sql += ` AND scope = $${idx++}`; params.push(scope); }
-  if (projectId) { sql += ` AND project_id = $${idx++}`; params.push(projectId); }
-  if (userId && scope === 'personal') { sql += ` AND user_id = $${idx++}`; params.push(userId); }
+  // Library (company) skills
+  if (!scope || scope === 'company') {
+    const library = loadLibrarySkills();
+    for (const s of library) {
+      results.push({
+        id: s.name, // synthetic: library skills use name as stable id
+        name: s.name,
+        scope: 'company',
+        description: s.description,
+        category: inferCategoryFromTags(s.tags),
+        enabled: true,
+        source: 'library',
+        skillPath: s.skillPath,
+        projectId: null,
+        userId: null,
+        createdAt: '',
+        updatedAt: '',
+      } as SkillMeta);
+    }
+  }
 
-  sql += ' ORDER BY name';
-  const rows = await query(sql, params);
+  // DB-backed skills (project/personal)
+  if (!scope || scope === 'project' || scope === 'personal') {
+    let sql = `SELECT * FROM skill_registry WHERE scope IN ('project','personal')`;
+    const params: any[] = [];
+    let idx = 1;
+
+    if (scope) { sql += ` AND scope = $${idx++}`; params.push(scope); }
+    if (projectId) { sql += ` AND project_id = $${idx++}`; params.push(projectId); }
+    if (userId && (scope === 'personal' || !scope)) {
+      sql += ` AND (scope != 'personal' OR user_id = $${idx++})`;
+      params.push(userId);
+    }
+
+    sql += ' ORDER BY scope, name';
+    const rows = await query(sql, params);
+    for (const row of rows) results.push(rowToMeta(row));
+  }
 
   // Attach per-user pref if userId provided
-  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
-  return rows.map(row => {
-    const meta = rowToMeta(row);
-    if (userId) {
-      const pref = userPrefs.get(row.id);
+  if (userId) {
+    const userPrefs = await getUserSkillPrefs(userId);
+    for (const meta of results) {
+      const pref = userPrefs.get(meta.name);
       meta.userEnabled = pref ?? null;
     }
-    return meta;
-  });
+  }
+  return results;
 }
 
-export async function getSkill(id: string): Promise<(SkillMeta & { content: string }) | null> {
-  const row = await queryOne('SELECT * FROM skill_registry WHERE id = $1', [id]);
+/**
+ * Get a single skill by id (UUID for project/personal) or name (library).
+ * Returns content embedded in the result.
+ */
+export async function getSkill(idOrName: string): Promise<(SkillMeta & { content: string }) | null> {
+  // Library first (name-based)
+  const lib = getLibrarySkill(idOrName);
+  if (lib) {
+    return {
+      id: lib.name,
+      name: lib.name,
+      scope: 'company',
+      description: lib.description,
+      category: inferCategoryFromTags(lib.tags),
+      enabled: true,
+      source: 'library',
+      skillPath: lib.skillPath,
+      projectId: null,
+      userId: null,
+      createdAt: '',
+      updatedAt: '',
+      content: lib.content,
+    } as SkillMeta & { content: string };
+  }
+
+  // DB (UUID-based)
+  const row = await queryOne('SELECT * FROM skill_registry WHERE id = $1', [idOrName]);
   return row ? { ...rowToMeta(row), content: row.content } : null;
 }
 
+/**
+ * Create a new skill. Company scope is NOT allowed — edit library.yaml /
+ * ~/.claude/skills/<name>/SKILL.md directly instead.
+ */
 export async function createSkill(data: {
   name: string;
   scope: SkillScope;
@@ -383,12 +241,18 @@ export async function createSkill(data: {
   projectId?: string;
   userId?: number;
 }): Promise<SkillMeta> {
+  if (data.scope === 'company') {
+    throw new Error("Company skills are read-only. Edit library.yaml and ~/.claude/skills/<name>/SKILL.md directly.");
+  }
   const id = uuidv4();
   await execute(`
     INSERT INTO skill_registry (id, name, scope, project_id, user_id, description, category, content, source)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'custom')
   `, [id, data.name, data.scope, data.projectId || null, data.userId || null,
     data.description || '', data.category || 'general', data.content]);
+
+  // Sync providers for this skill (from its frontmatter)
+  await syncSkillProviders(data.name, data.content);
 
   await syncAfterMutation(data.scope, data.projectId, data.userId);
   return (await getSkill(id))!;
@@ -401,8 +265,14 @@ export async function updateSkill(id: string, data: {
   category?: string;
   enabled?: boolean;
 }): Promise<boolean> {
-  const existing = await queryOne<any>('SELECT scope, project_id, user_id FROM skill_registry WHERE id = $1', [id]);
+  const existing = await queryOne<any>(
+    'SELECT scope, project_id, user_id, name FROM skill_registry WHERE id = $1',
+    [id],
+  );
   if (!existing) return false;
+  if (existing.scope === 'company') {
+    throw new Error("Company skills are read-only. Edit library.yaml and SKILL.md directly.");
+  }
 
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP'];
   const params: any[] = [];
@@ -417,24 +287,43 @@ export async function updateSkill(id: string, data: {
   params.push(id);
   await execute(`UPDATE skill_registry SET ${sets.join(', ')} WHERE id = $${idx++}`, params);
 
+  // If content changed, re-sync providers for the skill name
+  if (data.content !== undefined) {
+    const updatedName = data.name ?? existing.name;
+    await syncSkillProviders(updatedName, data.content);
+  }
+
   await syncAfterMutation(existing.scope, existing.project_id, existing.user_id);
   return true;
 }
 
 export async function deleteSkill(id: string): Promise<boolean> {
-  const existing = await queryOne<any>('SELECT scope, project_id, user_id FROM skill_registry WHERE id = $1', [id]);
+  const existing = await queryOne<any>(
+    'SELECT scope, project_id, user_id, name FROM skill_registry WHERE id = $1',
+    [id],
+  );
   if (!existing) return false;
+  if (existing.scope === 'company') {
+    throw new Error("Company skills are read-only. Remove from library.yaml instead.");
+  }
 
   await execute('DELETE FROM skill_registry WHERE id = $1', [id]);
+  // Remove provider rows for this name if nobody else owns the same name
+  const remaining = await query<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM skill_registry WHERE name = $1`,
+    [existing.name],
+  );
+  const alsoInLibrary = !!getLibrarySkill(existing.name);
+  if ((remaining[0]?.n ?? 0) === 0 && !alsoInLibrary) {
+    await execute('DELETE FROM skill_providers WHERE skill_name = $1', [existing.name]);
+  }
+
   await syncAfterMutation(existing.scope, existing.project_id, existing.user_id);
   return true;
 }
 
 async function syncAfterMutation(scope: string, projectId?: string, userId?: number) {
-  if (scope === 'company') {
-    await syncCompanySkillsToFs();
-  } else if (scope === 'project' && projectId) {
-    // Resolve project root path
+  if (scope === 'project' && projectId) {
     const project = await queryOne<any>('SELECT root_path FROM projects WHERE id = $1', [projectId]);
     if (project?.root_path) {
       await syncProjectSkillsToFs(projectId, project.root_path);
@@ -445,117 +334,162 @@ async function syncAfterMutation(scope: string, projectId?: string, userId?: num
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Query helpers (for engines and /api/commands)
+// User skill preferences (now keyed by skill_name)
 // ═══════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════
-// User skill preferences
-// ═══════════════════════════════════════════════════════════════
-
-/** Set user preference for a skill (overrides global enabled state) */
-export async function setUserSkillPref(userId: number, skillId: string, enabled: boolean): Promise<void> {
+/** Set user preference for a skill (overrides global enabled state). */
+export async function setUserSkillPref(userId: number, skillName: string, enabled: boolean): Promise<void> {
   await execute(`
-    INSERT INTO user_skill_prefs (user_id, skill_id, enabled) VALUES ($1, $2, $3)
-    ON CONFLICT (user_id, skill_id) DO UPDATE SET enabled = excluded.enabled
-  `, [userId, skillId, enabled ? 1 : 0]);
+    INSERT INTO user_skill_prefs (user_id, skill_name, enabled) VALUES ($1, $2, $3)
+    ON CONFLICT (user_id, skill_name) DO UPDATE SET enabled = excluded.enabled
+  `, [userId, skillName, enabled ? 1 : 0]);
 }
 
 /** Get user preference for a skill. Returns null if no pref set (default = enabled). */
-export async function getUserSkillPref(userId: number, skillId: string): Promise<boolean | null> {
-  const row = await queryOne<any>('SELECT enabled FROM user_skill_prefs WHERE user_id = $1 AND skill_id = $2', [userId, skillId]);
+export async function getUserSkillPref(userId: number, skillName: string): Promise<boolean | null> {
+  const row = await queryOne<any>(
+    'SELECT enabled FROM user_skill_prefs WHERE user_id = $1 AND skill_name = $2',
+    [userId, skillName],
+  );
   return row ? !!row.enabled : null;
 }
 
-/** Get all user prefs as a Map<skillId, enabled> */
+/** Get all user prefs as a Map<skillName, enabled> */
 async function getUserSkillPrefs(userId: number): Promise<Map<string, boolean>> {
-  const rows = await query<any>('SELECT skill_id, enabled FROM user_skill_prefs WHERE user_id = $1', [userId]);
+  const rows = await query<any>(
+    'SELECT skill_name, enabled FROM user_skill_prefs WHERE user_id = $1',
+    [userId],
+  );
   const map = new Map<string, boolean>();
-  for (const r of rows) map.set(r.skill_id, !!r.enabled);
+  for (const r of rows) map.set(r.skill_name, !!r.enabled);
   return map;
 }
 
-/** Check if a skill is active for a user (global enabled AND user pref) */
-function isSkillActiveForUser(row: any, userPrefs: Map<string, boolean>): boolean {
-  if (!row.enabled) return false; // globally disabled by admin
-  const pref = userPrefs.get(row.id);
+/**
+ * Merge visibility check: library/DB-native enabled state AND per-user pref.
+ * Library skills default to `enabled=true`; DB skills honor the `enabled` column.
+ */
+function isSkillActiveForUser(enabledInSource: boolean, name: string, userPrefs: Map<string, boolean>): boolean {
+  if (!enabledInSource) return false;
+  const pref = userPrefs.get(name);
   return pref !== false; // default = enabled (null/true → active, false → inactive)
 }
 
-/** Get merged skills for a session: company + project + personal, filtered by user prefs */
+// ═══════════════════════════════════════════════════════════════
+// Session / command helpers (library + DB merged)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Get merged skills for a session: library(company) + project + personal.
+ * Deduplicated by name, ordered personal > project > company.
+ */
 export async function getSkillsForSession(userId?: number, projectId?: string | null): Promise<SkillMeta[]> {
+  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
+
+  // DB rows: project + personal
   const params: any[] = [];
   let idx = 1;
-
   let projectClause = '';
   if (projectId) { projectClause = `OR (scope = 'project' AND project_id = $${idx++})`; params.push(projectId); }
   let userClause = '';
   if (userId) { userClause = `OR (scope = 'personal' AND user_id = $${idx++})`; params.push(userId); }
 
-  const sql = `
-    SELECT * FROM skill_registry
-    WHERE enabled = 1 AND (
-      scope = 'company'
-      ${projectClause}
-      ${userClause}
-    )
-    ORDER BY CASE scope WHEN 'personal' THEN 0 WHEN 'project' THEN 1 WHEN 'company' THEN 2 END, name
-  `;
+  const dbRows = projectClause || userClause
+    ? await query(
+        `SELECT * FROM skill_registry WHERE enabled = 1 AND (1=0 ${projectClause} ${userClause})
+         ORDER BY CASE scope WHEN 'personal' THEN 0 WHEN 'project' THEN 1 ELSE 2 END, name`,
+        params,
+      )
+    : [];
 
-  const rows = await query(sql, params);
-  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
-
-  // Deduplicate + filter by user prefs
   const seen = new Set<string>();
   const result: SkillMeta[] = [];
-  for (const row of rows) {
+
+  // First pass: DB (personal/project take priority over library)
+  for (const row of dbRows) {
     if (seen.has(row.name)) continue;
     seen.add(row.name);
-    if (!isSkillActiveForUser(row, userPrefs)) continue;
+    if (!isSkillActiveForUser(!!row.enabled, row.name, userPrefs)) continue;
     result.push(rowToMeta(row));
   }
+
+  // Second pass: library (company)
+  const library = loadLibrarySkills();
+  for (const s of library) {
+    if (seen.has(s.name)) continue;
+    seen.add(s.name);
+    if (!isSkillActiveForUser(true, s.name, userPrefs)) continue;
+    result.push({
+      id: s.name,
+      name: s.name,
+      scope: 'company',
+      description: s.description,
+      category: inferCategoryFromTags(s.tags),
+      enabled: true,
+      source: 'library',
+      skillPath: s.skillPath,
+      projectId: null,
+      userId: null,
+      createdAt: '',
+      updatedAt: '',
+    } as SkillMeta);
+  }
+
   return result;
 }
 
-/** Get commands for /api/commands endpoint (with fullContent for dropdown) */
+/** Get commands for /api/commands endpoint (with fullContent for dropdown). */
 export async function getCommandsForUser(userId?: number, projectId?: string | null): Promise<{
   name: string; description: string; fullContent: string; source: string; scope: SkillScope;
 }[]> {
+  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
+
   const params: any[] = [];
   let idx = 1;
-
   let projectClause = '';
   if (projectId) { projectClause = `OR (scope = 'project' AND project_id = $${idx++})`; params.push(projectId); }
   let userClause = '';
   if (userId) { userClause = `OR (scope = 'personal' AND user_id = $${idx++})`; params.push(userId); }
 
-  const sql = `
-    SELECT * FROM skill_registry
-    WHERE enabled = 1 AND (
-      scope = 'company'
-      ${projectClause}
-      ${userClause}
-    )
-    ORDER BY CASE scope WHEN 'personal' THEN 0 WHEN 'project' THEN 1 WHEN 'company' THEN 2 END, name
-  `;
-
-  const rows = await query(sql, params);
-  const userPrefs = userId ? await getUserSkillPrefs(userId) : new Map<string, boolean>();
+  const dbRows = projectClause || userClause
+    ? await query(
+        `SELECT name, scope, description, content FROM skill_registry
+         WHERE enabled = 1 AND (1=0 ${projectClause} ${userClause})
+         ORDER BY CASE scope WHEN 'personal' THEN 0 WHEN 'project' THEN 1 ELSE 2 END, name`,
+        params,
+      )
+    : [];
 
   const seen = new Set<string>();
   const result: { name: string; description: string; fullContent: string; source: string; scope: SkillScope }[] = [];
 
-  for (const row of rows) {
+  for (const row of dbRows) {
     if (seen.has(row.name)) continue;
     seen.add(row.name);
-    if (!isSkillActiveForUser(row, userPrefs)) continue;
+    if (!isSkillActiveForUser(true, row.name, userPrefs)) continue;
     result.push({
       name: `/${row.name}`,
       description: row.description || `Skill: ${row.name}`,
       fullContent: row.content,
       source: 'skills',
-      scope: row.scope,
+      scope: row.scope as SkillScope,
     });
   }
+
+  const library = loadLibrarySkills();
+  for (const s of library) {
+    if (seen.has(s.name)) continue;
+    seen.add(s.name);
+    if (!isSkillActiveForUser(true, s.name, userPrefs)) continue;
+    result.push({
+      name: `/${s.name}`,
+      description: s.description,
+      fullContent: s.content,
+      source: 'skills',
+      scope: 'company',
+    });
+  }
+
   return result;
 }
 
@@ -568,9 +502,9 @@ export async function getPersonalSkill(userId: number, name: string): Promise<{ 
   return row || null;
 }
 
-/** Get skill by name from any scope (for Pi engine prepend fallback) */
+/** Get skill by name from any scope (for Pi engine prepend fallback). */
 export async function getSkillByName(name: string, userId?: number, projectId?: string | null): Promise<{ content: string; scope: string } | null> {
-  // Check in priority order: personal → project → company
+  // Priority: personal → project → library(company)
   if (userId) {
     const personal = await queryOne<any>(
       `SELECT content, scope FROM skill_registry WHERE name = $1 AND scope = 'personal' AND user_id = $2 AND enabled = 1`,
@@ -585,30 +519,39 @@ export async function getSkillByName(name: string, userId?: number, projectId?: 
     );
     if (project) return project;
   }
-  const company = await queryOne<any>(
-    `SELECT content, scope FROM skill_registry WHERE name = $1 AND scope = 'company' AND enabled = 1`,
-    [name]
-  );
-  return company || null;
+  const lib = getLibrarySkill(name);
+  if (lib) return { content: lib.content, scope: 'company' };
+  return null;
 }
 
-/** Get filesystem paths for personal skills (for Pi additionalSkillPaths) */
+// ═══════════════════════════════════════════════════════════════
+// Paths for Pi additionalSkillPaths
+// ═══════════════════════════════════════════════════════════════
+
+/** Filesystem paths for personal skills (for Pi additionalSkillPaths) */
 export function getPersonalSkillPaths(userId?: number): string[] {
   if (!userId) return [];
   const dir = path.join(PERSONAL_SKILLS_DIR, String(userId));
   return fs.existsSync(dir) ? [dir] : [];
 }
 
-/** Get project-local .claude/skills path when present (for Pi parity with Claude project skills). */
+/** Project-local .claude/skills path when present (for Pi parity with Claude project skills). */
 export function getProjectSkillPaths(cwd?: string): string[] {
   if (!cwd) return [];
   const dir = path.join(cwd, '.claude', 'skills');
   return fs.existsSync(dir) ? [dir] : [];
 }
 
-/** Get company skills directory path (for Pi additionalSkillPaths) */
+/**
+ * Company skills directory — points directly at `~/.claude/skills/`.
+ *
+ * Before the 2026-04-17 simplification this was `data/skills/company/` which
+ * Tower synced from the DB. Now the SKILL.md files on disk are the canonical
+ * source (rsync'd from library.yaml by deploy-profile.sh), and Claude SDK picks
+ * them up natively. Pi SDK uses this path via additionalSkillPaths.
+ */
 export function getCompanySkillsDir(): string {
-  return COMPANY_SKILLS_DIR;
+  return getLibrarySkillsDir();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -623,13 +566,19 @@ function rowToMeta(row: any): SkillMeta {
     description: row.description || '',
     category: row.category || 'general',
     enabled: !!row.enabled,
-    source: row.source || 'bundled',
+    source: row.source || 'custom',
     skillPath: row.skill_path || null,
     projectId: row.project_id || null,
     userId: row.user_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function inferCategoryFromTags(tags: string[]): string {
+  if (!tags || tags.length === 0) return 'general';
+  // First tag wins (core, business, docs, presentation, browser, dev, meta, tower-ops, internal)
+  return tags[0];
 }
 
 /** Extract a frontmatter field from SKILL.md content */

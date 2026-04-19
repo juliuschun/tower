@@ -1429,11 +1429,16 @@ function SkillsManagement({ token }: { token?: string | null }) {
                 className={`px-2 py-1 text-[10px] rounded ${skill.enabled ? 'text-green-400 hover:text-red-400' : 'text-red-400 hover:text-green-400'}`}>
                 {skill.enabled ? t('common:on') : t('common:off')}
               </button>
-              <button onClick={() => { setEditing(skill); setCreating(false); setForm({ name: skill.name, description: skill.description, content: '', category: skill.category }); fetch(`${API_BASE}/skills/${skill.id}`, { headers: hdrs }).then(r => r.json()).then(d => setForm(f => ({ ...f, content: d.content || '' }))); }}
-                className="px-2 py-1 text-[10px] text-gray-500 hover:text-primary-400 transition-colors">{t('common:edit')}</button>
-              {skill.source !== 'bundled' && (
-                <button onClick={() => handleDelete(skill.id)}
-                  className="px-2 py-1 text-[10px] text-gray-500 hover:text-red-400 transition-colors">{t('del')}</button>
+              {/* 2026-04-17: company 스킬은 library.yaml + SKILL.md 가 단일 소스 → read-only */}
+              {skill.scope === 'company' ? (
+                <span className="px-2 py-1 text-[10px] text-gray-600 italic">read-only</span>
+              ) : (
+                <>
+                  <button onClick={() => { setEditing(skill); setCreating(false); setForm({ name: skill.name, description: skill.description, content: '', category: skill.category }); fetch(`${API_BASE}/skills/${skill.id}`, { headers: hdrs }).then(r => r.json()).then(d => setForm(f => ({ ...f, content: d.content || '' }))); }}
+                    className="px-2 py-1 text-[10px] text-gray-500 hover:text-primary-400 transition-colors">{t('common:edit')}</button>
+                  <button onClick={() => handleDelete(skill.id)}
+                    className="px-2 py-1 text-[10px] text-gray-500 hover:text-red-400 transition-colors">{t('del')}</button>
+                </>
               )}
             </div>
           </div>

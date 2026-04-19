@@ -1,11 +1,16 @@
 /**
  * skill-credential.ts — Skill ↔ Credential binding service.
  *
- * Connects two existing systems:
- * - skill_registry (what skills exist)
+ * Connects two systems:
+ * - library.yaml + ~/.claude/skills/<name>/SKILL.md  (what skills exist — company)
+ * - skill_registry (what skills exist — personal/project, DB-backed)
  * - user_oauth_tokens (what credentials users have)
  *
- * via the new skill_providers table (what credentials skills need).
+ * via the skill_providers table (what credentials skills need).
+ *
+ * 2026-04-17: `skill_providers`는 `skill_name` PK로 재설계됨
+ *  (workspace/decisions/2026-04-17-skill-db-simplification.md 참조).
+ *  company 스킬이 DB에 row가 없어도 skill_name만 있으면 provider 바인딩 가능.
  *
  * "인턴 프레임워크": 스킬 실행 시 요청자의 credential을 자동 바인딩.
  * - Level 0 (🆓): credential 불필요 → providers 없음 → 바로 실행
@@ -47,14 +52,14 @@ export const PROVIDER_META: Record<string, {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Skill → Provider mapping CRUD
+// Skill → Provider mapping CRUD (skill_name-based)
 // ═══════════════════════════════════════════════════════════════
 
-/** Get providers required by a skill */
-export async function getSkillProviders(skillId: string): Promise<SkillProvider[]> {
+/** Get providers required by a skill (by skill name). */
+export async function getSkillProviders(skillName: string): Promise<SkillProvider[]> {
   const rows = await query<{ provider: string; required: boolean; scope_hint: string }>(
-    'SELECT provider, required, scope_hint FROM skill_providers WHERE skill_id = $1',
-    [skillId],
+    'SELECT provider, required, scope_hint FROM skill_providers WHERE skill_name = $1',
+    [skillName],
   );
   return rows.map(r => ({
     provider: r.provider,
@@ -63,38 +68,38 @@ export async function getSkillProviders(skillId: string): Promise<SkillProvider[
   }));
 }
 
-/** Set providers for a skill (replaces all existing) */
+/** Set providers for a skill (replaces all existing). */
 export async function setSkillProviders(
-  skillId: string,
+  skillName: string,
   providers: Array<{ provider: string; required?: boolean; scopeHint?: string }>
 ): Promise<void> {
   await transaction(async (client) => {
     const db = withClient(client);
-    await db.execute('DELETE FROM skill_providers WHERE skill_id = $1', [skillId]);
+    await db.execute('DELETE FROM skill_providers WHERE skill_name = $1', [skillName]);
     for (const p of providers) {
       await db.execute(
-        `INSERT INTO skill_providers (skill_id, provider, required, scope_hint)
+        `INSERT INTO skill_providers (skill_name, provider, required, scope_hint)
          VALUES ($1, $2, $3, $4)`,
-        [skillId, p.provider, p.required ?? true, p.scopeHint ?? ''],
+        [skillName, p.provider, p.required ?? true, p.scopeHint ?? ''],
       );
     }
   });
 }
 
-/** Upsert a single provider for a skill (used during seed) */
+/** Upsert a single provider for a skill (used during seed / manifest sync). */
 export async function upsertSkillProvider(
-  skillId: string,
+  skillName: string,
   provider: string,
   required = true,
   scopeHint = '',
 ): Promise<void> {
   await execute(
-    `INSERT INTO skill_providers (skill_id, provider, required, scope_hint)
+    `INSERT INTO skill_providers (skill_name, provider, required, scope_hint)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (skill_id, provider) DO UPDATE SET
+     ON CONFLICT (skill_name, provider) DO UPDATE SET
        required = EXCLUDED.required,
        scope_hint = EXCLUDED.scope_hint`,
-    [skillId, provider, required, scopeHint],
+    [skillName, provider, required, scopeHint],
   );
 }
 
@@ -138,33 +143,30 @@ export async function getUserConnections(userId: number): Promise<ConnectionStat
  * Returns:
  * - ready=true → all required providers connected, skill can execute
  * - ready=false → missing providers listed, frontend shows connection guide
+ *
+ * `skillName` is used as the natural key across library (company) and DB
+ * (personal/project). `SkillReadiness.skillId` is populated with the same
+ * name since the React UI only needs a stable unique key, not a UUID.
  */
 export async function checkSkillReadiness(
-  skillId: string,
+  skillName: string,
   userId: number,
 ): Promise<SkillReadiness> {
-  // 1. What does this skill need?
-  const skillRow = await query<{ name: string }>(
-    'SELECT name FROM skill_registry WHERE id = $1',
-    [skillId],
-  );
-  const skillName = skillRow[0]?.name ?? 'unknown';
-
-  const requiredProviders = await getSkillProviders(skillId);
+  const requiredProviders = await getSkillProviders(skillName);
 
   // No providers needed → Level 0 (🆓), always ready
   if (requiredProviders.length === 0) {
-    return { skillId, skillName, ready: true, missing: [], providers: [] };
+    return { skillId: skillName, skillName, ready: true, missing: [], providers: [] };
   }
 
-  // 2. What does this user have?
+  // What does this user have?
   const userProviders = await query<{ provider: string }>(
     'SELECT provider FROM user_oauth_tokens WHERE user_id = $1',
     [userId],
   );
   const connectedSet = new Set(userProviders.map(r => r.provider));
 
-  // 3. Match
+  // Match
   const providers = requiredProviders.map(p => ({
     ...p,
     connected: connectedSet.has(p.provider),
@@ -175,7 +177,7 @@ export async function checkSkillReadiness(
     .map(p => p.provider);
 
   return {
-    skillId,
+    skillId: skillName,
     skillName,
     ready: missing.length === 0,
     missing,
@@ -186,20 +188,18 @@ export async function checkSkillReadiness(
 /**
  * Batch check: readiness of all skills that require credentials.
  * Used for "My Connections" dashboard.
+ *
+ * Queries skill_providers directly (skill_name-based), so library/company
+ * skills are included naturally without any JOIN on skill_registry.
  */
 export async function getUserSkillReadiness(userId: number): Promise<SkillReadiness[]> {
-  // Find all skills that have at least one provider requirement
-  const skillsWithProviders = await query<{ skill_id: string; name: string }>(
-    `SELECT DISTINCT sr.id AS skill_id, sr.name
-     FROM skill_registry sr
-     JOIN skill_providers sp ON sr.id = sp.skill_id
-     WHERE sr.enabled = 1
-     ORDER BY sr.name`,
+  const skillNames = await query<{ skill_name: string }>(
+    `SELECT DISTINCT skill_name FROM skill_providers ORDER BY skill_name`,
   );
 
   const results: SkillReadiness[] = [];
-  for (const skill of skillsWithProviders) {
-    results.push(await checkSkillReadiness(skill.skill_id, userId));
+  for (const row of skillNames) {
+    results.push(await checkSkillReadiness(row.skill_name, userId));
   }
   return results;
 }
@@ -209,7 +209,7 @@ export async function getUserSkillReadiness(userId: number): Promise<SkillReadin
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Parse providers from SKILL.md frontmatter and sync to skill_providers table.
+ * Parse providers block from a SKILL.md frontmatter.
  *
  * Expected SKILL.md format:
  * ```yaml
@@ -259,13 +259,31 @@ export function parseProvidersFromFrontmatter(content: string): Array<{
 
 /**
  * Sync providers from a skill's content to skill_providers table.
- * Called during seedBundledSkills / seedPluginSkills.
+ * Called during library load and personal/project skill seeding.
  */
-export async function syncSkillProviders(skillId: string, content: string): Promise<void> {
+export async function syncSkillProviders(skillName: string, content: string): Promise<void> {
   const providers = parseProvidersFromFrontmatter(content);
   if (providers.length === 0) return;
 
   for (const p of providers) {
-    await upsertSkillProvider(skillId, p.provider, p.required, p.scopeHint);
+    await upsertSkillProvider(skillName, p.provider, p.required, p.scopeHint);
   }
+}
+
+/**
+ * Reconcile skill_providers against the full set of library + DB skills.
+ * Removes rows for skill_name values that no longer exist anywhere (orphans).
+ *
+ * Typical call site: after loading library.yaml + personal/project skills
+ * on startup, or after a `/api/skills/*` mutation.
+ */
+export async function reconcileSkillProviders(activeSkillNames: Set<string>): Promise<number> {
+  if (activeSkillNames.size === 0) return 0;
+  const names = Array.from(activeSkillNames);
+  const placeholders = names.map((_, i) => `$${i + 1}`).join(',');
+  const result = await execute(
+    `DELETE FROM skill_providers WHERE skill_name NOT IN (${placeholders})`,
+    names,
+  );
+  return (result as any)?.rowCount ?? 0;
 }

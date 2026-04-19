@@ -21,7 +21,7 @@ import { startHeartbeatScheduler, stopHeartbeatScheduler } from './services/hear
 import { initNotificationHub } from './services/notification-hub.js';
 import { auditStaleSessions } from './services/session-manager.js';
 import { stopWsSync } from './services/ws-sync.js';
-import { seedBundledSkills, seedPluginSkills, syncCompanySkillsToFs, reconcileManagedSkills, isManagedMode } from './services/skill-registry.js';
+import { bootstrapLibraryProviders } from './services/skill-registry.js';
 import { backfillTaskProjects } from './services/task-manager.js';
 
 // CRITICAL: Remove CLAUDECODE env var before anything else
@@ -123,24 +123,15 @@ server.listen(config.port, config.host, async () => {
     console.log('[pg] DATABASE_URL not set — chat rooms disabled');
   }
 
-  // Skill seeding strategy depends on whether this Tower is a managed customer VM
-  // (deploy-profile.sh drops ~/.claude/skills/.managed-manifest.json there) or a
-  // standalone/dev instance.
-  //
-  //  - Managed VMs: reconcile DB against the manifest. Upsert listed skills from
-  //    the on-disk SKILL.md that rsync delivered, and delete legacy company-scope
-  //    rows (bundled/managed source) that are no longer in the manifest.
-  //  - Standalone/dev: fall back to the legacy behavior of seeding everything
-  //    already on disk under ~/.claude/skills/ into the DB.
-  const bundledDir = path.join(process.env.HOME || '/home/enterpriseai', '.claude', 'skills');
-  if (isManagedMode()) {
-    const result = await reconcileManagedSkills();
-    console.log(`[startup] Managed mode: synced=${result.synced}, removed=${result.removed}`);
-  } else {
-    await seedBundledSkills(bundledDir);
+  // 2026-04-17: company 스킬은 DB에 저장하지 않음. library.yaml + ~/.claude/skills/
+  // 가 단일 소스. 여기선 library 스킬의 frontmatter에서 provider 요구사항만 읽어
+  // skill_providers 테이블에 반영한다. (workspace/decisions/2026-04-17-skill-db-simplification.md)
+  try {
+    const result = await bootstrapLibraryProviders();
+    console.log(`[startup] Library providers synced=${result.synced}, orphans_removed=${result.orphansRemoved}`);
+  } catch (err) {
+    console.error('[startup] bootstrapLibraryProviders failed:', err);
   }
-  await seedPluginSkills();
-  await syncCompanySkillsToFs();
 
   // Load interrupted sessions from previous shutdown (before stale cleanup)
   // Combine Claude + Pi interrupted sessions for unified auto-resume.

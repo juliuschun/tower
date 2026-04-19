@@ -16,7 +16,8 @@ import { getFileTree, getFileTreeAsync, invalidateTreeCache, readFile, writeFile
 import fs from 'fs';
 import archiver from 'archiver';
 import { loadCommands } from '../services/command-loader.js';
-import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref, reconcileManagedSkills, syncCompanySkillsToFs, isManagedMode } from '../services/skill-registry.js';
+import { getCommandsForUser, listSkills, getSkill, createSkill, updateSkill, deleteSkill, setUserSkillPref, getUserSkillPref, bootstrapLibraryProviders } from '../services/skill-registry.js';
+import { invalidateLibraryCache } from '../services/library-skills.js';
 import { getMessages, getMessagesPaginated } from '../services/message-store.js';
 import { generateSessionName } from '../services/auto-namer.js';
 import { generateSummary } from '../services/summarizer.js';
@@ -401,16 +402,28 @@ router.get('/me/skill-readiness', authMiddleware, async (req, res) => {
   res.json(readiness);
 });
 
+// 2026-04-17: skill_providers/user_skill_prefs는 skill_name 기반.
+// :id 파라미터는 UUID(personal/project) 또는 name(library/company) 어느 쪽도 가능하므로
+// 먼저 getSkill()으로 조회해 정식 name을 뽑아서 credential 함수에 넘긴다.
+async function resolveSkillName(idOrName: string): Promise<string | null> {
+  const s = await getSkill(idOrName);
+  return s?.name ?? null;
+}
+
 // Check readiness for a specific skill
 router.get('/skills/:id/readiness', authMiddleware, async (req, res) => {
   const user = (req as any).user;
-  const readiness = await checkSkillReadiness(req.params.id as string, user.userId);
+  const name = await resolveSkillName(req.params.id as string);
+  if (!name) return res.status(404).json({ error: 'Skill not found' });
+  const readiness = await checkSkillReadiness(name, user.userId);
   res.json(readiness);
 });
 
 // Get providers required by a skill
 router.get('/skills/:id/providers', authMiddleware, async (req, res) => {
-  const providers = await getSkillProviders(req.params.id as string);
+  const name = await resolveSkillName(req.params.id as string);
+  if (!name) return res.status(404).json({ error: 'Skill not found' });
+  const providers = await getSkillProviders(name);
   res.json(providers);
 });
 
@@ -418,7 +431,9 @@ router.get('/skills/:id/providers', authMiddleware, async (req, res) => {
 router.put('/skills/:id/providers', authMiddleware, async (req, res) => {
   const user = (req as any).user;
   if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  await setSkillProviders(req.params.id as string, req.body.providers ?? []);
+  const name = await resolveSkillName(req.params.id as string);
+  if (!name) return res.status(404).json({ error: 'Skill not found' });
+  await setSkillProviders(name, req.body.providers ?? []);
   res.json({ ok: true });
 });
 
@@ -1374,24 +1389,16 @@ router.put('/admin/models', adminMiddleware, (req, res) => {
   }
 });
 
-// ───── Admin: Skill reconciliation (managed-mode customer VMs) ─────
-// Triggered after deploy-profile.sh rsyncs new skills + manifest.
-// Reconciles DB against `~/.claude/skills/.managed-manifest.json`:
-//  - upserts listed skills from disk (source='managed')
-//  - deletes legacy company skills not in the manifest (source in bundled/managed)
-//  - user-created rows (source='custom'/'user') are left alone
-// Then re-runs syncCompanySkillsToFs so orphan filesystem directories get cleaned.
+// ───── Admin: Reload library skills + reconcile providers ─────
+// 2026-04-17 재설계 이후: company 스킬은 DB에 저장하지 않음. library.yaml + SKILL.md 가
+// 단일 소스이므로 reconcile 은 단지 (1) in-memory 캐시 무효화, (2) skill_providers 에서
+// 고아 row 제거 + 신규 provider 동기화 만 하면 된다. `.managed-manifest.json` 경로는
+// 더 이상 사용하지 않는다. 엔드포인트 경로는 호환을 위해 유지.
 router.post('/admin/skills/reconcile-managed', adminMiddleware, async (_req, res) => {
   try {
-    if (!isManagedMode()) {
-      return res.status(409).json({
-        error: 'Not a managed instance',
-        hint: '~/.claude/skills/.managed-manifest.json not found. deploy-profile.sh must run first.',
-      });
-    }
-    const result = await reconcileManagedSkills();
-    await syncCompanySkillsToFs();
-    res.json({ ok: true, ...result });
+    invalidateLibraryCache();
+    const result = await bootstrapLibraryProviders();
+    res.json({ ok: true, synced: result.synced, orphansRemoved: result.orphansRemoved });
   } catch (err: any) {
     console.error('[reconcile-managed] failed:', err);
     res.status(500).json({ error: err.message });
@@ -2998,10 +3005,15 @@ router.post('/skills', async (req, res) => {
       return res.status(400).json({ error: 'name, scope, content required' });
     }
 
-    // Permission check
-    if (scope === 'company' && role !== 'admin') {
-      return res.status(403).json({ error: 'Admin only for company skills' });
+    // 2026-04-17: company 스킬은 DB에 생성 불가 — library.yaml + SKILL.md 가 유일 소스.
+    if (scope === 'company') {
+      return res.status(400).json({
+        error: 'Company scope is read-only',
+        hint: 'Edit library.yaml + ~/.claude/skills/<name>/SKILL.md and redeploy.',
+      });
     }
+    // (role check 남겨둠 — 향후 project scope 제한 등에 활용 가능)
+    void role;
 
     const skill = await createSkill({
       name, scope, content, description, category,
@@ -3022,13 +3034,17 @@ router.put('/skills/:id', async (req, res) => {
     const existing = await getSkill(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Skill not found' });
 
-    // Permission check
-    if (existing.scope === 'company' && role !== 'admin') {
-      return res.status(403).json({ error: 'Admin only' });
+    // 2026-04-17: company 스킬은 read-only — library.yaml + SKILL.md 수정으로만 반영.
+    if (existing.scope === 'company') {
+      return res.status(400).json({
+        error: 'Company scope is read-only',
+        hint: 'Edit library.yaml + ~/.claude/skills/<name>/SKILL.md and redeploy.',
+      });
     }
     if (existing.scope === 'personal' && existing.userId !== userId) {
       return res.status(403).json({ error: 'Not your skill' });
     }
+    void role;
 
     const ok = await updateSkill(req.params.id, req.body);
     res.json({ ok });
@@ -3045,12 +3061,17 @@ router.delete('/skills/:id', async (req, res) => {
     const existing = await getSkill(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Skill not found' });
 
-    if (existing.scope === 'company' && role !== 'admin') {
-      return res.status(403).json({ error: 'Admin only' });
+    // 2026-04-17: company 스킬은 read-only — library.yaml 에서 제거해야 함.
+    if (existing.scope === 'company') {
+      return res.status(400).json({
+        error: 'Company scope is read-only',
+        hint: 'Remove from library.yaml and redeploy.',
+      });
     }
     if (existing.scope === 'personal' && existing.userId !== userId) {
       return res.status(403).json({ error: 'Not your skill' });
     }
+    void role;
 
     const ok = await deleteSkill(req.params.id);
     res.json({ ok });
@@ -3060,14 +3081,18 @@ router.delete('/skills/:id', async (req, res) => {
 });
 
 // Per-user skill toggle (enable/disable a skill for yourself)
+// 2026-04-17: user_skill_prefs는 skill_name 기반. :id가 UUID면 getSkill로 name 복원.
 router.post('/skills/:id/toggle', async (req, res) => {
   try {
     const userId = (req as any).user?.userId;
     if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
+    const skill = await getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
     const { enabled } = req.body;
-    const newState = enabled !== undefined ? !!enabled : !((await getUserSkillPref(userId, req.params.id)) ?? true);
-    await setUserSkillPref(userId, req.params.id, newState);
+    const newState = enabled !== undefined ? !!enabled : !((await getUserSkillPref(userId, skill.name)) ?? true);
+    await setUserSkillPref(userId, skill.name, newState);
     res.json({ ok: true, enabled: newState });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

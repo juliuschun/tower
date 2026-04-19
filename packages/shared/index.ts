@@ -275,7 +275,7 @@ export interface SkillMeta {
   enabled: boolean;
   /** Per-user toggle (null = no pref set, defaults to enabled) */
   userEnabled?: boolean | null;
-  source: 'bundled' | 'custom' | 'marketplace' | 'official';
+  source: 'bundled' | 'custom' | 'marketplace' | 'official' | 'library';
   skillPath?: string | null;
   projectId?: string | null;
   userId?: number | null;
